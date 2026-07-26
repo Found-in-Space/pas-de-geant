@@ -19,8 +19,9 @@ import {
 } from "./renderer.js";
 import { EclipseWorkerClient } from "./worker-client.js";
 
-const FUTURE_EVENT_LIMIT = 16;
+const UPCOMING_PAGE_SIZE = 5;
 const FUTURE_SEARCH_YEARS = 10;
+const LOCAL_HISTORY_YEARS = 50;
 const worker = new EclipseWorkerClient();
 const geoJsonExporter = new GeoJsonExporter();
 const kmlExporter = new KmlExporter();
@@ -33,17 +34,14 @@ const element = <T extends HTMLElement>(id: string): T => {
 
 const yearForm = element<HTMLFormElement>("year-form");
 const yearInput = element<HTMLInputElement>("year-input");
-const futureButton = element<HTMLButtonElement>("future-button");
+const loadMoreButton = element<HTMLButtonElement>("load-more-button");
 const eventList = element<HTMLDivElement>("event-list");
+const discoveryStatus = element<HTMLDivElement>("discovery-status");
 const eventSummary = element<HTMLDivElement>("event-summary");
 const calculationStatus = element<HTMLDivElement>("calculation-status");
 const fitButton = element<HTMLButtonElement>("fit-button");
 const geoJsonButton = element<HTMLButtonElement>("geojson-button");
 const kmlButton = element<HTMLButtonElement>("kml-button");
-const coordinateForm = element<HTMLFormElement>("coordinate-form");
-const coordinateInput = element<HTMLInputElement>("coordinate-input");
-const windowInput = element<HTMLInputElement>("window-input");
-const locateButton = element<HTMLButtonElement>("locate-button");
 const locationResults = element<HTMLDivElement>("location-results");
 const sidebar = element<HTMLElement>("sidebar");
 const sidebarToggle = element<HTMLButtonElement>("sidebar-toggle");
@@ -56,6 +54,10 @@ let selectedObserver: Observer | null = null;
 let selectionVersion = 0;
 let discoveryVersion = 0;
 let locationVersion = 0;
+let discoveredEvents: EclipseSummary[] = [];
+let discoveryHeading = "Upcoming solar eclipses";
+let discoveryAppendHeading: string | null = null;
+let discoveryCursorUtc = new Date().toISOString();
 const eventsById = new Map<string, EclipseSummary>();
 const yearCache = new Map<number, Promise<EclipseSummary[]>>();
 
@@ -68,7 +70,6 @@ const map = new EclipseMapWorkspace(
   readMapView(),
 );
 map.onLocation = (observer) => {
-  coordinateInput.value = `${observer.latitudeDeg.toFixed(5)}, ${observer.longitudeDeg.toFixed(5)}`;
   void calculateLocation(observer);
 };
 map.onViewChanged = writeUrlState;
@@ -148,11 +149,10 @@ function eventsForYear(year: number): Promise<EclipseSummary[]> {
   return pending;
 }
 
-function renderEvents(events: EclipseSummary[], heading: string): void {
-  rememberEvents(events);
-  eventList.innerHTML = `<p class="event-list-heading">${heading}</p>${
-    events.length
-      ? events.slice(0, 16).map(eventButton).join("")
+function renderEvents(): void {
+  eventList.innerHTML = `<p class="event-list-heading">${discoveryHeading}</p>${
+    discoveredEvents.length
+      ? discoveredEvents.map(eventButton).join("")
       : '<p class="empty-state">No solar eclipses were found in this year.</p>'
   }`;
   eventList.querySelectorAll<HTMLButtonElement>("[data-event-id]").forEach((button) => {
@@ -161,6 +161,35 @@ function renderEvents(events: EclipseSummary[], heading: string): void {
       if (event) void selectEvent(event);
     });
   });
+}
+
+function setDiscoveredEvents(
+  events: EclipseSummary[],
+  heading: string,
+  cursorUtc: string,
+  appendHeading: string | null = null,
+): void {
+  discoveredEvents = rememberEvents(events);
+  discoveryHeading = heading;
+  discoveryAppendHeading = appendHeading;
+  discoveryCursorUtc = cursorUtc;
+  discoveryStatus.textContent = "";
+  renderEvents();
+}
+
+function appendDiscoveredEvents(events: EclipseSummary[]): void {
+  const knownIds = new Set(discoveredEvents.map((event) => event.id));
+  const additions = rememberEvents(events).filter(
+    (event) => !knownIds.has(event.id),
+  );
+  discoveredEvents = [...discoveredEvents, ...additions];
+  if (discoveryAppendHeading) {
+    discoveryHeading = discoveryAppendHeading;
+    discoveryAppendHeading = null;
+  }
+  const lastEvent = discoveredEvents.at(-1);
+  if (lastEvent) discoveryCursorUtc = instantAfter(lastEvent.peakUtc);
+  renderEvents();
 }
 
 function renderSummary(event: EclipseSummary): void {
@@ -233,14 +262,19 @@ function renderNearby(events: LocalEclipse[], selectedPeakUtc: string): string {
     items.length
       ? items
           .map(
-            (event) => `<li><span class="kind-pill kind-${event.kind}">${kindLabel(event.kind)}</span><div><strong>${dateLabel(event.peak.utc, false)}</strong><span>${(event.obscuration * 100).toFixed(1)}% · Sun ${event.peak.sunAltitudeDeg.toFixed(0)}° high</span></div></li>`,
+            (event) => `<li><button class="nearby-event" type="button" data-nearby-peak="${event.peak.utc}" aria-label="Show ${kindLabel(event.kind).toLowerCase()} eclipse on ${dateLabel(event.peak.utc, false)}">
+              <span class="kind-pill kind-${event.kind}">${kindLabel(event.kind)}</span>
+              <span class="nearby-event-details"><strong>${dateLabel(event.peak.utc, false)}</strong><span>${(event.obscuration * 100).toFixed(1)}% · Sun ${event.peak.sunAltitudeDeg.toFixed(0)}° high</span></span>
+              <span class="nearby-event-action" aria-hidden="true">Show</span>
+            </button></li>`,
           )
           .join("")
       : "<li class=\"empty-state\">None in this window.</li>";
   return `<div class="nearby-grid">
     <section><h3>Previous visible eclipses</h3><ul>${cards(past)}</ul></section>
     <section><h3>Next visible eclipses</h3><ul>${cards(future)}</ul></section>
-  </div>`;
+  </div>
+  <div class="nearby-status" data-nearby-status role="status" aria-live="polite"></div>`;
 }
 
 function calendarYear(value: string | null): number | null {
@@ -259,8 +293,93 @@ function requestedEventYear(
   );
 }
 
+function yearBoundary(year: number): string {
+  const value = new Date(0);
+  value.setUTCFullYear(year, 0, 1);
+  value.setUTCHours(0, 0, 0, 0);
+  return value.toISOString();
+}
+
+function instantAfter(utc: string): string {
+  return new Date(Date.parse(utc) + 1).toISOString();
+}
+
+function closestEvent(
+  events: EclipseSummary[],
+  targetUtc: string,
+): EclipseSummary | null {
+  const target = Date.parse(targetUtc);
+  return events.reduce<EclipseSummary | null>((closest, event) => {
+    if (!closest) return event;
+    return Math.abs(Date.parse(event.peakUtc) - target) <
+      Math.abs(Date.parse(closest.peakUtc) - target)
+      ? event
+      : closest;
+  }, null);
+}
+
+async function eventForLocalPeak(
+  localPeakUtc: string,
+): Promise<EclipseSummary> {
+  const target = new Date(localPeakUtc);
+  if (!Number.isFinite(target.getTime())) {
+    throw new RangeError(`Invalid local eclipse date: ${localPeakUtc}`);
+  }
+  const year = target.getUTCFullYear();
+  const events = await eventsForYear(year);
+  let closest = closestEvent(events, localPeakUtc);
+  if (
+    !closest ||
+    Math.abs(Date.parse(closest.peakUtc) - target.getTime()) >
+      36 * 60 * 60 * 1000
+  ) {
+    const adjacentEvents = await Promise.all([
+      eventsForYear(year - 1),
+      eventsForYear(year + 1),
+    ]);
+    closest = closestEvent([...events, ...adjacentEvents.flat()], localPeakUtc);
+  }
+  if (
+    !closest ||
+    Math.abs(Date.parse(closest.peakUtc) - target.getTime()) >
+      36 * 60 * 60 * 1000
+  ) {
+    throw new Error("The matching global eclipse could not be found.");
+  }
+  return closest;
+}
+
+function bindNearbyEventButtons(): void {
+  const buttons = [
+    ...locationResults.querySelectorAll<HTMLButtonElement>(
+      "[data-nearby-peak]",
+    ),
+  ];
+  const status =
+    locationResults.querySelector<HTMLElement>("[data-nearby-status]");
+  for (const button of buttons) {
+    button.addEventListener("click", () => {
+      const localPeakUtc = button.dataset.nearbyPeak;
+      if (!localPeakUtc) return;
+      for (const candidate of buttons) candidate.disabled = true;
+      if (status) status.textContent = "Loading the selected eclipse…";
+      void eventForLocalPeak(localPeakUtc)
+        .then(selectEvent)
+        .catch((error) => {
+          for (const candidate of buttons) candidate.disabled = false;
+          if (status) {
+            status.textContent = `Eclipse selection failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`;
+          }
+        });
+    });
+  }
+}
+
 async function futureEvents(
   fromUtc: string,
+  limit = UPCOMING_PAGE_SIZE,
 ): Promise<EclipseSummary[]> {
   const from = new Date(fromUtc);
   if (!Number.isFinite(from.getTime())) {
@@ -271,7 +390,7 @@ async function futureEvents(
   const events: EclipseSummary[] = [];
   for (
     let year = firstYear;
-    year <= finalYear && events.length < FUTURE_EVENT_LIMIT;
+    year <= finalYear && events.length < limit;
     year += 1
   ) {
     events.push(
@@ -284,7 +403,7 @@ async function futureEvents(
     .sort((first, second) =>
       first.peakUtc.localeCompare(second.peakUtc),
     )
-    .slice(0, FUTURE_EVENT_LIMIT);
+    .slice(0, limit);
 }
 
 async function calculateLocation(observer: Observer): Promise<void> {
@@ -295,29 +414,29 @@ async function calculateLocation(observer: Observer): Promise<void> {
   map.clearShadowOutline();
   writeUrlState();
   locationResults.innerHTML = '<p class="working">Calculating local eclipses…</p>';
-  const yearsEachSide = Math.max(
-    1,
-    Math.min(100, Number.parseInt(windowInput.value, 10) || 50),
-  );
-  windowInput.value = String(yearsEachSide);
   try {
     const referenceYear = new Date(event.peakUtc).getUTCFullYear();
     const result = await worker.calculateLocation(
       event,
       observer,
       referenceYear,
-      yearsEachSide,
+      LOCAL_HISTORY_YEARS,
     );
     if (version !== locationVersion || event.id !== selectedEvent.id) return;
     map.showShadowOutline(result.shadowScene);
-    locationResults.innerHTML = `${renderCurrentEventLocal(result.selected)}
+    locationResults.innerHTML = `<div class="place-coordinate">
+        <span>Selected point</span>
+        <strong>${observer.latitudeDeg.toFixed(5)}°, ${observer.longitudeDeg.toFixed(5)}°</strong>
+      </div>
+      ${renderCurrentEventLocal(result.selected)}
       ${
         result.shadowScene
           ? `<p class="window-note">${kindLabel(result.selected!.kind)} and penumbra outlines shown at this location’s maximum.</p>`
           : ""
       }
-      <p class="window-note">Visible events from ${result.startYear} through ${result.endYear}</p>
+      <p class="nearby-range">Nearby visible eclipses · ${result.startYear}–${result.endYear}</p>
       ${renderNearby(result.nearby, event.peakUtc)}`;
+    bindNearbyEventButtons();
   } catch (error) {
     if (version !== locationVersion) return;
     locationResults.innerHTML = `<p class="error-state">${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
@@ -326,11 +445,10 @@ async function calculateLocation(observer: Observer): Promise<void> {
 
 async function selectEvent(event: EclipseSummary): Promise<void> {
   const version = ++selectionVersion;
-  const listVersion = ++discoveryVersion;
   locationVersion += 1;
-  futureButton.disabled = false;
   selectedEvent = event;
   rememberEvents([event]);
+  renderEvents();
   selectedScene = null;
   fitButton.disabled = true;
   geoJsonButton.disabled = true;
@@ -341,24 +459,14 @@ async function selectEvent(event: EclipseSummary): Promise<void> {
     event.peakLocation?.longitudeDeg,
   );
   renderSummary(event);
-  const year = new Date(event.peakUtc).getUTCFullYear();
-  yearInput.value = String(year);
-  eventList.innerHTML =
-    `<p class="working">Finding solar eclipses in ${year}…</p>`;
   writeUrlState();
   calculationStatus.textContent =
     event.kind === "partial"
       ? "Calculating global partial-eclipse visibility…"
       : "Calculating the complete central track and global visibility…";
   try {
-    const [yearEvents, { scene }] = await Promise.all([
-      eventsForYear(year),
-      worker.calculateEventGeometry(event),
-    ]);
+    const { scene } = await worker.calculateEventGeometry(event);
     if (version !== selectionVersion) return;
-    if (listVersion === discoveryVersion) {
-      renderEvents(yearEvents, `Solar eclipses in ${year}`);
-    }
     selectedScene = scene;
     selectedEvent = scene.event;
     rememberEvents([scene.event]);
@@ -387,24 +495,6 @@ async function selectEvent(event: EclipseSummary): Promise<void> {
   if (selectedObserver) {
     void calculateLocation(selectedObserver);
   }
-}
-
-function parseCoordinates(value: string): Observer | null {
-  const match = value
-    .trim()
-    .match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*[, ]\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))$/);
-  if (!match) return null;
-  const latitudeDeg = Number(match[1]);
-  const longitudeDeg = Number(match[2]);
-  if (
-    latitudeDeg < -90 ||
-    latitudeDeg > 90 ||
-    longitudeDeg < -180 ||
-    longitudeDeg > 180
-  ) {
-    return null;
-  }
-  return { latitudeDeg, longitudeDeg, elevationMeters: 0 };
 }
 
 function download(exported: ExportedEclipse): void {
@@ -456,7 +546,7 @@ function writeUrlState(): void {
 yearForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const version = ++discoveryVersion;
-  futureButton.disabled = false;
+  loadMoreButton.disabled = false;
   const year = calendarYear(yearInput.value);
   if (year === null) {
     eventList.innerHTML =
@@ -468,7 +558,12 @@ yearForm.addEventListener("submit", (event) => {
   void eventsForYear(year)
     .then((events) => {
       if (version !== discoveryVersion) return;
-      renderEvents(events, `Solar eclipses in ${year}`);
+      setDiscoveredEvents(
+        events,
+        `Solar eclipses in ${year}`,
+        yearBoundary(year + 1),
+        `Solar eclipses from ${year} onward`,
+      );
     })
     .catch((error) => {
       if (version !== discoveryVersion) return;
@@ -478,72 +573,31 @@ yearForm.addEventListener("submit", (event) => {
     });
 });
 
-futureButton.addEventListener("click", () => {
+loadMoreButton.addEventListener("click", () => {
   const version = ++discoveryVersion;
-  futureButton.disabled = true;
-  eventList.innerHTML =
-    '<p class="working">Finding the next solar eclipses…</p>';
-  void futureEvents(new Date().toISOString())
+  loadMoreButton.disabled = true;
+  loadMoreButton.textContent = "Loading…";
+  discoveryStatus.textContent = "Finding more solar eclipses…";
+  void futureEvents(discoveryCursorUtc)
     .then((events) => {
       if (version !== discoveryVersion) return;
-      renderEvents(events, "Next solar eclipses");
+      appendDiscoveredEvents(events);
+      discoveryStatus.textContent = events.length
+        ? ""
+        : "No more eclipses were found in the search range.";
     })
     .catch((error) => {
       if (version !== discoveryVersion) return;
-      eventList.innerHTML = `<p class="error-state">Eclipse search failed: ${escapeHtml(
+      discoveryStatus.innerHTML = `<p class="error-state">Eclipse search failed: ${escapeHtml(
         error instanceof Error ? error.message : String(error),
       )}</p>`;
     })
     .finally(() => {
       if (version === discoveryVersion) {
-        futureButton.disabled = false;
+        loadMoreButton.disabled = false;
+        loadMoreButton.textContent = "Load 5 more";
       }
     });
-});
-
-coordinateForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const observer = parseCoordinates(coordinateInput.value);
-  if (!observer) {
-    locationResults.innerHTML =
-      '<p class="error-state">Enter decimal latitude and longitude, for example 41.39, 2.17.</p>';
-    return;
-  }
-  void calculateLocation(observer);
-});
-
-windowInput.addEventListener("change", () => {
-  if (selectedObserver) void calculateLocation(selectedObserver);
-});
-
-locateButton.addEventListener("click", () => {
-  if (!navigator.geolocation) {
-    locationResults.innerHTML =
-      '<p class="error-state">Geolocation is unavailable in this browser.</p>';
-    return;
-  }
-  locateButton.disabled = true;
-  locateButton.textContent = "Locating…";
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      locateButton.disabled = false;
-      locateButton.textContent = "Use my current location";
-      const observer = {
-        latitudeDeg: position.coords.latitude,
-        longitudeDeg: position.coords.longitude,
-        elevationMeters: position.coords.altitude ?? 0,
-      };
-      coordinateInput.value = `${observer.latitudeDeg.toFixed(5)}, ${observer.longitudeDeg.toFixed(5)}`;
-      void calculateLocation(observer);
-    },
-    () => {
-      locateButton.disabled = false;
-      locateButton.textContent = "Use my current location";
-      locationResults.innerHTML =
-        '<p class="error-state">Your location could not be determined.</p>';
-    },
-    { enableHighAccuracy: true, timeout: 12_000, maximumAge: 60_000 },
-  );
 });
 
 fitButton.addEventListener("click", () => map.fitPath());
@@ -565,6 +619,7 @@ sidebarClose.addEventListener("click", () => {
 async function start(): Promise<void> {
   try {
     const params = new URLSearchParams(location.search);
+    const now = new Date().toISOString();
     const requested = params.get("eclipse");
     const requestedYear = requestedEventYear(
       requested,
@@ -586,7 +641,7 @@ async function start(): Promise<void> {
       );
     const future = requestedEvent || requestedEvents.length > 0
       ? []
-      : await futureEvents(new Date().toISOString());
+      : await futureEvents(now);
     const initialEvent =
       requestedEvent ??
       requestedEvents[0] ??
@@ -597,6 +652,24 @@ async function start(): Promise<void> {
       );
     }
     selectedEvent = initialEvent;
+    yearInput.value = String(
+      requestedYear ?? new Date(now).getUTCFullYear(),
+    );
+    if (requestedYear !== null && requestedEvents.length > 0) {
+      setDiscoveredEvents(
+        requestedEvents,
+        `Solar eclipses in ${requestedYear}`,
+        yearBoundary(requestedYear + 1),
+        `Solar eclipses from ${requestedYear} onward`,
+      );
+    } else {
+      const lastFutureEvent = future.at(-1);
+      setDiscoveredEvents(
+        future,
+        "Upcoming solar eclipses",
+        lastFutureEvent ? instantAfter(lastFutureEvent.peakUtc) : now,
+      );
+    }
     const latitude = Number(params.get("lat"));
     const longitude = Number(params.get("lon"));
     if (
@@ -610,7 +683,6 @@ async function start(): Promise<void> {
         longitudeDeg: longitude,
         elevationMeters: 0,
       };
-      coordinateInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
     }
     await selectEvent(selectedEvent);
   } catch (error) {

@@ -182,8 +182,9 @@ const local = engine.localEclipses(
 );
 ```
 
-The maximum local-search window is 200 years. The SPA defaults to 50 years
-before and after the selected eclipse.
+The maximum local-search window is 200 years. When a map point is selected, the
+SPA searches 50 years before and after the selected eclipse for nearby visible
+events.
 
 ## Geometry and GIS
 

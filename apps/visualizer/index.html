@@ -22,12 +22,7 @@
         </header>
 
         <section class="panel-section search-section" aria-labelledby="search-heading">
-          <div class="section-heading">
-            <div>
-              <p class="section-kicker">01 · Discover</p>
-              <h2 id="search-heading">Find an eclipse</h2>
-            </div>
-          </div>
+          <h2 id="search-heading">Find an eclipse</h2>
           <form id="year-form" class="year-form">
             <label for="year-input">Calendar year</label>
             <div class="input-action">
@@ -35,13 +30,13 @@
               <button type="submit">Search</button>
             </div>
           </form>
-          <button id="future-button" class="text-button" type="button">Show the next eclipses</button>
           <div id="event-list" class="event-list" aria-live="polite"></div>
+          <button id="load-more-button" class="load-more-button" type="button">Load 5 more</button>
+          <div id="discovery-status" class="discovery-status" role="status" aria-live="polite"></div>
         </section>
 
         <section class="panel-section selected-section" aria-labelledby="selected-heading">
-          <p class="section-kicker">02 · Explore</p>
-          <h2 id="selected-heading">Selected eclipse</h2>
+          <h2 id="selected-heading">Eclipse details</h2>
           <div id="event-summary" class="event-summary">
             <p>Finding the next solar eclipse…</p>
           </div>
@@ -53,10 +48,9 @@
           </div>
         </section>
 
-        <section class="panel-section layer-section" aria-labelledby="layers-heading">
-          <p class="section-kicker">03 · Compare</p>
-          <h2 id="layers-heading">Map layers</h2>
-          <p class="field-help">These controls apply to all three projections.</p>
+        <details class="panel-section layer-section" open>
+          <summary>Map layers</summary>
+          <p class="field-help">Show or hide overlays on all three maps.</p>
           <div class="layer-toggles">
             <label><input type="checkbox" data-layer-key="centralPath" checked><i class="path-swatch"></i><span>Central path</span></label>
             <label><input type="checkbox" data-layer-key="partialExtent" checked><i class="extent-swatch"></i><span>Partial-eclipse extent</span></label>
@@ -67,33 +61,12 @@
             <label><input type="checkbox" data-layer-key="centerAndLimits" checked><i class="centre-swatch"></i><span>Centre and limits</span></label>
             <label><input type="checkbox" data-layer-key="timeMarkers" checked><i class="marker-swatch"></i><span>Time markers</span></label>
           </div>
-        </section>
+        </details>
 
         <section class="panel-section location-section" aria-labelledby="location-heading">
-          <p class="section-kicker">04 · Your location</p>
-          <h2 id="location-heading">Check a place</h2>
-          <form id="coordinate-form">
-            <label for="coordinate-input">Latitude, longitude</label>
-            <div class="input-action">
-              <input
-                id="coordinate-input"
-                name="coordinates"
-                type="text"
-                inputmode="decimal"
-                autocomplete="off"
-                placeholder="41.39, 2.17"
-              >
-              <button type="submit">Check</button>
-            </div>
-          </form>
-          <div class="window-control">
-            <label for="window-input">Local history window</label>
-            <div><span>±</span><input id="window-input" type="number" min="1" max="100" value="50"><span>years</span></div>
-          </div>
-          <p class="field-help">Click the map, enter coordinates, or use your current location.</p>
-          <button id="locate-button" class="text-button" type="button">Use my current location</button>
+          <h2 id="location-heading">Selected place</h2>
           <div id="location-results" class="location-results" aria-live="polite">
-            <p>Select a point to calculate this eclipse and nearby past and future events.</p>
+            <p class="location-prompt">Click any map to see local circumstances and nearby visible eclipses.</p>
           </div>
         </section>
 

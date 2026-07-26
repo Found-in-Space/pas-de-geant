@@ -149,11 +149,10 @@ test("searches a year and calculates the complete 2026 path", async ({
   await expect(page.getByLabel("Partial-eclipse extent")).toBeChecked();
   await expect(page.getByLabel("Sunrise / sunset limits")).toBeChecked();
   await expect(page.getByLabel("P1–P4 contacts")).toBeChecked();
-  await page
-    .getByRole("button", { name: "Show the next eclipses" })
-    .click();
-  await expect(page.getByText("Next solar eclipses")).toBeVisible();
-  await expect(page.locator("[data-event-id]")).not.toHaveCount(0);
+  await expect(page.getByText("Upcoming solar eclipses")).toBeVisible();
+  await expect(page.locator("[data-event-id]")).toHaveCount(5);
+  await page.getByRole("button", { name: "Load 5 more" }).click();
+  await expect(page.locator("[data-event-id]")).toHaveCount(10);
   const yearInput = page.getByLabel("Calendar year");
   await expect(yearInput).not.toHaveAttribute("min");
   await expect(yearInput).not.toHaveAttribute("max");
@@ -170,6 +169,36 @@ test("searches a year and calculates the complete 2026 path", async ({
     page.getByText("Hybrid track calculated from", { exact: false }),
   ).toBeVisible();
   expect(catalogueRequests).toEqual([]);
+});
+
+test("keeps discovery results stable when selecting an eclipse", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByText("track calculated from", { exact: false }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Load 5 more" }).click();
+  await expect(page.locator("[data-event-id]")).toHaveCount(10);
+
+  const eventIds = await page
+    .locator("[data-event-id]")
+    .evaluateAll((buttons) =>
+      buttons.map((button) => button.getAttribute("data-event-id")),
+    );
+  await page.locator("[data-event-id]").nth(1).click();
+  await expect(
+    page.getByText("calculated from", { exact: false }),
+  ).toBeVisible();
+
+  await expect(page.locator("[data-event-id]")).toHaveCount(10);
+  expect(
+    await page
+      .locator("[data-event-id]")
+      .evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute("data-event-id")),
+      ),
+  ).toEqual(eventIds);
 });
 
 test("keeps the newest event search when an older search finishes later", async ({
@@ -205,22 +234,55 @@ test("renders global visibility for a partial-only eclipse", async ({
   ).toBeEnabled();
 });
 
-test("calculates an entered location and preserves shareable state", async ({
-  page,
-}) => {
-  await page.goto("/?eclipse=solar-2026-08-12-total");
-  await expect(
-    page.getByText("track calculated from", { exact: false }),
-  ).toBeVisible();
-  await page.getByLabel("Latitude, longitude").fill("41.8167, -3.185");
-  await page.getByRole("button", { name: "Check" }).click();
+test("restores a selected place from shareable state", async ({ page }) => {
+  await page.goto(
+    "/?eclipse=solar-2026-08-12-total&lat=41.81670&lon=-3.18500",
+  );
   await expect(page.getByText("Total at this point")).toBeVisible();
+  await expect(page.getByText("41.81670°, -3.18500°")).toBeVisible();
   await expect(page.getByText("Sun azimuth")).toBeVisible();
   await expect(
     page.getByText("penumbra outlines shown", { exact: false }),
   ).toBeVisible();
   await expect(page.getByText("Previous visible eclipses")).toBeVisible();
   await expect(page).toHaveURL(/lat=41\.81670/);
+});
+
+test("selects a nearby visible eclipse without losing the selected place", async ({
+  page,
+}) => {
+  await page.goto(
+    "/?eclipse=solar-2026-08-12-total&lat=41.81670&lon=-3.18500",
+  );
+  await expect(page.getByText("Total at this point")).toBeVisible();
+
+  const nextEvents = page
+    .getByRole("heading", { name: "Next visible eclipses" })
+    .locator("..");
+  const nextEvent = nextEvents.getByRole("button").first();
+  await expect(nextEvent).toBeVisible();
+  await nextEvent.click();
+
+  await expect(page).not.toHaveURL(/eclipse=solar-2026-08-12-total/);
+  await expect(page).toHaveURL(/lat=41\.81670/);
+  await expect(page.getByText("Selected point")).toBeVisible();
+  await expect(page.getByText("Nearby visible eclipses ·")).toBeVisible();
+});
+
+test("uses the maps as the place picker without extra sidebar controls", async ({
+  page,
+}) => {
+  await page.goto("/?eclipse=solar-2026-08-12-total");
+  await expect(
+    page.getByText("track calculated from", { exact: false }),
+  ).toBeVisible();
+
+  await expect(page.getByLabel("Latitude, longitude")).toHaveCount(0);
+  await expect(page.getByText("Local history window")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Selected place" })).toBeVisible();
+  await expect(
+    page.getByText("Click any map to see local circumstances"),
+  ).toBeVisible();
 });
 
 test("calculates shadows by clicking an eclipse overlay", async ({ page }) => {
@@ -307,16 +369,16 @@ test("selects one synchronized observer from every projection", async ({
   }
 });
 
-test("renders and round-trips a checked location at the pole", async ({
+test("renders and round-trips a selected location at the pole", async ({
   page,
 }) => {
-  await page.goto("/?eclipse=solar-2026-08-12-total");
+  await page.goto(
+    "/?eclipse=solar-2026-08-12-total&lat=89.90000&lon=0.00000",
+  );
   await expect(
     page.getByText("track calculated from", { exact: false }),
   ).toBeVisible();
 
-  await page.getByLabel("Latitude, longitude").fill("89.9, 0");
-  await page.getByRole("button", { name: "Check" }).click();
   for (const id of ["mercator-map", "globe-map", "world-map"]) {
     await expect(page.locator(`#${id}`)).toHaveAttribute(
       "data-selected-latitude",
