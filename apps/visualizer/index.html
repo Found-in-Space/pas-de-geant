@@ -23,15 +23,37 @@
 
         <section class="panel-section search-section" aria-labelledby="search-heading">
           <h2 id="search-heading">Find an eclipse</h2>
-          <form id="year-form" class="year-form">
-            <label for="year-input">Calendar year</label>
-            <div class="input-action">
-              <input id="year-input" name="year" type="number" step="1" required>
-              <button type="submit">Search</button>
+          <div class="locator-tabs" role="tablist" aria-label="Eclipse locator">
+            <button id="date-tab" type="button" role="tab" aria-selected="true" aria-controls="date-controls">By date</button>
+            <button id="place-tab" type="button" role="tab" aria-selected="false" aria-controls="place-controls" tabindex="-1">By place</button>
+          </div>
+          <div id="date-controls" class="locator-panel" role="tabpanel" aria-labelledby="date-tab">
+            <form id="year-form" class="year-form">
+              <label for="year-input">Calendar year</label>
+              <div class="input-action">
+                <input id="year-input" name="year" type="number" step="1" required>
+                <button type="submit">Search</button>
+              </div>
+            </form>
+          </div>
+          <div id="place-controls" class="locator-panel" role="tabpanel" aria-labelledby="place-tab" hidden>
+            <div id="locator-place" class="place-coordinate locator-place">
+              <span>Selected point</span>
+              <strong>Choose a point on a map</strong>
             </div>
-          </form>
+            <form id="place-form">
+              <label for="around-input">Around date</label>
+              <div class="input-action">
+                <input id="around-input" name="around" type="date" required>
+                <button type="submit">Search</button>
+              </div>
+            </form>
+            <p class="field-help">Click any map to choose or change the place.</p>
+          </div>
+          <p id="timeline-heading" class="event-list-heading"></p>
+          <button id="load-earlier-button" class="timeline-page-button" type="button" disabled>Show 5 earlier eclipses</button>
           <div id="event-list" class="event-list" aria-live="polite"></div>
-          <button id="load-more-button" class="load-more-button" type="button">Load 5 more</button>
+          <button id="load-later-button" class="timeline-page-button" type="button" disabled>Show 5 later eclipses</button>
           <div id="discovery-status" class="discovery-status" role="status" aria-live="polite"></div>
         </section>
 
@@ -45,6 +67,13 @@
             <button id="fit-button" class="secondary-button" type="button" disabled>Fit complete track</button>
             <button id="geojson-button" class="secondary-button" type="button" disabled>Download GeoJSON</button>
             <button id="kml-button" class="secondary-button" type="button" disabled>Download KML</button>
+          </div>
+        </section>
+
+        <section class="panel-section location-section" aria-labelledby="location-heading">
+          <h2 id="location-heading">At selected place</h2>
+          <div id="location-results" class="location-results" aria-live="polite">
+            <p class="location-prompt">Click any map to see local circumstances for the selected eclipse.</p>
           </div>
         </section>
 
@@ -62,13 +91,6 @@
             <label><input type="checkbox" data-layer-key="timeMarkers" checked><i class="marker-swatch"></i><span>Time markers</span></label>
           </div>
         </details>
-
-        <section class="panel-section location-section" aria-labelledby="location-heading">
-          <h2 id="location-heading">Selected place</h2>
-          <div id="location-results" class="location-results" aria-live="polite">
-            <p class="location-prompt">Click any map to see local circumstances and nearby visible eclipses.</p>
-          </div>
-        </section>
 
         <details class="panel-section methodology">
           <summary>Model, accuracy, and reuse</summary>

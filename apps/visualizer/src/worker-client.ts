@@ -6,17 +6,20 @@ import type {
   ProviderMetadata,
 } from "@found-in-space/shadowline";
 
+export type PageDirection = "earlier" | "later";
+
 interface EventSearchResult {
   provider: ProviderMetadata;
   events: EclipseSummary[];
 }
 
+interface LocalEventSearchResult {
+  events: LocalEclipse[];
+}
+
 interface LocationResult {
   selected: LocalEclipse | null;
   shadowScene: EclipseScene | null;
-  nearby: LocalEclipse[];
-  startYear: number;
-  endYear: number;
 }
 
 interface EventGeometryResult {
@@ -74,6 +77,47 @@ export class EclipseWorkerClient {
     return this.request({ type: "search-year", year });
   }
 
+  globalEventsPage(
+    boundaryUtc: string,
+    direction: PageDirection,
+    limit: number,
+  ): Promise<EventSearchResult> {
+    return this.request({
+      type: "search-global-page",
+      boundaryUtc,
+      direction,
+      limit,
+    });
+  }
+
+  localEventsPage(
+    observer: Observer,
+    boundaryUtc: string,
+    direction: PageDirection,
+    limit: number,
+  ): Promise<LocalEventSearchResult> {
+    return this.request({
+      type: "search-local-page",
+      observer,
+      boundaryUtc,
+      direction,
+      limit,
+    });
+  }
+
+  localEventsInRange(
+    observer: Observer,
+    startUtc: string,
+    endUtc: string,
+  ): Promise<LocalEventSearchResult> {
+    return this.request({
+      type: "search-local-range",
+      observer,
+      startUtc,
+      endUtc,
+    });
+  }
+
   calculateEventGeometry(
     event: EclipseSummary,
   ): Promise<EventGeometryResult> {
@@ -83,15 +127,11 @@ export class EclipseWorkerClient {
   calculateLocation(
     event: EclipseSummary,
     observer: Observer,
-    referenceYear: number,
-    yearsEachSide: number,
   ): Promise<LocationResult> {
     return this.request({
       type: "calculate-location",
       event,
       observer,
-      referenceYear,
-      yearsEachSide,
     });
   }
 }

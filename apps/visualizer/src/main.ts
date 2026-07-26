@@ -17,14 +17,37 @@ import {
   type EclipseLayerKey,
   type EclipseLayerVisibility,
 } from "./renderer.js";
-import { EclipseWorkerClient } from "./worker-client.js";
+import {
+  EclipseWorkerClient,
+  type PageDirection,
+} from "./worker-client.js";
 
-const UPCOMING_PAGE_SIZE = 5;
-const FUTURE_SEARCH_YEARS = 10;
-const LOCAL_HISTORY_YEARS = 50;
+const PAGE_SIZE = 5;
+const MATCHING_ECLIPSE_WINDOW_MS = 36 * 60 * 60 * 1000;
 const worker = new EclipseWorkerClient();
 const geoJsonExporter = new GeoJsonExporter();
 const kmlExporter = new KmlExporter();
+
+type LocatorMode = "date" | "place";
+
+interface TimelineItem {
+  key: string;
+  peakUtc: string;
+  kind: EclipseKind;
+  summary?: EclipseSummary;
+  local?: LocalEclipse;
+}
+
+interface TimelineState {
+  items: TimelineItem[];
+  heading: string;
+  earlierBoundaryUtc: string;
+  laterBoundaryUtc: string;
+  initialized: boolean;
+  version: number;
+  loading: Record<PageDirection, boolean>;
+  error: string;
+}
 
 const element = <T extends HTMLElement>(id: string): T => {
   const value = document.getElementById(id);
@@ -32,9 +55,18 @@ const element = <T extends HTMLElement>(id: string): T => {
   return value as T;
 };
 
+const dateTab = element<HTMLButtonElement>("date-tab");
+const placeTab = element<HTMLButtonElement>("place-tab");
+const dateControls = element<HTMLDivElement>("date-controls");
+const placeControls = element<HTMLDivElement>("place-controls");
 const yearForm = element<HTMLFormElement>("year-form");
 const yearInput = element<HTMLInputElement>("year-input");
-const loadMoreButton = element<HTMLButtonElement>("load-more-button");
+const placeForm = element<HTMLFormElement>("place-form");
+const aroundInput = element<HTMLInputElement>("around-input");
+const locatorPlace = element<HTMLDivElement>("locator-place");
+const timelineHeading = element<HTMLParagraphElement>("timeline-heading");
+const loadEarlierButton = element<HTMLButtonElement>("load-earlier-button");
+const loadLaterButton = element<HTMLButtonElement>("load-later-button");
 const eventList = element<HTMLDivElement>("event-list");
 const discoveryStatus = element<HTMLDivElement>("discovery-status");
 const eventSummary = element<HTMLDivElement>("event-summary");
@@ -47,19 +79,34 @@ const sidebar = element<HTMLElement>("sidebar");
 const sidebarToggle = element<HTMLButtonElement>("sidebar-toggle");
 const sidebarClose = element<HTMLButtonElement>("sidebar-close");
 
+const nowUtc = new Date().toISOString();
+let locatorMode: LocatorMode = "date";
+let searchYear = new Date(nowUtc).getUTCFullYear();
+let aroundDate = nowUtc.slice(0, 10);
 let providerMetadata: ProviderMetadata | null = null;
 let selectedEvent: EclipseSummary;
 let selectedScene: EclipseScene | null = null;
 let selectedObserver: Observer | null = null;
 let selectionVersion = 0;
-let discoveryVersion = 0;
 let locationVersion = 0;
-let discoveredEvents: EclipseSummary[] = [];
-let discoveryHeading = "Upcoming solar eclipses";
-let discoveryAppendHeading: string | null = null;
-let discoveryCursorUtc = new Date().toISOString();
 const eventsById = new Map<string, EclipseSummary>();
 const yearCache = new Map<number, Promise<EclipseSummary[]>>();
+
+function timelineState(heading: string): TimelineState {
+  return {
+    items: [],
+    heading,
+    earlierBoundaryUtc: nowUtc,
+    laterBoundaryUtc: nowUtc,
+    initialized: false,
+    version: 0,
+    loading: { earlier: false, later: false },
+    error: "",
+  };
+}
+
+const dateTimeline = timelineState("Upcoming solar eclipses");
+const placeTimeline = timelineState("Visible eclipses at a selected place");
 
 const map = new EclipseMapWorkspace(
   {
@@ -70,7 +117,7 @@ const map = new EclipseMapWorkspace(
   readMapView(),
 );
 map.onLocation = (observer) => {
-  void calculateLocation(observer);
+  setSelectedObserver(observer);
 };
 map.onViewChanged = writeUrlState;
 
@@ -106,25 +153,34 @@ function dateLabel(utc: string, includeTime = true): string {
     day: "numeric",
     month: "long",
     year: "numeric",
+    timeZone: "UTC",
     ...(includeTime
       ? {
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
-          timeZone: "UTC",
           timeZoneName: "short",
         }
       : {}),
   }).format(new Date(utc));
 }
 
-function eventButton(event: EclipseSummary): string {
-  const selected = event.id === selectedEvent?.id;
-  return `<button class="event-card${selected ? " is-selected" : ""}" type="button" data-event-id="${event.id}">
-    <span class="kind-pill kind-${event.kind}">${kindLabel(event.kind)}</span>
-    <strong>${dateLabel(event.peakUtc, false)}</strong>
-    <span>${new Date(event.peakUtc).toISOString().slice(11, 16)} UTC</span>
-  </button>`;
+function globalTimelineItem(event: EclipseSummary): TimelineItem {
+  return {
+    key: `global:${event.id}`,
+    peakUtc: event.peakUtc,
+    kind: event.kind,
+    summary: event,
+  };
+}
+
+function localTimelineItem(event: LocalEclipse): TimelineItem {
+  return {
+    key: `local:${event.peak.utc}`,
+    peakUtc: event.peak.utc,
+    kind: event.kind,
+    local: event,
+  };
 }
 
 function rememberEvents(events: EclipseSummary[]): EclipseSummary[] {
@@ -149,47 +205,351 @@ function eventsForYear(year: number): Promise<EclipseSummary[]> {
   return pending;
 }
 
-function renderEvents(): void {
-  eventList.innerHTML = `<p class="event-list-heading">${discoveryHeading}</p>${
-    discoveredEvents.length
-      ? discoveredEvents.map(eventButton).join("")
-      : '<p class="empty-state">No solar eclipses were found in this year.</p>'
-  }`;
-  eventList.querySelectorAll<HTMLButtonElement>("[data-event-id]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const event = eventsById.get(button.dataset.eventId ?? "");
-      if (event) void selectEvent(event);
-    });
-  });
+function activeTimeline(): TimelineState {
+  return locatorMode === "date" ? dateTimeline : placeTimeline;
 }
 
-function setDiscoveredEvents(
-  events: EclipseSummary[],
-  heading: string,
-  cursorUtc: string,
-  appendHeading: string | null = null,
-): void {
-  discoveredEvents = rememberEvents(events);
-  discoveryHeading = heading;
-  discoveryAppendHeading = appendHeading;
-  discoveryCursorUtc = cursorUtc;
-  discoveryStatus.textContent = "";
-  renderEvents();
-}
-
-function appendDiscoveredEvents(events: EclipseSummary[]): void {
-  const knownIds = new Set(discoveredEvents.map((event) => event.id));
-  const additions = rememberEvents(events).filter(
-    (event) => !knownIds.has(event.id),
+function sortedUnique(items: TimelineItem[]): TimelineItem[] {
+  const unique = new Map<string, TimelineItem>();
+  for (const item of items) unique.set(item.key, item);
+  return [...unique.values()].sort((first, second) =>
+    first.peakUtc.localeCompare(second.peakUtc),
   );
-  discoveredEvents = [...discoveredEvents, ...additions];
-  if (discoveryAppendHeading) {
-    discoveryHeading = discoveryAppendHeading;
-    discoveryAppendHeading = null;
+}
+
+function matchesSelectedEvent(item: TimelineItem): boolean {
+  if (!selectedEvent) return false;
+  if (item.summary) return item.summary.id === selectedEvent.id;
+  return (
+    Math.abs(Date.parse(item.peakUtc) - Date.parse(selectedEvent.peakUtc)) <
+    MATCHING_ECLIPSE_WINDOW_MS
+  );
+}
+
+function timelineButton(item: TimelineItem): string {
+  const selected = matchesSelectedEvent(item);
+  const localDetail = item.local
+    ? `${(item.local.obscuration * 100).toFixed(1)}% · Sun ${item.local.peak.sunAltitudeDeg.toFixed(0)}° high`
+    : `${new Date(item.peakUtc).toISOString().slice(11, 16)} UTC`;
+  const identity = item.summary
+    ? `data-event-id="${item.summary.id}"`
+    : `data-local-peak="${item.peakUtc}"`;
+  return `<button class="event-card${selected ? " is-selected" : ""}" type="button" data-timeline-key="${item.key}" ${identity}>
+    <span class="kind-pill kind-${item.kind}">${kindLabel(item.kind)}</span>
+    <span class="event-card-details"><strong>${dateLabel(item.peakUtc, false)}</strong><span>${localDetail}</span></span>
+    <span class="event-card-time" aria-hidden="true">Show</span>
+  </button>`;
+}
+
+function renderLocatorPlace(): void {
+  locatorPlace.innerHTML = selectedObserver
+    ? `<span>Selected point</span><strong>${selectedObserver.latitudeDeg.toFixed(5)}°, ${selectedObserver.longitudeDeg.toFixed(5)}°</strong>`
+    : "<span>Selected point</span><strong>Choose a point on a map</strong>";
+}
+
+function renderTimeline(): void {
+  const state = activeTimeline();
+  const placeReady = locatorMode === "date" || selectedObserver !== null;
+  dateTab.setAttribute("aria-selected", String(locatorMode === "date"));
+  dateTab.tabIndex = locatorMode === "date" ? 0 : -1;
+  placeTab.setAttribute("aria-selected", String(locatorMode === "place"));
+  placeTab.tabIndex = locatorMode === "place" ? 0 : -1;
+  dateControls.hidden = locatorMode !== "date";
+  placeControls.hidden = locatorMode !== "place";
+  renderLocatorPlace();
+
+  loadEarlierButton.disabled =
+    !placeReady || !state.initialized || state.loading.earlier;
+  loadLaterButton.disabled =
+    !placeReady || !state.initialized || state.loading.later;
+  loadEarlierButton.textContent = state.loading.earlier
+    ? "Loading earlier…"
+    : "Show 5 earlier eclipses";
+  loadLaterButton.textContent = state.loading.later
+    ? "Loading later…"
+    : "Show 5 later eclipses";
+  timelineHeading.textContent = state.heading;
+
+  const message =
+    locatorMode === "place" && !selectedObserver
+      ? "Choose a point on any map to find eclipses visible there."
+      : !state.initialized
+        ? locatorMode === "place"
+          ? "Finding visible eclipses…"
+          : "Finding solar eclipses…"
+        : state.items.length === 0
+          ? locatorMode === "place"
+            ? "No visible eclipse falls on this date. Use earlier or later to continue browsing."
+            : "No solar eclipse falls in this year. Use earlier or later to continue browsing."
+          : "";
+  eventList.innerHTML = state.items.length
+    ? state.items.map(timelineButton).join("")
+    : `<p class="${state.initialized ? "empty-state" : "working"}">${message}</p>`;
+  discoveryStatus.innerHTML = state.error
+    ? `<p class="error-state">${escapeHtml(state.error)}</p>`
+    : "";
+
+  eventList
+    .querySelectorAll<HTMLButtonElement>("[data-timeline-key]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        const item = state.items.find(
+          (candidate) => candidate.key === button.dataset.timelineKey,
+        );
+        if (!item) return;
+        if (item.summary) {
+          void selectEvent(item.summary);
+          return;
+        }
+        button.disabled = true;
+        discoveryStatus.textContent = "Loading the selected eclipse…";
+        void eventForLocalPeak(item.peakUtc)
+          .then(selectEvent)
+          .catch((error) => {
+            button.disabled = false;
+            discoveryStatus.textContent = `Eclipse selection failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`;
+          });
+      });
+    });
+}
+
+function calendarYear(value: string | null): number | null {
+  if (value === null || !/^-?\d+$/.test(value)) return null;
+  const year = Number(value);
+  return Number.isSafeInteger(year) ? year : null;
+}
+
+function eventIdYear(eventId: string | null): number | null {
+  return calendarYear(eventId?.match(/^solar-(\d{4})-/)?.[1] ?? null);
+}
+
+function yearBoundary(year: number): string {
+  const value = new Date(0);
+  value.setUTCFullYear(year, 0, 1);
+  value.setUTCHours(0, 0, 0, 0);
+  if (!Number.isFinite(value.getTime())) {
+    throw new RangeError(`Year is outside the supported date range: ${year}.`);
   }
-  const lastEvent = discoveredEvents.at(-1);
-  if (lastEvent) discoveryCursorUtc = instantAfter(lastEvent.peakUtc);
-  renderEvents();
+  return value.toISOString();
+}
+
+function validAroundDate(value: string | null): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+    ? value
+    : null;
+}
+
+function dayRange(value: string): { startUtc: string; endUtc: string } {
+  const start = new Date(`${value}T00:00:00.000Z`);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    throw new RangeError(`Date is outside the supported range: ${value}.`);
+  }
+  return { startUtc: start.toISOString(), endUtc: end.toISOString() };
+}
+
+function closestEvent(
+  events: EclipseSummary[],
+  targetUtc: string,
+): EclipseSummary | null {
+  const target = Date.parse(targetUtc);
+  return events.reduce<EclipseSummary | null>((closest, event) => {
+    if (!closest) return event;
+    return Math.abs(Date.parse(event.peakUtc) - target) <
+      Math.abs(Date.parse(closest.peakUtc) - target)
+      ? event
+      : closest;
+  }, null);
+}
+
+async function eventForLocalPeak(
+  localPeakUtc: string,
+): Promise<EclipseSummary> {
+  const target = new Date(localPeakUtc);
+  if (!Number.isFinite(target.getTime())) {
+    throw new RangeError(`Invalid local eclipse date: ${localPeakUtc}`);
+  }
+  const year = target.getUTCFullYear();
+  const events = await eventsForYear(year);
+  let closest = closestEvent(events, localPeakUtc);
+  if (
+    !closest ||
+    Math.abs(Date.parse(closest.peakUtc) - target.getTime()) >
+      MATCHING_ECLIPSE_WINDOW_MS
+  ) {
+    const adjacentEvents = await Promise.all([
+      eventsForYear(year - 1),
+      eventsForYear(year + 1),
+    ]);
+    closest = closestEvent([...events, ...adjacentEvents.flat()], localPeakUtc);
+  }
+  if (
+    !closest ||
+    Math.abs(Date.parse(closest.peakUtc) - target.getTime()) >
+      MATCHING_ECLIPSE_WINDOW_MS
+  ) {
+    throw new Error("The matching global eclipse could not be found.");
+  }
+  return closest;
+}
+
+function visibleAboveHorizon(event: LocalEclipse): boolean {
+  return [
+    event.partialBegin,
+    event.centralBegin,
+    event.peak,
+    event.centralEnd,
+    event.partialEnd,
+  ].some((contact) => contact && contact.sunAltitudeDeg > -0.833);
+}
+
+async function resetDateTimeline(year: number): Promise<void> {
+  const state = dateTimeline;
+  const version = ++state.version;
+  searchYear = year;
+  yearInput.value = String(year);
+  state.items = [];
+  state.heading = `Solar eclipses · ${year}`;
+  state.earlierBoundaryUtc = yearBoundary(year);
+  state.laterBoundaryUtc = yearBoundary(year + 1);
+  state.initialized = false;
+  state.loading = { earlier: false, later: false };
+  state.error = "";
+  renderTimeline();
+  writeUrlState();
+  try {
+    const events = await eventsForYear(year);
+    if (version !== state.version) return;
+    state.items = sortedUnique(events.map(globalTimelineItem));
+    state.initialized = true;
+    renderTimeline();
+  } catch (error) {
+    if (version !== state.version) return;
+    state.initialized = true;
+    state.error = `Eclipse search failed: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    renderTimeline();
+  }
+}
+
+async function resetPlaceTimeline(): Promise<void> {
+  if (!selectedObserver) {
+    placeTimeline.version += 1;
+    placeTimeline.items = [];
+    placeTimeline.initialized = false;
+    placeTimeline.error = "";
+    renderTimeline();
+    return;
+  }
+  const observer = selectedObserver;
+  const state = placeTimeline;
+  const version = ++state.version;
+  const { startUtc, endUtc } = dayRange(aroundDate);
+  state.items = [];
+  state.heading = `Visible eclipses around ${dateLabel(startUtc, false)}`;
+  state.earlierBoundaryUtc = startUtc;
+  state.laterBoundaryUtc = endUtc;
+  state.initialized = false;
+  state.loading = { earlier: true, later: true };
+  state.error = "";
+  renderTimeline();
+  writeUrlState();
+  try {
+    const [earlier, sameDay, later] = await Promise.all([
+      worker.localEventsPage(observer, startUtc, "earlier", PAGE_SIZE),
+      worker.localEventsInRange(observer, startUtc, endUtc),
+      worker.localEventsPage(observer, endUtc, "later", PAGE_SIZE),
+    ]);
+    if (version !== state.version || observer !== selectedObserver) return;
+    state.items = sortedUnique(
+      [...earlier.events, ...sameDay.events, ...later.events]
+        .filter(visibleAboveHorizon)
+        .map(localTimelineItem),
+    );
+    state.initialized = true;
+    state.loading = { earlier: false, later: false };
+    renderTimeline();
+  } catch (error) {
+    if (version !== state.version) return;
+    state.initialized = true;
+    state.loading = { earlier: false, later: false };
+    state.error = `Visible-eclipse search failed: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    renderTimeline();
+  }
+}
+
+async function loadTimelinePage(direction: PageDirection): Promise<void> {
+  const state = activeTimeline();
+  const mode = locatorMode;
+  if (!state.initialized || state.loading[direction]) return;
+  const version = state.version;
+  const observer = selectedObserver;
+  const first = state.items.at(0);
+  const last = state.items.at(-1);
+  const boundaryUtc =
+    direction === "earlier"
+      ? first?.peakUtc ?? state.earlierBoundaryUtc
+      : last?.peakUtc ?? state.laterBoundaryUtc;
+  state.loading[direction] = true;
+  state.error = "";
+  renderTimeline();
+  try {
+    const items =
+      mode === "date"
+        ? (
+            await worker.globalEventsPage(
+              boundaryUtc,
+              direction,
+              PAGE_SIZE,
+            )
+          ).events.map((event) => {
+            rememberEvents([event]);
+            return globalTimelineItem(event);
+          })
+        : observer
+          ? (
+              await worker.localEventsPage(
+                observer,
+                boundaryUtc,
+                direction,
+                PAGE_SIZE,
+              )
+            ).events
+              .filter(visibleAboveHorizon)
+              .map(localTimelineItem)
+          : [];
+    if (
+      version !== state.version ||
+      (mode === "place" && observer !== selectedObserver)
+    ) {
+      return;
+    }
+    const previousHeight = sidebar.scrollHeight;
+    const previousTop = sidebar.scrollTop;
+    state.items = sortedUnique([...state.items, ...items]);
+    state.loading[direction] = false;
+    if (state === activeTimeline()) renderTimeline();
+    if (direction === "earlier" && state === activeTimeline()) {
+      sidebar.scrollTop =
+        previousTop + (sidebar.scrollHeight - previousHeight);
+    }
+  } catch (error) {
+    if (version !== state.version) return;
+    state.loading[direction] = false;
+    state.error = `Could not calculate ${direction} eclipses: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    if (state === activeTimeline()) renderTimeline();
+  }
 }
 
 function renderSummary(event: EclipseSummary): void {
@@ -232,196 +592,16 @@ function formatDuration(seconds: number): string {
   return `${minutes}m ${(seconds - minutes * 60).toFixed(1)}s`;
 }
 
-function visibleAboveHorizon(event: LocalEclipse): boolean {
-  return [
-    event.partialBegin,
-    event.centralBegin,
-    event.peak,
-    event.centralEnd,
-    event.partialEnd,
-  ].some((contact) => contact && contact.sunAltitudeDeg > -0.833);
-}
-
-function renderNearby(events: LocalEclipse[], selectedPeakUtc: string): string {
-  const selectedPeak = new Date(selectedPeakUtc).getTime();
-  const visible = events
-    .filter(visibleAboveHorizon)
-    .filter(
-      (event) =>
-        Math.abs(new Date(event.peak.utc).getTime() - selectedPeak) >
-        36 * 60 * 60 * 1000,
-    );
-  const past = visible
-    .filter((event) => new Date(event.peak.utc).getTime() < selectedPeak)
-    .slice(-5)
-    .reverse();
-  const future = visible
-    .filter((event) => new Date(event.peak.utc).getTime() > selectedPeak)
-    .slice(0, 5);
-  const cards = (items: LocalEclipse[]) =>
-    items.length
-      ? items
-          .map(
-            (event) => `<li><button class="nearby-event" type="button" data-nearby-peak="${event.peak.utc}" aria-label="Show ${kindLabel(event.kind).toLowerCase()} eclipse on ${dateLabel(event.peak.utc, false)}">
-              <span class="kind-pill kind-${event.kind}">${kindLabel(event.kind)}</span>
-              <span class="nearby-event-details"><strong>${dateLabel(event.peak.utc, false)}</strong><span>${(event.obscuration * 100).toFixed(1)}% · Sun ${event.peak.sunAltitudeDeg.toFixed(0)}° high</span></span>
-              <span class="nearby-event-action" aria-hidden="true">Show</span>
-            </button></li>`,
-          )
-          .join("")
-      : "<li class=\"empty-state\">None in this window.</li>";
-  return `<div class="nearby-grid">
-    <section><h3>Previous visible eclipses</h3><ul>${cards(past)}</ul></section>
-    <section><h3>Next visible eclipses</h3><ul>${cards(future)}</ul></section>
-  </div>
-  <div class="nearby-status" data-nearby-status role="status" aria-live="polite"></div>`;
-}
-
-function calendarYear(value: string | null): number | null {
-  if (value === null || !/^-?\d+$/.test(value)) return null;
-  const year = Number(value);
-  return Number.isSafeInteger(year) ? year : null;
-}
-
-function requestedEventYear(
-  eventId: string | null,
-  yearParameter: string | null,
-): number | null {
-  return (
-    calendarYear(eventId?.match(/^solar-(\d{4})-/)?.[1] ?? null) ??
-    calendarYear(yearParameter)
-  );
-}
-
-function yearBoundary(year: number): string {
-  const value = new Date(0);
-  value.setUTCFullYear(year, 0, 1);
-  value.setUTCHours(0, 0, 0, 0);
-  return value.toISOString();
-}
-
-function instantAfter(utc: string): string {
-  return new Date(Date.parse(utc) + 1).toISOString();
-}
-
-function closestEvent(
-  events: EclipseSummary[],
-  targetUtc: string,
-): EclipseSummary | null {
-  const target = Date.parse(targetUtc);
-  return events.reduce<EclipseSummary | null>((closest, event) => {
-    if (!closest) return event;
-    return Math.abs(Date.parse(event.peakUtc) - target) <
-      Math.abs(Date.parse(closest.peakUtc) - target)
-      ? event
-      : closest;
-  }, null);
-}
-
-async function eventForLocalPeak(
-  localPeakUtc: string,
-): Promise<EclipseSummary> {
-  const target = new Date(localPeakUtc);
-  if (!Number.isFinite(target.getTime())) {
-    throw new RangeError(`Invalid local eclipse date: ${localPeakUtc}`);
-  }
-  const year = target.getUTCFullYear();
-  const events = await eventsForYear(year);
-  let closest = closestEvent(events, localPeakUtc);
-  if (
-    !closest ||
-    Math.abs(Date.parse(closest.peakUtc) - target.getTime()) >
-      36 * 60 * 60 * 1000
-  ) {
-    const adjacentEvents = await Promise.all([
-      eventsForYear(year - 1),
-      eventsForYear(year + 1),
-    ]);
-    closest = closestEvent([...events, ...adjacentEvents.flat()], localPeakUtc);
-  }
-  if (
-    !closest ||
-    Math.abs(Date.parse(closest.peakUtc) - target.getTime()) >
-      36 * 60 * 60 * 1000
-  ) {
-    throw new Error("The matching global eclipse could not be found.");
-  }
-  return closest;
-}
-
-function bindNearbyEventButtons(): void {
-  const buttons = [
-    ...locationResults.querySelectorAll<HTMLButtonElement>(
-      "[data-nearby-peak]",
-    ),
-  ];
-  const status =
-    locationResults.querySelector<HTMLElement>("[data-nearby-status]");
-  for (const button of buttons) {
-    button.addEventListener("click", () => {
-      const localPeakUtc = button.dataset.nearbyPeak;
-      if (!localPeakUtc) return;
-      for (const candidate of buttons) candidate.disabled = true;
-      if (status) status.textContent = "Loading the selected eclipse…";
-      void eventForLocalPeak(localPeakUtc)
-        .then(selectEvent)
-        .catch((error) => {
-          for (const candidate of buttons) candidate.disabled = false;
-          if (status) {
-            status.textContent = `Eclipse selection failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`;
-          }
-        });
-    });
-  }
-}
-
-async function futureEvents(
-  fromUtc: string,
-  limit = UPCOMING_PAGE_SIZE,
-): Promise<EclipseSummary[]> {
-  const from = new Date(fromUtc);
-  if (!Number.isFinite(from.getTime())) {
-    throw new RangeError(`Invalid future-event date: ${fromUtc}`);
-  }
-  const firstYear = from.getUTCFullYear();
-  const finalYear = firstYear + FUTURE_SEARCH_YEARS;
-  const events: EclipseSummary[] = [];
-  for (
-    let year = firstYear;
-    year <= finalYear && events.length < limit;
-    year += 1
-  ) {
-    events.push(
-      ...(await eventsForYear(year)).filter(
-        (event) => Date.parse(event.peakUtc) >= from.getTime(),
-      ),
-    );
-  }
-  return events
-    .sort((first, second) =>
-      first.peakUtc.localeCompare(second.peakUtc),
-    )
-    .slice(0, limit);
-}
-
-async function calculateLocation(observer: Observer): Promise<void> {
+async function calculateSelectedLocation(observer: Observer): Promise<void> {
   const version = ++locationVersion;
   const event = selectedEvent;
-  selectedObserver = observer;
-  map.setLocation(observer);
   map.clearShadowOutline();
-  writeUrlState();
-  locationResults.innerHTML = '<p class="working">Calculating local eclipses…</p>';
+  locationResults.innerHTML = `<div class="place-coordinate">
+      <span>Selected point</span>
+      <strong>${observer.latitudeDeg.toFixed(5)}°, ${observer.longitudeDeg.toFixed(5)}°</strong>
+    </div><p class="working">Calculating local circumstances…</p>`;
   try {
-    const referenceYear = new Date(event.peakUtc).getUTCFullYear();
-    const result = await worker.calculateLocation(
-      event,
-      observer,
-      referenceYear,
-      LOCAL_HISTORY_YEARS,
-    );
+    const result = await worker.calculateLocation(event, observer);
     if (version !== locationVersion || event.id !== selectedEvent.id) return;
     map.showShadowOutline(result.shadowScene);
     locationResults.innerHTML = `<div class="place-coordinate">
@@ -433,13 +613,30 @@ async function calculateLocation(observer: Observer): Promise<void> {
         result.shadowScene
           ? `<p class="window-note">${kindLabel(result.selected!.kind)} and penumbra outlines shown at this location’s maximum.</p>`
           : ""
-      }
-      <p class="nearby-range">Nearby visible eclipses · ${result.startYear}–${result.endYear}</p>
-      ${renderNearby(result.nearby, event.peakUtc)}`;
-    bindNearbyEventButtons();
+      }`;
   } catch (error) {
     if (version !== locationVersion) return;
-    locationResults.innerHTML = `<p class="error-state">${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+    locationResults.innerHTML = `<div class="place-coordinate">
+        <span>Selected point</span>
+        <strong>${observer.latitudeDeg.toFixed(5)}°, ${observer.longitudeDeg.toFixed(5)}°</strong>
+      </div><p class="error-state">${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+  }
+}
+
+function setSelectedObserver(observer: Observer): void {
+  selectedObserver = observer;
+  map.setLocation(observer);
+  renderTimeline();
+  writeUrlState();
+  if (selectedEvent) void calculateSelectedLocation(observer);
+  if (locatorMode === "place") {
+    void resetPlaceTimeline();
+  } else {
+    placeTimeline.version += 1;
+    placeTimeline.items = [];
+    placeTimeline.initialized = false;
+    placeTimeline.loading = { earlier: false, later: false };
+    placeTimeline.error = "";
   }
 }
 
@@ -448,7 +645,7 @@ async function selectEvent(event: EclipseSummary): Promise<void> {
   locationVersion += 1;
   selectedEvent = event;
   rememberEvents([event]);
-  renderEvents();
+  renderTimeline();
   selectedScene = null;
   fitButton.disabled = true;
   geoJsonButton.disabled = true;
@@ -470,6 +667,7 @@ async function selectEvent(event: EclipseSummary): Promise<void> {
     selectedScene = scene;
     selectedEvent = scene.event;
     rememberEvents([scene.event]);
+    renderTimeline();
     if (scene.centralPath) {
       map.showPath(scene);
       map.showGlobalVisibility(scene);
@@ -493,7 +691,7 @@ async function selectEvent(event: EclipseSummary): Promise<void> {
     }`;
   }
   if (selectedObserver) {
-    void calculateLocation(selectedObserver);
+    void calculateSelectedLocation(selectedObserver);
   }
 }
 
@@ -515,8 +713,14 @@ function escapeHtml(value: string): string {
   return node.innerHTML;
 }
 
-function readMapView(): { latitude: number; longitude: number; zoom: number } {
-  const match = location.hash.match(/^#map=([0-9.]+)\/(-?[0-9.]+)\/(-?[0-9.]+)$/);
+function readMapView(): {
+  latitude: number;
+  longitude: number;
+  zoom: number;
+} {
+  const match = location.hash.match(
+    /^#map=([0-9.]+)\/(-?[0-9.]+)\/(-?[0-9.]+)$/,
+  );
   return match
     ? {
         zoom: Number(match[1]),
@@ -530,74 +734,71 @@ function writeUrlState(): void {
   if (!selectedEvent) return;
   const url = new URL(location.href);
   url.searchParams.set("eclipse", selectedEvent.id);
-  url.searchParams.set(
-    "year",
-    String(new Date(selectedEvent.peakUtc).getUTCFullYear()),
-  );
+  url.searchParams.set("locator", locatorMode);
+  url.searchParams.set("year", String(searchYear));
+  url.searchParams.set("around", aroundDate);
   if (selectedObserver) {
     url.searchParams.set("lat", selectedObserver.latitudeDeg.toFixed(5));
     url.searchParams.set("lon", selectedObserver.longitudeDeg.toFixed(5));
+  } else {
+    url.searchParams.delete("lat");
+    url.searchParams.delete("lon");
   }
   const view = map.getView();
   url.hash = `map=${view.zoom}/${view.latitude.toFixed(4)}/${view.longitude.toFixed(4)}`;
   history.replaceState(null, "", url);
 }
 
+function setLocatorMode(mode: LocatorMode): void {
+  locatorMode = mode;
+  renderTimeline();
+  writeUrlState();
+  if (mode === "place" && selectedObserver && !placeTimeline.initialized) {
+    void resetPlaceTimeline();
+  }
+}
+
+dateTab.addEventListener("click", () => setLocatorMode("date"));
+placeTab.addEventListener("click", () => setLocatorMode("place"));
+for (const tab of [dateTab, placeTab]) {
+  tab.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const nextMode: LocatorMode = locatorMode === "date" ? "place" : "date";
+    setLocatorMode(nextMode);
+    (nextMode === "date" ? dateTab : placeTab).focus();
+  });
+}
+
 yearForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const version = ++discoveryVersion;
-  loadMoreButton.disabled = false;
   const year = calendarYear(yearInput.value);
   if (year === null) {
-    eventList.innerHTML =
-      '<p class="error-state">Enter a whole calendar year.</p>';
+    dateTimeline.error = "Enter a whole calendar year.";
+    renderTimeline();
     return;
   }
-  eventList.innerHTML =
-    `<p class="working">Finding solar eclipses in ${year}…</p>`;
-  void eventsForYear(year)
-    .then((events) => {
-      if (version !== discoveryVersion) return;
-      setDiscoveredEvents(
-        events,
-        `Solar eclipses in ${year}`,
-        yearBoundary(year + 1),
-        `Solar eclipses from ${year} onward`,
-      );
-    })
-    .catch((error) => {
-      if (version !== discoveryVersion) return;
-      eventList.innerHTML = `<p class="error-state">Eclipse search failed: ${escapeHtml(
-        error instanceof Error ? error.message : String(error),
-      )}</p>`;
-    });
+  void resetDateTimeline(year);
 });
 
-loadMoreButton.addEventListener("click", () => {
-  const version = ++discoveryVersion;
-  loadMoreButton.disabled = true;
-  loadMoreButton.textContent = "Loading…";
-  discoveryStatus.textContent = "Finding more solar eclipses…";
-  void futureEvents(discoveryCursorUtc)
-    .then((events) => {
-      if (version !== discoveryVersion) return;
-      appendDiscoveredEvents(events);
-      discoveryStatus.textContent = events.length
-        ? ""
-        : "No more eclipses were found in the search range.";
-    })
-    .catch((error) => {
-      if (version !== discoveryVersion) return;
-      discoveryStatus.innerHTML = `<p class="error-state">Eclipse search failed: ${escapeHtml(
-        error instanceof Error ? error.message : String(error),
-      )}</p>`;
-    })
-    .finally(() => {
-      if (version === discoveryVersion) {
-        loadMoreButton.disabled = false;
-        loadMoreButton.textContent = "Load 5 more";
-      }
-    });
+placeForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const date = validAroundDate(aroundInput.value);
+  if (!date) {
+    placeTimeline.error = "Enter a valid reference date.";
+    renderTimeline();
+    return;
+  }
+  aroundDate = date;
+  writeUrlState();
+  void resetPlaceTimeline();
+});
+
+loadEarlierButton.addEventListener("click", () => {
+  void loadTimelinePage("earlier");
+});
+loadLaterButton.addEventListener("click", () => {
+  void loadTimelinePage("later");
 });
 
 fitButton.addEventListener("click", () => map.fitPath());
@@ -619,57 +820,58 @@ sidebarClose.addEventListener("click", () => {
 async function start(): Promise<void> {
   try {
     const params = new URLSearchParams(location.search);
-    const now = new Date().toISOString();
     const requested = params.get("eclipse");
-    const requestedYear = requestedEventYear(
-      requested,
-      params.get("year"),
-    );
-    const requestedEvents =
-      requestedYear === null
+    const requestedSearchYear = calendarYear(params.get("year"));
+    const requestedSelectedYear =
+      eventIdYear(requested) ?? requestedSearchYear;
+    const selectedCandidates =
+      requestedSelectedYear === null
         ? []
-        : await eventsForYear(requestedYear);
+        : await eventsForYear(requestedSelectedYear);
     const requestedDate = requested?.match(
       /^solar-(\d{4}-\d{2}-\d{2})-/,
     )?.[1];
     const requestedEvent =
-      requestedEvents.find((event) => event.id === requested) ??
-      requestedEvents.find((event) =>
-        requestedDate
-          ? event.peakUtc.startsWith(requestedDate)
-          : false,
+      selectedCandidates.find((event) => event.id === requested) ??
+      selectedCandidates.find((event) =>
+        requestedDate ? event.peakUtc.startsWith(requestedDate) : false,
       );
-    const future = requestedEvent || requestedEvents.length > 0
-      ? []
-      : await futureEvents(now);
-    const initialEvent =
-      requestedEvent ??
-      requestedEvents[0] ??
-      future[0];
+
+    searchYear =
+      requestedSearchYear ??
+      requestedSelectedYear ??
+      new Date(nowUtc).getUTCFullYear();
+    yearInput.value = String(searchYear);
+
+    let initialEvents: EclipseSummary[];
+    let initialEvent = requestedEvent;
+    if (requestedSearchYear !== null || requestedEvent) {
+      initialEvents = await eventsForYear(searchYear);
+      initialEvent ??= initialEvents[0];
+      dateTimeline.heading = `Solar eclipses · ${searchYear}`;
+      dateTimeline.earlierBoundaryUtc = yearBoundary(searchYear);
+      dateTimeline.laterBoundaryUtc = yearBoundary(searchYear + 1);
+    } else {
+      const result = await worker.globalEventsPage(
+        nowUtc,
+        "later",
+        PAGE_SIZE,
+      );
+      providerMetadata = result.provider;
+      initialEvents = rememberEvents(result.events);
+      initialEvent = initialEvents[0];
+      dateTimeline.heading = "Upcoming solar eclipses";
+      dateTimeline.earlierBoundaryUtc = nowUtc;
+      dateTimeline.laterBoundaryUtc =
+        initialEvents.at(-1)?.peakUtc ?? nowUtc;
+    }
     if (!initialEvent) {
-      throw new Error(
-        "No solar eclipses were found in the forward search window.",
-      );
+      throw new Error("No solar eclipses could be calculated.");
     }
     selectedEvent = initialEvent;
-    yearInput.value = String(
-      requestedYear ?? new Date(now).getUTCFullYear(),
-    );
-    if (requestedYear !== null && requestedEvents.length > 0) {
-      setDiscoveredEvents(
-        requestedEvents,
-        `Solar eclipses in ${requestedYear}`,
-        yearBoundary(requestedYear + 1),
-        `Solar eclipses from ${requestedYear} onward`,
-      );
-    } else {
-      const lastFutureEvent = future.at(-1);
-      setDiscoveredEvents(
-        future,
-        "Upcoming solar eclipses",
-        lastFutureEvent ? instantAfter(lastFutureEvent.peakUtc) : now,
-      );
-    }
+    dateTimeline.items = sortedUnique(initialEvents.map(globalTimelineItem));
+    dateTimeline.initialized = true;
+
     const latitude = Number(params.get("lat"));
     const longitude = Number(params.get("lon"));
     if (
@@ -683,8 +885,20 @@ async function start(): Promise<void> {
         longitudeDeg: longitude,
         elevationMeters: 0,
       };
+      map.setLocation(selectedObserver);
     }
+
+    locatorMode = params.get("locator") === "place" ? "place" : "date";
+    aroundDate =
+      validAroundDate(params.get("around")) ??
+      selectedEvent.peakUtc.slice(0, 10) ??
+      nowUtc.slice(0, 10);
+    aroundInput.value = aroundDate;
+    renderTimeline();
     await selectEvent(selectedEvent);
+    if (locatorMode === "place" && selectedObserver) {
+      await resetPlaceTimeline();
+    }
   } catch (error) {
     eventSummary.innerHTML = `<p class="error-state">Eclipse discovery failed: ${escapeHtml(
       error instanceof Error ? error.message : String(error),
