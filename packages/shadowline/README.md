@@ -31,10 +31,11 @@ import {
 } from "@found-in-space/shadowline-astronomy-engine";
 
 const engine = new EclipseEngine(astronomyEngineCapabilities());
-const [event] = engine.events({
+const event = engine.events({
   startUtc: "2026-08-01T00:00:00Z",
   endUtc: "2026-09-01T00:00:00Z",
-});
+})[0];
+if (!event) throw new Error("No eclipse found in the requested range.");
 
 const scene = engine.calculateEvent(event, {
   centralPath: true,
@@ -105,7 +106,16 @@ rendering.
 
 [`examples/leaflet-scenes.ts`](examples/leaflet-scenes.ts) renders one central
 and one partial-only eclipse in Leaflet. It stays under 50 nonblank lines and
-uses only published package APIs.
+uses only published package APIs. Install the example's renderer separately:
+
+```bash
+npm install leaflet
+npm install --save-dev @types/leaflet
+```
+
+The consuming page supplies a sized `#map` container; the example imports
+Leaflet's stylesheet and clips its derived display geometry at the Web Mercator
+latitude limit.
 
 ## Boundary
 

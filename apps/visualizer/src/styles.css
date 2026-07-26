@@ -157,7 +157,6 @@ h2 {
   letter-spacing: -0.02em;
 }
 
-.range-badge,
 .kind-pill {
   display: inline-flex;
   align-items: center;
@@ -169,12 +168,6 @@ h2 {
   line-height: 1;
   text-transform: uppercase;
   white-space: nowrap;
-}
-
-.range-badge {
-  padding: 7px 9px;
-  color: var(--violet);
-  background: var(--violet-soft);
 }
 
 label {

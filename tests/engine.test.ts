@@ -40,7 +40,7 @@ describe("engine validation", () => {
     ]);
   });
 
-  it("validates search inputs without imposing demo year bounds", () => {
+  it("validates search inputs without imposing arbitrary year bounds", () => {
     expect(() => engine.eventsForYear(2026.5)).toThrow(/integer/);
     expect(() =>
       engine.events({
@@ -68,8 +68,8 @@ describe("engine validation", () => {
     });
     expect(
       providerNeutral.events({
-        startUtc: "0999-01-01T00:00:00Z",
-        endUtc: "1000-01-01T00:00:00Z",
+        startUtc: "3499-01-01T00:00:00Z",
+        endUtc: "3500-01-01T00:00:00Z",
       }),
     ).toEqual([]);
     expect(searched).toBe(true);

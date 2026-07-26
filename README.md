@@ -4,15 +4,14 @@ Part of [Found in Space](https://foundin.space/), a project that turns real
 astronomical measurements into interactive explorations. See all repositories
 at [github.com/Found-in-Space](https://github.com/Found-in-Space).
 
-Shadowline is a browser-native solar eclipse engine and standalone OpenStreetMap
-planning application. It can discover eclipses from **1000 through 3000**,
-calculate complete central tracks, report circumstances for a clicked location,
-and export renderer-neutral GeoJSON or KML.
+Shadowline is a renderer-independent solar-eclipse toolkit with a browser-native
+planning application. It calculates complete central tracks, reports
+circumstances for an observer, and exports portable GeoJSON or KML. The
+visualizer discovers events on demand through the selected search provider.
 
-The production calculations are not tied to the original August 2026 dataset or
-to any privileged region. Canonical geometry retains the full WGS 84 track,
-including polar coordinates. Projection-specific display changes happen only
-inside the visualizer's independent map renderers.
+Canonical geometry is global and retains the full WGS 84 track, including
+polar coordinates. Projection-specific display changes happen only inside the
+visualizer's independent map renderers.
 
 Like the other Found in Space toolkits, Shadowline is package-first: the
 reusable geometry and ephemeris integration live in focused
@@ -21,7 +20,7 @@ consumes their public APIs.
 
 ## Install
 
-Install the renderer-independent geometry package with the bundled Astronomy
+Install the renderer-independent geometry package with the companion Astronomy
 Engine capability provider:
 
 ```bash
@@ -36,10 +35,10 @@ Applications with their own Earth-fixed Sun and Moon ephemerides need only
 
 ```text
 @found-in-space/shadowline
-  dependency-free geometry, eclipse discovery, and GIS exporters
+  dependency-free geometry, discovery facade, and GIS exporters
             │
             ├── @found-in-space/shadowline-astronomy-engine
-            │     pinned ephemeris provider
+            │     ephemerides, eclipse search, and observer circumstances
             │
             └── apps/visualizer
                   Vanilla TypeScript, Vite, Leaflet, MapLibre,
@@ -113,8 +112,7 @@ consumer of the provider's frame-labelled state vectors.
 ## Reproducible pipeline
 
 The JavaScript dependency graph is recorded in `package-lock.json`. Eclipse
-discovery is calculated on demand through the selected provider and is not
-stored as a generated lookup.
+discovery is requested on demand through the selected provider.
 
 ```bash
 just test           # type checks and unit/integration tests
@@ -138,10 +136,11 @@ import {
 
 const engine = new EclipseEngine(astronomyEngineCapabilities());
 
-const [event] = engine.events({
+const event = engine.events({
   startUtc: "2026-08-01T00:00:00Z",
   endUtc: "2026-09-01T00:00:00Z",
-});
+})[0];
+if (!event) throw new Error("No eclipse found in the requested range.");
 
 const scene = engine.calculateEvent(event, {
   centralPath: true,
@@ -157,9 +156,10 @@ const shadow = localMaximum
   : null;
 ```
 
-A complete central-and-partial Leaflet example is checked in at
+A central-and-partial Leaflet example is checked in at
 [`packages/shadowline/examples/leaflet-scenes.ts`](packages/shadowline/examples/leaflet-scenes.ts);
-it is under 50 nonblank lines and uses only published APIs.
+it is under 50 nonblank lines, uses only published APIs, and clips derived
+display geometry at Web Mercator's latitude limit without changing the scene.
 
 The public units are explicit:
 

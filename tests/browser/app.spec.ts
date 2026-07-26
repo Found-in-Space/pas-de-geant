@@ -154,7 +154,13 @@ test("searches a year and calculates the complete 2026 path", async ({
     .click();
   await expect(page.getByText("Next solar eclipses")).toBeVisible();
   await expect(page.locator("[data-event-id]")).not.toHaveCount(0);
-  await page.getByLabel("Calendar year").fill("2023");
+  const yearInput = page.getByLabel("Calendar year");
+  await expect(yearInput).not.toHaveAttribute("min");
+  await expect(yearInput).not.toHaveAttribute("max");
+  await yearInput.fill("3500");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByText("Solar eclipses in 3500")).toBeVisible();
+  await yearInput.fill("2023");
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByText("Solar eclipses in 2023")).toBeVisible();
   const hybrid = page.getByRole("button", { name: /20 April 2023/ });

@@ -19,8 +19,6 @@ import {
 } from "./renderer.js";
 import { EclipseWorkerClient } from "./worker-client.js";
 
-const MINIMUM_DEMO_YEAR = 1000;
-const MAXIMUM_DEMO_YEAR = 3000;
 const FUTURE_EVENT_LIMIT = 16;
 const FUTURE_SEARCH_YEARS = 10;
 const worker = new EclipseWorkerClient();
@@ -245,12 +243,10 @@ function renderNearby(events: LocalEclipse[], selectedPeakUtc: string): string {
   </div>`;
 }
 
-function demoYear(value: string | null): number | null {
-  if (value === null || !/^\d{4}$/.test(value)) return null;
+function calendarYear(value: string | null): number | null {
+  if (value === null || !/^-?\d+$/.test(value)) return null;
   const year = Number(value);
-  return year >= MINIMUM_DEMO_YEAR && year <= MAXIMUM_DEMO_YEAR
-    ? year
-    : null;
+  return Number.isSafeInteger(year) ? year : null;
 }
 
 function requestedEventYear(
@@ -258,8 +254,8 @@ function requestedEventYear(
   yearParameter: string | null,
 ): number | null {
   return (
-    demoYear(eventId?.match(/^solar-(\d{4})-/)?.[1] ?? null) ??
-    demoYear(yearParameter)
+    calendarYear(eventId?.match(/^solar-(\d{4})-/)?.[1] ?? null) ??
+    calendarYear(yearParameter)
   );
 }
 
@@ -270,15 +266,8 @@ async function futureEvents(
   if (!Number.isFinite(from.getTime())) {
     throw new RangeError(`Invalid future-event date: ${fromUtc}`);
   }
-  const firstYear = Math.max(
-    MINIMUM_DEMO_YEAR,
-    from.getUTCFullYear(),
-  );
-  if (firstYear > MAXIMUM_DEMO_YEAR) return [];
-  const finalYear = Math.min(
-    MAXIMUM_DEMO_YEAR,
-    firstYear + FUTURE_SEARCH_YEARS,
-  );
+  const firstYear = from.getUTCFullYear();
+  const finalYear = firstYear + FUTURE_SEARCH_YEARS;
   const events: EclipseSummary[] = [];
   for (
     let year = firstYear;
@@ -468,10 +457,10 @@ yearForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const version = ++discoveryVersion;
   futureButton.disabled = false;
-  const year = Number.parseInt(yearInput.value, 10);
-  if (year < MINIMUM_DEMO_YEAR || year > MAXIMUM_DEMO_YEAR) {
+  const year = calendarYear(yearInput.value);
+  if (year === null) {
     eventList.innerHTML =
-      '<p class="error-state">Choose a year from 1000 through 3000.</p>';
+      '<p class="error-state">Enter a whole calendar year.</p>';
     return;
   }
   eventList.innerHTML =
@@ -601,10 +590,11 @@ async function start(): Promise<void> {
     const initialEvent =
       requestedEvent ??
       requestedEvents[0] ??
-      future[0] ??
-      (await eventsForYear(MAXIMUM_DEMO_YEAR)).at(-1);
+      future[0];
     if (!initialEvent) {
-      throw new Error("No solar eclipses were found in the demo range.");
+      throw new Error(
+        "No solar eclipses were found in the forward search window.",
+      );
     }
     selectedEvent = initialEvent;
     const latitude = Number(params.get("lat"));

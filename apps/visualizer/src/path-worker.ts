@@ -75,8 +75,8 @@ self.addEventListener("message", (message: MessageEvent<WorkerRequest>) => {
       });
       return;
     }
-    const startYear = Math.max(1000, request.referenceYear - request.yearsEachSide);
-    const endYear = Math.min(3000, request.referenceYear + request.yearsEachSide);
+    const startYear = request.referenceYear - request.yearsEachSide;
+    const endYear = request.referenceYear + request.yearsEachSide;
     const selected = engine.localCircumstances(request.event, request.observer);
     let shadowScene: EclipseScene | null = null;
     if (selected) {

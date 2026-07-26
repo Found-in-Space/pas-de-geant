@@ -1,4 +1,5 @@
 import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import {
   EclipseEngine,
   toGeoJson,
@@ -25,7 +26,11 @@ for (const [event, color] of [[central, "#8f56aa"], [partial, "#2d9b59"]] as con
     globalVisibility: true,
     instantaneousAtUtc: [event.peakUtc],
   });
-  L.geoJSON(toGeoJson(scene) as never, {
+  const display = toGeoJson(scene, {
+    seam: "split",
+    latitudeClipDeg: 85.051128,
+  });
+  L.geoJSON(display as never, {
     style: { color, weight: 2, fillOpacity: 0.16 },
   }).addTo(map);
 }
