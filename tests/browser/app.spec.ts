@@ -9,6 +9,42 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
+test("requests Blue Marble from the cacheable GIBS WMTS service", async ({
+  page,
+}) => {
+  const blueMarbleRequests = new Set<string>();
+  page.on("request", (request) => {
+    const url = request.url();
+    if (url.includes("BlueMarble_ShadedRelief_Bathymetry")) {
+      blueMarbleRequests.add(url);
+    }
+  });
+
+  await page.goto("/?eclipse=solar-2026-08-12-total");
+  await expect(page.locator("#world-map")).toHaveAttribute(
+    "data-renderer-ready",
+    "true",
+  );
+  await expect
+    .poll(() => blueMarbleRequests.size)
+    .toBeGreaterThan(0);
+
+  expect([...blueMarbleRequests]).toEqual(
+    expect.arrayContaining([
+      "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/" +
+        "BlueMarble_ShadedRelief_Bathymetry/default/500m/0/0/0.jpeg",
+      "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/" +
+        "BlueMarble_ShadedRelief_Bathymetry/default/500m/0/0/1.jpeg",
+    ]),
+  );
+  expect(
+    [...blueMarbleRequests].every((url) => url.includes("/wmts/")),
+  ).toBe(true);
+  await expect(
+    page.locator("#world-map canvas.blue-marble-tile"),
+  ).toHaveCount(2);
+});
+
 test("initializes three coordinated projection panels", async ({ page }) => {
   await page.goto("/?eclipse=solar-2026-08-12-total");
   await expect(

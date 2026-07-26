@@ -69,7 +69,7 @@ npm run test:browser # Playwright application scenarios
 Open `http://127.0.0.1:5173`. The application and eclipse calculations run
 locally. Standard OpenStreetMap raster tiles are requested over the network for
 the two interactive top views, and the fixed whole-Earth view requests NASA
-Blue Marble imagery from GIBS.
+Blue Marble imagery from GIBS's cacheable geographic WMTS service.
 
 The production output is written to `dist/site`. The equivalent convenience
 commands are available through [`just`](https://just.systems/):

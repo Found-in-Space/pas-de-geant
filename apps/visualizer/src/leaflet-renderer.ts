@@ -33,6 +33,7 @@ import {
   type EclipseRenderer,
   type MapView,
 } from "./renderer.js";
+import { blueMarbleLayer } from "./blue-marble-layer.js";
 
 type LeafletProjection = "mercator" | "equirectangular";
 
@@ -122,26 +123,7 @@ class LeafletEclipseRenderer implements EclipseRenderer {
     });
 
     if (isWorld) {
-      L.tileLayer
-        .wms(
-          "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi",
-          {
-            layers: "BlueMarble_ShadedRelief_Bathymetry",
-            format: "image/jpeg",
-            transparent: false,
-            version: "1.3.0",
-            crs: L.CRS.EPSG4326,
-            noWrap: true,
-            bounds: [
-              [-90, -180],
-              [90, 180],
-            ],
-            maxZoom: 8,
-            attribution:
-              'Imagery <a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a>',
-          },
-        )
-        .addTo(this.map);
+      blueMarbleLayer().addTo(this.map);
     } else {
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,

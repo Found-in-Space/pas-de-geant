@@ -79,8 +79,8 @@ usage policy:
 
 The fixed equirectangular view requests the
 `BlueMarble_ShadedRelief_Bathymetry` layer from NASA's Global Imagery Browse
-Services WMS endpoint:
-`https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi`.
+Services cacheable geographic WMTS endpoint:
+`https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/BlueMarble_ShadedRelief_Bathymetry/`.
 
 The application displays NASA GIBS attribution with the map. Imagery is loaded
 only for the visible fixed whole-Earth viewport and is not redistributed by
