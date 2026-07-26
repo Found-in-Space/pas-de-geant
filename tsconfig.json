@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/shadowline"
+    },
+    {
+      "path": "./packages/shadowline-astronomy-engine"
+    },
+    {
+      "path": "./apps/visualizer"
+    }
+  ]
+}
