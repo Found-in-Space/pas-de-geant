@@ -236,14 +236,25 @@ const earthFixedGroup = new THREE.Group();
 earthFixedGroup.matrixAutoUpdate = false;
 physicalRoot.add(earthFixedGroup);
 
+const earthTexture = new THREE.TextureLoader().load(
+  "/bluemarble-2048.png",
+);
+earthTexture.colorSpace = THREE.SRGBColorSpace;
+earthTexture.anisotropy = Math.min(
+  8,
+  renderer.capabilities.getMaxAnisotropy(),
+);
+
 const earth = new THREE.Mesh(
   new THREE.SphereGeometry(1, 96, 64),
   new THREE.MeshStandardMaterial({
-    color: 0x185269,
-    roughness: 0.9,
+    map: earthTexture,
+    color: 0xffffff,
+    roughness: 0.94,
     metalness: 0.01,
-    emissive: 0x03070b,
-    emissiveIntensity: 0.22,
+    emissive: 0x07111a,
+    emissiveMap: earthTexture,
+    emissiveIntensity: 0.16,
   }),
 );
 earthFixedGroup.add(earth);
@@ -300,9 +311,9 @@ function graticule(): THREE.LineSegments {
   return new THREE.LineSegments(
     geometry,
     new THREE.LineBasicMaterial({
-      color: 0x86d4df,
+      color: 0xa7edf3,
       transparent: true,
-      opacity: 0.2,
+      opacity: 0.18,
       depthWrite: false,
     }),
   );

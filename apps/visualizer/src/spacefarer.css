@@ -70,6 +70,23 @@ body {
   font-size: 0.56rem;
 }
 
+.earth-credit {
+  margin: 14px 0 0;
+  color: #708096;
+  font-size: 0.6rem;
+  letter-spacing: 0.035em;
+}
+
+.earth-credit a {
+  color: #91bad1;
+  text-decoration-color: rgb(145 186 209 / 42%);
+  text-underline-offset: 0.2em;
+}
+
+.earth-credit a:hover {
+  color: #c2e4f2;
+}
+
 @media (max-width: 1050px) {
   .spacefarer-timeline .timeline-secondary {
     grid-template-columns: 1fr 1fr 1fr 1fr;
