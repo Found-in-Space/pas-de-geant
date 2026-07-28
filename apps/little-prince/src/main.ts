@@ -14,6 +14,7 @@ import {
   freshButtonLatch,
   headRelativeTravel,
 } from "./controller-input.js";
+import { CelestialSphere } from "./celestial-sphere.js";
 import {
   applyLogarithmicScale,
   applyRadialMultiplierRate,
@@ -88,51 +89,17 @@ camera.rotation.x = -0.55;
 const planetRoot = new THREE.Group();
 scene.add(planetRoot);
 
-function starField(): THREE.Points {
-  let seed = 2847193;
-  const random = () => {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    return seed / 0xffffffff;
-  };
-  const positions: number[] = [];
-  const colours: number[] = [];
-  const colour = new THREE.Color();
-  for (let index = 0; index < 850; index += 1) {
-    const y = random() * 2 - 1;
-    const radial = Math.sqrt(1 - y * y);
-    const angle = random() * Math.PI * 2;
-    positions.push(
-      radial * Math.cos(angle) * 520,
-      y * 520,
-      radial * Math.sin(angle) * 520,
-    );
-    colour.setHSL(0.55 + random() * 0.08, 0.18, 0.5 + random() * 0.4);
-    colours.push(colour.r, colour.g, colour.b);
+const celestialSphere = new CelestialSphere();
+scene.add(celestialSphere.object3d);
+document.body.dataset.starStatus = "loading";
+document.body.dataset.starCount = "0";
+void celestialSphere.load().then((result) => {
+  document.body.dataset.starStatus = result.status;
+  document.body.dataset.starCount = String(result.count);
+  if (result.status === "unavailable") {
+    console.warn("SkyKit star catalog is unavailable:", result.error);
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(positions, 3),
-  );
-  geometry.setAttribute(
-    "color",
-    new THREE.Float32BufferAttribute(colours, 3),
-  );
-  return new THREE.Points(
-    geometry,
-    new THREE.PointsMaterial({
-      size: 0.72,
-      sizeAttenuation: true,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.86,
-      depthWrite: false,
-    }),
-  );
-}
-
-const stars = starField();
-scene.add(stars);
+});
 
 const fallbackTexture = await new THREE.TextureLoader().loadAsync(
   `${import.meta.env.BASE_URL}bluemarble-2048.png`,
@@ -591,6 +558,7 @@ window.addEventListener("resize", () => {
 
 const cameraWorldPosition = new THREE.Vector3();
 function render(nowMs: number): void {
+  const utcMilliseconds = Date.now();
   const deltaSeconds = Math.min(0.05, (nowMs - previousFrameMs) / 1000);
   previousFrameMs = nowMs;
   if (renderer.xr.isPresenting) {
@@ -601,7 +569,7 @@ function render(nowMs: number): void {
   }
   updatePresentation();
   aircraftLayer.update(
-    Date.now(),
+    utcMilliseconds,
     state.displayRadiusM,
     state.radialMultiplier,
   );
@@ -609,7 +577,11 @@ function render(nowMs: number): void {
     ? renderer.xr.getCamera()
     : camera;
   viewCamera.getWorldPosition(cameraWorldPosition);
-  stars.position.copy(cameraWorldPosition);
+  celestialSphere.update(
+    planetRoot.quaternion,
+    cameraWorldPosition,
+    utcMilliseconds,
+  );
   renderer.render(scene, camera);
 }
 

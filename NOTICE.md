@@ -63,6 +63,19 @@ Shadowline's geometry and GIS APIs are independent of Astronomy Engine. If
 portions of its algorithms are adapted into a future native provider, the
 original copyright and MIT notice will be preserved with the derived source.
 
+## Found in Space SkyKit star data
+
+The Little Planet application uses `@found-in-space/skykit` 0.2.0 under the MIT
+License to request the default Found in Space star octree at runtime. The
+application converts the catalogue's ICRS positions into a directional
+celestial-sphere display and does not redistribute the octree.
+
+The default catalogue combines ESA Gaia DR3 and Hipparcos-2 source data.
+Downstream use should credit ESA, the Gaia mission and Gaia Data Processing and
+Analysis Consortium (DPAC), and the relevant Hipparcos catalogue publications.
+Gaia catalogue documentation is available at
+`https://www.cosmos.esa.int/web/gaia-users/archive/acknowledgment`.
+
 ## OpenStreetMap
 
 The planning application requests standard raster map tiles from

@@ -12,6 +12,9 @@
     "typecheck": "tsc --project tsconfig.json --pretty false"
   },
   "dependencies": {
+    "@found-in-space/skykit": "0.2.0",
+    "@found-in-space/three-star-field": "0.2.0",
+    "astronomy-engine": "2.1.19",
     "three": "0.185.1"
   },
   "devDependencies": {

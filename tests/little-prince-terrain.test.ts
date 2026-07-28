@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ImageryLoadQueue,
+  adaptiveLandLuminance,
+  adaptiveLandLight,
   boundsForTile,
   childrenForTile,
   fallbackUvTransform,
@@ -17,6 +19,23 @@ import {
 } from "../apps/little-prince/src/terrain-tiles.js";
 
 describe("Little Planet terrain selection", () => {
+  it("lifts dark shadows without increasing fully lit highlights", () => {
+    expect(adaptiveLandLight(0.05, 0)).toBeCloseTo(0.64);
+    expect(adaptiveLandLight(0.05, 0.5)).toBeCloseTo(0.91);
+    expect(adaptiveLandLight(0.05, 1)).toBeCloseTo(1.18);
+    expect(adaptiveLandLuminance(0.05, 0)).toBeGreaterThan(0.075);
+    expect(adaptiveLandLuminance(0.05, 1)).toBeGreaterThan(0.055);
+    expect(adaptiveLandLuminance(0.05, 0)).toBeGreaterThan(
+      adaptiveLandLuminance(0.05, 1),
+    );
+
+    expect(adaptiveLandLight(0.7, 0)).toBeCloseTo(0.46);
+    expect(adaptiveLandLight(0.7, 0.5)).toBeCloseTo(0.82);
+    expect(adaptiveLandLight(0.7, 1)).toBeCloseTo(1.18);
+    expect(adaptiveLandLuminance(0.7, 0)).toBeCloseTo(0.7);
+    expect(adaptiveLandLuminance(0.7, 1)).toBeCloseTo(0.7);
+  });
+
   it("uses the clipped native GIBS geographic grid", () => {
     expect(tileMatrixDimensions(0)).toEqual({ columns: 2, rows: 1 });
     expect(tileMatrixDimensions(1)).toEqual({ columns: 3, rows: 2 });

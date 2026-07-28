@@ -21,6 +21,13 @@ const IMAGERY_RETRY_DELAY_MS = 30_000;
 const FALLBACK_MAX_ELEVATION_M = 8_849;
 const FINE_REFINEMENT_RADIUS_DEGREES = 8;
 const EXACT_IMAGERY_PRIORITY_OFFSET = 1_000;
+const LAND_AMBIENT_LIGHT = 0.46;
+const LAND_DIRECT_LIGHT = 0.72;
+const LAND_DARK_SHADOW_LIFT = 0.18;
+const LAND_DARK_LUMINANCE = 0.12;
+const LAND_BRIGHT_LUMINANCE = 0.5;
+const LAND_DARK_TONE_LIFT = 0.16;
+const LAND_LIT_TONE_FRACTION = 0.35;
 
 export interface TileAddress {
   z: number;
@@ -179,6 +186,47 @@ export function fallbackUvTransform(address: TileAddress): UvTransform {
     offsetX: (raw.west + 180) / 360,
     offsetY: (90 - raw.north) / 180,
   };
+}
+
+export function adaptiveLandLight(
+  luminance: number,
+  directLight: number,
+): number {
+  const lightness = Math.max(0, Math.min(1, luminance));
+  const direct = Math.max(0, Math.min(1, directLight));
+  const darkSurface = darkSurfaceFactor(lightness);
+  const shadowLift = LAND_DARK_SHADOW_LIFT * darkSurface;
+  return (
+    LAND_AMBIENT_LIGHT +
+    shadowLift +
+    direct * (LAND_DIRECT_LIGHT - shadowLift)
+  );
+}
+
+export function adaptiveLandLuminance(
+  luminance: number,
+  directLight: number,
+): number {
+  const lightness = Math.max(0, Math.min(1, luminance));
+  const direct = Math.max(0, Math.min(1, directLight));
+  const toneLift =
+    LAND_DARK_TONE_LIFT *
+    darkSurfaceFactor(lightness) *
+    THREE.MathUtils.lerp(1, LAND_LIT_TONE_FRACTION, direct);
+  return THREE.MathUtils.lerp(lightness, Math.sqrt(lightness), toneLift);
+}
+
+function darkSurfaceFactor(luminance: number): number {
+  const fraction = Math.max(
+    0,
+    Math.min(
+      1,
+      (luminance - LAND_DARK_LUMINANCE) /
+        (LAND_BRIGHT_LUMINANCE - LAND_DARK_LUMINANCE),
+    ),
+  );
+  const smoothFraction = fraction * fraction * (3 - 2 * fraction);
+  return 1 - smoothFraction;
 }
 
 function angularDistanceDegrees(
@@ -599,8 +647,30 @@ function terrainMaterial(
         vec3 reliefNormal = normalize(cross(dFdx(vWorldPosition), dFdy(vWorldPosition)));
         if (dot(reliefNormal, vBaseNormal) < 0.0) reliefNormal *= -1.0;
         float direct = max(0.0, dot(reliefNormal, normalize(sunlight)));
-        float light = 0.46 + direct * 0.72;
-        vec3 colour = albedo * light;
+        float luminance = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
+        float darkSurface = 1.0 - smoothstep(
+          ${LAND_DARK_LUMINANCE.toFixed(2)},
+          ${LAND_BRIGHT_LUMINANCE.toFixed(2)},
+          luminance
+        );
+        float toneLift =
+          ${LAND_DARK_TONE_LIFT.toFixed(2)} *
+          darkSurface *
+          mix(1.0, ${LAND_LIT_TONE_FRACTION.toFixed(2)}, direct);
+        float liftedLuminance = mix(
+          luminance,
+          sqrt(max(luminance, 0.0)),
+          toneLift
+        );
+        vec3 balancedAlbedo =
+          albedo * (liftedLuminance / max(luminance, 0.001));
+        float shadowLift =
+          ${LAND_DARK_SHADOW_LIFT.toFixed(2)} * darkSurface;
+        float light =
+          ${LAND_AMBIENT_LIGHT.toFixed(2)} +
+          shadowLift +
+          direct * (${LAND_DIRECT_LIGHT.toFixed(2)} - shadowLift);
+        vec3 colour = balancedAlbedo * light;
         if (oceanSurface > 0.5 && vHeightM < 0.0) {
           float depthTint = clamp(-vHeightM / 7000.0, 0.0, 1.0);
           vec3 water = mix(

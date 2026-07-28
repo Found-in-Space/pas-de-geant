@@ -68,6 +68,27 @@ still requires a network connection the first time a location is viewed.
 Source, license, datum, DOI, and checksum details live beside the relief asset
 and in `public/THIRD_PARTY_LICENSES.txt`.
 
+## Celestial sphere
+
+The sky loads the default Found in Space SkyKit catalogue from
+`data.foundin.space` without delaying the relief Earth. Stars through apparent
+magnitude 6.5 are flattened from their ICRS catalogue positions onto a
+fixed-radius celestial sphere. The sphere feeds adjusted magnitude and
+temperature attributes into SkyKit's own WebGL core-and-halo star shader, so
+its point size, colour, bright core, and soft glow match the main SkyKit
+renderer. The catalogue's zero-distance Sun row is intentionally omitted until
+solar-system bodies are modelled separately.
+
+Astronomy Engine converts the J2000 star directions into the Earth-fixed frame
+for the device's current UTC time. That frame is composed with the same full
+rolling-Earth orientation used by the terrain, so walking or controller travel
+rotates the sky with the planet while the sphere remains centred on the active
+desktop or XR camera. The sidereal-time component is refreshed once per second.
+
+SkyKit range requests use browser-persistent caching where available. If the
+catalogue cannot be reached, the Earth remains operational with an empty sky;
+the application does not substitute invented stars.
+
 ## Live aircraft proof of concept
 
 The aircraft layer queries the public Airplanes.live point API for traffic
