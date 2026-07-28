@@ -809,6 +809,60 @@ renderer.xr.addEventListener("sessionend", () => {
   modelRoot.scale.setScalar(1);
 });
 
+const xrForward = new THREE.Vector3();
+const xrRight = new THREE.Vector3();
+const xrUp = new THREE.Vector3();
+const xrMovement = new THREE.Vector3();
+const xrViewQuaternion = new THREE.Quaternion();
+
+function xrStick(source: XRInputSource | undefined): [number, number] {
+  const axes = source?.gamepad?.axes;
+  if (!axes || axes.length < 2) return [0, 0];
+  const offset = axes.length >= 4 ? axes.length - 2 : 0;
+  return [deadzone(axes[offset] ?? 0), deadzone(axes[offset + 1] ?? 0)];
+}
+
+function deadzone(value: number): number {
+  const magnitude = Math.abs(value);
+  if (magnitude < 0.16) return 0;
+  return Math.sign(value) * (magnitude - 0.16) / 0.84;
+}
+
+function updateXrNavigation(deltaSeconds: number): void {
+  const session = renderer.xr.getSession();
+  if (!session) return;
+  const sources = [...session.inputSources].filter(
+    (source) => source.gamepad !== undefined,
+  );
+  const primary =
+    sources.find((source) => source.handedness === "left") ?? sources[0];
+  const verticalSource = sources.find(
+    (source) => source !== primary && source.handedness === "right",
+  );
+  const [sideways, forwardAxis] = xrStick(primary);
+  const [, verticalAxis] = xrStick(verticalSource);
+  if (sideways === 0 && forwardAxis === 0 && verticalAxis === 0) return;
+
+  renderer.xr.getCamera().getWorldQuaternion(xrViewQuaternion);
+  xrForward.set(0, 0, -1).applyQuaternion(xrViewQuaternion);
+  xrRight.set(1, 0, 0).applyQuaternion(xrViewQuaternion);
+  xrUp.set(0, 1, 0).applyQuaternion(xrViewQuaternion);
+  xrMovement
+    .set(0, 0, 0)
+    .addScaledVector(xrRight, sideways)
+    .addScaledVector(xrForward, -forwardAxis)
+    .addScaledVector(xrUp, -verticalAxis);
+  if (xrMovement.lengthSq() > 1) xrMovement.normalize();
+
+  const boost = primary?.gamepad?.buttons.some((button) => button.pressed)
+    ? 2.8
+    : 1;
+  modelRoot.position.addScaledVector(
+    xrMovement,
+    -1.25 * boost * deltaSeconds,
+  );
+}
+
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -848,6 +902,7 @@ function render(nowMs: number): void {
     }
   }
   controls.update(elapsedMs / 1000);
+  if (renderer.xr.isPresenting) updateXrNavigation(elapsedMs / 1000);
   updateCameraClipping();
   updateCelestialLayer();
   renderer.render(scene, camera);
