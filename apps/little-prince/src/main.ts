@@ -134,21 +134,6 @@ function starField(): THREE.Points {
 const stars = starField();
 scene.add(stars);
 
-const floorRing = new THREE.Mesh(
-  new THREE.RingGeometry(0.35, 4.2, 96, 1),
-  new THREE.MeshBasicMaterial({
-    color: 0x7bc6dc,
-    transparent: true,
-    opacity: 0.055,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  }),
-);
-floorRing.rotation.x = -Math.PI / 2;
-floorRing.position.y = 0.008;
-floorRing.renderOrder = 20;
-scene.add(floorRing);
-
 const fallbackTexture = await new THREE.TextureLoader().loadAsync(
   `${import.meta.env.BASE_URL}bluemarble-2048.png`,
 );
@@ -345,8 +330,6 @@ function updatePhysicalWalking(): void {
   const xrCamera = renderer.xr.getCamera();
   xrCamera.getWorldPosition(xrHeadPosition);
   headsetFloorPosition.set(xrHeadPosition.x, xrHeadPosition.z);
-  floorRing.position.x = xrHeadPosition.x;
-  floorRing.position.z = xrHeadPosition.z;
   if (previousXrHead) {
     const displacement = headsetFloorPosition.clone().sub(previousXrHead);
     if (displacement.length() < 0.4) {
@@ -596,8 +579,6 @@ renderer.xr.addEventListener("sessionend", () => {
   camera.position.set(0, 1.65, 0);
   camera.rotation.set(pitch, yaw, 0);
   headsetFloorPosition.set(0, 0);
-  floorRing.position.x = 0;
-  floorRing.position.z = 0;
   previousXrHead = null;
 });
 

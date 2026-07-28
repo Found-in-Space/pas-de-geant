@@ -8,25 +8,38 @@ import {
 } from "./planet-state.js";
 import type { ReliefDataset } from "./relief.js";
 
-const GIBS_WMS =
-  "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi";
+const GIBS_WMTS =
+  "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/" +
+  "BlueMarble_ShadedRelief_Bathymetry/default/500m";
+const GIBS_ROOT_TILE_SPAN_DEGREES = 288;
 const TILE_SEGMENTS = 24;
 const SKIRT_DEPTH_WORLD_M = 0.02;
-const TILE_CACHE_LIMIT = 32;
+export const DETAIL_TILE_LIMIT = 32;
+export const IMAGERY_CACHE_LIMIT = 48;
+export const MAX_CONCURRENT_IMAGERY_REQUESTS = 6;
 const IMAGERY_RETRY_DELAY_MS = 30_000;
 const FALLBACK_MAX_ELEVATION_M = 8_849;
+const FINE_REFINEMENT_RADIUS_DEGREES = 8;
+const EXACT_IMAGERY_PRIORITY_OFFSET = 1_000;
 
-interface TileAddress {
+export interface TileAddress {
   z: number;
   x: number;
   y: number;
 }
 
-interface TileBounds {
+export interface TileBounds {
   west: number;
   east: number;
   north: number;
   south: number;
+}
+
+export interface UvTransform {
+  scaleX: number;
+  scaleY: number;
+  offsetX: number;
+  offsetY: number;
 }
 
 interface CachedImagery {
@@ -39,48 +52,120 @@ interface RenderedTile {
   lastUsedAt: number;
   address: TileAddress;
   baseBoundingRadius: number;
+  imagerySource?: TileAddress;
 }
 
-const textureLoader = new THREE.TextureLoader();
-textureLoader.setCrossOrigin("anonymous");
+export interface ImageryLoadTask {
+  address: TileAddress;
+  priority: number;
+}
 
-function tileKey(address: TileAddress): string {
+export function tileKey(address: TileAddress): string {
   return `${address.z}/${address.x}/${address.y}`;
 }
 
 export function imageryUrlForTile(address: TileAddress): string {
-  const bounds = boundsForTile(address);
-  const parameters = new URLSearchParams({
-    SERVICE: "WMS",
-    REQUEST: "GetMap",
-    VERSION: "1.1.1",
-    LAYERS: "BlueMarble_ShadedRelief_Bathymetry",
-    STYLES: "",
-    SRS: "EPSG:4326",
-    BBOX: [
-      bounds.west,
-      bounds.south,
-      bounds.east,
-      bounds.north,
-    ].join(","),
-    WIDTH: "512",
-    HEIGHT: "512",
-    FORMAT: "image/jpeg",
-    TRANSPARENT: "FALSE",
-  });
-  return `${GIBS_WMS}?${parameters.toString()}`;
+  return `${GIBS_WMTS}/${address.z}/${address.y}/${address.x}.jpeg`;
+}
+
+export function tileMatrixDimensions(level: number): {
+  columns: number;
+  rows: number;
+} {
+  const span = GIBS_ROOT_TILE_SPAN_DEGREES / 2 ** level;
+  return {
+    columns: Math.ceil(360 / span),
+    rows: Math.ceil(180 / span),
+  };
+}
+
+function isValidTileAddress(address: TileAddress): boolean {
+  const dimensions = tileMatrixDimensions(address.z);
+  return (
+    address.z >= 0 &&
+    address.x >= 0 &&
+    address.y >= 0 &&
+    address.x < dimensions.columns &&
+    address.y < dimensions.rows
+  );
+}
+
+export function rawBoundsForTile(address: TileAddress): TileBounds {
+  const span = GIBS_ROOT_TILE_SPAN_DEGREES / 2 ** address.z;
+  const west = -180 + address.x * span;
+  const north = 90 - address.y * span;
+  return {
+    west,
+    east: west + span,
+    north,
+    south: north - span,
+  };
 }
 
 export function boundsForTile(address: TileAddress): TileBounds {
-  const rows = 2 ** address.z;
-  const columns = rows * 2;
-  const longitudeSpan = 360 / columns;
-  const latitudeSpan = 180 / rows;
+  const raw = rawBoundsForTile(address);
   return {
-    west: -180 + address.x * longitudeSpan,
-    east: -180 + (address.x + 1) * longitudeSpan,
-    north: 90 - address.y * latitudeSpan,
-    south: 90 - (address.y + 1) * latitudeSpan,
+    west: Math.max(-180, raw.west),
+    east: Math.min(180, raw.east),
+    north: Math.min(90, raw.north),
+    south: Math.max(-90, raw.south),
+  };
+}
+
+export function childrenForTile(address: TileAddress): TileAddress[] {
+  const nextZ = address.z + 1;
+  const children: TileAddress[] = [];
+  for (const y of [address.y * 2, address.y * 2 + 1]) {
+    for (const x of [address.x * 2, address.x * 2 + 1]) {
+      const child = { z: nextZ, x, y };
+      if (isValidTileAddress(child)) children.push(child);
+    }
+  }
+  return children;
+}
+
+export function previewAddressForTile(
+  address: TileAddress,
+  levelsCoarser = 2,
+): TileAddress {
+  const z = Math.max(0, address.z - levelsCoarser);
+  const divisor = 2 ** (address.z - z);
+  return {
+    z,
+    x: Math.floor(address.x / divisor),
+    y: Math.floor(address.y / divisor),
+  };
+}
+
+export function imageryUvTransform(
+  address: TileAddress,
+  source: TileAddress,
+): UvTransform {
+  if (source.z > address.z) {
+    throw new Error("Imagery source must be the tile or one of its ancestors.");
+  }
+  const divisor = 2 ** (address.z - source.z);
+  if (
+    Math.floor(address.x / divisor) !== source.x ||
+    Math.floor(address.y / divisor) !== source.y
+  ) {
+    throw new Error("Imagery source does not contain the terrain tile.");
+  }
+  return {
+    scaleX: 1 / divisor,
+    scaleY: 1 / divisor,
+    offsetX: (address.x - source.x * divisor) / divisor,
+    offsetY: (address.y - source.y * divisor) / divisor,
+  };
+}
+
+export function fallbackUvTransform(address: TileAddress): UvTransform {
+  const raw = rawBoundsForTile(address);
+  return {
+    scaleX: (raw.east - raw.west) / 360,
+    scaleY: (raw.north - raw.south) / 180,
+    offsetX: (raw.west + 180) / 360,
+    offsetY: (90 - raw.north) / 180,
   };
 }
 
@@ -114,6 +199,58 @@ function tileAngularRadius(bounds: TileBounds): number {
   );
 }
 
+function distanceFromTile(
+  address: TileAddress,
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+): number {
+  const bounds = boundsForTile(address);
+  return angularDistanceDegrees(
+    latitudeDegrees,
+    longitudeDegrees,
+    (bounds.north + bounds.south) * 0.5,
+    (bounds.west + bounds.east) * 0.5,
+  );
+}
+
+export function prioritizeTerrainTiles(
+  addresses: TileAddress[],
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+): TileAddress[] {
+  return [...addresses].sort((first, second) => {
+    const distance =
+      distanceFromTile(first, latitudeDegrees, longitudeDegrees) -
+      distanceFromTile(second, latitudeDegrees, longitudeDegrees);
+    return distance || second.z - first.z;
+  });
+}
+
+export function imageryLoadTasksForTiles(
+  prioritizedAddresses: TileAddress[],
+): ImageryLoadTask[] {
+  const previews = new Map<string, ImageryLoadTask>();
+  const exact: ImageryLoadTask[] = [];
+  prioritizedAddresses.forEach((address, index) => {
+    const preview = previewAddressForTile(address);
+    const previewKey = tileKey(preview);
+    const existing = previews.get(previewKey);
+    if (!existing || index < existing.priority) {
+      previews.set(previewKey, { address: preview, priority: index });
+    }
+    exact.push({
+      address,
+      priority: EXACT_IMAGERY_PRIORITY_OFFSET + index,
+    });
+  });
+  return [
+    ...[...previews.values()].sort(
+      (first, second) => first.priority - second.priority,
+    ),
+    ...exact,
+  ];
+}
+
 export function selectTerrainTiles(
   latitudeDegrees: number,
   longitudeDegrees: number,
@@ -131,6 +268,7 @@ export function selectTerrainTiles(
   );
   const targetEdgeM = displayRadiusM < 4 ? 0.045 : 0.14;
   const visit = (address: TileAddress): void => {
+    if (!isValidTileAddress(address)) return;
     const bounds = boundsForTile(address);
     const centreLatitude = (bounds.north + bounds.south) * 0.5;
     const centreLongitude = (bounds.west + bounds.east) * 0.5;
@@ -148,25 +286,27 @@ export function selectTerrainTiles(
       displayRadiusM /
       TILE_SEGMENTS;
     const maximumLevel =
-      displayRadiusM > 180 ? 6 : 5;
+      displayRadiusM > 180 ? 7 : 6;
+    const withinFineRefinementCap =
+      address.z + 1 < maximumLevel ||
+      distance <= FINE_REFINEMENT_RADIUS_DEGREES + angularRadius;
     if (
       nearVisibleCap &&
       address.z < maximumLevel &&
-      edgeLengthM > targetEdgeM
+      edgeLengthM > targetEdgeM &&
+      withinFineRefinementCap
     ) {
-      const nextZ = address.z + 1;
-      const nextX = address.x * 2;
-      const nextY = address.y * 2;
-      visit({ z: nextZ, x: nextX, y: nextY });
-      visit({ z: nextZ, x: nextX + 1, y: nextY });
-      visit({ z: nextZ, x: nextX, y: nextY + 1 });
-      visit({ z: nextZ, x: nextX + 1, y: nextY + 1 });
+      for (const child of childrenForTile(address)) visit(child);
       return;
     }
     result.push(address);
   };
-  visit({ z: 0, x: 0, y: 0 });
-  visit({ z: 0, x: 1, y: 0 });
+  const rootDimensions = tileMatrixDimensions(0);
+  for (let y = 0; y < rootDimensions.rows; y += 1) {
+    for (let x = 0; x < rootDimensions.columns; x += 1) {
+      visit({ z: 0, x, y });
+    }
+  }
   return result;
 }
 
@@ -240,6 +380,9 @@ function geodeticVertex(
 
 function geometryForTile(address: TileAddress): THREE.BufferGeometry {
   const bounds = boundsForTile(address);
+  const rawBounds = rawBoundsForTile(address);
+  const rawWidth = rawBounds.east - rawBounds.west;
+  const rawHeight = rawBounds.north - rawBounds.south;
   const positions: number[] = [];
   const normals: number[] = [];
   const localUvs: number[] = [];
@@ -263,11 +406,21 @@ function geometryForTile(address: TileAddress): THREE.BufferGeometry {
     return skirts.length - 1;
   };
   for (let row = 0; row <= TILE_SEGMENTS; row += 1) {
-    const v = row / TILE_SEGMENTS;
-    const latitude = THREE.MathUtils.lerp(bounds.north, bounds.south, v);
+    const fractionV = row / TILE_SEGMENTS;
+    const latitude = THREE.MathUtils.lerp(
+      bounds.north,
+      bounds.south,
+      fractionV,
+    );
+    const v = (rawBounds.north - latitude) / rawHeight;
     for (let column = 0; column <= TILE_SEGMENTS; column += 1) {
-      const u = column / TILE_SEGMENTS;
-      const longitude = THREE.MathUtils.lerp(bounds.west, bounds.east, u);
+      const fractionU = column / TILE_SEGMENTS;
+      const longitude = THREE.MathUtils.lerp(
+        bounds.west,
+        bounds.east,
+        fractionU,
+      );
+      const u = (longitude - rawBounds.west) / rawWidth;
       addVertex(latitude, longitude, u, v, 0);
     }
   }
