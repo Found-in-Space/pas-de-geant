@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "tests/browser",
+  testIgnore: "little-prince.spec.ts",
   timeout: 30_000,
   expect: {
     timeout: 10_000,

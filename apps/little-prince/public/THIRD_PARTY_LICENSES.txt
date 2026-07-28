@@ -1,0 +1,28 @@
+NASA BLUE MARBLE IMAGERY
+
+The bundled fallback texture is derived from NASA's Blue Marble data:
+https://svs.gsfc.nasa.gov/2915/
+
+Higher-resolution runtime imagery is requested from NASA's Global Imagery
+Browse Services (GIBS):
+https://www.earthdata.nasa.gov/about/esdis/eosdis/gibs
+
+NASA content is generally not subject to copyright in the United States.
+NASA imagery must not be used to imply NASA endorsement. NASA identifiers and
+insignia are not included in this application.
+
+
+GEBCO_2026 GRID
+
+GEBCO Bathymetric Compilation Group 2026 (2026). The GEBCO_2026 Grid — a
+continuous terrain model for oceans and land at 15 arc-second intervals.
+NERC EDS British Oceanographic Data Centre NOC.
+doi:10.5285/4f68d5c7-45eb-f999-e063-7086abc036fa
+
+The GEBCO Grid is placed in the public domain and may be used free of charge.
+Users must acknowledge its source, must not imply endorsement by GEBCO, IHO,
+or IOC, and must not misrepresent the grid or its source. The grid is not for
+navigation or safety-at-sea use.
+
+Full terms:
+https://www.gebco.net/data-products-gridded-bathymetry-data/gebco2026-grid

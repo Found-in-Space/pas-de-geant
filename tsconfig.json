@@ -9,6 +9,9 @@
     },
     {
       "path": "./apps/visualizer"
+    },
+    {
+      "path": "./apps/little-prince"
     }
   ]
 }

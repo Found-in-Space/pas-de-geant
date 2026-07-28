@@ -1,0 +1,21 @@
+{
+  "name": "@found-in-space/little-prince",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A room-scale WebXR relief Earth that rolls beneath the observer",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1",
+    "preview": "vite preview --host 127.0.0.1",
+    "prepare:relief": "node ./scripts/prepare-relief.mjs",
+    "typecheck": "tsc --project tsconfig.json --pretty false"
+  },
+  "dependencies": {
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.185.1",
+    "netcdfjs": "4.0.0"
+  }
+}

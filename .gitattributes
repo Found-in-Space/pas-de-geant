@@ -1,6 +1,7 @@
 *.gpkg binary
 *.zip binary
 *.png binary
+*.bin binary
 *.geojson text eol=lf
 *.kml text eol=lf
 *.js text eol=lf

@@ -19,10 +19,12 @@
   ],
   "scripts": {
     "build": "npm run build:packages && npm run build --workspace @found-in-space/shadowline-visualizer",
+    "build:little-prince": "npm run build --workspace @found-in-space/little-prince",
     "build:packages": "npm run build --workspace @found-in-space/shadowline && npm run build --workspace @found-in-space/shadowline-astronomy-engine",
     "check": "npm run typecheck",
     "changeset": "changeset",
     "dev": "npm run dev --workspace @found-in-space/shadowline-visualizer",
+    "dev:little-prince": "npm run dev --workspace @found-in-space/little-prince --",
     "release:publish": "changeset publish",
     "release:check-packed-consumers": "node ./scripts/check-packed-consumers.mjs",
     "release:lockfile": "npm install --package-lock-only --ignore-scripts --no-audit --fund=false",
@@ -30,6 +32,7 @@
     "release:version": "changeset version && npm run release:lockfile",
     "test": "vitest run",
     "test:browser": "playwright test",
+    "test:browser:little-prince": "playwright test --config playwright.little-prince.config.ts",
     "typecheck": "tsc --build --pretty false && tsc --project tsconfig.tools.json --pretty false"
   },
   "engines": {
