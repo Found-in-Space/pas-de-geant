@@ -25,6 +25,7 @@ import {
   displayToEcefKm,
   ecefKmToDisplay,
   geodeticDisplayPosition,
+  isBehindWgs84DisplayEllipsoid,
   projectDirectionToWgs84Display,
   wgs84DisplayEquation,
   wgs84DisplayNormal,
@@ -114,6 +115,55 @@ describe("Spacefarer WGS 84 display geometry", () => {
     expect(
       projected.clone().normalize().dot(new Vector3(2, 3, -4).normalize())
     ).toBeCloseTo(1, 12);
+  });
+
+  it("clips a cone ray after its first WGS 84 interception", () => {
+    const downstream = new Vector3(1, 0, 0);
+    const beforeEarth = new Vector3(
+      -2 * WGS84_DISPLAY_EQUATORIAL_RADIUS,
+      0,
+      0
+    );
+    const insideEarth = new Vector3(0, 0, 0);
+    const beyondEarth = new Vector3(
+      2 * WGS84_DISPLAY_EQUATORIAL_RADIUS,
+      0,
+      0
+    );
+
+    expect(
+      isBehindWgs84DisplayEllipsoid(beforeEarth, downstream)
+    ).toBe(false);
+    expect(
+      isBehindWgs84DisplayEllipsoid(insideEarth, downstream)
+    ).toBe(true);
+    expect(
+      isBehindWgs84DisplayEllipsoid(beyondEarth, downstream)
+    ).toBe(true);
+  });
+
+  it("keeps rays that miss Earth and the near-side contact point", () => {
+    const downstream = new Vector3(1, 0, 0);
+    const missedEarth = new Vector3(
+      2 * WGS84_DISPLAY_EQUATORIAL_RADIUS,
+      2 * WGS84_DISPLAY_POLAR_RADIUS,
+      0
+    );
+    const nearSideContact = new Vector3(
+      -WGS84_DISPLAY_EQUATORIAL_RADIUS,
+      0,
+      0
+    );
+
+    expect(
+      isBehindWgs84DisplayEllipsoid(missedEarth, downstream)
+    ).toBe(false);
+    expect(
+      isBehindWgs84DisplayEllipsoid(nearSideContact, downstream)
+    ).toBe(false);
+    expect(() =>
+      isBehindWgs84DisplayEllipsoid(nearSideContact, new Vector3())
+    ).toThrow(/non-zero direction/);
   });
 });
 

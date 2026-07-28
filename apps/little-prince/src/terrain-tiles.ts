@@ -3,15 +3,18 @@ import {
   EARTH_MEAN_RADIUS_KM,
   WGS84_A_KM,
   WGS84_B_KM,
+  normalizedRadialOffsetForMetres,
+  radialWorldMetresForKilometres,
 } from "./planet-state.js";
 import type { ReliefDataset } from "./relief.js";
 
 const GIBS_WMS =
   "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi";
 const TILE_SEGMENTS = 24;
-const SKIRT_DEPTH = 0.0022;
+const SKIRT_DEPTH_WORLD_M = 0.02;
 const TILE_CACHE_LIMIT = 32;
 const IMAGERY_RETRY_DELAY_MS = 30_000;
+const FALLBACK_MAX_ELEVATION_M = 8_849;
 
 interface TileAddress {
   z: number;
@@ -35,6 +38,7 @@ interface RenderedTile {
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   lastUsedAt: number;
   address: TileAddress;
+  baseBoundingRadius: number;
 }
 
 const textureLoader = new THREE.TextureLoader();
@@ -114,13 +118,16 @@ export function selectTerrainTiles(
   latitudeDegrees: number,
   longitudeDegrees: number,
   displayRadiusM: number,
+  radialMultiplier = 1,
   eyeHeightM = 1.7,
+  maximumElevationM = FALLBACK_MAX_ELEVATION_M,
 ): TileAddress[] {
   const result: TileAddress[] = [];
-  const horizonDegrees = THREE.MathUtils.radToDeg(
-    Math.acos(
-      displayRadiusM / Math.max(displayRadiusM + eyeHeightM, 1.00001),
-    ),
+  const horizonDegrees = terrainHorizonDegrees(
+    displayRadiusM,
+    radialMultiplier,
+    eyeHeightM,
+    maximumElevationM,
   );
   const targetEdgeM = displayRadiusM < 4 ? 0.045 : 0.14;
   const visit = (address: TileAddress): void => {
@@ -161,6 +168,43 @@ export function selectTerrainTiles(
   visit({ z: 0, x: 0, y: 0 });
   visit({ z: 0, x: 1, y: 0 });
   return result;
+}
+
+export function terrainHorizonDegrees(
+  displayRadiusM: number,
+  radialMultiplier: number,
+  eyeHeightM = 1.7,
+  maximumElevationM = FALLBACK_MAX_ELEVATION_M,
+): number {
+  const horizonAngle = (heightM: number): number =>
+    Math.acos(
+      displayRadiusM /
+        Math.max(displayRadiusM + Math.max(0, heightM), displayRadiusM),
+    );
+  const maximumElevationWorldM = radialWorldMetresForKilometres(
+    maximumElevationM / 1_000,
+    displayRadiusM,
+    radialMultiplier,
+  );
+  return THREE.MathUtils.radToDeg(
+    horizonAngle(eyeHeightM) + horizonAngle(maximumElevationWorldM),
+  );
+}
+
+export function terrainBoundingExpansion(
+  maximumAbsoluteElevationM: number,
+  displayRadiusM: number,
+  radialMultiplier: number,
+): number {
+  return (
+    Math.abs(
+      normalizedRadialOffsetForMetres(
+        maximumAbsoluteElevationM,
+        radialMultiplier,
+      ),
+    ) +
+    SKIRT_DEPTH_WORLD_M / displayRadiusM
+  );
 }
 
 function geodeticVertex(
@@ -328,22 +372,22 @@ function terrainMaterial(
       imageOffset: {
         value: new THREE.Vector2(address.x / columns, address.y / rows),
       },
-      reliefExaggeration: { value: 1 },
+      normalizedRadialMetres: { value: 0 },
       oceanSurface: { value: 1 },
       heightOffsetM: { value: relief.metadata.offsetMetres },
       heightScaleM: { value: relief.metadata.scaleMetres },
-      skirtDepth: { value: SKIRT_DEPTH },
+      normalizedSkirtDepth: { value: 0 },
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
     },
     vertexShader: `
       attribute vec2 heightUv;
       attribute float skirt;
       uniform sampler2D heightMap;
-      uniform float reliefExaggeration;
+      uniform float normalizedRadialMetres;
       uniform float oceanSurface;
       uniform float heightOffsetM;
       uniform float heightScaleM;
-      uniform float skirtDepth;
+      uniform float normalizedSkirtDepth;
       varying vec2 vImageUv;
       varying vec3 vWorldPosition;
       varying vec3 vBaseNormal;
@@ -353,14 +397,12 @@ function terrainMaterial(
         float encodedHeight =
           packedHeight.r * 255.0 + packedHeight.g * 65280.0;
         float heightM = encodedHeight * heightScaleM + heightOffsetM;
-        float displayedHeightM = heightM * reliefExaggeration;
+        float displayedHeightM = heightM;
         if (oceanSurface > 0.5 && heightM < 0.0) displayedHeightM = 0.0;
         vec3 displaced =
           position +
-          normal * (displayedHeightM / ${(
-            EARTH_MEAN_RADIUS_KM * 1000
-          ).toFixed(1)}) -
-          normal * skirtDepth * skirt;
+          normal * displayedHeightM * normalizedRadialMetres -
+          normal * normalizedSkirtDepth * skirt;
         vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
         vWorldPosition = worldPosition.xyz;
         vBaseNormal = normalize(mat3(modelMatrix) * normal);
@@ -423,19 +465,43 @@ export class TerrainTileRenderer {
     latitudeDegrees: number,
     longitudeDegrees: number,
     displayRadiusM: number,
-    reliefExaggeration: number,
+    radialMultiplier: number,
     oceanSurface: boolean,
   ): void {
+    const normalizedRadialMetres =
+      normalizedRadialOffsetForMetres(1, radialMultiplier);
+    const normalizedSkirtDepth =
+      SKIRT_DEPTH_WORLD_M / displayRadiusM;
+    const elevationRange =
+      this.relief.metadata.outputElevationRangeMetres ??
+      [-12_000, FALLBACK_MAX_ELEVATION_M];
+    const maximumElevationM = Math.max(0, elevationRange[1]);
+    const maximumAbsoluteElevationM = Math.max(
+      Math.abs(elevationRange[0]),
+      Math.abs(elevationRange[1]),
+    );
+    const maximumNormalizedDisplacement = terrainBoundingExpansion(
+      maximumAbsoluteElevationM,
+      displayRadiusM,
+      radialMultiplier,
+    );
     const signature = [
       latitudeDegrees.toFixed(1),
       longitudeDegrees.toFixed(1),
       Math.log2(displayRadiusM).toFixed(2),
+      radialMultiplier.toFixed(2),
     ].join(":");
     for (const tile of this.rendered.values()) {
-      tile.mesh.material.uniforms.reliefExaggeration!.value =
-        reliefExaggeration;
+      tile.mesh.material.uniforms.normalizedRadialMetres!.value =
+        normalizedRadialMetres;
       tile.mesh.material.uniforms.oceanSurface!.value =
         oceanSurface ? 1 : 0;
+      tile.mesh.material.uniforms.normalizedSkirtDepth!.value =
+        normalizedSkirtDepth;
+      if (tile.mesh.geometry.boundingSphere) {
+        tile.mesh.geometry.boundingSphere.radius =
+          tile.baseBoundingRadius + maximumNormalizedDisplacement;
+      }
     }
     if (signature === this.lastSelectionSignature) return;
     this.lastSelectionSignature = signature;
@@ -445,6 +511,9 @@ export class TerrainTileRenderer {
       latitudeDegrees,
       longitudeDegrees,
       displayRadiusM,
+      radialMultiplier,
+      1.7,
+      maximumElevationM,
     );
     const imageryKeys = new Set(
       [...selected]
@@ -480,11 +549,25 @@ export class TerrainTileRenderer {
           this.fallbackTexture,
           address,
         );
-        material.uniforms.reliefExaggeration!.value = reliefExaggeration;
+        material.uniforms.normalizedRadialMetres!.value =
+          normalizedRadialMetres;
         material.uniforms.oceanSurface!.value = oceanSurface ? 1 : 0;
-        const mesh = new THREE.Mesh(geometryForTile(address), material);
+        material.uniforms.normalizedSkirtDepth!.value =
+          normalizedSkirtDepth;
+        const geometry = geometryForTile(address);
+        const baseBoundingRadius = geometry.boundingSphere?.radius ?? 0;
+        if (geometry.boundingSphere) {
+          geometry.boundingSphere.radius =
+            baseBoundingRadius + maximumNormalizedDisplacement;
+        }
+        const mesh = new THREE.Mesh(geometry, material);
         mesh.frustumCulled = true;
-        tile = { mesh, address, lastUsedAt: now };
+        tile = {
+          mesh,
+          address,
+          lastUsedAt: now,
+          baseBoundingRadius,
+        };
         this.rendered.set(key, tile);
         this.group.add(mesh);
       }

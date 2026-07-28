@@ -6,12 +6,15 @@ import {
   MIN_DISPLAY_RADIUS_M,
   apexError,
   applyLogarithmicScale,
-  applyReliefRate,
+  applyRadialMultiplierRate,
   contactFrame,
   coordinatesForFrame,
   earthToWorldQuaternion,
   frameIsOrthonormal,
+  horizontalWorldMetresForKilometres,
   initialPlanetState,
+  normalizedRadialOffsetForKilometres,
+  radialWorldMetresForKilometres,
   rollContactFrame,
   solvePlanetPose,
 } from "../apps/little-prince/src/planet-state.js";
@@ -77,11 +80,18 @@ describe("Little Planet rolling contact frame", () => {
       new Vector2(17.3, -8.8),
       state.displayRadiusM,
     );
-    for (const radius of [1, INITIAL_DISPLAY_RADIUS_M, MAX_DISPLAY_RADIUS_M]) {
-      state.displayRadiusM = radius;
-      const headset = new Vector2(2.4, -1.1);
-      const error = apexError(state, solvePlanetPose(state, headset), headset);
-      expect(error.length()).toBeLessThan(1e-10);
+    for (const radialMultiplier of [0, 1, 20]) {
+      state.radialMultiplier = radialMultiplier;
+      for (const radius of [1, INITIAL_DISPLAY_RADIUS_M, MAX_DISPLAY_RADIUS_M]) {
+        state.displayRadiusM = radius;
+        const headset = new Vector2(2.4, -1.1);
+        const error = apexError(
+          state,
+          solvePlanetPose(state, headset),
+          headset,
+        );
+        expect(error.length()).toBeLessThan(1e-10);
+      }
     }
   });
 });
@@ -97,9 +107,28 @@ describe("Little Planet scale controls", () => {
     ).toBe(INITIAL_DISPLAY_RADIUS_M);
   });
 
-  it("clamps radial relief and retains its true-scale detent", () => {
-    expect(applyReliefRate(0, -1, 10)).toBe(0);
-    expect(applyReliefRate(20, 1, 10)).toBe(20);
-    expect(applyReliefRate(1.04, 0, 1)).toBe(1);
+  it("clamps the radial multiplier and retains its true-scale detent", () => {
+    expect(applyRadialMultiplierRate(0, -1, 10)).toBe(0);
+    expect(applyRadialMultiplierRate(20, 1, 10)).toBe(20);
+    expect(applyRadialMultiplierRate(1.04, 0, 1)).toBe(1);
+  });
+
+  it("composes uniform planet scale with a separate radial multiplier", () => {
+    expect(
+      horizontalWorldMetresForKilometres(
+        1,
+        INITIAL_DISPLAY_RADIUS_M,
+      ),
+    ).toBeCloseTo(0.01);
+    expect(
+      radialWorldMetresForKilometres(
+        1,
+        INITIAL_DISPLAY_RADIUS_M,
+        10,
+      ),
+    ).toBeCloseTo(0.1);
+    expect(
+      normalizedRadialOffsetForKilometres(100, 20),
+    ).toBeCloseTo(2_000 / 6_371.0088);
   });
 });

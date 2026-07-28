@@ -26,3 +26,13 @@ navigation or safety-at-sea use.
 
 Full terms:
 https://www.gebco.net/data-products-gridded-bathymetry-data/gebco2026-grid
+
+
+AIRPLANES.LIVE ADS-B DATA
+
+Live proof-of-concept aircraft positions are requested from the
+Airplanes.live REST API:
+https://airplanes.live/api-guide/
+
+Use of the service is subject to the provider's current API terms and request
+limits. This application does not bundle or redistribute an aircraft dataset.

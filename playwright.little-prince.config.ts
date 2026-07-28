@@ -15,7 +15,7 @@ export default defineConfig({
     command:
       "npm run preview --workspace @found-in-space/little-prince -- --port 4197",
     url: "http://127.0.0.1:4197",
-    reuseExistingServer: false,
+    reuseExistingServer: true,
     timeout: 30_000,
   },
 });

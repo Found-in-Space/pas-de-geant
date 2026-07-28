@@ -11,8 +11,8 @@ export const INITIAL_DISPLAY_RADIUS_M =
 export const MIN_DISPLAY_RADIUS_M = 1;
 export const MAX_DISPLAY_RADIUS_M =
   (EARTH_MEAN_RADIUS_KM / IBERIA_REFERENCE_WIDTH_KM) * 50;
-export const MIN_RELIEF_EXAGGERATION = 0;
-export const MAX_RELIEF_EXAGGERATION = 20;
+export const MIN_RADIAL_MULTIPLIER = 0;
+export const MAX_RADIAL_MULTIPLIER = 20;
 
 const rotation = new Quaternion();
 const movementAxis = new Vector3();
@@ -32,7 +32,7 @@ export type OceanMode = "surface" | "revealed";
 export interface PlanetState {
   contact: ContactFrame;
   displayRadiusM: number;
-  reliefExaggeration: number;
+  radialMultiplier: number;
   oceanMode: OceanMode;
 }
 
@@ -70,7 +70,7 @@ export function initialPlanetState(): PlanetState {
   return {
     contact: contactFrame(40, -4),
     displayRadiusM: INITIAL_DISPLAY_RADIUS_M,
-    reliefExaggeration: 1,
+    radialMultiplier: 1,
     oceanMode: "surface",
   };
 }
@@ -196,6 +196,47 @@ export function iberiaWidthForDisplayRadius(radiusM: number): number {
   return radiusM * IBERIA_REFERENCE_WIDTH_KM / EARTH_MEAN_RADIUS_KM;
 }
 
+/** Room metres occupied by one real kilometre along the sea-level ellipsoid. */
+export function horizontalWorldMetresForKilometres(
+  realKilometres: number,
+  displayRadiusM: number,
+): number {
+  return realKilometres * displayRadiusM / EARTH_MEAN_RADIUS_KM;
+}
+
+/** Room metres occupied by a real radial distance after exaggeration. */
+export function radialWorldMetresForKilometres(
+  realKilometres: number,
+  displayRadiusM: number,
+  radialMultiplier: number,
+): number {
+  return (
+    horizontalWorldMetresForKilometres(realKilometres, displayRadiusM) *
+    radialMultiplier
+  );
+}
+
+/**
+ * Radial offset in normalized planet-root units. The root's uniform scale
+ * applies the whole-planet scale exactly once.
+ */
+export function normalizedRadialOffsetForKilometres(
+  realKilometres: number,
+  radialMultiplier: number,
+): number {
+  return realKilometres * radialMultiplier / EARTH_MEAN_RADIUS_KM;
+}
+
+export function normalizedRadialOffsetForMetres(
+  realMetres: number,
+  radialMultiplier: number,
+): number {
+  return normalizedRadialOffsetForKilometres(
+    realMetres / 1_000,
+    radialMultiplier,
+  );
+}
+
 export function applyLogarithmicScale(
   radiusM: number,
   axis: number,
@@ -215,17 +256,17 @@ export function applyLogarithmicScale(
   return clamped;
 }
 
-export function applyReliefRate(
-  exaggeration: number,
+export function applyRadialMultiplierRate(
+  multiplier: number,
   axis: number,
   deltaSeconds: number,
   unitsPerSecond = 3,
 ): number {
   const next = Math.max(
-    MIN_RELIEF_EXAGGERATION,
+    MIN_RADIAL_MULTIPLIER,
     Math.min(
-      MAX_RELIEF_EXAGGERATION,
-      exaggeration + axis * unitsPerSecond * deltaSeconds,
+      MAX_RADIAL_MULTIPLIER,
+      multiplier + axis * unitsPerSecond * deltaSeconds,
     ),
   );
   if (Math.abs(axis) < 0.12 && Math.abs(next - 1) < 0.08) return 1;

@@ -32,21 +32,25 @@
           <strong id="scale-readout">Iberia ≈ 10.0 m</strong>
         </div>
         <div>
-          <span>Radial relief</span>
-          <strong id="relief-readout">1.0×</strong>
+          <span>Radial multiplier</span>
+          <strong id="radial-readout">1.0× · 1 km = 1.0 cm</strong>
         </div>
         <div>
           <span>Ocean</span>
           <strong id="ocean-readout">Surface</strong>
+        </div>
+        <div>
+          <span>Live aircraft</span>
+          <strong id="aircraft-readout">Off · optional</strong>
         </div>
       </section>
 
       <aside class="instructions">
         <p><strong>Walk</strong> to roll the world beneath you.</p>
         <p><strong>Left stick</strong> travels · <strong>left trigger</strong> accelerates.</p>
-        <p><strong>Right stick</strong> changes scale and relief.</p>
+        <p><strong>Right stick</strong> changes planet scale and radial multiplier.</p>
         <p><strong>A</strong> reveals the seabed · <strong>hold B</strong> resets.</p>
-        <p class="desktop-hint">Desktop: WASD travel · Z/X scale · C/V relief · O ocean · Backspace reset</p>
+        <p class="desktop-hint">Desktop: WASD travel · Z/X planet scale · C/V radial multiplier · O ocean · Backspace reset</p>
       </aside>
 
       <button id="ocean-button" class="utility-button ocean-button" type="button">
@@ -55,6 +59,10 @@
       <button id="reset-button" class="utility-button reset-button" type="button">
         Reset Iberia
       </button>
+      <label class="aircraft-option">
+        <input id="aircraft-toggle" type="checkbox">
+        <span>Live aircraft</span>
+      </label>
 
       <div id="loading-state" class="loading-state" role="status" aria-live="polite">
         <div class="loading-globe" aria-hidden="true"></div>
@@ -68,7 +76,7 @@
 
       <footer>
         Relief: GEBCO Bathymetric Compilation Group 2026 ·
-        Imagery: NASA Blue Marble / GIBS
+        Imagery: NASA Blue Marble / GIBS · Aircraft: Airplanes.live
       </footer>
     </main>
     <script type="module" src="/src/main.ts"></script>

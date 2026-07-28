@@ -18,6 +18,7 @@ export interface ReliefDatasetMetadata {
   datum: string;
   source: string;
   checksum: string;
+  outputElevationRangeMetres?: [number, number];
 }
 
 export interface ReliefDataset {

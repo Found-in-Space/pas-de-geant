@@ -477,20 +477,34 @@ function coneSurface(
   const lengthSegments = 96;
   const [first, second] = perpendicularBasis(axis);
   const positions: number[] = [];
+  const coneRayDirections: number[] = [];
   const indices: number[] = [];
   for (let alongIndex = 0; alongIndex <= lengthSegments; alongIndex += 1) {
     const along = (displayLength * alongIndex) / lengthSegments;
     const physicalAlongKm = along * EARTH_MEAN_RADIUS_KM;
     const physicalRadiusKm = MOON_RADIUS_KM + slope * physicalAlongKm;
     const displayRadius = Math.abs(physicalRadiusKm) / EARTH_MEAN_RADIUS_KM;
+    const radiusSign = physicalRadiusKm < 0 ? -1 : 1;
     const center = start.clone().addScaledVector(axis, along);
     for (let radialIndex = 0; radialIndex <= radialSegments; radialIndex += 1) {
       const angle = (radialIndex / radialSegments) * Math.PI * 2;
+      const radialDirection = first
+        .clone()
+        .multiplyScalar(Math.cos(angle))
+        .addScaledVector(second, Math.sin(angle));
       const point = center
         .clone()
-        .addScaledVector(first, Math.cos(angle) * displayRadius)
-        .addScaledVector(second, Math.sin(angle) * displayRadius);
+        .addScaledVector(radialDirection, displayRadius);
+      const coneRayDirection = axis
+        .clone()
+        .addScaledVector(radialDirection, slope * radiusSign)
+        .normalize();
       positions.push(point.x, point.y, point.z);
+      coneRayDirections.push(
+        coneRayDirection.x,
+        coneRayDirection.y,
+        coneRayDirection.z,
+      );
     }
   }
   const row = radialSegments + 1;
@@ -513,6 +527,10 @@ function coneSurface(
     "position",
     new THREE.Float32BufferAttribute(positions, 3),
   );
+  geometry.setAttribute(
+    "coneRayDirection",
+    new THREE.Float32BufferAttribute(coneRayDirections, 3),
+  );
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   const material = new THREE.MeshBasicMaterial({
@@ -534,12 +552,15 @@ function coneSurface(
       .replace(
         "#include <common>",
         `#include <common>
-varying vec3 vStagePosition;`,
+attribute vec3 coneRayDirection;
+varying vec3 vStagePosition;
+varying vec3 vConeRayDirection;`,
       )
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>
-vStagePosition = transformed;`,
+vStagePosition = transformed;
+vConeRayDirection = coneRayDirection;`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -547,7 +568,8 @@ vStagePosition = transformed;`,
         `#include <common>
 uniform mat4 stageToEarthFixed;
 uniform vec3 wgs84DisplayAxes;
-varying vec3 vStagePosition;`,
+varying vec3 vStagePosition;
+varying vec3 vConeRayDirection;`,
       )
       .replace(
         "#include <clipping_planes_fragment>",
@@ -555,10 +577,22 @@ varying vec3 vStagePosition;`,
 vec3 earthFixedPosition =
   ( stageToEarthFixed * vec4( vStagePosition, 1.0 ) ).xyz;
 vec3 ellipsoidPosition = earthFixedPosition / wgs84DisplayAxes;
-if ( dot( ellipsoidPosition, ellipsoidPosition ) < 1.0 ) discard;`,
+vec3 earthFixedRayDirection =
+  ( stageToEarthFixed * vec4( normalize( vConeRayDirection ), 0.0 ) ).xyz;
+vec3 ellipsoidRayDirection =
+  normalize( earthFixedRayDirection / wgs84DisplayAxes );
+float rayProjection = dot( ellipsoidPosition, ellipsoidRayDirection );
+float rayDiscriminant =
+  rayProjection * rayProjection -
+  ( dot( ellipsoidPosition, ellipsoidPosition ) - 1.0 );
+if (
+  rayDiscriminant >= 0.0 &&
+  rayProjection + sqrt( max( 0.0, rayDiscriminant ) ) > 0.00001
+) discard;`,
       );
   };
-  material.customProgramCacheKey = () => "spacefarer-wgs84-cone-clip-v1";
+  material.customProgramCacheKey = () =>
+    "spacefarer-wgs84-cone-interception-v2";
   const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 3;
   return mesh;

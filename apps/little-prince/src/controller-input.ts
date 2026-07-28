@@ -3,7 +3,7 @@ import { Quaternion, Vector2, Vector3 } from "three";
 export interface ControllerIntent {
   travel: Vector2;
   scaleAxis: number;
-  reliefAxis: number;
+  radialAxis: number;
   boost: boolean;
   toggleOcean: boolean;
   reset: boolean;
@@ -47,7 +47,7 @@ export function controllerIntent(
   const right =
     sources.find((source) => source.handedness === "right") ?? sources[1];
   const [travelX, travelY] = stickForSource(left);
-  const [scaleAxis, reliefAxis] = stickForSource(right);
+  const [scaleAxis, radialAxis] = stickForSource(right);
   const leftButtons = left?.gamepad?.buttons ?? [];
   const rightButtons = right?.gamepad?.buttons ?? [];
   const aPressed = rightButtons[4]?.pressed ?? rightButtons[0]?.pressed ?? false;
@@ -66,7 +66,7 @@ export function controllerIntent(
   return {
     travel: new Vector2(travelX, travelY),
     scaleAxis,
-    reliefAxis: -reliefAxis,
+    radialAxis: -radialAxis,
     boost:
       (leftButtons[0]?.value ?? 0) > 0.55 ||
       (leftButtons[1]?.value ?? 0) > 0.55,

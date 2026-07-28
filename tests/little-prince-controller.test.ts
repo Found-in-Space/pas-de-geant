@@ -3,6 +3,7 @@ import * as THREE from "three";
 import {
   deadzone,
   headRelativeTravel,
+  stickForSource,
 } from "../apps/little-prince/src/controller-input.js";
 
 describe("Little Planet controller input", () => {
@@ -25,5 +26,17 @@ describe("Little Planet controller input", () => {
 
     expect(travel.x).toBeCloseTo(1);
     expect(travel.y).toBeCloseTo(0);
+  });
+
+  it("keeps cross-axis stick noise inside the independent dead zone", () => {
+    const source = {
+      gamepad: {
+        axes: [0.8, 0.1],
+      },
+    } as unknown as XRInputSource;
+    const [planetScale, radialMultiplier] = stickForSource(source);
+
+    expect(planetScale).toBeGreaterThan(0);
+    expect(radialMultiplier).toBe(0);
   });
 });

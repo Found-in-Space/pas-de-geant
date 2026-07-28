@@ -93,6 +93,35 @@ export function wgs84DisplayEquation(position: THREE.Vector3): number {
   );
 }
 
+/**
+ * Returns whether a cone ray has already been intercepted by Earth before it
+ * reaches `position`. `downstreamDirection` points away from the Moon along
+ * the ray, so the test traces backwards from the displayed point.
+ */
+export function isBehindWgs84DisplayEllipsoid(
+  position: THREE.Vector3,
+  downstreamDirection: THREE.Vector3,
+  surfaceTolerance = 1e-5
+): boolean {
+  const ellipsoidPosition = position.clone().divide(WGS84_DISPLAY_AXES);
+  const ellipsoidDirection = downstreamDirection
+    .clone()
+    .divide(WGS84_DISPLAY_AXES);
+  if (ellipsoidDirection.lengthSq() === 0) {
+    throw new RangeError("Ellipsoid interception needs a non-zero direction.");
+  }
+  ellipsoidDirection.normalize();
+
+  const projection = ellipsoidPosition.dot(ellipsoidDirection);
+  const discriminant =
+    projection * projection - (ellipsoidPosition.lengthSq() - 1);
+  if (discriminant < 0) return false;
+
+  const farthestBackwardIntersection =
+    projection + Math.sqrt(Math.max(0, discriminant));
+  return farthestBackwardIntersection > surfaceTolerance;
+}
+
 export function createGeodeticEllipsoidGeometry(
   longitudeSegments: number,
   latitudeSegments: number,

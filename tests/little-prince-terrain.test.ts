@@ -3,6 +3,8 @@ import {
   boundsForTile,
   imageryUrlForTile,
   selectTerrainTiles,
+  terrainBoundingExpansion,
+  terrainHorizonDegrees,
 } from "../apps/little-prince/src/terrain-tiles.js";
 
 describe("Little Planet terrain selection", () => {
@@ -33,10 +35,26 @@ describe("Little Planet terrain selection", () => {
     for (const radius of [1, 63.71, 318.55]) {
       const tiles = selectTerrainTiles(40, -4, radius);
       expect(tiles.length).toBeGreaterThan(2);
-      expect(tiles.length, `radius ${radius}`).toBeLessThan(120);
+      expect(tiles.length, `radius ${radius}`).toBeLessThan(180);
       expect(Math.max(...tiles.map((tile) => tile.z))).toBeGreaterThanOrEqual(
         2,
       );
     }
+  });
+
+  it("extends visibility and displaced bounds for radial terrain", () => {
+    const radius = 63.710088;
+    expect(terrainHorizonDegrees(radius, 20)).toBeGreaterThan(
+      terrainHorizonDegrees(radius, 1),
+    );
+    expect(
+      terrainBoundingExpansion(10_444, radius, 20),
+    ).toBeGreaterThan(
+      terrainBoundingExpansion(10_444, radius, 1),
+    );
+    expect(selectTerrainTiles(40, -4, radius, 20).length).toBeGreaterThanOrEqual(
+      selectTerrainTiles(40, -4, radius, 1).length,
+    );
+    expect(selectTerrainTiles(40, -4, 318.55, 20).length).toBeLessThan(400);
   });
 });
