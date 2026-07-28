@@ -320,6 +320,15 @@ function graticule(): THREE.LineSegments {
 }
 earthFixedGroup.add(graticule());
 
+const moonTexture = new THREE.TextureLoader().load(
+  "/lroc-color-2k.jpg",
+);
+moonTexture.colorSpace = THREE.SRGBColorSpace;
+moonTexture.anisotropy = Math.min(
+  8,
+  renderer.capabilities.getMaxAnisotropy(),
+);
+
 const moon = new THREE.Mesh(
   new THREE.SphereGeometry(
     MOON_RADIUS_KM / EARTH_MEAN_RADIUS_KM,
@@ -327,11 +336,13 @@ const moon = new THREE.Mesh(
     40,
   ),
   new THREE.MeshStandardMaterial({
-    color: 0xb8b8b5,
+    map: moonTexture,
+    color: 0xffffff,
     roughness: 1,
     metalness: 0,
-    emissive: 0x08090c,
-    emissiveIntensity: 0.14,
+    emissive: 0x080808,
+    emissiveMap: moonTexture,
+    emissiveIntensity: 0.12,
   }),
 );
 physicalRoot.add(moon);
@@ -556,6 +567,10 @@ function updateStage(frameValue: ShadowFrame): void {
     .transformDirection(earthFixedToStage)
     .normalize();
   moon.position.copy(moonStagePosition);
+  moon.quaternion.setFromUnitVectors(
+    new THREE.Vector3(1, 0, 0),
+    moonStagePosition.clone().negate().normalize(),
+  );
   sunAngularRadiusRad = Math.asin(
     SUN_RADIUS_KM / frameValue.sunMoonDistanceKm,
   );
