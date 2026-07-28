@@ -7,6 +7,8 @@ export interface InwardSurfaceRibbon {
   insetRadians: number;
 }
 
+export type SurfaceProjection = (direction: Vector3) => Vector3;
+
 function angleBetween(first: Vector3, second: Vector3): number {
   return Math.acos(Math.max(-1, Math.min(1, first.dot(second))));
 }
@@ -38,24 +40,27 @@ function moveToward(
 export function inwardSurfaceRibbon(
   points: Vector3[],
   maximumInsetRadians: number,
+  projectToSurface: SurfaceProjection = (direction) =>
+    direction.clone().normalize(),
 ): InwardSurfaceRibbon {
   if (!Number.isFinite(maximumInsetRadians) || maximumInsetRadians <= 0) {
     throw new RangeError("Surface-ribbon inset must be a positive angle.");
   }
   const boundary = closedCurveControlPoints(points).map((point) =>
-    point.clone().normalize(),
+    point.clone(),
   );
   if (boundary.length < 3) {
     return { boundary: [], inset: [], insetRadians: 0 };
   }
-  const centre = boundary
+  const directions = boundary.map((point) => point.clone().normalize());
+  const centre = directions
     .reduce((sum, point) => sum.add(point), new Vector3())
     .normalize();
   if (centre.lengthSq() < 1e-12) {
     throw new Error("Cannot inset a boundary without a spherical centre.");
   }
   const minimumRadiusRadians = Math.min(
-    ...boundary.map((point) => angleBetween(point, centre)),
+    ...directions.map((point) => angleBetween(point, centre)),
   );
   const insetRadians = Math.min(
     maximumInsetRadians,
@@ -63,8 +68,8 @@ export function inwardSurfaceRibbon(
   );
   return {
     boundary,
-    inset: boundary.map((point) =>
-      moveToward(point, centre, insetRadians),
+    inset: directions.map((point) =>
+      projectToSurface(moveToward(point, centre, insetRadians)),
     ),
     insetRadians,
   };

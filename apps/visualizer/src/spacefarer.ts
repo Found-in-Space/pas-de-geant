@@ -10,7 +10,13 @@ import {
   type EclipseSummary,
 } from "@found-in-space/shadowline";
 import type { CartesianBasis } from "./celestial-frame.js";
-import { closedCurveControlPoints } from "./closed-curve.js";
+import {
+  WGS84_DISPLAY_AXES,
+  createGeodeticEllipsoidGeometry,
+  ecefKmToDisplay,
+  geodeticDisplayPosition,
+  projectDirectionToWgs84Display,
+} from "./earth-ellipsoid.js";
 import { FreeSpaceControls } from "./free-space-controls.js";
 import { inwardSurfaceRibbon } from "./surface-ribbon.js";
 
@@ -128,13 +134,10 @@ function stageOrientation(earthFromSun: THREE.Vector3): THREE.Matrix4 {
     .clone()
     .addScaledVector(stageX, -inertialNorth.dot(stageX));
   if (stageY.lengthSq() < 1e-8) {
-    stageY = new THREE.Vector3(0, 0, 1)
-      .addScaledVector(stageX, -stageX.z);
+    stageY = new THREE.Vector3(0, 0, 1).addScaledVector(stageX, -stageX.z);
   }
   stageY.normalize();
-  const stageZ = new THREE.Vector3()
-    .crossVectors(stageX, stageY)
-    .normalize();
+  const stageZ = new THREE.Vector3().crossVectors(stageX, stageY).normalize();
   return new THREE.Matrix4().set(
     stageX.x,
     stageX.y,
@@ -153,6 +156,26 @@ function stageOrientation(earthFromSun: THREE.Vector3): THREE.Matrix4 {
     0,
     1,
   );
+}
+
+function withLogarithmicDepthBias<T extends THREE.Material>(
+  material: T,
+  bias: number,
+  cacheKey: string,
+): T {
+  const existingCompile = material.onBeforeCompile.bind(material);
+  material.onBeforeCompile = (shader, webglRenderer) => {
+    existingCompile(shader, webglRenderer);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <logdepthbuf_fragment>",
+      `#include <logdepthbuf_fragment>
+#if defined( USE_LOGARITHMIC_DEPTH_BUFFER )
+  gl_FragDepth = max( 0.0, gl_FragDepth - ${bias.toExponential(8)} );
+#endif`,
+    );
+  };
+  material.customProgramCacheKey = () => cacheKey;
+  return material;
 }
 
 function deterministicStars(): THREE.Points {
@@ -181,10 +204,7 @@ function deterministicStars(): THREE.Points {
     "position",
     new THREE.Float32BufferAttribute(positions, 3),
   );
-  geometry.setAttribute(
-    "color",
-    new THREE.Float32BufferAttribute(colors, 3),
-  );
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   return new THREE.Points(
     geometry,
     new THREE.PointsMaterial({
@@ -238,17 +258,12 @@ const earthFixedGroup = new THREE.Group();
 earthFixedGroup.matrixAutoUpdate = false;
 physicalRoot.add(earthFixedGroup);
 
-const earthTexture = new THREE.TextureLoader().load(
-  "/bluemarble-2048.png",
-);
+const earthTexture = new THREE.TextureLoader().load("/bluemarble-2048.png");
 earthTexture.colorSpace = THREE.SRGBColorSpace;
-earthTexture.anisotropy = Math.min(
-  8,
-  renderer.capabilities.getMaxAnisotropy(),
-);
+earthTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 
 const earth = new THREE.Mesh(
-  new THREE.SphereGeometry(1, 96, 64),
+  createGeodeticEllipsoidGeometry(256, 128),
   new THREE.MeshStandardMaterial({
     map: earthTexture,
     color: 0xffffff,
@@ -262,7 +277,7 @@ const earth = new THREE.Mesh(
 earthFixedGroup.add(earth);
 
 const atmosphere = new THREE.Mesh(
-  new THREE.SphereGeometry(1.025, 72, 48),
+  createGeodeticEllipsoidGeometry(128, 64, 100),
   new THREE.MeshBasicMaterial({
     color: 0x79ddeb,
     transparent: true,
@@ -280,12 +295,7 @@ function graticule(): THREE.LineSegments {
     positions.push(first.x, first.y, first.z, second.x, second.y, second.z);
   };
   const spherePoint = (latitude: number, longitude: number) => {
-    const cosine = Math.cos(latitude);
-    return new THREE.Vector3(
-      cosine * Math.cos(longitude),
-      Math.sin(latitude),
-      -cosine * Math.sin(longitude),
-    ).multiplyScalar(1.006);
+    return geodeticDisplayPosition(latitude, longitude);
   };
   for (let latitudeDeg = -60; latitudeDeg <= 60; latitudeDeg += 30) {
     const latitude = THREE.MathUtils.degToRad(latitudeDeg);
@@ -310,33 +320,33 @@ function graticule(): THREE.LineSegments {
     "position",
     new THREE.Float32BufferAttribute(positions, 3),
   );
-  return new THREE.LineSegments(
+  const result = new THREE.LineSegments(
     geometry,
-    new THREE.LineBasicMaterial({
-      color: 0xa7edf3,
-      transparent: true,
-      opacity: 0.18,
-      depthWrite: false,
-    }),
+    withLogarithmicDepthBias(
+      new THREE.LineBasicMaterial({
+        color: 0xa7edf3,
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
+      2e-7,
+      "spacefarer-graticule-depth-bias-v1",
+    ),
   );
+  result.renderOrder = 4;
+  return result;
 }
 earthFixedGroup.add(graticule());
 
-const moonTexture = new THREE.TextureLoader().load(
-  "/lroc-color-2k.jpg",
-);
+const moonTexture = new THREE.TextureLoader().load("/lroc-color-2k.jpg");
 moonTexture.colorSpace = THREE.SRGBColorSpace;
-moonTexture.anisotropy = Math.min(
-  8,
-  renderer.capabilities.getMaxAnisotropy(),
-);
+moonTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 
 const moon = new THREE.Mesh(
-  new THREE.SphereGeometry(
-    MOON_RADIUS_KM / EARTH_MEAN_RADIUS_KM,
-    64,
-    40,
-  ),
+  new THREE.SphereGeometry(MOON_RADIUS_KM / EARTH_MEAN_RADIUS_KM, 64, 40),
   new THREE.MeshStandardMaterial({
     map: moonTexture,
     color: 0xffffff,
@@ -354,6 +364,7 @@ earthFixedGroup.add(ringLayer);
 const coneLayer = new THREE.Group();
 const guideLayer = new THREE.Group();
 physicalRoot.add(coneLayer, guideLayer);
+const stageToEarthFixed = new THREE.Matrix4();
 
 function disposeObject(object: THREE.Object3D): void {
   const candidate = object as THREE.Mesh | THREE.Line;
@@ -373,60 +384,36 @@ function clearLayer(layer: THREE.Group): void {
   }
 }
 
-function addRing(
-  points: CartesianVector[],
-  color: number,
-  radius: number,
-): void {
-  const curvePoints = closedCurveControlPoints(
-    points.map((point) =>
-      vector(point, 1.014 / EARTH_MEAN_RADIUS_KM),
-    ),
-  );
-  if (curvePoints.length < 3) return;
-  const curve = new THREE.CatmullRomCurve3(
-    curvePoints,
-    true,
-    "centripetal",
-    0.25,
-  );
-  const geometry = new THREE.TubeGeometry(
-    curve,
-    Math.max(32, curvePoints.length * 2),
-    radius,
-    5,
-    true,
-  );
-  const material = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.92,
-    depthWrite: false,
-  });
-  const tube = new THREE.Mesh(geometry, material);
-  tube.renderOrder = 5;
-  ringLayer.add(tube);
-}
-
-function addInwardBoundary(
+function addSurfaceBoundary(
   points: CartesianVector[],
   color: number,
   maximumWidthRadians: number,
+  renderOrder: number,
 ): void {
   const ribbon = inwardSurfaceRibbon(
-    points.map((point) => vector(point)),
+    points.map((point) => ecefKmToDisplay(point)),
     maximumWidthRadians,
+    projectDirectionToWgs84Display,
   );
   if (ribbon.boundary.length < 3) return;
-  // Keep the outline on the physical Earth surface. A depth bias below keeps
-  // this coplanar overlay visible without introducing a false altitude.
-  const surfaceRadius = 1;
   const positions: number[] = [];
+  const colors: number[] = [];
   const indices: number[] = [];
+  const boundaryColor = new THREE.Color(color);
   for (let index = 0; index < ribbon.boundary.length; index += 1) {
-    const outer = ribbon.boundary[index]!.clone().multiplyScalar(surfaceRadius);
-    const inner = ribbon.inset[index]!.clone().multiplyScalar(surfaceRadius);
+    const outer = ribbon.boundary[index]!;
+    const inner = ribbon.inset[index]!;
     positions.push(outer.x, outer.y, outer.z, inner.x, inner.y, inner.z);
+    colors.push(
+      boundaryColor.r,
+      boundaryColor.g,
+      boundaryColor.b,
+      1,
+      boundaryColor.r,
+      boundaryColor.g,
+      boundaryColor.b,
+      0,
+    );
   }
   for (let index = 0; index < ribbon.boundary.length; index += 1) {
     const next = (index + 1) % ribbon.boundary.length;
@@ -434,37 +421,39 @@ function addInwardBoundary(
     const inner = outer + 1;
     const nextOuter = next * 2;
     const nextInner = nextOuter + 1;
-    indices.push(
-      outer,
-      inner,
-      nextOuter,
-      nextOuter,
-      inner,
-      nextInner,
-    );
+    indices.push(outer, inner, nextOuter, nextOuter, inner, nextInner);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
     new THREE.Float32BufferAttribute(positions, 3),
   );
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 4));
   geometry.setIndex(indices);
-  const material = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.94,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
+  const material = withLogarithmicDepthBias(
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.94,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+      alphaToCoverage: true,
+    }),
+    4e-7,
+    "spacefarer-surface-boundary-depth-bias-v1",
+  );
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.renderOrder = 6;
+  mesh.renderOrder = renderOrder;
   ringLayer.add(mesh);
 }
 
-function perpendicularBasis(axis: THREE.Vector3): [THREE.Vector3, THREE.Vector3] {
+function perpendicularBasis(
+  axis: THREE.Vector3,
+): [THREE.Vector3, THREE.Vector3] {
   const reference =
     Math.abs(axis.y) < 0.82
       ? new THREE.Vector3(0, 1, 0)
@@ -482,7 +471,7 @@ function coneSurface(
   color: number,
   opacity: number,
 ): THREE.Mesh {
-  const radialSegments = 72;
+  const radialSegments = 180;
   const lengthSegments = 96;
   const [first, second] = perpendicularBasis(axis);
   const positions: number[] = [];
@@ -491,8 +480,7 @@ function coneSurface(
     const along = (displayLength * alongIndex) / lengthSegments;
     const physicalAlongKm = along * EARTH_MEAN_RADIUS_KM;
     const physicalRadiusKm = MOON_RADIUS_KM + slope * physicalAlongKm;
-    const displayRadius =
-      Math.abs(physicalRadiusKm) / EARTH_MEAN_RADIUS_KM;
+    const displayRadius = Math.abs(physicalRadiusKm) / EARTH_MEAN_RADIUS_KM;
     const center = start.clone().addScaledVector(axis, along);
     for (let radialIndex = 0; radialIndex <= radialSegments; radialIndex += 1) {
       const angle = (radialIndex / radialSegments) * Math.PI * 2;
@@ -533,6 +521,42 @@ function coneSurface(
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms["stageToEarthFixed"] = {
+      value: stageToEarthFixed,
+    };
+    shader.uniforms["wgs84DisplayAxes"] = {
+      value: WGS84_DISPLAY_AXES,
+    };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+varying vec3 vStagePosition;`,
+      )
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+vStagePosition = transformed;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+uniform mat4 stageToEarthFixed;
+uniform vec3 wgs84DisplayAxes;
+varying vec3 vStagePosition;`,
+      )
+      .replace(
+        "#include <clipping_planes_fragment>",
+        `#include <clipping_planes_fragment>
+vec3 earthFixedPosition =
+  ( stageToEarthFixed * vec4( vStagePosition, 1.0 ) ).xyz;
+vec3 ellipsoidPosition = earthFixedPosition / wgs84DisplayAxes;
+if ( dot( ellipsoidPosition, ellipsoidPosition ) < 1.0 ) discard;`,
+      );
+  };
+  material.customProgramCacheKey = () => "spacefarer-wgs84-cone-clip-v1";
   const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 3;
   return mesh;
@@ -607,24 +631,20 @@ function updateCameraClipping(): void {
 }
 
 function updateStage(frameValue: ShadowFrame): void {
-  const ecefToInertial = ecefToInertialMatrix(
-    frameValue.ecefToEquatorialJ2000,
-  );
+  const ecefToInertial = ecefToInertialMatrix(frameValue.ecefToEquatorialJ2000);
   if (!inertialToStage) {
     const earthFromSun = vector(frameValue.sunEcefKm)
       .applyMatrix4(ecefToInertial)
       .multiplyScalar(-1);
     inertialToStage = stageOrientation(earthFromSun);
   }
-  const earthFixedToStage = inertialToStage
-    .clone()
-    .multiply(ecefToInertial);
+  const earthFixedToStage = inertialToStage.clone().multiply(ecefToInertial);
+  stageToEarthFixed.copy(earthFixedToStage).invert();
   earthFixedGroup.matrix.copy(earthFixedToStage);
   earthFixedGroup.matrixWorldNeedsUpdate = true;
-  moonStagePosition = vector(
-    frameValue.moonEcefKm,
-    1 / EARTH_MEAN_RADIUS_KM,
-  ).applyMatrix4(earthFixedToStage);
+  moonStagePosition = ecefKmToDisplay(frameValue.moonEcefKm).applyMatrix4(
+    earthFixedToStage,
+  );
   shadowAxisStage = vector(frameValue.direction)
     .transformDirection(earthFixedToStage)
     .normalize();
@@ -636,9 +656,7 @@ function updateStage(frameValue: ShadowFrame): void {
     new THREE.Vector3(1, 0, 0),
     moonStagePosition.clone().negate().normalize(),
   );
-  sunAngularRadiusRad = Math.asin(
-    SUN_RADIUS_KM / frameValue.sunMoonDistanceKm,
-  );
+  sunAngularRadiusRad = Math.asin(SUN_RADIUS_KM / frameValue.sunMoonDistanceKm);
   sunLight.position.copy(sunDirectionStage).multiplyScalar(100);
 }
 
@@ -686,9 +704,7 @@ function updateCones(frameValue: ShadowFrame): void {
     line(
       [
         moonStagePosition.clone(),
-        moonStagePosition
-          .clone()
-          .addScaledVector(shadowAxisStage, coneLength),
+        moonStagePosition.clone().addScaledVector(shadowAxisStage, coneLength),
       ],
       0xcad5e9,
       0.25,
@@ -700,10 +716,10 @@ function updateCones(frameValue: ShadowFrame): void {
 function updateFootprints(frameValue: ShadowFrame): void {
   clearLayer(ringLayer);
   for (const ring of frameValue.penumbraRings) {
-    addRing(ring, 0x7ee7f2, 0.008);
+    addSurfaceBoundary(ring, 0x7ee7f2, 0.0012, 5);
   }
   for (const ring of frameValue.centralRings) {
-    addInwardBoundary(ring, 0xd1c5ff, 0.0012);
+    addSurfaceBoundary(ring, 0xd1c5ff, 0.0012, 6);
   }
 }
 
@@ -735,10 +751,12 @@ function updateReadout(frameValue: ShadowFrame): void {
     ? `${diameterKm.toFixed(0)} km axial cone diameter`
     : "Central cone misses the surface";
   moonDistance.textContent = formatDistance(frameValue.moonEarthDistanceKm);
-  moonDistanceRadii.textContent =
-    `${(frameValue.moonEarthDistanceKm / EARTH_MEAN_RADIUS_KM).toFixed(2)} R⊕`;
-  sunAngle.textContent =
-    `${THREE.MathUtils.radToDeg(sunAngularRadiusRad * 2).toFixed(3)}° diameter`;
+  moonDistanceRadii.textContent = `${(
+    frameValue.moonEarthDistanceKm / EARTH_MEAN_RADIUS_KM
+  ).toFixed(2)} R⊕`;
+  sunAngle.textContent = `${THREE.MathUtils.radToDeg(
+    sunAngularRadiusRad * 2,
+  ).toFixed(3)}° diameter`;
 }
 
 function updateModel(): void {
@@ -916,7 +934,7 @@ function xrStick(source: XRInputSource | undefined): [number, number] {
 function deadzone(value: number): number {
   const magnitude = Math.abs(value);
   if (magnitude < 0.16) return 0;
-  return Math.sign(value) * (magnitude - 0.16) / 0.84;
+  return (Math.sign(value) * (magnitude - 0.16)) / 0.84;
 }
 
 function updateXrNavigation(deltaSeconds: number): void {
@@ -948,10 +966,7 @@ function updateXrNavigation(deltaSeconds: number): void {
   const boost = primary?.gamepad?.buttons.some((button) => button.pressed)
     ? 2.8
     : 1;
-  modelRoot.position.addScaledVector(
-    xrMovement,
-    -1.25 * boost * deltaSeconds,
-  );
+  modelRoot.position.addScaledVector(xrMovement, -1.25 * boost * deltaSeconds);
 }
 
 window.addEventListener("resize", () => {
@@ -975,8 +990,7 @@ function updateCelestialLayer(): void {
   sunDisc.position
     .copy(cameraWorldPosition)
     .addScaledVector(sunDirectionStage, SUN_DISC_DISTANCE);
-  const planeSize =
-    4 * SUN_DISC_DISTANCE * Math.tan(sunAngularRadiusRad);
+  const planeSize = 4 * SUN_DISC_DISTANCE * Math.tan(sunAngularRadiusRad);
   sunDisc.scale.set(planeSize, planeSize, 1);
 }
 
