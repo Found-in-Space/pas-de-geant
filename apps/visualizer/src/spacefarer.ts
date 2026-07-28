@@ -12,6 +12,7 @@ import {
 import type { CartesianBasis } from "./celestial-frame.js";
 import { closedCurveControlPoints } from "./closed-curve.js";
 import { FreeSpaceControls } from "./free-space-controls.js";
+import { inwardSurfaceRibbon } from "./surface-ribbon.js";
 
 interface ShadowFrame {
   event: EclipseSummary;
@@ -407,6 +408,57 @@ function addRing(
   ringLayer.add(tube);
 }
 
+function addInwardBoundary(
+  points: CartesianVector[],
+  color: number,
+  maximumWidthRadians: number,
+): void {
+  const ribbon = inwardSurfaceRibbon(
+    points.map((point) => vector(point)),
+    maximumWidthRadians,
+  );
+  if (ribbon.boundary.length < 3) return;
+  const elevation = 1.006;
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (let index = 0; index < ribbon.boundary.length; index += 1) {
+    const outer = ribbon.boundary[index]!.clone().multiplyScalar(elevation);
+    const inner = ribbon.inset[index]!.clone().multiplyScalar(elevation);
+    positions.push(outer.x, outer.y, outer.z, inner.x, inner.y, inner.z);
+  }
+  for (let index = 0; index < ribbon.boundary.length; index += 1) {
+    const next = (index + 1) % ribbon.boundary.length;
+    const outer = index * 2;
+    const inner = outer + 1;
+    const nextOuter = next * 2;
+    const nextInner = nextOuter + 1;
+    indices.push(
+      outer,
+      inner,
+      nextOuter,
+      nextOuter,
+      inner,
+      nextInner,
+    );
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions, 3),
+  );
+  geometry.setIndex(indices);
+  const material = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.94,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.renderOrder = 6;
+  ringLayer.add(mesh);
+}
+
 function perpendicularBasis(axis: THREE.Vector3): [THREE.Vector3, THREE.Vector3] {
   const reference =
     Math.abs(axis.y) < 0.82
@@ -646,7 +698,7 @@ function updateFootprints(frameValue: ShadowFrame): void {
     addRing(ring, 0x7ee7f2, 0.008);
   }
   for (const ring of frameValue.centralRings) {
-    addRing(ring, 0xd1c5ff, 0.014);
+    addInwardBoundary(ring, 0xd1c5ff, 0.0012);
   }
 }
 
