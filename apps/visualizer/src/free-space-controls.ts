@@ -245,7 +245,11 @@ export class FreeSpaceControls {
   };
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
-    if (!this.enabled || event.altKey || this.isEditableTarget(event.target)) {
+    if (
+      !this.enabled ||
+      event.altKey ||
+      this.blocksNavigationKey(event.target, event.code)
+    ) {
       return;
     }
     if (!this.isNavigationKey(event.code)) return;
@@ -268,12 +272,21 @@ export class FreeSpaceControls {
     event.preventDefault();
   };
 
-  private isEditableTarget(target: EventTarget | null): boolean {
-    return target instanceof HTMLElement &&
-      (target.isContentEditable ||
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLSelectElement ||
-        target instanceof HTMLTextAreaElement);
+  private blocksNavigationKey(
+    target: EventTarget | null,
+    code: string,
+  ): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    if (
+      target.isContentEditable ||
+      target instanceof HTMLSelectElement ||
+      target instanceof HTMLTextAreaElement
+    ) {
+      return true;
+    }
+    if (!(target instanceof HTMLInputElement)) return false;
+    if (target.type !== "range") return true;
+    return code.startsWith("Arrow");
   }
 
   private isNavigationKey(code: string): boolean {
