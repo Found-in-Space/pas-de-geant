@@ -260,23 +260,6 @@ const coneLayer = new THREE.Group();
 const guideLayer = new THREE.Group();
 earthCentricRenderGroup.add(coneLayer, guideLayer);
 
-const spainMarker = new THREE.Mesh(
-  new THREE.SphereGeometry(0.026, 18, 12),
-  new THREE.MeshBasicMaterial({ color: 0xffffff }),
-);
-const spainPosition = (() => {
-  const latitude = THREE.MathUtils.degToRad(40.42);
-  const longitude = THREE.MathUtils.degToRad(-3.7);
-  const cosine = Math.cos(latitude);
-  return new THREE.Vector3(
-    cosine * Math.cos(longitude),
-    Math.sin(latitude),
-    -cosine * Math.sin(longitude),
-  ).multiplyScalar(1.02);
-})();
-spainMarker.position.copy(spainPosition);
-earthTransform.add(spainMarker);
-
 function vector(value: CartesianVector, scaleValue = 1): THREE.Vector3 {
   return new THREE.Vector3(
     value.x * scaleValue,
