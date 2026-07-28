@@ -48,9 +48,7 @@ const vrSlot = element<HTMLDivElement>("vr-slot");
 const playButton = element<HTMLButtonElement>("play-button");
 const timeSlider = element<HTMLInputElement>("time-slider");
 const spacingSlider = element<HTMLInputElement>("spacing-slider");
-const umbraSlider = element<HTMLInputElement>("umbra-slider");
 const spacingOutput = element<HTMLOutputElement>("spacing-output");
-const umbraOutput = element<HTMLOutputElement>("umbra-output");
 const dateLabel = element<HTMLSpanElement>("date-label");
 const timeLabel = element<HTMLElement>("time-label");
 const shadowKind = element<HTMLSpanElement>("shadow-kind");
@@ -411,7 +409,6 @@ function coneSurface(
   slope: number,
   color: number,
   opacity: number,
-  radiusMultiplier = 1,
 ): THREE.Mesh {
   const radialSegments = 72;
   const lengthSegments = 42;
@@ -424,8 +421,7 @@ function coneSurface(
     const physicalRadiusKm =
       MOON_RADIUS_KM + slope * physicalAlongKm;
     const displayRadius =
-      (Math.abs(physicalRadiusKm) / EARTH_MEAN_RADIUS_KM) *
-      radiusMultiplier;
+      Math.abs(physicalRadiusKm) / EARTH_MEAN_RADIUS_KM;
     const center = start.clone().addScaledVector(axis, along);
     for (let radialIndex = 0; radialIndex <= radialSegments; radialIndex += 1) {
       const angle = (radialIndex / radialSegments) * Math.PI * 2;
@@ -638,7 +634,6 @@ function updateModel(): void {
     (SUN_RADIUS_KM + MOON_RADIUS_KM) / frame.sunMoonDistanceKm;
   const umbraSlope =
     -(SUN_RADIUS_KM - MOON_RADIUS_KM) / frame.sunMoonDistanceKm;
-  const umbraMagnification = Number(umbraSlider.value);
 
   clearLayer(coneLayer);
   clearLayer(guideLayer);
@@ -662,7 +657,6 @@ function updateModel(): void {
       umbraSlope,
       0x9d7cff,
       0.22,
-      umbraMagnification,
     ),
   );
   guideLayer.add(
@@ -775,7 +769,6 @@ function updateModel(): void {
       : sceneMoonDistance > 6.2
         ? "expanded"
         : "balanced";
-  umbraOutput.textContent = `${umbraMagnification.toFixed(0)}×`;
 }
 
 function setMode(mode: DisplayMode): void {
@@ -788,7 +781,6 @@ readableModeButton.addEventListener("click", () => setMode("readable"));
 affineModeButton.addEventListener("click", () => setMode("affine"));
 
 spacingSlider.addEventListener("input", updateModel);
-umbraSlider.addEventListener("input", updateModel);
 
 timeSlider.addEventListener("input", () => {
   playing = false;

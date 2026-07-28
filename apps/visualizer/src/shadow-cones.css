@@ -541,6 +541,32 @@ input[type="range"] {
   height: 14px;
 }
 
+.cone-scale-note {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 9px;
+  align-items: baseline;
+  color: #8995a7;
+}
+
+.cone-scale-note span {
+  color: var(--violet-soft);
+  font-size: 0.62rem;
+  font-weight: 760;
+}
+
+.cone-scale-note strong {
+  justify-self: end;
+  color: #d8dde7;
+  font-size: 0.64rem;
+}
+
+.cone-scale-note small {
+  grid-column: 1 / -1;
+  color: #737f92;
+  font-size: 0.56rem;
+}
+
 .metric {
   display: grid;
   gap: 2px;
@@ -726,6 +752,11 @@ input[type="range"] {
   .timeline-secondary > label input {
     grid-column: 1 / -1;
     grid-row: 2;
+  }
+
+  .cone-scale-note {
+    align-self: stretch;
+    align-content: center;
   }
 
   .loading-state,
