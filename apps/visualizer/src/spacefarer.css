@@ -24,6 +24,11 @@ body {
   box-shadow: 0 0 12px rgb(242 185 77 / 72%);
 }
 
+.truth-marker.free-flight {
+  background: var(--space-blue);
+  box-shadow: 0 0 12px rgb(87 169 255 / 72%);
+}
+
 .legend-swatch.sunlight {
   background: #fff0bd;
   box-shadow: 0 0 11px rgb(255 224 135 / 90%);

@@ -1,7 +1,6 @@
 import "./spacefarer.css";
 
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { VRButton } from "three/addons/webxr/VRButton.js";
 import {
   EARTH_MEAN_RADIUS_KM,
@@ -11,6 +10,7 @@ import {
   type EclipseSummary,
 } from "@found-in-space/shadowline";
 import type { CartesianBasis } from "./celestial-frame.js";
+import { FreeSpaceControls } from "./free-space-controls.js";
 
 interface ShadowFrame {
   event: EclipseSummary;
@@ -68,6 +68,7 @@ const presetButtons: Record<ViewPreset, HTMLButtonElement> = {
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
   alpha: true,
+  logarithmicDepthBuffer: true,
   powerPreference: "high-performance",
 });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -86,14 +87,12 @@ const camera = new THREE.PerspectiveCamera(
   1200,
 );
 camera.position.set(0, 17, 52);
+camera.lookAt(-30, 0, 0);
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.055;
-controls.minDistance = 0.42;
-controls.maxDistance = 170;
-controls.target.set(-30, 0, 0);
-controls.update();
+const controls = new FreeSpaceControls(camera, renderer.domElement, {
+  navigationScale,
+  onNavigate: () => setActivePreset(null),
+});
 
 const modelRoot = new THREE.Group();
 const physicalRoot = new THREE.Group();
@@ -488,6 +487,38 @@ let sunAngularRadiusRad = THREE.MathUtils.degToRad(0.266);
 let activePreset: ViewPreset | null = "system";
 let initialViewApplied = false;
 
+function nearestSurfaceDistance(): number {
+  const earthSurfaceDistance = Math.abs(camera.position.length() - 1);
+  const moonSurfaceDistance = Math.abs(
+    camera.position.distanceTo(moonStagePosition) -
+      MOON_RADIUS_KM / EARTH_MEAN_RADIUS_KM,
+  );
+  return Math.min(earthSurfaceDistance, moonSurfaceDistance);
+}
+
+function navigationScale(): number {
+  return Math.max(0.0002, nearestSurfaceDistance() * 0.12);
+}
+
+function updateCameraClipping(): void {
+  const earthDistance = camera.position.length() + 1;
+  const moonDistance =
+    camera.position.distanceTo(moonStagePosition) +
+    MOON_RADIUS_KM / EARTH_MEAN_RADIUS_KM;
+  const nextNear = Math.max(
+    0.00001,
+    Math.min(0.02, nearestSurfaceDistance() * 0.003),
+  );
+  const nextFar = Math.max(1200, earthDistance * 3, moonDistance * 3);
+  const nearChanged = Math.abs(camera.near - nextNear) > nextNear * 0.08;
+  const farChanged = Math.abs(camera.far - nextFar) > nextFar * 0.08;
+  if (nearChanged || farChanged) {
+    camera.near = nextNear;
+    camera.far = nextFar;
+    camera.updateProjectionMatrix();
+  }
+}
+
 function updateStage(frameValue: ShadowFrame): void {
   const ecefToInertial = ecefToInertialMatrix(
     frameValue.ecefToEquatorialJ2000,
@@ -672,17 +703,14 @@ function applyViewPreset(preset: ViewPreset): void {
       .addScaledVector(side, separation * 0.82)
       .addScaledVector(up, separation * 0.29);
   }
-  controls.target.copy(target);
   camera.position.copy(position);
-  camera.near = preset === "moon" ? 0.008 : 0.02;
-  camera.updateProjectionMatrix();
-  controls.update();
+  camera.lookAt(target);
+  updateCameraClipping();
 }
 
 for (const [name, button] of Object.entries(presetButtons)) {
   button.addEventListener("click", () => applyViewPreset(name as ViewPreset));
 }
-controls.addEventListener("start", () => setActivePreset(null));
 
 const worker = new Worker(
   new URL("./shadow-cones-worker.ts", import.meta.url),
@@ -819,7 +847,8 @@ function render(nowMs: number): void {
       requestFrame(currentTimeMs);
     }
   }
-  controls.update();
+  controls.update(elapsedMs / 1000);
+  updateCameraClipping();
   updateCelestialLayer();
   renderer.render(scene, camera);
 }
