@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+      name="description"
+      content="Explore the Earth–Moon eclipse system at one honest physical scale, with the Sun represented as a distant celestial disc."
+    >
+    <meta name="theme-color" content="#060914">
+    <title>Spacefarer — Shadowline</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#spacefarer-panel">Skip to explanation</a>
+
+    <main class="experience">
+      <div id="scene-root" class="scene-root" aria-hidden="true"></div>
+
+      <header class="topbar">
+        <a class="back-link" href="../shadow-cones/" aria-label="Back to the Shadowline shadow-cone model">
+          <span aria-hidden="true">←</span>
+          <span>Shadow-cone model</span>
+        </a>
+        <div class="topbar-title">
+          <span class="topbar-kicker">Shadowline field view</span>
+          <strong>Spacefarer</strong>
+        </div>
+        <div id="vr-slot" class="vr-slot"></div>
+      </header>
+
+      <aside id="spacefarer-panel" class="tutorial-panel spacefarer-panel">
+        <p class="eyebrow">One physical scale · Earth to Moon</p>
+        <h1>The interesting space begins at Earth and ends at the Moon.</h1>
+        <p class="lede">
+          Earth and Moon use their real relative radii, separation, and inertial
+          positions. The Sun is a fixed celestial disc: it supplies direction,
+          angular size, and light, but occupies no modelled distance.
+        </p>
+
+        <div class="mode-control view-control" role="group" aria-label="Spacefarer viewpoint">
+          <button id="system-view" class="mode-button is-active" type="button" aria-pressed="true">
+            <span>Whole system</span>
+            <small>Earth and Moon together</small>
+          </button>
+          <button id="earth-view" class="mode-button" type="button" aria-pressed="false">
+            <span>Earth orbit</span>
+            <small>Inspect the arriving shadow</small>
+          </button>
+          <button id="moon-view" class="mode-button" type="button" aria-pressed="false">
+            <span>Moon orbit</span>
+            <small>See where both cones begin</small>
+          </button>
+          <button id="shadow-view" class="mode-button" type="button" aria-pressed="false">
+            <span>Shadow corridor</span>
+            <small>Travel along the real cone</small>
+          </button>
+        </div>
+
+        <div class="truth-table" aria-label="Spacefarer scale explanation">
+          <div>
+            <span class="truth-marker accurate"></span>
+            <p><strong>One scale</strong> Earth, Moon, their separation, and both shadow cones share the same uniform scale.</p>
+          </div>
+          <div>
+            <span class="truth-marker celestial"></span>
+            <p><strong>Celestial Sun</strong> A separate sky plane preserves its physical direction and apparent diameter without rendering 150 million kilometres.</p>
+          </div>
+        </div>
+
+        <details class="equation-note">
+          <summary>How can a flat Sun still make exact cones?</summary>
+          <p>
+            Cone slopes depend on the Sun’s angular radius and the physical
+            Sun–Moon distance, not on drawing a solar sphere. Shadowline keeps
+            those quantities in the calculation while the renderer shows only
+            the resulting distant disc.
+          </p>
+        </details>
+      </aside>
+
+      <section class="legend-panel" aria-label="3D model legend">
+        <span><i class="legend-swatch penumbra"></i>Penumbra</span>
+        <span><i class="legend-swatch umbra"></i>Umbra</span>
+        <span><i class="legend-swatch footprint"></i>Surface footprint</span>
+        <span><i class="legend-swatch sunlight"></i>Sun direction</span>
+      </section>
+
+      <section class="timeline-panel spacefarer-timeline" aria-label="Eclipse time controls">
+        <div class="timeline-primary">
+          <button id="play-button" class="play-button" type="button" aria-label="Play eclipse">
+            <span aria-hidden="true">▶</span>
+          </button>
+          <div class="time-readout">
+            <span id="date-label">12 August 2026</span>
+            <strong id="time-label">17:45:47 UTC</strong>
+          </div>
+          <label class="timeline-slider-label" for="time-slider">
+            <span class="sr-only">Eclipse time</span>
+            <input id="time-slider" type="range" min="0" max="6960" step="1" value="3480">
+          </label>
+          <div class="shadow-status">
+            <span id="status-dot" class="status-dot"></span>
+            <div>
+              <span id="shadow-kind">Calculating alignment…</span>
+              <strong id="umbra-width">—</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-secondary">
+          <div class="scale-badge">
+            <span>Geometry</span>
+            <strong>1 uniform Earth–Moon scale</strong>
+            <small>No adjustable spacing</small>
+          </div>
+          <div class="metric">
+            <span>Earth–Moon</span>
+            <strong id="moon-distance">—</strong>
+          </div>
+          <div class="metric">
+            <span>Moon distance</span>
+            <strong id="moon-distance-radii">—</strong>
+          </div>
+          <div class="metric">
+            <span>Solar disc</span>
+            <strong id="sun-angle">—</strong>
+          </div>
+          <p class="interaction-hint">Drag to orbit · Scroll to cross space · Double-click for the whole system</p>
+        </div>
+      </section>
+
+      <div id="loading-state" class="loading-state" role="status" aria-live="polite">
+        <div class="loading-orbit" aria-hidden="true"></div>
+        <p>Placing Earth and Moon at physical scale…</p>
+      </div>
+
+      <div id="error-state" class="error-state" role="alert" hidden>
+        <strong>Could not start Spacefarer</strong>
+        <p id="error-message">The physical model could not be calculated.</p>
+      </div>
+    </main>
+
+    <script type="module" src="../src/spacefarer.ts"></script>
+  </body>
+</html>

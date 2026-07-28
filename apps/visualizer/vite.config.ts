@@ -14,6 +14,10 @@ export default defineConfig({
           import.meta.dirname,
           "shadow-cones/index.html",
         ),
+        spacefarer: resolve(
+          import.meta.dirname,
+          "spacefarer/index.html",
+        ),
       },
     },
   },
