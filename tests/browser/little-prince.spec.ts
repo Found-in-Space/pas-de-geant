@@ -5,12 +5,18 @@ test("loads and operates the Little Planet desktop fallback", async ({
 }) => {
   const consoleErrors: string[] = [];
   let aircraftRequests = 0;
+  const blueMarbleRequests: string[] = [];
   page.on("console", (message) => {
     if (
       message.type() === "error" &&
       !message.text().startsWith("Failed to load resource:")
     ) {
       consoleErrors.push(message.text());
+    }
+  });
+  page.on("request", (request) => {
+    if (request.url().includes("BlueMarble_ShadedRelief_Bathymetry")) {
+      blueMarbleRequests.push(request.url());
     }
   });
   await page.route("https://gibs.earthdata.nasa.gov/**", (route) =>
@@ -56,6 +62,12 @@ test("loads and operates the Little Planet desktop fallback", async ({
   await expect(page.locator("#aircraft-readout")).toHaveText(
     "Off · optional",
   );
+  await expect.poll(() => blueMarbleRequests.length).toBeGreaterThan(0);
+  expect(
+    blueMarbleRequests.every(
+      (url) => url.includes("/wmts/") && !url.includes("/wms/"),
+    ),
+  ).toBe(true);
   await page.waitForTimeout(250);
   expect(aircraftRequests).toBe(0);
 

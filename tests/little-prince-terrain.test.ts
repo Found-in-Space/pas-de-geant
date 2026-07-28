@@ -1,34 +1,82 @@
 import { describe, expect, it } from "vitest";
 import {
+  ImageryLoadQueue,
   boundsForTile,
+  childrenForTile,
+  fallbackUvTransform,
+  imageryEvictionKeys,
+  imageryLoadTasksForTiles,
+  imageryUvTransform,
   imageryUrlForTile,
+  previewAddressForTile,
+  rawBoundsForTile,
   selectTerrainTiles,
   terrainBoundingExpansion,
   terrainHorizonDegrees,
+  tileMatrixDimensions,
 } from "../apps/little-prince/src/terrain-tiles.js";
 
 describe("Little Planet terrain selection", () => {
-  it("uses two geographic root tiles", () => {
+  it("uses the clipped native GIBS geographic grid", () => {
+    expect(tileMatrixDimensions(0)).toEqual({ columns: 2, rows: 1 });
+    expect(tileMatrixDimensions(1)).toEqual({ columns: 3, rows: 2 });
+    expect(tileMatrixDimensions(7)).toEqual({ columns: 160, rows: 80 });
     expect(boundsForTile({ z: 0, x: 0, y: 0 })).toEqual({
       west: -180,
-      east: 0,
+      east: 108,
       north: 90,
       south: -90,
     });
     expect(boundsForTile({ z: 0, x: 1, y: 0 })).toEqual({
-      west: 0,
+      west: 108,
       east: 180,
       north: 90,
       south: -90,
     });
+    expect(rawBoundsForTile({ z: 0, x: 1, y: 0 })).toEqual({
+      west: 108,
+      east: 396,
+      north: 90,
+      south: -198,
+    });
+    expect(childrenForTile({ z: 0, x: 1, y: 0 })).toEqual([
+      { z: 1, x: 2, y: 0 },
+      { z: 1, x: 2, y: 1 },
+    ]);
   });
 
-  it("requests NASA imagery for the exact geographic tile bounds", () => {
-    const url = new URL(imageryUrlForTile({ z: 5, x: 31, y: 8 }));
+  it("requests cacheable NASA WMTS tiles directly", () => {
+    const url = new URL(imageryUrlForTile({ z: 6, x: 39, y: 11 }));
     expect(url.hostname).toBe("gibs.earthdata.nasa.gov");
-    expect(url.searchParams.get("SERVICE")).toBe("WMS");
-    expect(url.searchParams.get("VERSION")).toBe("1.1.1");
-    expect(url.searchParams.get("BBOX")).toBe("-5.625,39.375,0,45");
+    expect(url.pathname).toBe(
+      "/wmts/epsg4326/best/BlueMarble_ShadedRelief_Bathymetry/" +
+        "default/500m/6/11/39.jpeg",
+    );
+    expect(url.search).toBe("");
+  });
+
+  it("maps the fallback, preview, and exact imagery without edge seams", () => {
+    const address = { z: 7, x: 78, y: 22 };
+    const preview = previewAddressForTile(address);
+    expect(preview).toEqual({ z: 5, x: 19, y: 5 });
+    expect(imageryUvTransform(address, preview)).toEqual({
+      scaleX: 0.25,
+      scaleY: 0.25,
+      offsetX: 0.5,
+      offsetY: 0.5,
+    });
+    expect(imageryUvTransform(address, address)).toEqual({
+      scaleX: 1,
+      scaleY: 1,
+      offsetX: 0,
+      offsetY: 0,
+    });
+    expect(fallbackUvTransform({ z: 0, x: 1, y: 0 })).toEqual({
+      scaleX: 0.8,
+      scaleY: 1.6,
+      offsetX: 0.8,
+      offsetY: 0,
+    });
   });
 
   it("keeps Quest-scale tile counts bounded while refining the apex", () => {
@@ -56,5 +104,106 @@ describe("Little Planet terrain selection", () => {
       selectTerrainTiles(40, -4, radius, 1).length,
     );
     expect(selectTerrainTiles(40, -4, 318.55, 20).length).toBeLessThan(400);
+  });
+});
+
+describe("Little Planet imagery scheduling", () => {
+  it("deduplicates shared previews and prioritizes them before exact tiles", () => {
+    const tasks = imageryLoadTasksForTiles([
+      { z: 7, x: 78, y: 22 },
+      { z: 7, x: 79, y: 22 },
+      { z: 7, x: 90, y: 20 },
+    ]);
+    expect(tasks.map((task) => task.address)).toEqual([
+      { z: 5, x: 19, y: 5 },
+      { z: 5, x: 22, y: 5 },
+      { z: 7, x: 78, y: 22 },
+      { z: 7, x: 79, y: 22 },
+      { z: 7, x: 90, y: 20 },
+    ]);
+    expect(tasks.slice(0, 2).every((task) => task.priority < 1_000)).toBe(
+      true,
+    );
+    expect(tasks.slice(2).every((task) => task.priority >= 1_000)).toBe(true);
+  });
+
+  it("caps concurrent requests at six and starts the next queued tile", async () => {
+    const releases: Array<() => void> = [];
+    let active = 0;
+    let maximumActive = 0;
+    const queue = new ImageryLoadQueue<number>(
+      (address) =>
+        new Promise((resolve) => {
+          active += 1;
+          maximumActive = Math.max(maximumActive, active);
+          releases.push(() => {
+            active -= 1;
+            resolve(address.x);
+          });
+        }),
+      () => undefined,
+      () => undefined,
+    );
+    queue.sync(
+      Array.from({ length: 7 }, (_, x) => ({
+        address: { z: 3, x, y: 0 },
+        priority: x,
+      })),
+    );
+    expect(queue.activeCount).toBe(6);
+    expect(queue.queuedCount).toBe(1);
+    expect(maximumActive).toBe(6);
+
+    releases.shift()?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(queue.activeCount).toBe(6);
+    expect(queue.queuedCount).toBe(0);
+    expect(maximumActive).toBe(6);
+    for (const release of releases) release();
+    queue.dispose();
+  });
+
+  it("aborts stale work without reporting it as a failed request", async () => {
+    let aborted = false;
+    const failures: unknown[] = [];
+    const queue = new ImageryLoadQueue<number>(
+      (_address, signal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+              const error = new Error("aborted");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
+        }),
+      () => undefined,
+      (_task, error) => failures.push(error),
+    );
+    queue.sync([
+      {
+        address: { z: 3, x: 1, y: 1 },
+        priority: 0,
+      },
+    ]);
+    queue.sync([]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(aborted).toBe(true);
+    expect(queue.activeCount).toBe(0);
+    expect(failures).toEqual([]);
+  });
+
+  it("evicts the oldest unpinned textures at the 48-texture ceiling", () => {
+    const items = Array.from({ length: 50 }, (_, index) => ({
+      key: `tile-${index}`,
+      usedAt: index,
+    }));
+    expect(imageryEvictionKeys(items, new Set(["tile-0"]))).toEqual([
+      "tile-1",
+      "tile-2",
+    ]);
   });
 });

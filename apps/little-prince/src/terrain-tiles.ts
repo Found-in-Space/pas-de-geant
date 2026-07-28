@@ -159,6 +159,18 @@ export function imageryUvTransform(
   };
 }
 
+export function isTileAncestor(
+  possibleAncestor: TileAddress,
+  address: TileAddress,
+): boolean {
+  if (possibleAncestor.z > address.z) return false;
+  const divisor = 2 ** (address.z - possibleAncestor.z);
+  return (
+    Math.floor(address.x / divisor) === possibleAncestor.x &&
+    Math.floor(address.y / divisor) === possibleAncestor.y
+  );
+}
+
 export function fallbackUvTransform(address: TileAddress): UvTransform {
   const raw = rawBoundsForTile(address);
   return {
@@ -515,15 +527,22 @@ function terrainMaterial(
   fallbackTexture: THREE.Texture,
   address: TileAddress,
 ): THREE.ShaderMaterial {
-  const rows = 2 ** address.z;
-  const columns = rows * 2;
+  const fallbackTransform = fallbackUvTransform(address);
   return new THREE.ShaderMaterial({
     uniforms: {
       heightMap: { value: relief.texture },
       imageMap: { value: fallbackTexture },
-      imageScale: { value: new THREE.Vector2(1 / columns, 1 / rows) },
+      imageScale: {
+        value: new THREE.Vector2(
+          fallbackTransform.scaleX,
+          fallbackTransform.scaleY,
+        ),
+      },
       imageOffset: {
-        value: new THREE.Vector2(address.x / columns, address.y / rows),
+        value: new THREE.Vector2(
+          fallbackTransform.offsetX,
+          fallbackTransform.offsetY,
+        ),
       },
       normalizedRadialMetres: { value: 0 },
       oceanSurface: { value: 1 },
@@ -598,20 +617,211 @@ function terrainMaterial(
   });
 }
 
+function abortError(): Error {
+  if (typeof DOMException === "function") {
+    return new DOMException("The imagery request was aborted.", "AbortError");
+  }
+  const error = new Error("The imagery request was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+export function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+export function imageryEvictionKeys(
+  items: Array<{ key: string; usedAt: number }>,
+  pinned: ReadonlySet<string>,
+  limit = IMAGERY_CACHE_LIMIT,
+): string[] {
+  const removeCount = Math.max(0, items.length - limit);
+  return items
+    .filter((item) => !pinned.has(item.key))
+    .sort((first, second) => first.usedAt - second.usedAt)
+    .slice(0, removeCount)
+    .map((item) => item.key);
+}
+
+export class ImageryLoadQueue<T> {
+  private readonly wanted = new Map<string, ImageryLoadTask>();
+  private readonly active = new Map<
+    string,
+    { task: ImageryLoadTask; controller: AbortController }
+  >();
+
+  constructor(
+    private readonly load: (
+      address: TileAddress,
+      signal: AbortSignal,
+    ) => Promise<T>,
+    private readonly onLoaded: (task: ImageryLoadTask, value: T) => void,
+    private readonly onFailed: (
+      task: ImageryLoadTask,
+      error: unknown,
+    ) => void,
+    readonly concurrency = MAX_CONCURRENT_IMAGERY_REQUESTS,
+  ) {}
+
+  get activeCount(): number {
+    return this.active.size;
+  }
+
+  get queuedCount(): number {
+    let queued = 0;
+    for (const key of this.wanted.keys()) {
+      if (!this.active.has(key)) queued += 1;
+    }
+    return queued;
+  }
+
+  sync(tasks: ImageryLoadTask[]): void {
+    this.wanted.clear();
+    for (const task of tasks) {
+      const key = tileKey(task.address);
+      const existing = this.wanted.get(key);
+      if (!existing || task.priority < existing.priority) {
+        this.wanted.set(key, task);
+      }
+    }
+    for (const [key, request] of this.active) {
+      if (!this.wanted.has(key)) request.controller.abort();
+    }
+    this.pump();
+  }
+
+  dispose(): void {
+    this.wanted.clear();
+    for (const request of this.active.values()) {
+      request.controller.abort();
+    }
+  }
+
+  private pump(): void {
+    while (this.active.size < this.concurrency) {
+      const next = [...this.wanted.entries()]
+        .filter(([key]) => !this.active.has(key))
+        .sort((first, second) => {
+          const priority = first[1].priority - second[1].priority;
+          return priority || first[0].localeCompare(second[0]);
+        })[0];
+      if (!next) return;
+      const [key, task] = next;
+      const controller = new AbortController();
+      this.active.set(key, { task, controller });
+      void this.load(task.address, controller.signal)
+        .then((value) => {
+          if (!controller.signal.aborted) this.onLoaded(task, value);
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) this.onFailed(task, error);
+        })
+        .finally(() => {
+          this.active.delete(key);
+          const wanted = this.wanted.get(key);
+          if (wanted === task) this.wanted.delete(key);
+          this.pump();
+        });
+    }
+  }
+}
+
+async function imageElementForBlob(
+  blob: Blob,
+  signal: AbortSignal,
+): Promise<HTMLImageElement> {
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      const cleanup = (): void => {
+        signal.removeEventListener("abort", handleAbort);
+      };
+      const handleAbort = (): void => {
+        cleanup();
+        image.src = "";
+        reject(abortError());
+      };
+      signal.addEventListener("abort", handleAbort, { once: true });
+      image.addEventListener(
+        "load",
+        () => {
+          cleanup();
+          resolve(image);
+        },
+        { once: true },
+      );
+      image.addEventListener(
+        "error",
+        () => {
+          cleanup();
+          reject(new Error("The imagery tile could not be decoded."));
+        },
+        { once: true },
+      );
+      image.src = objectUrl;
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function loadImageryTexture(
+  address: TileAddress,
+  signal: AbortSignal,
+): Promise<THREE.Texture> {
+  const response = await fetch(imageryUrlForTile(address), {
+    cache: "default",
+    mode: "cors",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Imagery tile request failed with ${response.status}.`);
+  }
+  const blob = await response.blob();
+  if (signal.aborted) throw abortError();
+  let texture: THREE.Texture;
+  if (typeof createImageBitmap === "function") {
+    const bitmap = await createImageBitmap(blob);
+    if (signal.aborted) {
+      bitmap.close();
+      throw abortError();
+    }
+    texture = new THREE.Texture(bitmap);
+    texture.addEventListener("dispose", () => bitmap.close());
+  } else {
+    texture = new THREE.Texture(await imageElementForBlob(blob, signal));
+  }
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.flipY = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 export class TerrainTileRenderer {
   readonly group = new THREE.Group();
   private readonly relief: ReliefDataset;
   private readonly fallbackTexture: THREE.Texture;
   private readonly rendered = new Map<string, RenderedTile>();
   private readonly imagery = new Map<string, CachedImagery>();
-  private readonly pendingImagery = new Set<string>();
   private readonly failedImageryUntil = new Map<string, number>();
+  private readonly imageryTargets = new Map<string, TileAddress>();
+  private readonly loadQueue: ImageryLoadQueue<THREE.Texture>;
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
   private lastSelectionSignature = "";
 
   constructor(relief: ReliefDataset, fallbackTexture: THREE.Texture) {
     this.relief = relief;
     this.fallbackTexture = fallbackTexture;
+    this.loadQueue = new ImageryLoadQueue(
+      loadImageryTexture,
+      (task, texture) => this.handleImageryLoaded(task, texture),
+      (task, error) => this.handleImageryFailed(task, error),
+    );
   }
 
   update(
@@ -668,30 +878,17 @@ export class TerrainTileRenderer {
       1.7,
       maximumElevationM,
     );
+    const imageryAddresses = prioritizeTerrainTiles(
+      selected.filter((address) => address.z >= 2),
+      latitudeDegrees,
+      longitudeDegrees,
+    ).slice(0, DETAIL_TILE_LIMIT);
+    this.imageryTargets.clear();
+    for (const address of imageryAddresses) {
+      this.imageryTargets.set(tileKey(address), address);
+    }
     const imageryKeys = new Set(
-      [...selected]
-        .filter((address) => address.z >= 2)
-        .sort((first, second) => {
-          if (first.z !== second.z) return second.z - first.z;
-          const firstBounds = boundsForTile(first);
-          const secondBounds = boundsForTile(second);
-          return (
-            angularDistanceDegrees(
-              latitudeDegrees,
-              longitudeDegrees,
-              (firstBounds.north + firstBounds.south) * 0.5,
-              (firstBounds.west + firstBounds.east) * 0.5,
-            ) -
-            angularDistanceDegrees(
-              latitudeDegrees,
-              longitudeDegrees,
-              (secondBounds.north + secondBounds.south) * 0.5,
-              (secondBounds.west + secondBounds.east) * 0.5,
-            )
-          );
-        })
-        .slice(0, TILE_CACHE_LIMIT)
-        .map(tileKey),
+      imageryAddresses.map((address) => tileKey(address)),
     );
     for (const address of selected) {
       const key = tileKey(address);
@@ -726,7 +923,11 @@ export class TerrainTileRenderer {
       }
       tile.lastUsedAt = now;
       tile.mesh.visible = true;
-      if (imageryKeys.has(key)) this.loadImagery(tile);
+      if (imageryKeys.has(key)) {
+        this.applyBestCachedImagery(tile);
+      } else {
+        this.applyFallbackImagery(tile);
+      }
     }
     for (const [key, tile] of this.rendered) {
       if (tile.lastUsedAt === now) continue;
@@ -735,9 +936,13 @@ export class TerrainTileRenderer {
       tile.mesh.material.dispose();
       this.rendered.delete(key);
     }
+    this.scheduleImagery();
+    this.evictImagery();
   }
 
   dispose(): void {
+    this.loadQueue.dispose();
+    if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
     for (const tile of this.rendered.values()) {
       tile.mesh.geometry.dispose();
       tile.mesh.material.dispose();
@@ -745,78 +950,151 @@ export class TerrainTileRenderer {
     for (const item of this.imagery.values()) item.texture.dispose();
     this.rendered.clear();
     this.imagery.clear();
-    this.pendingImagery.clear();
+    this.imageryTargets.clear();
     this.failedImageryUntil.clear();
   }
 
-  private loadImagery(tile: RenderedTile): void {
-    const address = tile.address;
-    const key = tileKey(address);
-    const existing = this.imagery.get(key);
-    if (existing) {
-      existing.usedAt = this.generation;
-      this.applyImagery(tile, existing.texture);
-      return;
+  private scheduleImagery(): void {
+    if (this.retryTimer !== undefined) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = undefined;
     }
-    const retryAt = this.failedImageryUntil.get(key) ?? 0;
-    if (retryAt > Date.now()) return;
-    this.failedImageryUntil.delete(key);
-    if (this.pendingImagery.has(key)) return;
-    this.pendingImagery.add(key);
-    textureLoader.load(
-      imageryUrlForTile(address),
-      (texture) => {
-        this.pendingImagery.delete(key);
-        this.failedImageryUntil.delete(key);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        texture.flipY = false;
-        texture.minFilter = THREE.LinearFilter;
-        texture.magFilter = THREE.LinearFilter;
-        texture.generateMipmaps = false;
-        this.imagery.set(key, { texture, usedAt: this.generation });
-        const current = this.rendered.get(key);
-        if (current) this.applyImagery(current, texture);
-        this.evictImagery();
-      },
-      undefined,
-      () => {
-        this.pendingImagery.delete(key);
-        this.failedImageryUntil.set(
-          key,
-          Date.now() + IMAGERY_RETRY_DELAY_MS,
-        );
-      },
+    const unresolvedTargets = [...this.imageryTargets.values()].filter(
+      (address) => !this.imagery.has(tileKey(address)),
     );
+    const tasks = imageryLoadTasksForTiles(unresolvedTargets);
+    const ready: ImageryLoadTask[] = [];
+    const now = Date.now();
+    let earliestRetry = Infinity;
+    for (const task of tasks) {
+      const key = tileKey(task.address);
+      if (this.imagery.has(key)) continue;
+      const retryAt = this.failedImageryUntil.get(key) ?? 0;
+      if (retryAt > now) {
+        earliestRetry = Math.min(earliestRetry, retryAt);
+      } else {
+        this.failedImageryUntil.delete(key);
+        ready.push(task);
+      }
+    }
+    this.loadQueue.sync(ready);
+    if (earliestRetry < Infinity) {
+      this.retryTimer = setTimeout(
+        () => {
+          this.retryTimer = undefined;
+          this.scheduleImagery();
+        },
+        Math.max(0, earliestRetry - now),
+      );
+    }
   }
 
-  private applyImagery(tile: RenderedTile, texture: THREE.Texture): void {
+  private handleImageryLoaded(
+    task: ImageryLoadTask,
+    texture: THREE.Texture,
+  ): void {
+    const key = tileKey(task.address);
+    const existing = this.imagery.get(key);
+    if (existing) {
+      texture.dispose();
+      existing.usedAt = this.generation;
+    } else {
+      this.imagery.set(key, { texture, usedAt: this.generation });
+    }
+    this.failedImageryUntil.delete(key);
+    const cachedTexture = this.imagery.get(key)?.texture;
+    if (cachedTexture) {
+      for (const [targetKey, targetAddress] of this.imageryTargets) {
+        if (!isTileAncestor(task.address, targetAddress)) continue;
+        const tile = this.rendered.get(targetKey);
+        if (tile) this.applyImagery(tile, task.address, cachedTexture);
+      }
+    }
+    this.evictImagery();
+    this.scheduleImagery();
+  }
+
+  private handleImageryFailed(
+    task: ImageryLoadTask,
+    error: unknown,
+  ): void {
+    if (isAbortError(error)) return;
+    this.failedImageryUntil.set(
+      tileKey(task.address),
+      Date.now() + IMAGERY_RETRY_DELAY_MS,
+    );
+    this.scheduleImagery();
+  }
+
+  private applyBestCachedImagery(tile: RenderedTile): void {
+    for (let level = tile.address.z; level >= 0; level -= 1) {
+      const source = previewAddressForTile(
+        tile.address,
+        tile.address.z - level,
+      );
+      const cached = this.imagery.get(tileKey(source));
+      if (!cached) continue;
+      cached.usedAt = this.generation;
+      this.applyImagery(tile, source, cached.texture);
+      return;
+    }
+    this.applyFallbackImagery(tile);
+  }
+
+  private applyImagery(
+    tile: RenderedTile,
+    source: TileAddress,
+    texture: THREE.Texture,
+  ): void {
+    if (
+      tile.imagerySource &&
+      tile.imagerySource.z > source.z
+    ) {
+      return;
+    }
+    const transform = imageryUvTransform(tile.address, source);
     tile.mesh.material.uniforms.imageMap!.value = texture;
-    tile.mesh.material.uniforms.imageScale!.value.set(1, 1);
-    tile.mesh.material.uniforms.imageOffset!.value.set(0, 0);
+    tile.mesh.material.uniforms.imageScale!.value.set(
+      transform.scaleX,
+      transform.scaleY,
+    );
+    tile.mesh.material.uniforms.imageOffset!.value.set(
+      transform.offsetX,
+      transform.offsetY,
+    );
+    tile.imagerySource = source;
+  }
+
+  private applyFallbackImagery(tile: RenderedTile): void {
+    const transform = fallbackUvTransform(tile.address);
+    tile.mesh.material.uniforms.imageMap!.value = this.fallbackTexture;
+    tile.mesh.material.uniforms.imageScale!.value.set(
+      transform.scaleX,
+      transform.scaleY,
+    );
+    tile.mesh.material.uniforms.imageOffset!.value.set(
+      transform.offsetX,
+      transform.offsetY,
+    );
+    tile.imagerySource = undefined;
   }
 
   private evictImagery(): void {
-    if (this.imagery.size <= TILE_CACHE_LIMIT) return;
-    const oldest = [...this.imagery.entries()]
-      .sort((first, second) => first[1].usedAt - second[1].usedAt)
-      .slice(0, this.imagery.size - TILE_CACHE_LIMIT);
-    for (const [key, item] of oldest) {
-      const tile = this.rendered.get(key);
-      if (tile) {
-        const address = tile.address;
-        const rows = 2 ** address.z;
-        const columns = rows * 2;
-        tile.mesh.material.uniforms.imageMap!.value = this.fallbackTexture;
-        tile.mesh.material.uniforms.imageScale!.value.set(
-          1 / columns,
-          1 / rows,
-        );
-        tile.mesh.material.uniforms.imageOffset!.value.set(
-          address.x / columns,
-          address.y / rows,
-        );
-      }
-      item.texture.dispose();
+    const pinned = new Set(
+      [...this.rendered.values()]
+        .map((tile) => tile.imagerySource)
+        .filter((address): address is TileAddress => address !== undefined)
+        .map(tileKey),
+    );
+    const evictions = imageryEvictionKeys(
+      [...this.imagery].map(([key, item]) => ({
+        key,
+        usedAt: item.usedAt,
+      })),
+      pinned,
+    );
+    for (const key of evictions) {
+      this.imagery.get(key)?.texture.dispose();
       this.imagery.delete(key);
     }
   }

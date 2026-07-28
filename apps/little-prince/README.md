@@ -56,10 +56,17 @@ official stride-21 NetCDF subset:
 npm run prepare:relief --workspace @found-in-space/little-prince
 ```
 
-NASA GIBS supplies up to 32 nearby 512 px Blue Marble WMS images. The
-checked-in 2048×1024 Blue Marble image remains usable when offline. Source,
-license, datum, DOI, and checksum details live beside the relief asset and
-in `public/THIRD_PARTY_LICENSES.txt`.
+NASA GIBS supplies up to 32 nearby 512 px Blue Marble images from its native
+500 m geographic WMTS pyramid. Shared two-level-coarser previews load before
+the nearest full-detail tiles, with no more than six image fetches and decodes
+active at once. GIBS marks these pre-generated tiles as browser-cacheable, so
+repeat headset visits can reuse them without bundling a global imagery archive.
+
+The checked-in 2048×1024 Blue Marble image is displayed immediately beneath
+the progressive tiles and remains usable when offline. Detailed global imagery
+still requires a network connection the first time a location is viewed.
+Source, license, datum, DOI, and checksum details live beside the relief asset
+and in `public/THIRD_PARTY_LICENSES.txt`.
 
 ## Live aircraft proof of concept
 
