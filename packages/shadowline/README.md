@@ -70,6 +70,7 @@ Partial-only eclipses have `centralPath: null` and instantaneous shadows with
 `calculateEvent()` is the beginner-facing facade. Lower-level consumers can use:
 
 - `calculateCentralPath()`
+- `calculateGlobalContacts()`
 - `calculateGlobalVisibility()`
 - `calculateInstantaneousShadow()`
 - `calculateTimeMarkers()`

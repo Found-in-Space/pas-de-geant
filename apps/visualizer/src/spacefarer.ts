@@ -39,6 +39,8 @@ interface ShadowFrame {
 
 type WorkerResponse =
   | { type: "ready"; event: EclipseSummary }
+  | { type: "range"; startUtc: string; endUtc: string }
+  | { type: "range-error"; message: string }
   | { type: "frame"; requestId: number; frame: ShadowFrame }
   | { type: "error"; requestId: number; message: string };
 
@@ -745,7 +747,9 @@ function updateReadout(frameValue: ShadowFrame): void {
     ? frameValue.centralKind === "umbra"
       ? "Total-eclipse umbra reaches Earth"
       : "Annular-eclipse antumbra reaches Earth"
-    : "Only the penumbra reaches Earth";
+    : frameValue.penumbraRings.length > 0
+      ? "Only the penumbra reaches Earth"
+      : "Penumbral cone is tangent to Earth";
   const diameterKm = Math.abs(frameValue.umbraRadiusAtEarthPlaneKm) * 2;
   umbraWidth.textContent = centralVisible
     ? `${diameterKm.toFixed(0)} km axial cone diameter`
@@ -850,7 +854,12 @@ function requestFrame(timeMs: number): void {
   queuedTimeMs = null;
   requestInFlight = true;
   requestId += 1;
-  worker.postMessage({ type: "frame", requestId, atUtc });
+  worker.postMessage({
+    type: "frame",
+    requestId,
+    atUtc,
+    angularIntervalDegrees: 0.25,
+  });
 }
 
 worker.addEventListener("message", (message: MessageEvent<WorkerResponse>) => {
@@ -863,6 +872,33 @@ worker.addEventListener("message", (message: MessageEvent<WorkerResponse>) => {
     timeSlider.max = String((rangeEndMs - rangeStartMs) / 1000);
     timeSlider.value = String((currentTimeMs - rangeStartMs) / 1000);
     requestFrame(currentTimeMs);
+    worker.postMessage({ type: "range" });
+    return;
+  }
+  if (response.type === "range") {
+    const startMs = Date.parse(response.startUtc);
+    const endMs = Date.parse(response.endUtc);
+    if (
+      !Number.isFinite(startMs) ||
+      !Number.isFinite(endMs) ||
+      startMs >= eventPeakMs ||
+      endMs <= eventPeakMs
+    ) {
+      console.error("The worker returned an invalid eclipse extent.", response);
+      return;
+    }
+    rangeStartMs = startMs;
+    rangeEndMs = endMs;
+    currentTimeMs = Math.max(
+      rangeStartMs,
+      Math.min(rangeEndMs, currentTimeMs),
+    );
+    timeSlider.max = String((rangeEndMs - rangeStartMs) / 1000);
+    timeSlider.value = String((currentTimeMs - rangeStartMs) / 1000);
+    return;
+  }
+  if (response.type === "range-error") {
+    console.error("Could not calculate the full eclipse extent:", response.message);
     return;
   }
   requestInFlight = false;

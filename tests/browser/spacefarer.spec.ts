@@ -7,13 +7,28 @@ test("loads and updates the physical Spacefarer model", async ({ page }) => {
   await expect(page.locator("#scene-root canvas")).toHaveCount(1);
   await expect(page.locator("#shadow-kind")).toContainText("umbra");
 
-  const initialTime = await page.locator("#time-label").textContent();
-  await page.locator("#time-slider").evaluate((element) => {
+  const timeSlider = page.locator("#time-slider");
+  await expect
+    .poll(async () => Number(await timeSlider.getAttribute("max")))
+    .toBeGreaterThan(15_000);
+  const extentSeconds = Number(await timeSlider.getAttribute("max"));
+  expect(extentSeconds).toBeLessThan(16_000);
+
+  await timeSlider.evaluate((element) => {
     const input = element as HTMLInputElement;
-    input.value = String(Number(input.value) + 120);
+    input.value = input.min;
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await expect(page.locator("#time-label")).not.toHaveText(initialTime!);
+  await expect(page.locator("#time-label")).toContainText("15:34:05");
+  await expect(page.locator("#shadow-kind")).toContainText("tangent");
+
+  await timeSlider.evaluate((element) => {
+    const input = element as HTMLInputElement;
+    input.value = input.max;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(page.locator("#time-label")).toContainText("19:57:49");
+  await expect(page.locator("#shadow-kind")).toContainText("tangent");
 
   await page.getByRole("button", { name: /Shadow corridor/ }).click();
   await expect(

@@ -25,7 +25,14 @@ interface FrameRequest {
   type: "frame";
   requestId: number;
   atUtc: string;
+  angularIntervalDegrees?: number;
 }
+
+interface RangeRequest {
+  type: "range";
+}
+
+type WorkerRequest = FrameRequest | RangeRequest;
 
 const provider = new AstronomyEngineProvider();
 const engine = new EclipseEngine(astronomyEngineCapabilities(provider));
@@ -68,7 +75,7 @@ function ringPoints(
   );
 }
 
-function frame(atUtc: string) {
+function frame(atUtc: string, angularIntervalDegrees = 3) {
   const sunEcefKm = kilometres("sun", atUtc);
   const moonEcefKm = kilometres("moon", atUtc);
   const direction = normalize(subtract(moonEcefKm, sunEcefKm));
@@ -89,27 +96,40 @@ function frame(atUtc: string) {
     MOON_RADIUS_KM +
     (axisDistanceToEarthPlaneKm * (SUN_RADIUS_KM + MOON_RADIUS_KM)) /
       sunMoonDistanceKm;
-  const shadow = engine.calculateInstantaneousShadow(event, atUtc, {
-    angularIntervalDegrees: 3,
-  });
+  let shadow: InstantaneousShadowSurface | null = null;
+  try {
+    shadow = engine.calculateInstantaneousShadow(event, atUtc, {
+      angularIntervalDegrees,
+    });
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !error.message.startsWith(
+        "The penumbra does not intersect visible Earth at ",
+      )
+    ) {
+      throw error;
+    }
+  }
+  const resolvedAtUtc = shadow?.atUtc ?? new Date(atUtc).toISOString();
 
   return {
     event,
-    atUtc: shadow.atUtc,
+    atUtc: resolvedAtUtc,
     sunEcefKm,
     moonEcefKm,
     direction,
     ecefToEquatorialJ2000: earthFixedToEquatorialJ2000Basis(
-      shadow.atUtc,
+      resolvedAtUtc,
     ),
     sunMoonDistanceKm,
     moonEarthDistanceKm,
     axisDistanceToEarthPlaneKm,
     umbraRadiusAtEarthPlaneKm,
     penumbraRadiusAtEarthPlaneKm,
-    centralKind: shadow.central?.kind ?? null,
-    penumbraRings: ringPoints(shadow, "penumbra"),
-    centralRings: ringPoints(shadow, "central"),
+    centralKind: shadow?.central?.kind ?? null,
+    penumbraRings: shadow ? ringPoints(shadow, "penumbra") : [],
+    centralRings: shadow ? ringPoints(shadow, "central") : [],
   };
 }
 
@@ -118,14 +138,34 @@ self.postMessage({
   event,
 });
 
-self.addEventListener("message", (message: MessageEvent<FrameRequest>) => {
+self.addEventListener("message", (message: MessageEvent<WorkerRequest>) => {
   const request = message.data;
-  if (request.type !== "frame") return;
+  if (request.type === "range") {
+    try {
+      const contacts = engine.calculateGlobalContacts(event);
+      const first = contacts[0];
+      const last = contacts.at(-1);
+      if (!first || !last || first.utc === last.utc) {
+        throw new Error("The global partial-eclipse contacts were not found.");
+      }
+      self.postMessage({
+        type: "range",
+        startUtc: first.utc,
+        endUtc: last.utc,
+      });
+    } catch (error) {
+      self.postMessage({
+        type: "range-error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
   try {
     self.postMessage({
       type: "frame",
       requestId: request.requestId,
-      frame: frame(request.atUtc),
+      frame: frame(request.atUtc, request.angularIntervalDegrees),
     });
   } catch (error) {
     self.postMessage({

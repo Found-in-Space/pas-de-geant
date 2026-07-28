@@ -3,7 +3,10 @@ import {
   calculateTimeMarkers,
   classifyCentralEclipse,
 } from "./path.js";
-import { calculateGlobalVisibility } from "./global-visibility.js";
+import {
+  calculateGlobalContacts,
+  calculateGlobalVisibility,
+} from "./global-visibility.js";
 import { calculateInstantaneousShadow } from "./shadow.js";
 import type {
   CalculateEventOptions,
@@ -18,6 +21,7 @@ import type {
   LocalEclipse,
   Observer,
   PathOptions,
+  PenumbralContact,
   PenumbralVisibilitySurface,
   ShadowOutlineOptions,
   TimeMarker,
@@ -221,6 +225,10 @@ export class EclipseEngine {
       event,
       options,
     );
+  }
+
+  calculateGlobalContacts(event: EclipseSummary): PenumbralContact[] {
+    return calculateGlobalContacts(this.capabilities.ephemeris, event);
   }
 
   calculateTimeMarkers(

@@ -56,4 +56,7 @@ export { calculateInstantaneousShadow } from "./shadow.js";
 export { toGeoJson } from "./serialization.js";
 export { GeoJsonExporter, KmlExporter } from "./exporters.js";
 export { EclipseEngine } from "./engine.js";
-export { calculateGlobalVisibility } from "./global-visibility.js";
+export {
+  calculateGlobalContacts,
+  calculateGlobalVisibility,
+} from "./global-visibility.js";

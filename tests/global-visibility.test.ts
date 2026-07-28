@@ -113,6 +113,12 @@ describe("global penumbral circumstances", () => {
     expect(eclipse2026.surface.horizon[0]!.closed).toBe(true);
   });
 
+  it("can calculate the global contacts without constructing the surface", () => {
+    expect(
+      engine.calculateGlobalContacts(eventOn("2026-08-12")),
+    ).toEqual(eclipse2026.contacts);
+  });
+
   it("keeps every curve sample exactly on WGS 84", () => {
     for (const result of [eclipse1973, eclipse2026, eclipse2027]) {
       const points = [

@@ -170,6 +170,26 @@ function findContacts(
   }));
 }
 
+function publicContacts(contacts: ContactRoot[]): PenumbralContact[] {
+  return contacts.map(({ crossing: _crossing, ...contact }) => ({
+    ...contact,
+    point: clonePoint(contact.point),
+  }));
+}
+
+/**
+ * Calculates only the global P1–P4 penumbral contacts, without constructing
+ * the much larger visibility surface.
+ */
+export function calculateGlobalContacts(
+  provider: EarthFixedEphemeris,
+  event: EclipseSummary,
+): PenumbralContact[] {
+  return publicContacts(
+    findContacts(provider, event, INTERNAL_AZIMUTH_STEP_DEGREES),
+  );
+}
+
 function assignHorizonBranches(
   previous: [SurfacePoint, SurfacePoint] | null,
   points: [SurfacePoint, SurfacePoint],
@@ -570,9 +590,6 @@ export function calculateGlobalVisibility(
   };
   return {
     surface,
-    contacts: contacts.map(({ crossing: _crossing, ...contact }) => ({
-      ...contact,
-      point: clonePoint(contact.point),
-    })),
+    contacts: publicContacts(contacts),
   };
 }
