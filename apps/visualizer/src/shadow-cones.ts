@@ -10,6 +10,7 @@ import {
   type CartesianVector,
   type EclipseSummary,
 } from "@found-in-space/shadowline";
+import type { CartesianBasis } from "./celestial-frame.js";
 
 type DisplayMode = "readable" | "affine";
 
@@ -19,6 +20,7 @@ interface ShadowFrame {
   sunEcefKm: CartesianVector;
   moonEcefKm: CartesianVector;
   direction: CartesianVector;
+  ecefToEquatorialJ2000: CartesianBasis;
   sunMoonDistanceKm: number;
   moonEarthDistanceKm: number;
   axisDistanceToEarthPlaneKm: number;
@@ -81,23 +83,26 @@ const camera = new THREE.PerspectiveCamera(
   0.03,
   180,
 );
-camera.position.set(9.2, 5.7, 11.5);
+camera.position.set(5.8, 5.7, 14.5);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.055;
 controls.minDistance = 3.1;
 controls.maxDistance = 34;
-controls.target.set(-1.2, 0, 0);
+controls.target.set(5, 0, 0);
 controls.update();
 
 const modelRoot = new THREE.Group();
 scene.add(modelRoot);
+const earthCentricRenderGroup = new THREE.Group();
+earthCentricRenderGroup.matrixAutoUpdate = false;
+modelRoot.add(earthCentricRenderGroup);
 
 scene.add(new THREE.HemisphereLight(0x9fc8ff, 0x100d1d, 1.05));
 const sunLight = new THREE.DirectionalLight(0xffe3aa, 3.2);
 sunLight.target.position.set(0, 0, 0);
-modelRoot.add(sunLight, sunLight.target);
+earthCentricRenderGroup.add(sunLight, sunLight.target);
 
 function deterministicStars(): THREE.Points {
   let seed = 24681357;
@@ -144,7 +149,7 @@ function deterministicStars(): THREE.Points {
 scene.add(deterministicStars());
 
 const earthTransform = new THREE.Group();
-modelRoot.add(earthTransform);
+earthCentricRenderGroup.add(earthTransform);
 
 const earth = new THREE.Mesh(
   new THREE.SphereGeometry(1, 96, 64),
@@ -230,7 +235,7 @@ const moon = new THREE.Mesh(
   }),
 );
 moon.matrixAutoUpdate = false;
-modelRoot.add(moon);
+earthCentricRenderGroup.add(moon);
 
 const sun = new THREE.Mesh(
   new THREE.SphereGeometry(0.82, 64, 40),
@@ -247,14 +252,14 @@ const sunGlow = new THREE.Mesh(
   }),
 );
 sun.add(sunGlow);
-modelRoot.add(sun);
+earthCentricRenderGroup.add(sun);
 
 const ringLayer = new THREE.Group();
 earthTransform.add(ringLayer);
 const coneLayer = new THREE.Group();
 const guideLayer = new THREE.Group();
 const labelLayer = new THREE.Group();
-modelRoot.add(coneLayer, guideLayer, labelLayer);
+earthCentricRenderGroup.add(coneLayer, guideLayer, labelLayer);
 
 function labelSprite(
   text: string,
@@ -332,6 +337,71 @@ function vector(value: CartesianVector, scaleValue = 1): THREE.Vector3 {
     value.z * scaleValue,
     -value.y * scaleValue,
   );
+}
+
+let inertialToStage: THREE.Matrix4 | null = null;
+
+function ecefToInertialMatrix(basis: CartesianBasis): THREE.Matrix4 {
+  const localX = vector(basis.x).normalize();
+  const localY = vector(basis.z).normalize();
+  const localZ = vector(basis.y).multiplyScalar(-1).normalize();
+  return new THREE.Matrix4().makeBasis(localX, localY, localZ);
+}
+
+function stageOrientation(earthFromSun: THREE.Vector3): THREE.Matrix4 {
+  const stageX = earthFromSun.clone().normalize();
+  const inertialNorth = new THREE.Vector3(0, 1, 0);
+  let stageY = inertialNorth
+    .clone()
+    .addScaledVector(stageX, -inertialNorth.dot(stageX));
+  if (stageY.lengthSq() < 1e-8) {
+    stageY = new THREE.Vector3(0, 0, 1)
+      .addScaledVector(stageX, -stageX.z);
+  }
+  stageY.normalize();
+  const stageZ = new THREE.Vector3()
+    .crossVectors(stageX, stageY)
+    .normalize();
+  return new THREE.Matrix4().set(
+    stageX.x,
+    stageX.y,
+    stageX.z,
+    0,
+    stageY.x,
+    stageY.y,
+    stageY.z,
+    0,
+    stageZ.x,
+    stageZ.y,
+    stageZ.z,
+    0,
+    0,
+    0,
+    0,
+    1,
+  );
+}
+
+function moveEarthCentricGroupToSunOrigin(
+  sunPosition: THREE.Vector3,
+  basis: CartesianBasis,
+): void {
+  const ecefToInertial = ecefToInertialMatrix(basis);
+  if (!inertialToStage) {
+    const earthFromSun = sunPosition
+      .clone()
+      .applyMatrix4(ecefToInertial)
+      .multiplyScalar(-1);
+    inertialToStage = stageOrientation(earthFromSun);
+  }
+  const earthFixedToStage = inertialToStage
+    .clone()
+    .multiply(ecefToInertial);
+  const renderedSunPosition = sunPosition
+    .clone()
+    .applyMatrix4(earthFixedToStage);
+  earthFixedToStage.setPosition(renderedSunPosition.multiplyScalar(-1));
+  earthCentricRenderGroup.matrix.copy(earthFixedToStage);
 }
 
 function clearLayer(layer: THREE.Group): void {
@@ -625,9 +695,11 @@ function updateModel(): void {
   const moonPosition = closestAxisPoint
     .clone()
     .addScaledVector(axis, -sceneMoonDistance);
-  const sunPosition = closestAxisPoint
-    .clone()
-    .addScaledVector(axis, -(sceneMoonDistance + 5.1 + sceneMoonDistance * 0.25));
+  const sceneSunEarthDistance =
+    sceneMoonDistance + 5.1 + sceneMoonDistance * 0.25;
+  const sunPosition = vector(frame.sunEcefKm)
+    .normalize()
+    .multiplyScalar(sceneSunEarthDistance);
   const coneLength = sceneMoonDistance + 2.1;
   const displayToPhysicalKm = EARTH_MEAN_RADIUS_KM / axialScale;
   const penumbraSlope =
@@ -717,6 +789,10 @@ function updateModel(): void {
   );
   sun.position.copy(sunPosition);
   sunLight.position.copy(sunPosition);
+  moveEarthCentricGroupToSunOrigin(
+    sunPosition,
+    frame.ecefToEquatorialJ2000,
+  );
 
   clearLayer(ringLayer);
   for (const ring of frame.penumbraRings) {
@@ -802,8 +878,8 @@ playButton.addEventListener("click", () => {
 });
 
 renderer.domElement.addEventListener("dblclick", () => {
-  controls.target.set(-1.2, 0, 0);
-  camera.position.set(9.2, 5.7, 11.5);
+  controls.target.set(5, 0, 0);
+  camera.position.set(5.8, 5.7, 14.5);
   controls.update();
 });
 
@@ -811,7 +887,7 @@ const vrButton = VRButton.createButton(renderer);
 vrSlot.append(vrButton);
 renderer.xr.addEventListener("sessionstart", () => {
   controls.enabled = false;
-  modelRoot.position.set(0, 1.45, -6.4);
+  modelRoot.position.set(-3.1, 1.45, -6.4);
   modelRoot.scale.setScalar(0.58);
 });
 renderer.xr.addEventListener("sessionend", () => {

@@ -37,12 +37,12 @@
       </header>
 
       <aside id="tutorial-panel" class="tutorial-panel">
-        <p class="eyebrow">A physically true shadow in a distorted scene</p>
+        <p class="eyebrow">Earth-centred calculation · Sun-centred WebXR scene</p>
         <h1>No single honest scale makes all three bodies readable.</h1>
         <p class="lede">
-          Shorten only the distances and the ray angles change. Enlarge only the
-          bodies and they change again. Shadowline’s solution is to calculate in
-          real kilometres first, then transform the finished geometry for display.
+          Shadowline calculates in Earth-centred kilometres. The renderer rotates
+          that complete calculation group into inertial space, then translates it
+          until the Sun sits at the display origin.
         </p>
 
         <div class="mode-control" role="group" aria-label="Geometry display mode">
@@ -69,7 +69,7 @@
         <div class="truth-table" aria-label="What is accurate and exaggerated">
           <div>
             <span class="truth-marker accurate"></span>
-            <p><strong>Physical</strong> Time, alignment, Earth orientation, cone equations, and both surface footprints.</p>
+            <p><strong>Physical</strong> Time, Earth-centred alignment, Earth rotation, cone equations, and both surface footprints.</p>
           </div>
           <div>
             <span class="truth-marker exaggerated"></span>
@@ -121,7 +121,7 @@
 
         <div class="timeline-secondary">
           <label for="spacing-slider">
-            <span>Scene spacing</span>
+            <span>Moon–Earth spacing</span>
             <input id="spacing-slider" type="range" min="3.6" max="7.2" step="0.1" value="5.2">
             <output id="spacing-output" for="spacing-slider">compact</output>
           </label>

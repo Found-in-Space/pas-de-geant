@@ -17,6 +17,9 @@ import {
   AstronomyEngineProvider,
   astronomyEngineCapabilities,
 } from "@found-in-space/shadowline-astronomy-engine";
+import {
+  earthFixedToEquatorialJ2000Basis,
+} from "./celestial-frame.js";
 
 interface FrameRequest {
   type: "frame";
@@ -38,7 +41,10 @@ if (!eclipseEvent) {
 }
 const event: EclipseSummary = eclipseEvent;
 
-function kilometres(body: "sun" | "moon", atUtc: string): CartesianVector {
+function kilometres(
+  body: "sun" | "moon",
+  atUtc: string,
+): CartesianVector {
   return scale(
     provider.stateVector(
       body,
@@ -93,6 +99,9 @@ function frame(atUtc: string) {
     sunEcefKm,
     moonEcefKm,
     direction,
+    ecefToEquatorialJ2000: earthFixedToEquatorialJ2000Basis(
+      shadow.atUtc,
+    ),
     sunMoonDistanceKm,
     moonEarthDistanceKm,
     axisDistanceToEarthPlaneKm,
