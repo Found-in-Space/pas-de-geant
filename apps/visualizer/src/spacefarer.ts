@@ -418,12 +418,14 @@ function addInwardBoundary(
     maximumWidthRadians,
   );
   if (ribbon.boundary.length < 3) return;
-  const elevation = 1.006;
+  // Keep the outline on the physical Earth surface. A depth bias below keeps
+  // this coplanar overlay visible without introducing a false altitude.
+  const surfaceRadius = 1;
   const positions: number[] = [];
   const indices: number[] = [];
   for (let index = 0; index < ribbon.boundary.length; index += 1) {
-    const outer = ribbon.boundary[index]!.clone().multiplyScalar(elevation);
-    const inner = ribbon.inset[index]!.clone().multiplyScalar(elevation);
+    const outer = ribbon.boundary[index]!.clone().multiplyScalar(surfaceRadius);
+    const inner = ribbon.inset[index]!.clone().multiplyScalar(surfaceRadius);
     positions.push(outer.x, outer.y, outer.z, inner.x, inner.y, inner.z);
   }
   for (let index = 0; index < ribbon.boundary.length; index += 1) {
@@ -453,6 +455,9 @@ function addInwardBoundary(
     opacity: 0.94,
     side: THREE.DoubleSide,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 6;
