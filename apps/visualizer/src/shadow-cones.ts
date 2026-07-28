@@ -258,57 +258,7 @@ const ringLayer = new THREE.Group();
 earthTransform.add(ringLayer);
 const coneLayer = new THREE.Group();
 const guideLayer = new THREE.Group();
-const labelLayer = new THREE.Group();
-earthCentricRenderGroup.add(coneLayer, guideLayer, labelLayer);
-
-function labelSprite(
-  text: string,
-  accent: string,
-  subtitle?: string,
-): THREE.Sprite {
-  const canvas = document.createElement("canvas");
-  canvas.width = 768;
-  canvas.height = 192;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvas labels are not supported.");
-  context.fillStyle = "rgba(5, 10, 22, 0.82)";
-  context.strokeStyle = "rgba(177, 202, 230, 0.25)";
-  context.lineWidth = 3;
-  context.beginPath();
-  context.roundRect(12, 12, 744, 168, 28);
-  context.fill();
-  context.stroke();
-  context.fillStyle = accent;
-  context.beginPath();
-  context.arc(56, subtitle ? 73 : 96, 10, 0, Math.PI * 2);
-  context.fill();
-  context.fillStyle = "#f4f4f1";
-  context.font = "700 44px Inter, system-ui, sans-serif";
-  context.fillText(text, 82, subtitle ? 84 : 111);
-  if (subtitle) {
-    context.fillStyle = "#9da9ba";
-    context.font = "500 28px Inter, system-ui, sans-serif";
-    context.fillText(subtitle, 82, 132);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
-    }),
-  );
-  sprite.scale.set(2.35, 0.59, 1);
-  sprite.renderOrder = 20;
-  return sprite;
-}
-
-const sunLabel = labelSprite("Sun", "#f2b94d", "symbolic size");
-const moonLabel = labelSprite("Moon", "#c4c4c1");
-const earthLabel = labelSprite("Earth", "#7ee7f2", "WGS 84 surface");
-labelLayer.add(sunLabel, moonLabel, earthLabel);
+earthCentricRenderGroup.add(coneLayer, guideLayer);
 
 const spainMarker = new THREE.Mesh(
   new THREE.SphereGeometry(0.026, 18, 12),
@@ -326,10 +276,6 @@ const spainPosition = (() => {
 })();
 spainMarker.position.copy(spainPosition);
 earthTransform.add(spainMarker);
-
-const spainLabel = labelSprite("Spain", "#ffffff", "12 August 2026");
-spainLabel.scale.multiplyScalar(0.72);
-labelLayer.add(spainLabel);
 
 function vector(value: CartesianVector, scaleValue = 1): THREE.Vector3 {
   return new THREE.Vector3(
@@ -801,15 +747,6 @@ function updateModel(): void {
   for (const ring of frame.centralRings) {
     addRing(ring, 0xd1c5ff, 0.016);
   }
-
-  const earthSurfacePosition = new THREE.Vector3(0, 1.35, 0);
-  if (displayMode === "affine") earthSurfacePosition.applyMatrix4(earthMatrix);
-  sunLabel.position.copy(sunPosition).add(new THREE.Vector3(0, 1.25, 0));
-  moonLabel.position.copy(moonPosition).add(new THREE.Vector3(0, 0.68, 0));
-  earthLabel.position.copy(earthSurfacePosition);
-  spainLabel.position.copy(spainPosition);
-  if (displayMode === "affine") spainLabel.position.applyMatrix4(earthMatrix);
-  spainLabel.position.multiplyScalar(1.08);
 
   const date = new Date(frame.atUtc);
   dateLabel.textContent = new Intl.DateTimeFormat("en-GB", {
