@@ -587,6 +587,11 @@ input[type="range"] {
   backdrop-filter: blur(18px);
 }
 
+.loading-state[hidden],
+.error-state[hidden] {
+  display: none;
+}
+
 .loading-state p,
 .error-state p {
   margin: 12px 0 0;
