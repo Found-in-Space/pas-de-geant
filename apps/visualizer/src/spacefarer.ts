@@ -10,6 +10,7 @@ import {
   type EclipseSummary,
 } from "@found-in-space/shadowline";
 import type { CartesianBasis } from "./celestial-frame.js";
+import { closedCurveControlPoints } from "./closed-curve.js";
 import { FreeSpaceControls } from "./free-space-controls.js";
 
 interface ShadowFrame {
@@ -376,11 +377,18 @@ function addRing(
   color: number,
   radius: number,
 ): void {
-  if (points.length < 3) return;
-  const curvePoints = points.map((point) =>
-    vector(point, 1.014 / EARTH_MEAN_RADIUS_KM),
+  const curvePoints = closedCurveControlPoints(
+    points.map((point) =>
+      vector(point, 1.014 / EARTH_MEAN_RADIUS_KM),
+    ),
   );
-  const curve = new THREE.CatmullRomCurve3(curvePoints, true, "centripetal");
+  if (curvePoints.length < 3) return;
+  const curve = new THREE.CatmullRomCurve3(
+    curvePoints,
+    true,
+    "centripetal",
+    0.25,
+  );
   const geometry = new THREE.TubeGeometry(
     curve,
     Math.max(32, curvePoints.length * 2),
