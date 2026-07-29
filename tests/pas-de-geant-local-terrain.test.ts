@@ -39,20 +39,20 @@ import {
   terrainScaleInputIsStable,
   terrariumElevationMetres,
   wrapMercatorX,
-} from "../apps/little-prince/src/local-terrain-core.js";
+} from "../apps/pas-de-geant/src/local-terrain-core.js";
 import {
   terrainHorizonDiameterM,
   terrainHorizonRadians,
   terrainHorizonSourceDistanceKm,
-} from "../apps/little-prince/src/terrain-horizon.js";
+} from "../apps/pas-de-geant/src/terrain-horizon.js";
 import {
   MAPTERHORN_ELEVATION_CACHE_NAME,
   deleteCachedElevation,
   loadCachedElevation,
   type ElevationCacheStorage,
-} from "../apps/little-prince/src/elevation-cache.js";
+} from "../apps/pas-de-geant/src/elevation-cache.js";
 
-describe("Little Planet local Mercator terrain", () => {
+describe("Pas de Géant local Mercator terrain", () => {
   it("addresses variable-zoom tiles globally and wraps the antimeridian", () => {
     expect(mercatorAddressForCoordinates(0, 0, 5)).toEqual({
       z: 5,
@@ -400,7 +400,7 @@ describe("Little Planet local Mercator terrain", () => {
   });
 });
 
-describe("Little Planet local terrain scheduling", () => {
+describe("Pas de Géant local terrain scheduling", () => {
   it("limits elevation work to four concurrent requests", async () => {
     const releases: Array<() => void> = [];
     let active = 0;

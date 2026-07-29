@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "tests/browser",
-  testIgnore: "little-prince.spec.ts",
+  testIgnore: "pas-de-geant.spec.ts",
   timeout: 30_000,
   expect: {
     timeout: 10_000,
@@ -20,7 +20,7 @@ export default defineConfig({
     command:
       "npm run preview --workspace @found-in-space/shadowline-visualizer -- --port 4196",
     url: "http://127.0.0.1:4196",
-    reuseExistingServer: false,
+    reuseExistingServer: true,
     timeout: 30_000,
   },
 });

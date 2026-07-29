@@ -1,15 +1,17 @@
-# Little Planet
+# Pas de Géant
 
-A room-scale WebXR relief Earth inspired by _Le Petit Prince_. Mean sea
-level stays at the physical-floor apex beneath the headset while walking or
-controller travel rolls the planet through that contact point.
+_Walk around worlds, one small step at a time._
+
+Pas de Géant is a room-scale WebXR relief globe. Mean sea level stays at the
+physical-floor apex beneath the headset while walking or controller travel
+rolls the planet through that contact point.
 
 ## Run locally
 
 From the repository root:
 
 ```sh
-npm run dev:little-prince -- --port 4197
+npm run dev -- --port 4197
 ```
 
 Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel,
@@ -72,7 +74,7 @@ metre-quantized derivative of the GEBCO 2026 grid. To regenerate it from an
 official stride-21 NetCDF subset:
 
 ```sh
-npm run prepare:relief --workspace @found-in-space/little-prince
+npm run prepare:relief --workspace @found-in-space/pas-de-geant
 ```
 
 Around the current contact point, the renderer asynchronously requests a

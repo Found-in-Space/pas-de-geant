@@ -4,7 +4,7 @@ import {
 } from "./local-terrain-core.js";
 
 export const MAPTERHORN_ELEVATION_CACHE_NAME =
-  "little-planet-mapterhorn-elevation-v1";
+  "pas-de-geant-mapterhorn-elevation-v1";
 
 export type ElevationCacheStatus =
   | "hit"

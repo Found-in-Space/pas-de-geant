@@ -1,8 +1,8 @@
 {
-  "name": "@found-in-space/little-prince",
+  "name": "@found-in-space/pas-de-geant",
   "version": "0.1.0",
   "private": true,
-  "description": "A room-scale WebXR relief Earth that rolls beneath the observer",
+  "description": "Walk around worlds, one small step at a time",
   "type": "module",
   "scripts": {
     "build": "vite build",

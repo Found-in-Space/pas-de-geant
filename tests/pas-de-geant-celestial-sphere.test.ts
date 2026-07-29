@@ -13,15 +13,15 @@ import {
   CelestialSphere,
   celestialToWorldQuaternion,
   createCelestialStarField,
-} from "../apps/little-prince/src/celestial-sphere.js";
+} from "../apps/pas-de-geant/src/celestial-sphere.js";
 import {
   contactFrame,
   earthToWorldQuaternion,
   initialPlanetState,
   rollContactFrame,
-} from "../apps/little-prince/src/planet-state.js";
+} from "../apps/pas-de-geant/src/planet-state.js";
 
-describe("Little Planet SkyKit celestial sphere", () => {
+describe("Pas de Géant SkyKit celestial sphere", () => {
   it("feeds fixed-radius stars into SkyKit's WebGL core and halo shader", () => {
     const field = createCelestialStarField([
       {

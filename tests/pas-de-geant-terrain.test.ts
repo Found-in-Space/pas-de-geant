@@ -19,9 +19,9 @@ import {
   terrainMaximumLevel,
   terrainOccluderRadius,
   tileMatrixDimensions,
-} from "../apps/little-prince/src/terrain-tiles.js";
+} from "../apps/pas-de-geant/src/terrain-tiles.js";
 
-describe("Little Planet terrain selection", () => {
+describe("Pas de Géant terrain selection", () => {
   it("lifts dark shadows without increasing fully lit highlights", () => {
     expect(adaptiveLandLight(0.05, 0)).toBeCloseTo(0.64);
     expect(adaptiveLandLight(0.05, 0.5)).toBeCloseTo(0.91);
@@ -145,7 +145,7 @@ describe("Little Planet terrain selection", () => {
   });
 });
 
-describe("Little Planet imagery scheduling", () => {
+describe("Pas de Géant imagery scheduling", () => {
   it("retries imagery quickly before settling on a bounded delay", () => {
     expect(imageryRetryDelayMs(0)).toBe(1_000);
     expect(imageryRetryDelayMs(1)).toBe(1_000);

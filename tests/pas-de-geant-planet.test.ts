@@ -16,9 +16,9 @@ import {
   radialWorldMetresForKilometres,
   rollContactFrame,
   solvePlanetPose,
-} from "../apps/little-prince/src/planet-state.js";
+} from "../apps/pas-de-geant/src/planet-state.js";
 
-describe("Little Planet rolling contact frame", () => {
+describe("Pas de Géant rolling contact frame", () => {
   it("starts at the supplied global location with an orthonormal frame", () => {
     const state = initialPlanetState(-33.8688, 151.2093);
     const coordinates = coordinatesForFrame(state.contact);
@@ -99,7 +99,7 @@ describe("Little Planet rolling contact frame", () => {
   });
 });
 
-describe("Little Planet scale controls", () => {
+describe("Pas de Géant scale controls", () => {
   it("keeps the lower scale bound without imposing an upper cap", () => {
     expect(applyLogarithmicScale(1, -1, 10)).toBe(MIN_DISPLAY_RADIUS_M);
     const formerUpperLimit = INITIAL_DISPLAY_RADIUS_M * 5;

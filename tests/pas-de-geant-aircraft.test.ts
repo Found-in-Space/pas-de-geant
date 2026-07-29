@@ -6,12 +6,12 @@ import {
   extrapolateAircraft,
   parseAirplanesLive,
   type TrackedAircraft,
-} from "../apps/little-prince/src/aircraft-feed.js";
-import { aircraftNormalizedAltitude } from "../apps/little-prince/src/aircraft-layer.js";
-import { shouldPollAircraft } from "../apps/little-prince/src/aircraft-lifecycle.js";
-import { EARTH_MEAN_RADIUS_KM } from "../apps/little-prince/src/planet-state.js";
+} from "../apps/pas-de-geant/src/aircraft-feed.js";
+import { aircraftNormalizedAltitude } from "../apps/pas-de-geant/src/aircraft-layer.js";
+import { shouldPollAircraft } from "../apps/pas-de-geant/src/aircraft-lifecycle.js";
+import { EARTH_MEAN_RADIUS_KM } from "../apps/pas-de-geant/src/planet-state.js";
 
-describe("Little Planet Airplanes.live feed", () => {
+describe("Pas de Géant Airplanes.live feed", () => {
   it("uses a conservative VR polling interval", () => {
     expect(AIRCRAFT_POLL_INTERVAL_MS).toBe(30_000);
   });

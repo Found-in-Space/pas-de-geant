@@ -3,13 +3,13 @@ import { defineConfig } from "vite";
 export default defineConfig({
   base: "./",
   server: {
-    allowedHosts: ["prince.dev.k-si.com"],
+    allowedHosts: ["pas-de-geant.dev.k-si.com"],
   },
   preview: {
-    allowedHosts: ["prince.dev.k-si.com"],
+    allowedHosts: ["pas-de-geant.dev.k-si.com"],
   },
   build: {
-    outDir: "../../dist/little-prince",
+    outDir: "../../dist/pas-de-geant",
     emptyOutDir: true,
     sourcemap: true,
   },

@@ -6,9 +6,9 @@ import {
   freshButtonLatch,
   headRelativeTravel,
   stickForSource,
-} from "../apps/little-prince/src/controller-input.js";
+} from "../apps/pas-de-geant/src/controller-input.js";
 
-describe("Little Planet controller input", () => {
+describe("Pas de Géant controller input", () => {
   it("removes stick noise and remaps motion outside the deadzone", () => {
     expect(deadzone(0.1)).toBe(0);
     expect(deadzone(-0.1)).toBe(0);

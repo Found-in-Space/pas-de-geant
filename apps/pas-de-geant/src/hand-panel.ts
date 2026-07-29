@@ -79,7 +79,7 @@ const DEFAULT_HAND_PANEL_STATUS: HandPanelStatus = {
 };
 
 const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
-  kind: "little-planet-earth-location-map",
+  kind: "pas-de-geant-earth-location-map",
   measure(ctx) {
     return {
       width: ctx.constraints.maxWidth,
@@ -214,7 +214,7 @@ const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
 };
 
 const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
-  kind: "little-planet-status",
+  kind: "pas-de-geant-status",
   measure(ctx) {
     return {
       width: ctx.constraints.maxWidth,
@@ -316,18 +316,18 @@ export function createHandPanelRoot(
   northDirection: HandPanelDirection = { x: 0, y: -1 },
   status: HandPanelStatus = DEFAULT_HAND_PANEL_STATUS,
 ): DisplayNode<unknown> {
-  return createColumn("little-planet-hand-panel", {
+  return createColumn("pas-de-geant-hand-panel", {
     padding: 8,
     gap: 6,
     backgroundColor: HAND_PANEL_THEME.backgroundColor,
     children: [
-      createNode("little-planet-earth-map", EarthLocationMapComponent, {
+      createNode("pas-de-geant-earth-map", EarthLocationMapComponent, {
         ...location,
         map,
         northDirection,
         height: 238,
       }),
-      createValueReadout("little-planet-coordinates", {
+      createValueReadout("pas-de-geant-coordinates", {
         label: "Underfoot",
         value: formatCoordinates(
           location.latitudeDegrees,
@@ -335,7 +335,7 @@ export function createHandPanelRoot(
         ),
       }),
       createNode(
-        "little-planet-status",
+        "pas-de-geant-status",
         HandPanelStatusComponent,
         {
           ...status,

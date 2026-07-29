@@ -65,7 +65,7 @@ original copyright and MIT notice will be preserved with the derived source.
 
 ## Found in Space SkyKit star data
 
-The Little Planet application uses `@found-in-space/skykit` 0.2.0 under the MIT
+The Pas de Géant application uses `@found-in-space/skykit` 0.2.0 under the MIT
 License to request the default Found in Space star octree at runtime. The
 application converts the catalogue's ICRS positions into a directional
 celestial-sphere display and does not redistribute the octree.

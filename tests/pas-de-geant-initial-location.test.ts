@@ -7,7 +7,7 @@ import {
   resolveInitialLocation,
 } from "../apps/shared/initial-location.js";
 
-describe("Little Planet initial location", () => {
+describe("Pas de Géant initial location", () => {
   it("prefers a valid device location without making an IP request", async () => {
     const geolocation = {
       getCurrentPosition: vi.fn(

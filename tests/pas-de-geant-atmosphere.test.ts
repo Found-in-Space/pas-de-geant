@@ -2,16 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   ATMOSPHERE_TOP_KM,
   atmosphereSurfacePoint,
-} from "../apps/little-prince/src/atmosphere.js";
+} from "../apps/pas-de-geant/src/atmosphere.js";
 import {
   EARTH_MEAN_RADIUS_KM,
   INITIAL_DISPLAY_RADIUS_M,
   WGS84_A_KM,
   WGS84_B_KM,
   radialWorldMetresForKilometres,
-} from "../apps/little-prince/src/planet-state.js";
+} from "../apps/pas-de-geant/src/planet-state.js";
 
-describe("Little Planet atmosphere scale", () => {
+describe("Pas de Géant atmosphere scale", () => {
   it("starts on the sea-level WGS84 oblate spheroid", () => {
     const equator = atmosphereSurfacePoint(0, 0, 0);
     const pole = atmosphereSurfacePoint(90, 0, 0);

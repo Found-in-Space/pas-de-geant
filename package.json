@@ -1,38 +1,40 @@
 {
-  "name": "@found-in-space/shadowline-workspace",
-  "version": "0.2.0",
+  "name": "@found-in-space/pas-de-geant-workspace",
+  "version": "0.1.0",
   "private": true,
-  "description": "Renderer-independent eclipse geometry and map examples for Found in Space",
+  "description": "Walk around worlds, one small step at a time",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://github.com/Found-in-Space/shadowline#readme",
+  "homepage": "https://github.com/Found-in-Space/pas-de-geant#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Found-in-Space/shadowline"
+    "url": "https://github.com/Found-in-Space/pas-de-geant"
   },
   "bugs": {
-    "url": "https://github.com/Found-in-Space/shadowline/issues"
+    "url": "https://github.com/Found-in-Space/pas-de-geant/issues"
   },
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build:packages && npm run build --workspace @found-in-space/shadowline-visualizer",
-    "build:little-prince": "npm run build --workspace @found-in-space/little-prince",
+    "build": "npm run build --workspace @found-in-space/pas-de-geant",
+    "build:all": "npm run build && npm run build:shadowline",
     "build:packages": "npm run build --workspace @found-in-space/shadowline && npm run build --workspace @found-in-space/shadowline-astronomy-engine",
+    "build:shadowline": "npm run build:packages && npm run build --workspace @found-in-space/shadowline-visualizer",
     "check": "npm run typecheck",
     "changeset": "changeset",
-    "dev": "npm run dev --workspace @found-in-space/shadowline-visualizer",
-    "dev:little-prince": "npm run dev --workspace @found-in-space/little-prince --",
+    "dev": "npm run dev --workspace @found-in-space/pas-de-geant --",
+    "dev:shadowline": "npm run dev --workspace @found-in-space/shadowline-visualizer --",
     "release:publish": "changeset publish",
     "release:check-packed-consumers": "node ./scripts/check-packed-consumers.mjs",
     "release:lockfile": "npm install --package-lock-only --ignore-scripts --no-audit --fund=false",
     "release:status": "changeset status --verbose",
     "release:version": "changeset version && npm run release:lockfile",
     "test": "vitest run",
-    "test:browser": "playwright test",
-    "test:browser:little-prince": "playwright test --config playwright.little-prince.config.ts",
+    "test:browser": "playwright test --config playwright.pas-de-geant.config.ts",
+    "test:browser:all": "npm run test:browser && npm run test:browser:shadowline",
+    "test:browser:shadowline": "playwright test --config playwright.config.ts",
     "typecheck": "tsc --build --pretty false && tsc --project tsconfig.tools.json --pretty false"
   },
   "engines": {

@@ -203,7 +203,7 @@ const handPanelDriver = createPoseAnchoredPanelDriver({
   },
 });
 const handPanel = createThreePanelSession({
-  key: "little-planet-earth-map",
+  key: "pas-de-geant-earth-map",
   runtime: handPanelRuntime,
   driver: handPanelDriver,
   enabled: false,

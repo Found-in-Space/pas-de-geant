@@ -11,8 +11,8 @@ import {
   earthMapPoint,
   HAND_PANEL_SURFACE,
   HAND_PANEL_THEME,
-} from "../apps/little-prince/src/hand-panel.js";
-import { directionOnHandPanel } from "../apps/little-prince/src/hand-panel-orientation.js";
+} from "../apps/pas-de-geant/src/hand-panel.js";
+import { directionOnHandPanel } from "../apps/pas-de-geant/src/hand-panel-orientation.js";
 import { Quaternion, Vector3 } from "three";
 
 const map: BitmapHandle = {
@@ -23,7 +23,7 @@ const map: BitmapHandle = {
   revision: 1,
 };
 
-describe("Little Planet hand panel", () => {
+describe("Pas de Géant hand panel", () => {
   it("keeps the underfoot point centred while the map scrolls beneath it", () => {
     const runtime = createRuntime({
       root: createHandPanelRoot(

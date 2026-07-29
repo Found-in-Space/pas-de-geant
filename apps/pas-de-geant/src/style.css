@@ -70,6 +70,13 @@ input {
   text-transform: uppercase;
 }
 
+.tagline {
+  margin-top: 7px !important;
+  color: rgba(232, 247, 255, 0.72);
+  font-size: clamp(0.72rem, 1.2vw, 0.88rem);
+  letter-spacing: 0.01em;
+}
+
 .vr-slot {
   pointer-events: auto;
 }

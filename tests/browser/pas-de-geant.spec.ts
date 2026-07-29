@@ -8,7 +8,7 @@ const LOCAL_HEIGHT_CACHE_LIMIT = 128;
 const LOCAL_GEOMETRY_BUDGET_BYTES = 96 * 1_024 * 1_024;
 const LOCAL_IMAGERY_OVERLAY_LIMIT = 128;
 const MAPTERHORN_ELEVATION_CACHE_NAME =
-  "little-planet-mapterhorn-elevation-v1";
+  "pas-de-geant-mapterhorn-elevation-v1";
 
 function crc32(bytes: Buffer): number {
   let crc = 0xffffffff;
@@ -67,7 +67,7 @@ function onePixelPng(): Buffer {
   );
 }
 
-test("loads and operates the Little Planet desktop fallback", async ({
+test("loads and operates the Pas de Géant desktop fallback", async ({
   page,
 }) => {
   const consoleErrors: string[] = [];

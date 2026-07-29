@@ -5,9 +5,9 @@ import {
   packReliefSamples,
   reliefPixel,
   sampleRelief,
-} from "../apps/little-prince/src/relief.js";
+} from "../apps/pas-de-geant/src/relief.js";
 
-describe("Little Planet relief data", () => {
+describe("Pas de Géant relief data", () => {
   it("decodes signed metre values", () => {
     expect(decodeReliefSample(0)).toBe(RELIEF_OFFSET_METRES);
     expect(decodeReliefSample(12000)).toBe(0);
