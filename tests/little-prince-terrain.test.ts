@@ -104,22 +104,24 @@ describe("Little Planet terrain selection", () => {
   it("keeps Quest-scale tile counts bounded while refining the apex", () => {
     for (const radius of [1, 63.71, 318.55]) {
       const tiles = selectTerrainTiles(40, -104, radius);
-      expect(tiles.length).toBeGreaterThan(2);
+      expect(tiles.length).toBeGreaterThanOrEqual(2);
       expect(tiles.length, `radius ${radius}`).toBeLessThan(180);
-      expect(Math.max(...tiles.map((tile) => tile.z))).toBeGreaterThanOrEqual(
-        2,
+      expect(Math.max(...tiles.map((tile) => tile.z))).toBe(
+        terrainMaximumLevel(radius, 40),
       );
     }
   });
 
-  it("changes the global terrain and imagery level with planet scale", () => {
+  it("derives imagery level from projected texel size up to native resolution", () => {
     const initialRadius = 63.710088;
-    expect(terrainMaximumLevel(initialRadius / 8)).toBe(3);
-    expect(terrainMaximumLevel(initialRadius / 4)).toBe(4);
-    expect(terrainMaximumLevel(initialRadius / 2)).toBe(5);
-    expect(terrainMaximumLevel(initialRadius)).toBe(6);
-    expect(terrainMaximumLevel(initialRadius * 1.5)).toBe(7);
-    expect(terrainMaximumLevel(initialRadius * 5)).toBe(7);
+    expect(terrainMaximumLevel(1, 40)).toBe(0);
+    expect(terrainMaximumLevel(initialRadius / 8, 40)).toBe(3);
+    expect(terrainMaximumLevel(initialRadius / 4, 40)).toBe(4);
+    expect(terrainMaximumLevel(initialRadius / 2, 40)).toBe(5);
+    expect(terrainMaximumLevel(initialRadius, 40)).toBe(6);
+    expect(terrainMaximumLevel(initialRadius * 1.5, 40)).toBe(7);
+    expect(terrainMaximumLevel(initialRadius * 5, 40)).toBe(7);
+    expect(terrainMaximumLevel(initialRadius, 80)).toBe(4);
   });
 
   it("keeps an inner depth shell behind every terrain elevation", () => {
@@ -128,27 +130,18 @@ describe("Little Planet terrain selection", () => {
     expect(shallow).toBeLessThan(1);
     expect(deep).toBeGreaterThan(0.9);
     expect(deep).toBeLessThan(shallow);
-    expect(terrainOccluderRadius(318.55044, 0, 0)).toBeGreaterThan(
-      shallow,
-    );
+    expect(terrainOccluderRadius(318.55044, 0, 0)).toBeGreaterThan(shallow);
   });
 
-  it("extends visibility and displaced bounds for radial terrain", () => {
+  it("keeps horizon loading independent from radial displacement", () => {
     const radius = 63.710088;
-    expect(terrainHorizonDegrees(radius, 20)).toBeGreaterThan(
-      terrainHorizonDegrees(radius, 1),
+    expect(terrainHorizonDegrees(radius)).toBeCloseTo(
+      (Math.acos(radius / (radius + 2)) * 180) / Math.PI,
     );
-    expect(
-      terrainBoundingExpansion(10_444, radius, 20),
-    ).toBeGreaterThan(
+    expect(terrainBoundingExpansion(10_444, radius, 20)).toBeGreaterThan(
       terrainBoundingExpansion(10_444, radius, 1),
     );
-    expect(
-      selectTerrainTiles(40, -104, radius, 20).length,
-    ).toBeGreaterThanOrEqual(
-      selectTerrainTiles(40, -104, radius, 1).length,
-    );
-    expect(selectTerrainTiles(40, -104, 318.55, 20).length).toBeLessThan(400);
+    expect(selectTerrainTiles(40, -104, 318.55).length).toBeLessThan(400);
   });
 });
 
@@ -174,9 +167,7 @@ describe("Little Planet imagery scheduling", () => {
       { z: 7, x: 79, y: 22 },
       { z: 7, x: 90, y: 20 },
     ]);
-    expect(tasks.slice(0, 2).every((task) => task.priority < 1_000)).toBe(
-      true,
-    );
+    expect(tasks.slice(0, 2).every((task) => task.priority < 1_000)).toBe(true);
     expect(tasks.slice(2).every((task) => task.priority >= 1_000)).toBe(true);
   });
 

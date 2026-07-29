@@ -1,9 +1,7 @@
 import * as THREE from "three";
-import {
-  normalizedRadialOffsetForMetres,
-} from "./planet-state.js";
+import { normalizedRadialOffsetForMetres } from "./planet-state.js";
 import type { ReliefDataset } from "./relief.js";
-import { DEFAULT_EYE_HEIGHT_M } from "./terrain-horizon.js";
+import { terrainHorizonSourceDistanceKm } from "./terrain-horizon.js";
 import {
   LOCAL_GEOMETRY_BUDGET_BYTES,
   LOCAL_HEIGHT_CACHE_LIMIT,
@@ -11,13 +9,16 @@ import {
   LOCAL_RETIRE_SECONDS,
   LOCAL_SCALE_SETTLE_MS,
   LOCAL_TILE_SIZE,
-  LOCAL_WINDOW_SIZE,
   LruCache,
   TileRequestQueue,
   elevationFailureDecision,
   heightLoadTasksForWindow,
+  isValidMercatorAddress,
   localDetailEnabled,
+  localTerrainHorizonCoverage,
+  localTerrainSourceSampleM,
   mapterhornUrlForTile,
+  mercatorHorizonBounds,
   mercatorCoordinatesForTilePoint,
   mercatorTileKey,
   rtinErrorBucket,
@@ -52,10 +53,7 @@ interface ElevationPayload {
 }
 
 class ElevationRequestError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-  ) {
+  constructor(message: string, readonly status?: number) {
     super(message);
     this.name = "ElevationRequestError";
   }
@@ -68,10 +66,7 @@ interface RenderedLocalTile {
   actualErrorM: number;
   geometryBytes: number;
   detailTarget: number;
-  overlays: Map<
-    string,
-    THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>
-  >;
+  overlays: Map<string, THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>>;
   outerEdges: THREE.Vector4;
   unavailableEdges: THREE.Vector4;
   skirtEdges: THREE.Vector4;
@@ -90,10 +85,7 @@ interface QueuedMeshRequest {
   errorM: number;
 }
 
-type PreparedLocalTile = Extract<
-  LocalTerrainWorkerResult,
-  { type: "mesh" }
->;
+type PreparedLocalTile = Extract<LocalTerrainWorkerResult, { type: "mesh" }>;
 
 export interface LocalTerrainImageryPatch {
   key: string;
@@ -330,18 +322,13 @@ function localTerrainMaterial(
   });
 }
 
-function geometryForLocalTile(
-  result: PreparedLocalTile,
-): THREE.BufferGeometry {
+function geometryForLocalTile(result: PreparedLocalTile): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
     new THREE.BufferAttribute(result.positions, 3),
   );
-  geometry.setAttribute(
-    "normal",
-    new THREE.BufferAttribute(result.normals, 3),
-  );
+  geometry.setAttribute("normal", new THREE.BufferAttribute(result.normals, 3));
   geometry.setAttribute("uv", new THREE.BufferAttribute(result.uvs, 2));
   geometry.setAttribute(
     "heightUv",
@@ -355,9 +342,7 @@ function geometryForLocalTile(
     "skirtEdge",
     new THREE.BufferAttribute(result.skirtEdges, 1),
   );
-  geometry.setIndex(
-    new THREE.BufferAttribute(result.indices, 1),
-  );
+  geometry.setIndex(new THREE.BufferAttribute(result.indices, 1));
   geometry.boundingSphere = new THREE.Sphere(
     new THREE.Vector3().fromArray(result.boundingCentre),
     result.boundingRadius,
@@ -477,6 +462,8 @@ export class LocalTerrainRenderer {
   private streamingState: StreamingState = "waiting";
   private generation = 0;
   private requestId = 0;
+  private latitudeDegrees = 0;
+  private longitudeDegrees = 0;
   private displayRadiusM = 1;
   private radialMultiplier = 1;
   private previousDisplayRadiusM: number | undefined;
@@ -547,10 +534,8 @@ export class LocalTerrainRenderer {
     displayRadiusM: number,
     radialMultiplier: number,
     oceanSurface: boolean,
-    maximumElevationM: number,
   ): void {
-    const nowMs =
-      typeof performance === "undefined" ? 0 : performance.now();
+    const nowMs = typeof performance === "undefined" ? 0 : performance.now();
     const deltaSeconds = Math.max(
       0,
       Math.min(0.1, (nowMs - this.lastUpdateMs) / 1_000),
@@ -573,13 +558,12 @@ export class LocalTerrainRenderer {
       this.lastScaleChangeMs,
       LOCAL_SCALE_SETTLE_MS,
     );
+    this.latitudeDegrees = latitudeDegrees;
+    this.longitudeDegrees = longitudeDegrees;
     this.displayRadiusM = displayRadiusM;
     this.radialMultiplier = radialMultiplier;
     this.oceanSurface = oceanSurface;
-    if (
-      !this.stencilAvailable ||
-      !localDetailEnabled(latitudeDegrees)
-    ) {
+    if (!this.stencilAvailable || !localDetailEnabled(latitudeDegrees)) {
       this.clearActive();
       this.loadQueue.sync([]);
       this.updateMaterialUniforms(deltaSeconds);
@@ -588,11 +572,8 @@ export class LocalTerrainRenderer {
     }
     const zoom = selectLocalTerrainZoom(
       latitudeDegrees,
+      longitudeDegrees,
       displayRadiusM,
-      radialMultiplier,
-      this.candidateWindow?.zoom ?? this.currentWindow?.zoom,
-      DEFAULT_EYE_HEIGHT_M,
-      maximumElevationM,
     );
     this.desiredZoom = zoom;
     const window = selectLocalTileWindow(
@@ -637,8 +618,7 @@ export class LocalTerrainRenderer {
     if (
       this.streamingState === "retiring" &&
       [...this.rendered.values()].every(
-        (tile) =>
-          Number(tile.mesh.material.uniforms.detailMix!.value) <= 0.001,
+        (tile) => Number(tile.mesh.material.uniforms.detailMix!.value) <= 0.001,
       )
     ) {
       this.clearRendered();
@@ -654,7 +634,7 @@ export class LocalTerrainRenderer {
     ) {
       this.beginStreaming(this.candidateWindow);
     }
-    if (this.currentWindow) {
+    if (this.currentWindow && this.streamingState !== "retiring") {
       this.scheduleElevation();
       this.queueBuildableMeshes();
       this.dispatchNextMesh();
@@ -670,7 +650,9 @@ export class LocalTerrainRenderer {
 
   dispose(): void {
     this.loadQueue.dispose();
-    this.worker.postMessage({ type: "dispose" } satisfies LocalTerrainWorkerRequest);
+    this.worker.postMessage({
+      type: "dispose",
+    } satisfies LocalTerrainWorkerRequest);
     this.worker.terminate();
     this.clearRendered();
   }
@@ -682,37 +664,27 @@ export class LocalTerrainRenderer {
     );
     for (const tile of this.rendered.values()) {
       const uniforms = tile.mesh.material.uniforms;
-      uniforms.normalizedRadialMetres!.value =
-        normalizedRadialMetres;
+      uniforms.normalizedRadialMetres!.value = normalizedRadialMetres;
       const projectedErrorWorldM =
-        normalizedRadialMetres *
-        this.displayRadiusM *
-        tile.actualErrorM *
-        2;
+        normalizedRadialMetres * this.displayRadiusM * tile.actualErrorM * 2;
       const skirtDepthWorldM = Math.max(
         LOCAL_MIN_SKIRT_DEPTH_WORLD_M,
         Math.min(LOCAL_MAX_SKIRT_DEPTH_WORLD_M, projectedErrorWorldM),
       );
       uniforms.normalizedSkirtDepth!.value =
         skirtDepthWorldM / this.displayRadiusM;
-      uniforms.oceanSurface!.value =
-        this.oceanSurface ? 1 : 0;
+      uniforms.oceanSurface!.value = this.oceanSurface ? 1 : 0;
       const transitionSeconds =
         tile.detailTarget < Number(uniforms.detailMix!.value)
           ? LOCAL_RETIRE_SECONDS
           : LOCAL_TRANSITION_SECONDS;
       const transitionStep =
-        deltaSeconds <= 0
-          ? 0
-          : Math.min(1, deltaSeconds / transitionSeconds);
+        deltaSeconds <= 0 ? 0 : Math.min(1, deltaSeconds / transitionSeconds);
       const detailMix = Number(uniforms.detailMix!.value);
       uniforms.detailMix!.value =
         detailMix +
         Math.sign(tile.detailTarget - detailMix) *
-          Math.min(
-            Math.abs(tile.detailTarget - detailMix),
-            transitionStep,
-          );
+          Math.min(Math.abs(tile.detailTarget - detailMix), transitionStep);
       uniforms.imageryMix!.value = 0;
       (uniforms.outerEdges!.value as THREE.Vector4).lerp(
         tile.outerEdges,
@@ -751,10 +723,7 @@ export class LocalTerrainRenderer {
     this.imageryRefreshQueue.delete(key);
     this.clearTileOverlays(tile);
     this.group.remove(tile.mesh);
-    this.geometryBytes = Math.max(
-      0,
-      this.geometryBytes - tile.geometryBytes,
-    );
+    this.geometryBytes = Math.max(0, this.geometryBytes - tile.geometryBytes);
     tile.mesh.geometry.dispose();
     tile.mesh.material.dispose();
     this.rendered.delete(key);
@@ -774,10 +743,7 @@ export class LocalTerrainRenderer {
     this.candidateWindow = undefined;
     this.currentLodSignature = this.lodSignature(window);
     this.active = new Map(
-      window.active.map((address) => [
-        mercatorTileKey(address),
-        address,
-      ]),
+      window.active.map((address) => [mercatorTileKey(address), address]),
     );
     this.streamingState = "streaming";
   }
@@ -792,10 +758,7 @@ export class LocalTerrainRenderer {
     this.cancelMeshGeneration();
     this.currentWindow = window;
     const nextActive = new Map(
-      window.active.map((address) => [
-        mercatorTileKey(address),
-        address,
-      ]),
+      window.active.map((address) => [mercatorTileKey(address), address]),
     );
     for (const key of this.rendered.keys()) {
       if (!nextActive.has(key)) this.removeRenderedTile(key);
@@ -852,21 +815,11 @@ export class LocalTerrainRenderer {
     this.worker.postMessage(request, [payload.bytes]);
   }
 
-  private handleElevationFailed(
-    task: TileLoadTask,
-    error: unknown,
-  ): void {
+  private handleElevationFailed(task: TileLoadTask, error: unknown): void {
     if (isAbortError(error)) return;
     const key = mercatorTileKey(task.address);
-    if (
-      error instanceof ElevationRequestError &&
-      error.status === 404
-    ) {
-      const decision = elevationFailureDecision(
-        "not-found",
-        1,
-        Date.now(),
-      );
+    if (error instanceof ElevationRequestError && error.status === 404) {
+      const decision = elevationFailureDecision("not-found", 1, Date.now());
       if (decision.permanent) this.permanentFailures.add(key);
       this.failedUntil.delete(key);
     } else {
@@ -914,8 +867,7 @@ export class LocalTerrainRenderer {
       if (
         result.generation === this.generation &&
         this.active.has(key) &&
-        this.errorForAddress(this.active.get(key)!) ===
-          result.requestedErrorM
+        this.errorForAddress(this.active.get(key)!) === result.requestedErrorM
       ) {
         this.installQueue.push(result);
       } else {
@@ -937,10 +889,7 @@ export class LocalTerrainRenderer {
       );
       this.queueBuildableMeshes();
     } else if (pending.kind === "mesh") {
-      this.failedMeshUntil.set(
-        key,
-        Date.now() + HEIGHT_RETRY_DELAY_MS,
-      );
+      this.failedMeshUntil.set(key, Date.now() + HEIGHT_RETRY_DELAY_MS);
     }
     this.queueBuildableMeshes();
     this.dispatchNextMesh();
@@ -951,6 +900,7 @@ export class LocalTerrainRenderer {
   private prerequisiteState(
     address: MercatorTileAddress,
   ): "decoded" | "ocean" | "failed" | "pending" {
+    if (!isValidMercatorAddress(address)) return "failed";
     const key = mercatorTileKey(address);
     const cached = this.decoded.get(key);
     if (cached) return cached;
@@ -974,17 +924,17 @@ export class LocalTerrainRenderer {
             pending.generation === this.generation &&
             pending.errorM === errorM,
         )
-      ) continue;
+      )
+        continue;
       if (
         this.installQueue.some(
           (result) =>
             mercatorTileKey(result.address) === key &&
             result.requestedErrorM === errorM,
         )
-      ) continue;
-      if (
-        this.overbudgetMeshes.get(key) === this.currentLodSignature
-      ) continue;
+      )
+        continue;
+      if (this.overbudgetMeshes.get(key) === this.currentLodSignature) continue;
       const centreState = this.prerequisiteState(address);
       if (centreState === "ocean" || centreState === "failed") continue;
       if (centreState !== "decoded") continue;
@@ -1011,7 +961,8 @@ export class LocalTerrainRenderer {
       [...this.pendingWorker.values()].some(
         (pending) => pending.kind === "mesh",
       )
-    ) return;
+    )
+      return;
     const next = this.meshQueue.entries().next().value as
       | [string, QueuedMeshRequest]
       | undefined;
@@ -1058,11 +1009,13 @@ export class LocalTerrainRenderer {
   }
 
   private errorForAddress(address: LocalTileAddress): number {
+    const window = this.currentWindow;
     const outerRing =
+      !window ||
       address.column === 0 ||
       address.row === 0 ||
-      address.column === LOCAL_WINDOW_SIZE - 1 ||
-      address.row === LOCAL_WINDOW_SIZE - 1;
+      address.column === window.columns - 1 ||
+      address.row === window.rows - 1;
     return rtinErrorBucket(
       this.displayRadiusM,
       this.radialMultiplier,
@@ -1085,9 +1038,7 @@ export class LocalTerrainRenderer {
     }
   }
 
-  private installOrReplaceMesh(
-    result: PreparedLocalTile,
-  ): void {
+  private installOrReplaceMesh(result: PreparedLocalTile): void {
     const activeAddress = this.active.get(mercatorTileKey(result.address));
     if (!activeAddress) return;
     const geometry = geometryForLocalTile(result);
@@ -1119,10 +1070,7 @@ export class LocalTerrainRenderer {
       this.imageryRefreshQueue.add(key);
       return;
     }
-    const material = localTerrainMaterial(
-      this.relief,
-      this.fallbackTexture,
-    );
+    const material = localTerrainMaterial(this.relief, this.fallbackTexture);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
     mesh.renderOrder = -1;
@@ -1167,11 +1115,7 @@ export class LocalTerrainRenderer {
     if (!tile) return;
 
     const intersecting = new Map<string, LocalTerrainImageryPatch>();
-    const northWest = mercatorCoordinatesForTilePoint(
-      tile.address,
-      0,
-      0,
-    );
+    const northWest = mercatorCoordinatesForTilePoint(tile.address, 0, 0);
     const southEast = mercatorCoordinatesForTilePoint(
       tile.address,
       LOCAL_TILE_SIZE,
@@ -1188,7 +1132,8 @@ export class LocalTerrainRenderer {
         west > target.east ||
         south < target.north ||
         north > target.south
-      ) continue;
+      )
+        continue;
       intersecting.set(`${patch.key}:${patch.texture.uuid}`, patch);
     }
 
@@ -1200,10 +1145,7 @@ export class LocalTerrainRenderer {
       this.group.remove(overlay);
       overlay.material.dispose();
       tile.overlays.delete(patchKey);
-      this.imageryOverlayCount = Math.max(
-        0,
-        this.imageryOverlayCount - 1,
-      );
+      this.imageryOverlayCount = Math.max(0, this.imageryOverlayCount - 1);
     }
     for (const [patchKey, patch] of intersecting) {
       if (tile.overlays.has(patchKey)) continue;
@@ -1234,10 +1176,7 @@ export class LocalTerrainRenderer {
         const direction = directions[index]!;
         const neighbour = {
           z: tile.address.z,
-          x: wrapMercatorX(
-            tile.address.x + direction.deltaX,
-            tile.address.z,
-          ),
+          x: wrapMercatorX(tile.address.x + direction.deltaX, tile.address.z),
           y: tile.address.y + direction.deltaY,
         };
         const neighbourKey = mercatorTileKey(neighbour);
@@ -1313,10 +1252,9 @@ export class LocalTerrainRenderer {
           ]),
         )
       : this.active;
-    const states = Array.from(
-      { length: LOCAL_WINDOW_SIZE * LOCAL_WINDOW_SIZE },
-      () => "p",
-    );
+    const columns = targetWindow?.columns ?? 0;
+    const rows = targetWindow?.rows ?? 0;
+    const states = Array.from({ length: columns * rows }, () => "p");
     let readyCells = 0;
     let fallbackCells = 0;
     let overbudgetCells = 0;
@@ -1326,9 +1264,7 @@ export class LocalTerrainRenderer {
       if (this.rendered.has(key)) {
         state = "r";
         readyCells += 1;
-      } else if (
-        this.overbudgetMeshes.get(key) === this.currentLodSignature
-      ) {
+      } else if (this.overbudgetMeshes.get(key) === this.currentLodSignature) {
         state = "b";
         fallbackCells += 1;
         overbudgetCells += 1;
@@ -1345,8 +1281,22 @@ export class LocalTerrainRenderer {
       } else if (this.decoded.peek(key) === "decoded") {
         state = "d";
       }
-      states[address.row * LOCAL_WINDOW_SIZE + address.column] = state;
+      states[address.row * columns + address.column] = state;
     }
+    const horizonBounds = targetWindow
+      ? mercatorHorizonBounds(
+          this.latitudeDegrees,
+          this.longitudeDegrees,
+          this.displayRadiusM,
+        )
+      : undefined;
+    const horizonCoverage =
+      targetWindow && horizonBounds
+        ? localTerrainHorizonCoverage(targetWindow, horizonBounds)
+        : undefined;
+    const actualErrors = [
+      ...new Set([...this.rendered.values()].map((tile) => tile.actualErrorM)),
+    ].sort((first, second) => first - second);
     document.body.dataset.detailRelief = this.diagnosticStatus();
     document.body.dataset.detailMeshCount = String(this.rendered.size);
     document.body.dataset.detailHeightCache = String(this.decoded.size);
@@ -1355,6 +1305,9 @@ export class LocalTerrainRenderer {
     );
     document.body.dataset.detailWindowOrigin = targetWindow
       ? `${targetWindow.originX}/${targetWindow.originY}`
+      : "";
+    document.body.dataset.detailWindowSize = targetWindow
+      ? `${columns}x${rows}`
       : "";
     document.body.dataset.detailTerrainZoom = targetWindow
       ? String(targetWindow.zoom)
@@ -1367,6 +1320,35 @@ export class LocalTerrainRenderer {
       : "";
     document.body.dataset.detailDesiredZoom =
       this.desiredZoom === undefined ? "" : String(this.desiredZoom);
+    document.body.dataset.detailSourceSampleMetres = targetWindow
+      ? localTerrainSourceSampleM(
+          this.latitudeDegrees,
+          targetWindow.zoom,
+        ).toFixed(1)
+      : "";
+    document.body.dataset.detailRequestedErrorMetres = targetWindow
+      ? String(rtinErrorBucket(this.displayRadiusM, this.radialMultiplier))
+      : "";
+    document.body.dataset.detailActualErrorMetres = actualErrors.join(",");
+    document.body.dataset.detailHorizonDegrees = horizonBounds
+      ? ((horizonBounds.angularRadiusRadians * 180) / Math.PI).toFixed(3)
+      : "";
+    document.body.dataset.detailHorizonDistanceKm = horizonBounds
+      ? terrainHorizonSourceDistanceKm(this.displayRadiusM).toFixed(1)
+      : "";
+    document.body.dataset.detailHorizonCoverage = horizonCoverage
+      ? String(horizonCoverage.covered)
+      : "";
+    document.body.dataset.detailCoverageMargins = horizonCoverage
+      ? [
+          horizonCoverage.westMarginTiles,
+          horizonCoverage.eastMarginTiles,
+          horizonCoverage.northMarginTiles,
+          horizonCoverage.southMarginTiles,
+        ]
+          .map((margin) => margin.toFixed(3))
+          .join(",")
+      : "";
     document.body.dataset.detailStaging = String(
       this.streamingState !== "steady",
     );
@@ -1376,28 +1358,20 @@ export class LocalTerrainRenderer {
     document.body.dataset.detailFallbackCells = String(fallbackCells);
     document.body.dataset.detailOverbudgetCells = String(overbudgetCells);
     document.body.dataset.detailCentreState =
-      states[
-        Math.floor(LOCAL_WINDOW_SIZE / 2) * LOCAL_WINDOW_SIZE +
-          Math.floor(LOCAL_WINDOW_SIZE / 2)
-      ] ?? "p";
+      rows > 0 && columns > 0
+        ? states[Math.floor(rows / 2) * columns + Math.floor(columns / 2)] ??
+          "p"
+        : "p";
     document.body.dataset.detailTileStates = Array.from(
-      { length: LOCAL_WINDOW_SIZE },
-      (_, row) =>
-        states
-          .slice(
-            row * LOCAL_WINDOW_SIZE,
-            (row + 1) * LOCAL_WINDOW_SIZE,
-          )
-          .join(""),
+      { length: rows },
+      (_, row) => states.slice(row * columns, (row + 1) * columns).join(""),
     ).join("/");
     document.body.dataset.detailImageryCache = "0";
     document.body.dataset.detailImageryRequests = "0";
     document.body.dataset.detailImageryPatches = String(
       this.imageryPatches.length,
     );
-    document.body.dataset.detailImageryDraws = String(
-      this.imageryOverlayCount,
-    );
+    document.body.dataset.detailImageryDraws = String(this.imageryOverlayCount);
     document.body.dataset.detailWorkerQueued = String(this.meshQueue.size);
     document.body.dataset.detailWorkerInflight = String(
       Number(
@@ -1406,9 +1380,7 @@ export class LocalTerrainRenderer {
         ),
       ),
     );
-    document.body.dataset.detailWorkerStale = String(
-      this.staleWorkerResults,
-    );
+    document.body.dataset.detailWorkerStale = String(this.staleWorkerResults);
     document.body.dataset.detailElevationRequestTotal = String(
       this.elevationRequestTotal,
     );
@@ -1422,8 +1394,7 @@ export class LocalTerrainRenderer {
     document.body.dataset.detailVertices = String(
       [...this.rendered.values()].reduce(
         (total, tile) =>
-          total +
-          (tile.mesh.geometry.getAttribute("position")?.count ?? 0),
+          total + (tile.mesh.geometry.getAttribute("position")?.count ?? 0),
         0,
       ),
     );

@@ -1,15 +1,13 @@
 import {
   DEFAULT_EYE_HEIGHT_M,
-  FALLBACK_MAX_ELEVATION_M,
-  terrainHorizonDiameterM,
+  terrainHorizonRadians,
 } from "./terrain-horizon.js";
 
-export const LOCAL_TERRAIN_MIN_ZOOM = 3;
+export const LOCAL_TERRAIN_MIN_ZOOM = 0;
 export const LOCAL_TERRAIN_MAX_ZOOM = 12;
 export const LOCAL_TILE_SIZE = 512;
 export const LOCAL_GRID_SIZE = LOCAL_TILE_SIZE + 1;
 export const LOCAL_WINDOW_SIZE = 5;
-export const LOCAL_HALO_SIZE = LOCAL_WINDOW_SIZE + 1;
 export const LOCAL_HEIGHT_CACHE_LIMIT = 64;
 export const MAX_CONCURRENT_HEIGHT_REQUESTS = 4;
 export const LOCAL_MESH_VERTEX_LIMIT = 16_384;
@@ -21,22 +19,8 @@ export const LOCAL_MALFORMED_RETRY_DELAY_MS = 5 * 60_000;
 export const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 export const RTIN_ERROR_BUCKETS_M = [5, 10, 20, 40, 80, 150] as const;
 export const RTIN_FALLBACK_ERROR_BUCKETS_M = [
-  300,
-  600,
-  1_200,
-  2_400,
-  4_800,
-  9_600,
+  300, 600, 1_200, 2_400, 4_800, 9_600,
 ] as const;
-export const LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M = 0.0004;
-export const LOCAL_DETAIL_ZOOM_HYSTERESIS = 1.2;
-/**
- * The contact point can lie anywhere in the centre tile. This factor ensures
- * the nearer edge of the 5×5 window still reaches the calculated horizon.
- */
-export const LOCAL_HORIZON_COVERAGE_PADDING =
-  LOCAL_WINDOW_SIZE / (LOCAL_WINDOW_SIZE - 1);
-
 const EARTH_RADIUS_M = 6_371_008.8;
 const TARGET_PROJECTED_VERTICAL_ERROR_M = 0.002;
 
@@ -55,8 +39,28 @@ export interface MercatorTileWindow {
   zoom: number;
   originX: number;
   originY: number;
+  columns: number;
+  rows: number;
   active: LocalTileAddress[];
   required: LocalTileAddress[];
+}
+
+export interface MercatorHorizonBounds {
+  angularRadiusRadians: number;
+  centreX: number;
+  centreY: number;
+  westX: number;
+  eastX: number;
+  northY: number;
+  southY: number;
+}
+
+export interface MercatorHorizonCoverage {
+  covered: boolean;
+  westMarginTiles: number;
+  eastMarginTiles: number;
+  northMarginTiles: number;
+  southMarginTiles: number;
 }
 
 export interface TileLoadTask {
@@ -71,10 +75,7 @@ export interface LocalEdgeMask {
   west: number;
 }
 
-export type ElevationFailureKind =
-  | "not-found"
-  | "transient"
-  | "malformed";
+export type ElevationFailureKind = "not-found" | "transient" | "malformed";
 
 export interface ElevationFailureDecision {
   permanent: boolean;
@@ -164,8 +165,7 @@ export function terrainScaleInputChanged(
         Math.max(0.001, displayRadiusM) /
           Math.max(0.001, previousDisplayRadiusM),
       ),
-    ) > 1e-5 ||
-    Math.abs(radialMultiplier - previousRadialMultiplier) > 1e-5
+    ) > 1e-5 || Math.abs(radialMultiplier - previousRadialMultiplier) > 1e-5
   );
 }
 
@@ -200,8 +200,7 @@ export function elevationFailureDecision(
     LOCAL_TRANSIENT_RETRY_DELAYS_MS[Math.max(0, failedAttempts - 1)];
   return {
     permanent: false,
-    retryAtMs:
-      nowMs + (delay ?? LOCAL_MALFORMED_RETRY_DELAY_MS),
+    retryAtMs: nowMs + (delay ?? LOCAL_MALFORMED_RETRY_DELAY_MS),
     retryScheduled: delay !== undefined,
   };
 }
@@ -215,8 +214,22 @@ export function wrapMercatorX(x: number, zoom: number): number {
   return ((x % width) + width) % width;
 }
 
+export function isValidMercatorAddress(address: MercatorTileAddress): boolean {
+  const width = 2 ** address.z;
+  return (
+    address.z >= LOCAL_TERRAIN_MIN_ZOOM &&
+    address.z <= LOCAL_TERRAIN_MAX_ZOOM &&
+    Number.isInteger(address.x) &&
+    Number.isInteger(address.y) &&
+    address.x >= 0 &&
+    address.x < width &&
+    address.y >= 0 &&
+    address.y < width
+  );
+}
+
 export function wrapLongitude(longitudeDegrees: number): number {
-  return ((longitudeDegrees + 180) % 360 + 360) % 360 - 180;
+  return ((((longitudeDegrees + 180) % 360) + 360) % 360) - 180;
 }
 
 export function clampMercatorLatitude(latitudeDegrees: number): number {
@@ -232,17 +245,15 @@ export function mercatorPointForCoordinates(
   zoom = LOCAL_TERRAIN_MAX_ZOOM,
 ): { x: number; y: number } {
   const latitudeRadians =
-    clampMercatorLatitude(latitudeDegrees) * Math.PI / 180;
+    (clampMercatorLatitude(latitudeDegrees) * Math.PI) / 180;
   const width = 2 ** zoom;
   return {
-    x: (wrapLongitude(longitudeDegrees) + 180) / 360 * width,
+    x: ((wrapLongitude(longitudeDegrees) + 180) / 360) * width,
     y:
-      (1 -
-        Math.log(
-          Math.tan(latitudeRadians) + 1 / Math.cos(latitudeRadians),
-        ) /
+      ((1 -
+        Math.log(Math.tan(latitudeRadians) + 1 / Math.cos(latitudeRadians)) /
           Math.PI) /
-      2 *
+        2) *
       width,
   };
 }
@@ -276,7 +287,7 @@ export function mercatorCoordinatesForTilePoint(
   return {
     longitudeDegrees: x * 360 - 180,
     latitudeDegrees:
-      Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180 / Math.PI,
+      (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI,
   };
 }
 
@@ -295,16 +306,15 @@ export function selectLocalTileWindow(
     selectedZoom,
   );
   const width = 2 ** selectedZoom;
-  const originX = wrapMercatorX(
-    centre.x - Math.floor(LOCAL_WINDOW_SIZE / 2),
-    selectedZoom,
-  );
+  const columns = Math.min(LOCAL_WINDOW_SIZE, width);
+  const rows = Math.min(LOCAL_WINDOW_SIZE, width);
+  const originX =
+    columns === width
+      ? 0
+      : wrapMercatorX(centre.x - Math.floor(columns / 2), selectedZoom);
   const originY = Math.max(
     0,
-    Math.min(
-      width - LOCAL_HALO_SIZE,
-      centre.y - Math.floor(LOCAL_WINDOW_SIZE / 2),
-    ),
+    Math.min(width - rows, centre.y - Math.floor(rows / 2)),
   );
   const addressAt = (column: number, row: number): LocalTileAddress => ({
     z: selectedZoom,
@@ -314,19 +324,19 @@ export function selectLocalTileWindow(
     row,
   });
   const active: LocalTileAddress[] = [];
-  for (let row = 0; row < LOCAL_WINDOW_SIZE; row += 1) {
-    for (let column = 0; column < LOCAL_WINDOW_SIZE; column += 1) {
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
       active.push(addressAt(column, row));
     }
   }
   active.sort((first, second) => {
     const firstDistance = Math.hypot(
-      first.column - LOCAL_WINDOW_SIZE / 2 + 0.5,
-      first.row - LOCAL_WINDOW_SIZE / 2 + 0.5,
+      first.column - columns / 2 + 0.5,
+      first.row - rows / 2 + 0.5,
     );
     const secondDistance = Math.hypot(
-      second.column - LOCAL_WINDOW_SIZE / 2 + 0.5,
-      second.row - LOCAL_WINDOW_SIZE / 2 + 0.5,
+      second.column - columns / 2 + 0.5,
+      second.row - rows / 2 + 0.5,
     );
     return (
       firstDistance - secondDistance ||
@@ -335,16 +345,24 @@ export function selectLocalTileWindow(
     );
   });
   const required = [...active];
-  for (let row = 0; row < LOCAL_HALO_SIZE; row += 1) {
-    required.push(addressAt(LOCAL_WINDOW_SIZE, row));
+  const hasSouthHalo = originY + rows < width;
+  if (columns < width) {
+    const requiredRows = rows + Number(hasSouthHalo);
+    for (let row = 0; row < requiredRows; row += 1) {
+      required.push(addressAt(columns, row));
+    }
   }
-  for (let column = 0; column < LOCAL_WINDOW_SIZE; column += 1) {
-    required.push(addressAt(column, LOCAL_WINDOW_SIZE));
+  if (hasSouthHalo) {
+    for (let column = 0; column < columns; column += 1) {
+      required.push(addressAt(column, rows));
+    }
   }
   return {
     zoom: selectedZoom,
     originX,
     originY,
+    columns,
+    rows,
     active,
     required,
   };
@@ -359,9 +377,7 @@ export function heightLoadTasksForWindow(
   }));
 }
 
-export function mapterhornUrlForTile(
-  address: MercatorTileAddress,
-): string {
+export function mapterhornUrlForTile(address: MercatorTileAddress): string {
   return `https://tiles.mapterhorn.com/${address.z}/${address.x}/${address.y}.webp`;
 }
 
@@ -394,9 +410,7 @@ export function decodeTerrariumPixels(
   return heights;
 }
 
-export function isOceanOnlyHeightTile(
-  heights: DecodedHeightTile,
-): boolean {
+export function isOceanOnlyHeightTile(heights: DecodedHeightTile): boolean {
   for (const height of heights) {
     if (height !== 0) return false;
   }
@@ -417,9 +431,7 @@ export function buildHeightGrid513(
       row * LOCAL_GRID_SIZE,
     );
     grid[row * LOCAL_GRID_SIZE + LOCAL_TILE_SIZE] =
-      east?.[sourceOffset] ??
-      centre[sourceOffset + LOCAL_TILE_SIZE - 1] ??
-      0;
+      east?.[sourceOffset] ?? centre[sourceOffset + LOCAL_TILE_SIZE - 1] ?? 0;
   }
   const southOffset = LOCAL_TILE_SIZE * LOCAL_GRID_SIZE;
   for (let column = 0; column < LOCAL_TILE_SIZE; column += 1) {
@@ -443,8 +455,7 @@ export function rtinErrorBucket(
   outerRing = false,
 ): number {
   const targetSourceErrorM =
-    TARGET_PROJECTED_VERTICAL_ERROR_M *
-    EARTH_RADIUS_M /
+    (TARGET_PROJECTED_VERTICAL_ERROR_M * EARTH_RADIUS_M) /
     Math.max(0.001, displayRadiusM * Math.max(0.25, radialMultiplier));
   let index = 0;
   for (
@@ -462,119 +473,176 @@ export function rtinErrorBucket(
   return RTIN_ERROR_BUCKETS_M[index]!;
 }
 
-export function localTerrainPatchWidthM(
+export function localTerrainSourceSampleM(
   latitudeDegrees: number,
-  displayRadiusM: number,
   zoom: number,
 ): number {
-  const latitude = clampMercatorLatitude(latitudeDegrees) * Math.PI / 180;
+  const latitude = (clampMercatorLatitude(latitudeDegrees) * Math.PI) / 180;
   return (
-    LOCAL_WINDOW_SIZE *
-    2 *
-    Math.PI *
-    Math.max(0.001, displayRadiusM) *
-    Math.max(0, Math.cos(latitude)) /
-    2 ** zoom
-  );
-}
-
-export function localTerrainProjectedSampleM(
-  latitudeDegrees: number,
-  displayRadiusM: number,
-  radialMultiplier: number,
-  zoom: number,
-): number {
-  const latitude = clampMercatorLatitude(latitudeDegrees) * Math.PI / 180;
-  const effectiveRadiusM =
-    Math.max(0.001, displayRadiusM) *
-    Math.sqrt(Math.max(0.25, radialMultiplier));
-  return (
-    Math.max(0, Math.cos(latitude)) *
-    2 *
-    Math.PI *
-    effectiveRadiusM /
+    (Math.max(0, Math.cos(latitude)) * 2 * Math.PI * EARTH_RADIUS_M) /
     (LOCAL_TILE_SIZE * 2 ** zoom)
   );
 }
 
+function horizonLongitudeDeltaRadians(
+  centreLatitudeRadians: number,
+  angularRadiusRadians: number,
+  latitudeRadians: number,
+): number {
+  const denominator =
+    Math.cos(centreLatitudeRadians) * Math.cos(latitudeRadians);
+  if (Math.abs(denominator) < 1e-12) return Math.PI;
+  const cosineDelta =
+    (Math.cos(angularRadiusRadians) -
+      Math.sin(centreLatitudeRadians) * Math.sin(latitudeRadians)) /
+    denominator;
+  if (cosineDelta <= -1) return Math.PI;
+  if (cosineDelta >= 1) return 0;
+  return Math.acos(cosineDelta);
+}
+
+export function mercatorHorizonBounds(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+  displayRadiusM: number,
+  eyeHeightM = DEFAULT_EYE_HEIGHT_M,
+): MercatorHorizonBounds {
+  const maximumLatitudeRadians = (WEB_MERCATOR_MAX_LATITUDE * Math.PI) / 180;
+  const centreLatitudeRadians =
+    (clampMercatorLatitude(latitudeDegrees) * Math.PI) / 180;
+  const angularRadiusRadians = terrainHorizonRadians(
+    displayRadiusM,
+    eyeHeightM,
+  );
+  const northLatitudeRadians = Math.min(
+    maximumLatitudeRadians,
+    centreLatitudeRadians + angularRadiusRadians,
+  );
+  const southLatitudeRadians = Math.max(
+    -maximumLatitudeRadians,
+    centreLatitudeRadians - angularRadiusRadians,
+  );
+  const longitudeCandidates = [
+    southLatitudeRadians,
+    centreLatitudeRadians,
+    northLatitudeRadians,
+  ];
+  const criticalSine =
+    Math.sin(centreLatitudeRadians) /
+    Math.max(1e-12, Math.cos(angularRadiusRadians));
+  if (Math.abs(criticalSine) <= 1) {
+    const criticalLatitude = Math.asin(criticalSine);
+    if (
+      criticalLatitude >= southLatitudeRadians &&
+      criticalLatitude <= northLatitudeRadians
+    ) {
+      longitudeCandidates.push(criticalLatitude);
+    }
+  }
+  const longitudeDeltaRadians = Math.min(
+    Math.PI,
+    Math.max(
+      ...longitudeCandidates.map((latitude) =>
+        horizonLongitudeDeltaRadians(
+          centreLatitudeRadians,
+          angularRadiusRadians,
+          latitude,
+        ),
+      ),
+    ),
+  );
+  const centre = mercatorPointForCoordinates(
+    latitudeDegrees,
+    longitudeDegrees,
+    0,
+  );
+  const north = mercatorPointForCoordinates(
+    (northLatitudeRadians * 180) / Math.PI,
+    longitudeDegrees,
+    0,
+  );
+  const south = mercatorPointForCoordinates(
+    (southLatitudeRadians * 180) / Math.PI,
+    longitudeDegrees,
+    0,
+  );
+  const longitudeOffset = longitudeDeltaRadians / (2 * Math.PI);
+  return {
+    angularRadiusRadians,
+    centreX: centre.x,
+    centreY: centre.y,
+    westX: centre.x - longitudeOffset,
+    eastX: centre.x + longitudeOffset,
+    northY: north.y,
+    southY: south.y,
+  };
+}
+
+export function localTerrainHorizonCoverage(
+  window: MercatorTileWindow,
+  bounds: MercatorHorizonBounds,
+): MercatorHorizonCoverage {
+  const width = 2 ** window.zoom;
+  let westMarginTiles: number;
+  let eastMarginTiles: number;
+  if (window.columns === width) {
+    westMarginTiles = 0;
+    eastMarginTiles = 0;
+  } else {
+    let windowWest = window.originX / width;
+    while (windowWest > bounds.centreX) windowWest -= 1;
+    while (windowWest + window.columns / width < bounds.centreX) {
+      windowWest += 1;
+    }
+    const windowEast = windowWest + window.columns / width;
+    westMarginTiles = (bounds.westX - windowWest) * width;
+    eastMarginTiles = (windowEast - bounds.eastX) * width;
+  }
+  const windowNorth = window.originY / width;
+  const windowSouth = (window.originY + window.rows) / width;
+  const northMarginTiles = (bounds.northY - windowNorth) * width;
+  const southMarginTiles = (windowSouth - bounds.southY) * width;
+  const epsilon = 1e-9;
+  return {
+    covered:
+      westMarginTiles >= -epsilon &&
+      eastMarginTiles >= -epsilon &&
+      northMarginTiles >= -epsilon &&
+      southMarginTiles >= -epsilon,
+    westMarginTiles,
+    eastMarginTiles,
+    northMarginTiles,
+    southMarginTiles,
+  };
+}
+
 export function selectLocalTerrainZoom(
   latitudeDegrees: number,
+  longitudeDegrees: number,
   displayRadiusM: number,
-  radialMultiplier: number,
-  previousZoom?: number,
   eyeHeightM = DEFAULT_EYE_HEIGHT_M,
-  maximumElevationM = FALLBACK_MAX_ELEVATION_M,
 ): number {
-  let detailZoom: number;
-  if (previousZoom === undefined) {
-    detailZoom = LOCAL_TERRAIN_MAX_ZOOM;
-    for (
-      let zoom = LOCAL_TERRAIN_MIN_ZOOM;
-      zoom <= LOCAL_TERRAIN_MAX_ZOOM;
-      zoom += 1
-    ) {
-      if (
-        localTerrainProjectedSampleM(
-          latitudeDegrees,
-          displayRadiusM,
-          radialMultiplier,
-          zoom,
-        ) <= LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M
-      ) {
-        detailZoom = zoom;
-        break;
-      }
-    }
-  } else {
-    detailZoom = Math.max(
-      LOCAL_TERRAIN_MIN_ZOOM,
-      Math.min(LOCAL_TERRAIN_MAX_ZOOM, Math.round(previousZoom)),
-    );
-    while (
-      detailZoom < LOCAL_TERRAIN_MAX_ZOOM &&
-      localTerrainProjectedSampleM(
-        latitudeDegrees,
-        displayRadiusM,
-        radialMultiplier,
-        detailZoom,
-      ) >
-        LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M *
-          LOCAL_DETAIL_ZOOM_HYSTERESIS
-    ) {
-      detailZoom += 1;
-    }
-    while (
-      detailZoom > LOCAL_TERRAIN_MIN_ZOOM &&
-      localTerrainProjectedSampleM(
-        latitudeDegrees,
-        displayRadiusM,
-        radialMultiplier,
-        detailZoom - 1,
-      ) <= LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M
-    ) {
-      detailZoom -= 1;
-    }
-  }
-
-  const requiredPatchWidthM =
-    terrainHorizonDiameterM(
-      displayRadiusM,
-      radialMultiplier,
-      eyeHeightM,
-      maximumElevationM,
-    ) * LOCAL_HORIZON_COVERAGE_PADDING;
-  let coverageZoom = LOCAL_TERRAIN_MIN_ZOOM;
-  while (
-    coverageZoom < LOCAL_TERRAIN_MAX_ZOOM &&
-    localTerrainPatchWidthM(
-      latitudeDegrees,
-      displayRadiusM,
-      coverageZoom + 1,
-    ) >= requiredPatchWidthM
+  const bounds = mercatorHorizonBounds(
+    latitudeDegrees,
+    longitudeDegrees,
+    displayRadiusM,
+    eyeHeightM,
+  );
+  for (
+    let zoom = LOCAL_TERRAIN_MAX_ZOOM;
+    zoom >= LOCAL_TERRAIN_MIN_ZOOM;
+    zoom -= 1
   ) {
-    coverageZoom += 1;
+    const window = selectLocalTileWindow(
+      latitudeDegrees,
+      longitudeDegrees,
+      zoom,
+    );
+    if (localTerrainHorizonCoverage(window, bounds).covered) {
+      return zoom;
+    }
   }
-  return Math.min(detailZoom, coverageZoom);
+  return LOCAL_TERRAIN_MIN_ZOOM;
 }
 
 export function localDetailEnabled(latitudeDegrees: number): boolean {
@@ -613,12 +681,13 @@ export function localDetailEdgeFadeWeight(
     distance: number,
     outerEnabled: number,
     unavailableEnabled: number,
-  ): number => Math.min(
-    outerEnabled > 0 ? smoothstep01(distance) : 1,
-    unavailableEnabled > 0
-      ? smoothstep01(distance / unavailableFadeFraction)
-      : 1,
-  );
+  ): number =>
+    Math.min(
+      outerEnabled > 0 ? smoothstep01(distance) : 1,
+      unavailableEnabled > 0
+        ? smoothstep01(distance / unavailableFadeFraction)
+        : 1,
+    );
   return Math.min(
     edgeWeight(v, outer.north, unavailable.north),
     edgeWeight(1 - u, outer.east, unavailable.east),
@@ -654,8 +723,7 @@ export function resolveLocalElevation(
       : detailHeightM;
   return (
     globalHeightM +
-    (resolvedDetailM - globalHeightM) *
-      Math.max(0, Math.min(1, detailWeight))
+    (resolvedDetailM - globalHeightM) * Math.max(0, Math.min(1, detailWeight))
   );
 }
 
@@ -670,10 +738,7 @@ export function lruEvictionKeys(
 }
 
 export class LruCache<T> {
-  private readonly items = new Map<
-    string,
-    { value: T; usedAt: number }
-  >();
+  private readonly items = new Map<string, { value: T; usedAt: number }>();
   private clock = 0;
 
   constructor(readonly limit: number) {}

@@ -1,6 +1,6 @@
 # Little Planet
 
-A room-scale WebXR relief Earth inspired by *Le Petit Prince*. Mean sea
+A room-scale WebXR relief Earth inspired by _Le Petit Prince_. Mean sea
 level stays at the physical-floor apex beneath the headset while walking or
 controller travel rolls the planet through that contact point.
 
@@ -69,23 +69,26 @@ npm run prepare:relief --workspace @found-in-space/little-prince
 ```
 
 Around the current contact point, the renderer asynchronously requests a
-5×5 window of Mapterhorn's global 512 px Terrarium tiles. The renderer chooses
-zoom 3–12 by first calculating the eye-and-relief tangent horizon. It chooses
-the finest level whose 5×5 footprint reaches beyond that horizon even when the
-contact point lies at the edge of the centre tile, capped by a 0.4 mm room-scale
-sample target. At typical mid-latitudes, the initial scale selects zoom 5,
-giving roughly 1.9 km
-source samples across a patch about 4,800 km wide, enough to cover the roughly
-3,500 km modeled horizon. Resolution changes retain 20% refinement hysteresis.
-The checked-in GEBCO terrain remains the continuous globe beyond that patch.
-Regional zoom 13–17 LiDAR is intentionally not requested.
+logical 5×5 window of Mapterhorn's global 512 px Terrarium tiles. Its source
+zoom is calculated rather than mapped to named scales: a fixed 2 m observer
+height gives the sea-level spherical horizon
+`acos(radius / (radius + 2 m))`, that cap is converted to clipped Web Mercator
+bounds, and zooms 12–0 are tested until the finest actual user-centred window
+contains the complete cap. This accounts for tile alignment, latitude
+distortion, unequal north/south extents, polar clipping, and antimeridian
+wrapping. At zooms 0–2 the logical window collapses to the unique valid
+whole-world cells, without wrapped duplicates or polar halo requests. The
+underlying global source is Copernicus GLO-30; the checked-in GEBCO terrain
+remains the continuous globe beyond the local patch and across the distant
+horizon. Regional zoom 13–17 LiDAR is intentionally not requested.
 
 A worker decodes elevations and builds adaptive 513×513 RTIN meshes with
-`@mapbox/martini`. The active window contains 2560×2560 height samples before
-RTIN simplification. A fetched 6×6 east/south halo keeps shared heights aligned,
-and forced full-resolution RTIN borders prevent cracks between simplification
-levels. The outer ring blends back to GEBCO; unavailable neighbours receive a
-shorter edge fade and only patch or fallback boundaries retain shallow skirts.
+`@mapbox/martini`. A full 5×5 active window contains 2560×2560 height samples
+before RTIN simplification. Its valid east/south halo keeps shared heights
+aligned, and forced full-resolution RTIN borders prevent cracks between
+simplification levels. The outer ring blends back to GEBCO; unavailable
+neighbours receive a shorter edge fade and only patch or fallback boundaries
+retain shallow skirts.
 
 At most four elevation requests run concurrently, and up to 64 decoded tiles
 are retained. Prepared local meshes write an exact stencil before the coarse
@@ -93,27 +96,31 @@ globe renders, so missing, malformed, ocean-only, polar, and offline tiles
 remain continuous GEBCO terrain and bathymetry without approximate mask edges.
 Overlapping meshes survive window movement. During a scale or radial-LOD
 change, obsolete detail fades to exact GEBCO and the renderer waits 250 ms for
-the control to settle before requesting only the final zoom. One generation-
-tagged RTIN job runs at a time and completed GPU-ready meshes install one per
-frame. Each mesh is capped at 16,384 vertices and all active local geometry is
-capped at 32 MiB. The worker progressively relaxes RTIN error only when needed
-to keep a tile within its vertex ceiling, and the centre tile is queued first.
-A cell that still cannot meet those limits remains GEBCO. GEBCO always
-continues beyond the local patch. Its projected error target is 2 mm, so the
-RTIN mesh is rebuilt into finer buckets as the globe expands even when the
-source-tile zoom does not cross a boundary. A depth-only shell below the
-deepest exaggerated seabed prevents distant terrain and ocean faces from
+the control to settle before requesting only the final source window. One
+generation-tagged RTIN job runs at a time and completed GPU-ready meshes install
+one per frame. Each mesh is capped at 16,384 vertices and all active local
+geometry is capped at 32 MiB. The worker progressively relaxes RTIN error only
+when needed to keep a tile within its vertex ceiling, and the centre tile is
+queued first. A cell that still cannot meet those limits remains GEBCO. GEBCO
+always continues beyond the local patch. Its projected error target is 2 mm,
+calculated independently from planet scale and radial multiplier, so cached
+height data is retained while RTIN meshes rebuild into finer buckets even when
+the source-tile zoom does not cross a boundary. Runtime body-data diagnostics
+report horizon angle and source distance, selected zoom, actual window coverage,
+requested and actual RTIN error, and imagery level. A depth-only shell below
+the deepest exaggerated seabed prevents distant terrain and ocean faces from
 showing through transient seams.
 
 NASA GIBS supplies up to 32 nearby 512 px Blue Marble images from its native
 500 m geographic WMTS pyramid. Shared two-level-coarser previews load before
 the nearest full-detail tiles, with no more than six image fetches and decodes
-active at once. Levels 3–7 track the planet scale in half-octave steps, capped
-at the native 500 m level. Failed imagery requests retry after 1, 5, and then
-30 seconds while the tile remains relevant. GIBS marks these pre-generated
-tiles as browser-cacheable, so repeat headset visits can reuse them without
-bundling a global imagery archive. Local RTIN meshes reuse these same geographic
-image selections and texture leases. The selected GIBS coverage patches are
+active at once. Levels 0–7 are selected from their projected texel size at the
+current planet scale and latitude, capped at the native 500 m level. Failed
+imagery requests retry after 1, 5, and then 30 seconds while the tile remains
+relevant. GIBS marks these pre-generated tiles as browser-cacheable, so repeat
+headset visits can reuse them without bundling a global imagery archive. Local
+RTIN meshes reuse the highest available cached preview or exact geographic
+image selection and texture lease. The selected GIBS coverage patches are
 mirrored onto the detailed geometry, while the bundled Blue Marble texture
 remains the common fallback. There is no separate EPSG:3857 imagery requester
 or local imagery cache, so local relief cannot conceal the global layer with a

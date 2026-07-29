@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M,
-  LOCAL_DETAIL_ZOOM_HYSTERESIS,
   LOCAL_GEOMETRY_BUDGET_BYTES,
   LOCAL_HEIGHT_CACHE_LIMIT,
-  LOCAL_HORIZON_COVERAGE_PADDING,
   LOCAL_GRID_SIZE,
   LOCAL_MESH_VERTEX_LIMIT,
   LOCAL_SCALE_SETTLE_MS,
@@ -22,15 +19,16 @@ import {
   elevationFailureDecision,
   forceFullRtinBoundary,
   heightLoadTasksForWindow,
+  isValidMercatorAddress,
   isOceanOnlyHeightTile,
   localDetailBlendWeight,
   localDetailEdgeFadeWeight,
   localDetailEnabled,
-  localTerrainPatchWidthM,
-  localTerrainProjectedSampleM,
+  localTerrainHorizonCoverage,
   lruEvictionKeys,
   mapterhornUrlForTile,
   mercatorAddressForCoordinates,
+  mercatorHorizonBounds,
   mercatorTileKey,
   resolveLocalElevation,
   rtinErrorBucket,
@@ -44,6 +42,7 @@ import {
 import {
   terrainHorizonDiameterM,
   terrainHorizonRadians,
+  terrainHorizonSourceDistanceKm,
 } from "../apps/little-prince/src/terrain-horizon.js";
 
 describe("Little Planet local Mercator terrain", () => {
@@ -61,11 +60,12 @@ describe("Little Planet local Mercator terrain", () => {
     expect(mercatorAddressForCoordinates(90, 0, 5).y).toBe(0);
   });
 
-  it("selects 25 active tiles and only the required east/south halo", () => {
+  it("selects a 5 × 5 window and only its valid east/south halo", () => {
     const window = selectLocalTileWindow(40, -104, 5);
     const activeKeys = new Set(window.active.map(mercatorTileKey));
     const requiredKeys = new Set(window.required.map(mercatorTileKey));
     expect(window.zoom).toBe(5);
+    expect([window.columns, window.rows]).toEqual([5, 5]);
     expect(window.active).toHaveLength(25);
     expect(window.required).toHaveLength(36);
     expect(activeKeys.size).toBe(25);
@@ -75,12 +75,32 @@ describe("Little Planet local Mercator terrain", () => {
     ).toEqual(Array.from({ length: 36 }, (_, index) => index));
     const minimumWindow = selectLocalTileWindow(0, 179.99, 0);
     expect(minimumWindow.zoom).toBe(LOCAL_TERRAIN_MIN_ZOOM);
-    expect(
-      new Set(minimumWindow.required.map(mercatorTileKey)).size,
-    ).toBe(36);
-    expect(selectLocalTileWindow(0, 0, 99).zoom).toBe(
-      LOCAL_TERRAIN_MAX_ZOOM,
-    );
+    expect([minimumWindow.columns, minimumWindow.rows]).toEqual([1, 1]);
+    expect(minimumWindow.active).toHaveLength(1);
+    expect(minimumWindow.required).toHaveLength(1);
+    expect(minimumWindow.required.every(isValidMercatorAddress)).toBe(true);
+    expect(selectLocalTileWindow(0, 0, 99).zoom).toBe(LOCAL_TERRAIN_MAX_ZOOM);
+  });
+
+  it("collapses wrapped duplicates and polar halos at z0–2", () => {
+    for (const zoom of [0, 1, 2]) {
+      for (const [latitude, longitude] of [
+        [0, 0],
+        [84, 179.99],
+        [-84, -179.99],
+      ] satisfies Array<[number, number]>) {
+        const window = selectLocalTileWindow(latitude, longitude, zoom);
+        const width = 2 ** zoom;
+        expect(window.columns).toBe(width);
+        expect(window.rows).toBe(width);
+        expect(window.active).toHaveLength(width ** 2);
+        expect(window.required).toHaveLength(width ** 2);
+        expect(new Set(window.required.map(mercatorTileKey)).size).toBe(
+          width ** 2,
+        );
+        expect(window.required.every(isValidMercatorAddress)).toBe(true);
+      }
+    }
   });
 
   it("loads only six newly exposed tiles after moving one tile east", () => {
@@ -149,9 +169,7 @@ describe("Little Planet local Mercator terrain", () => {
     expect(terrariumElevationMetres(128, 0, 0)).toBe(0);
     expect(terrariumElevationMetres(128, 3, 128)).toBe(3.5);
     expect(terrariumElevationMetres(127, 255, 0)).toBe(-1);
-    const pixels = new Uint8ClampedArray(
-      LOCAL_TILE_SIZE * LOCAL_TILE_SIZE * 4,
-    );
+    const pixels = new Uint8ClampedArray(LOCAL_TILE_SIZE * LOCAL_TILE_SIZE * 4);
     for (let index = 0; index < pixels.length; index += 4) {
       pixels[index] = 128;
       pixels[index + 3] = 255;
@@ -198,29 +216,14 @@ describe("Little Planet local Mercator terrain", () => {
   it("fades outer and unavailable edges without weakening shared edges", () => {
     const none = { north: 0, east: 0, south: 0, west: 0 };
     expect(localDetailEdgeFadeWeight(0, 0.5, none, none)).toBe(1);
+    expect(localDetailEdgeFadeWeight(0, 0.5, { ...none, west: 1 }, none)).toBe(
+      0,
+    );
     expect(
-      localDetailEdgeFadeWeight(
-        0,
-        0.5,
-        { ...none, west: 1 },
-        none,
-      ),
-    ).toBe(0);
-    expect(
-      localDetailEdgeFadeWeight(
-        0.25,
-        0.5,
-        none,
-        { ...none, west: 1 },
-      ),
+      localDetailEdgeFadeWeight(0.25, 0.5, none, { ...none, west: 1 }),
     ).toBe(1);
     expect(
-      localDetailEdgeFadeWeight(
-        0.125,
-        0.5,
-        none,
-        { ...none, west: 1 },
-      ),
+      localDetailEdgeFadeWeight(0.125, 0.5, none, { ...none, west: 1 }),
     ).toBeCloseTo(0.5);
   });
 
@@ -229,13 +232,13 @@ describe("Little Planet local Mercator terrain", () => {
     forceFullRtinBoundary(errors);
     for (let coordinate = 0; coordinate < LOCAL_GRID_SIZE; coordinate += 1) {
       expect(errors[coordinate]).toBe(Infinity);
-      expect(
-        errors[(LOCAL_GRID_SIZE - 1) * LOCAL_GRID_SIZE + coordinate],
-      ).toBe(Infinity);
+      expect(errors[(LOCAL_GRID_SIZE - 1) * LOCAL_GRID_SIZE + coordinate]).toBe(
+        Infinity,
+      );
       expect(errors[coordinate * LOCAL_GRID_SIZE]).toBe(Infinity);
-      expect(
-        errors[coordinate * LOCAL_GRID_SIZE + LOCAL_GRID_SIZE - 1],
-      ).toBe(Infinity);
+      expect(errors[coordinate * LOCAL_GRID_SIZE + LOCAL_GRID_SIZE - 1]).toBe(
+        Infinity,
+      );
     }
     expect(errors[Math.floor(errors.length / 2)]).toBe(0);
   });
@@ -250,90 +253,78 @@ describe("Little Planet local Mercator terrain", () => {
     expect(localDetailEnabled(WEB_MERCATOR_MAX_LATITUDE)).toBe(false);
   });
 
-  it("calculates the tangent horizon independently of local detail", () => {
-    const radius = 63.710088;
-    const eyeOnly = Math.acos(radius / (radius + 1.7));
-    expect(terrainHorizonRadians(radius, 0, 1.7, 6_940)).toBeCloseTo(
-      eyeOnly,
-    );
-    expect(terrainHorizonRadians(radius, 1, 1.7, 6_940)).toBeGreaterThan(
-      eyeOnly,
-    );
-    expect(terrainHorizonDiameterM(radius, 20, 1.7, 6_940)).toBeGreaterThan(
-      terrainHorizonDiameterM(radius, 1, 1.7, 6_940),
-    );
-  });
-
-  it("keeps the high-resolution patch wider than the visible horizon", () => {
-    const radius = 63.710088;
-    const maximumElevationM = 6_940;
-    const horizonDiameterM = terrainHorizonDiameterM(
-      radius,
-      1,
-      1.7,
-      maximumElevationM,
-    );
-    const zoom = selectLocalTerrainZoom(
-      40,
-      radius,
-      1,
-      undefined,
-      1.7,
-      maximumElevationM,
-    );
-    expect(zoom).toBe(5);
-    expect(
-      localTerrainPatchWidthM(40, radius, zoom),
-    ).toBeGreaterThanOrEqual(
-      horizonDiameterM * LOCAL_HORIZON_COVERAGE_PADDING,
-    );
-    expect(
-      localTerrainPatchWidthM(40, radius, zoom + 1),
-    ).toBeLessThan(
-      horizonDiameterM * LOCAL_HORIZON_COVERAGE_PADDING,
-    );
-    expect(
-      localTerrainProjectedSampleM(40, radius, 1, zoom),
-    ).toBeGreaterThan(LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M);
-    expect(
-      selectLocalTerrainZoom(40, radius, 1, undefined, 0, 0),
-    ).toBe(11);
-  });
-
-  it("adapts horizon coverage across scale, exaggeration, and latitude", () => {
-    const select = (
-      latitudeDegrees: number,
-      displayRadiusM: number,
-      radialMultiplier: number,
-    ): number =>
-      selectLocalTerrainZoom(
-        latitudeDegrees,
-        displayRadiusM,
-        radialMultiplier,
-        undefined,
-        1.7,
-        6_940,
+  it("uses the analytical 2 m sea-level tangent horizon", () => {
+    for (const radius of [1, 6.3710088, 63.710088, 318.55044]) {
+      const expected = Math.acos(radius / (radius + 2));
+      expect(terrainHorizonRadians(radius)).toBeCloseTo(expected, 12);
+      expect(terrainHorizonDiameterM(radius)).toBeCloseTo(
+        2 * radius * expected,
+        12,
       );
-    expect(select(40, 1, 1)).toBe(3);
-    expect(select(40, 63.710088, 1)).toBe(5);
-    expect(select(40, 63.710088, 20)).toBe(4);
-    expect(select(40, 318.55044, 1)).toBe(6);
-    expect(select(0, 318.55044, 0)).toBe(6);
-    expect(select(80, 63.710088, 1)).toBe(3);
-    expect(select(0, 1e12, 0)).toBe(
-      LOCAL_TERRAIN_MAX_ZOOM,
-    );
-    expect(select(80, 0.001, 20)).toBe(
-      LOCAL_TERRAIN_MIN_ZOOM,
+      expect(terrainHorizonSourceDistanceKm(radius)).toBeCloseTo(
+        6_371.0088 * expected,
+        8,
+      );
+    }
+    expect(terrainHorizonRadians(318.55044)).toBeLessThan(
+      terrainHorizonRadians(1),
     );
   });
 
-  it("keeps resolution hysteresis when the horizon does not constrain it", () => {
-    expect(LOCAL_DETAIL_ZOOM_HYSTERESIS).toBe(1.2);
-    expect(selectLocalTerrainZoom(40, 50, 1, undefined, 0, 0)).toBe(11);
-    expect(selectLocalTerrainZoom(40, 50, 1, 10, 0, 0)).toBe(10);
-    expect(selectLocalTerrainZoom(40, 63.710088, 1, 10, 0, 0)).toBe(11);
-    expect(selectLocalTerrainZoom(40, 43, 1, 11, 0, 0)).toBe(10);
+  it("projects the spherical horizon cap into exact Mercator bounds", () => {
+    const radius = 63.710088;
+    const angularRadius = terrainHorizonRadians(radius);
+    const bounds = mercatorHorizonBounds(0, 179.99, radius);
+    expect(bounds.angularRadiusRadians).toBeCloseTo(angularRadius, 12);
+    expect(bounds.eastX - bounds.westX).toBeCloseTo(
+      angularRadius / Math.PI,
+      12,
+    );
+    expect(bounds.centreX).toBeGreaterThan(0.999);
+    expect(bounds.eastX).toBeGreaterThan(1);
+    expect(bounds.northY).toBeLessThan(bounds.centreY);
+    expect(bounds.southY).toBeGreaterThan(bounds.centreY);
+    expect(mercatorHorizonBounds(84, 0, 1).northY).toBeCloseTo(0, 9);
+  });
+
+  it("chooses the finest actual user-centred window containing the horizon", () => {
+    for (const [latitude, longitude, radius] of [
+      [0, 0, 1],
+      [0, 0, 63.710088],
+      [40, -4, 31.855044],
+      [40, -4, 63.710088],
+      [42, 12, 127.420176],
+      [40, -4, 318.55044],
+      [80, 0, 63.710088],
+      [-80, 179.99, 63.710088],
+      [40, -179.99, 63.710088],
+    ] satisfies Array<[number, number, number]>) {
+      const bounds = mercatorHorizonBounds(latitude, longitude, radius);
+      const zoom = selectLocalTerrainZoom(latitude, longitude, radius);
+      const window = selectLocalTileWindow(latitude, longitude, zoom);
+      expect(
+        localTerrainHorizonCoverage(window, bounds).covered,
+        `${latitude}, ${longitude}, radius ${radius}, z${zoom}`,
+      ).toBe(true);
+      if (zoom < LOCAL_TERRAIN_MAX_ZOOM) {
+        const finer = selectLocalTileWindow(latitude, longitude, zoom + 1);
+        expect(
+          localTerrainHorizonCoverage(finer, bounds).covered,
+          `${latitude}, ${longitude}, radius ${radius}, z${zoom + 1}`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("refines source zoom by horizon scale while RTIN remains independent", () => {
+    expect(selectLocalTerrainZoom(40, -4, 1)).toBe(2);
+    expect(selectLocalTerrainZoom(40, -4, 31.855044)).toBe(4);
+    expect(selectLocalTerrainZoom(40, -4, 63.710088)).toBe(5);
+    expect(selectLocalTerrainZoom(40, -4, 318.55044)).toBe(6);
+    expect(selectLocalTerrainZoom(80, 0, 63.710088)).toBe(2);
+    expect(rtinErrorBucket(318.55044, 20)).not.toBe(
+      rtinErrorBucket(318.55044, 1),
+    );
   });
 
   it("keeps emergency RTIN simplification available after normal buckets", () => {
@@ -469,14 +460,20 @@ describe("Little Planet local terrain scheduling", () => {
   });
 
   it("never exceeds the active 5 × 5 mesh-address ceiling", () => {
-    for (const [latitude, longitude] of [
-      [40, -104],
-      [0, 179.99],
-      [-70, -179.99],
-    ] satisfies Array<[number, number]>) {
-      const window = selectLocalTileWindow(latitude, longitude, 5);
-      expect(window.active.length).toBe(LOCAL_WINDOW_SIZE ** 2);
-      expect(new Set(window.active.map(mercatorTileKey)).size).toBe(25);
+    for (const zoom of [0, 1, 2, 5]) {
+      for (const [latitude, longitude] of [
+        [40, -104],
+        [0, 179.99],
+        [-70, -179.99],
+      ] satisfies Array<[number, number]>) {
+        const window = selectLocalTileWindow(latitude, longitude, zoom);
+        expect(window.active.length).toBeLessThanOrEqual(
+          LOCAL_WINDOW_SIZE ** 2,
+        );
+        expect(new Set(window.active.map(mercatorTileKey)).size).toBe(
+          window.active.length,
+        );
+      }
     }
   });
 

@@ -51,6 +51,14 @@ function flatTerrariumPng(heightM = 100): Buffer {
   ]);
 }
 
+function onePixelPng(): Buffer {
+  return Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4" +
+      "2mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    "base64",
+  );
+}
+
 test("loads and operates the Little Planet desktop fallback", async ({
   page,
 }) => {
@@ -88,7 +96,10 @@ test("loads and operates the Little Planet desktop fallback", async ({
     try {
       await new Promise((resolve) => setTimeout(resolve, 15));
       const y = Number(
-        new URL(route.request().url()).pathname.split("/").at(-1)?.split(".")[0],
+        new URL(route.request().url()).pathname
+          .split("/")
+          .at(-1)
+          ?.split(".")[0],
       );
       await route.fulfill(
         y % 2 === 0
@@ -142,16 +153,10 @@ test("loads and operates the Little Planet desktop fallback", async ({
   await expect(page.locator("#coordinates")).toContainText("35.68° N");
   await expect(page.locator("#coordinates")).toContainText("139.65° E");
   await expect(page.locator("#scale-readout")).toContainText("10.0 m");
-  await expect(page.locator("#scale-readout")).toContainText(
-    "1 km = 1.0 cm",
-  );
+  await expect(page.locator("#scale-readout")).toContainText("1 km = 1.0 cm");
   await expect(page.locator("#radial-readout")).toContainText("1.0×");
-  await expect(page.locator("#radial-readout")).toContainText(
-    "1 km = 1.0 cm",
-  );
-  await expect(page.locator("#aircraft-readout")).toHaveText(
-    "Off · optional",
-  );
+  await expect(page.locator("#radial-readout")).toContainText("1 km = 1.0 cm");
+  await expect(page.locator("#aircraft-readout")).toHaveText("Off · optional");
   await expect.poll(() => blueMarbleRequests.length).toBeGreaterThan(0);
   expect(
     blueMarbleRequests.every(
@@ -170,13 +175,16 @@ test("loads and operates the Little Planet desktop fallback", async ({
   const initialTerrainZoom = Number(
     await page.locator("body").getAttribute("data-detail-terrain-zoom"),
   );
+  const initialHorizonDegrees = Number(
+    await page.locator("body").getAttribute("data-detail-horizon-degrees"),
+  );
   expect(
     elevationRequests.every(
       (url) =>
         Number(new URL(url).pathname.split("/")[1]) === initialTerrainZoom,
     ),
   ).toBe(true);
-  expect(initialTerrainZoom).toBeGreaterThanOrEqual(3);
+  expect(initialTerrainZoom).toBeGreaterThanOrEqual(0);
   expect(initialTerrainZoom).toBeLessThanOrEqual(12);
   expect(maximumActiveElevationRequests).toBeLessThanOrEqual(4);
   await expect(page.locator("body")).toHaveAttribute(
@@ -240,15 +248,26 @@ test("loads and operates the Little Planet desktop fallback", async ({
   await page.waitForTimeout(1_200);
   await page.keyboard.up("KeyZ");
   await expect(page.locator("#scale-readout")).not.toContainText("10.0 m");
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-detail-terrain-zoom",
-    "4",
+  await page.waitForFunction(
+    () => document.body.dataset.detailScaleMotion === "false",
   );
+  const reducedTerrainZoom = Number(
+    await page.locator("body").getAttribute("data-detail-terrain-zoom"),
+  );
+  expect(reducedTerrainZoom).toBeLessThanOrEqual(initialTerrainZoom);
+  expect(
+    Number(
+      await page.locator("body").getAttribute("data-detail-horizon-degrees"),
+    ),
+  ).toBeGreaterThan(initialHorizonDegrees);
 
   await page.keyboard.down("KeyV");
   await page.waitForTimeout(100);
   await page.keyboard.up("KeyV");
   await expect(page.locator("#radial-readout")).not.toContainText("1.0×");
+  expect(
+    Number(await page.locator("body").getAttribute("data-detail-terrain-zoom")),
+  ).toBe(reducedTerrainZoom);
 
   await page.getByRole("button", { name: "Reset view" }).click();
   await expect(page.locator("#coordinates")).toContainText("35.68° N");
@@ -275,8 +294,9 @@ test("loads and operates the Little Planet desktop fallback", async ({
 test("prepares bounded local meshes from mocked global detail tiles", async ({
   page,
 }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(210_000);
   const terrainImage = flatTerrariumPng();
+  const imageryPixel = onePixelPng();
   const elevationUrls: string[] = [];
   const localImageryUrls: string[] = [];
   const globalImageryUrls: string[] = [];
@@ -319,20 +339,18 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
     return route.fulfill({
       status: 200,
       contentType: "image/png",
-      body: terrainImage,
+      body: imageryPixel,
     });
   });
   await page.goto("/");
   await expect(page.locator("#loading-state")).toBeHidden({ timeout: 20_000 });
   await expect(page.locator("#error-state")).toBeHidden();
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-detail-relief",
-    "ready",
-    { timeout: 20_000 },
-  );
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-detail-staging",
-    "false",
+  await page.waitForFunction(
+    () =>
+      document.body.dataset.detailRelief === "ready" &&
+      document.body.dataset.detailStaging === "false",
+    undefined,
+    { timeout: 90_000 },
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-stencil",
@@ -360,9 +378,7 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
   const initialMetrics = await page.evaluate(() => ({
     meshCount: Number(document.body.dataset.detailMeshCount),
     cacheCount: Number(document.body.dataset.detailHeightCache),
-    localImageryRequests: Number(
-      document.body.dataset.detailImageryRequests,
-    ),
+    localImageryRequests: Number(document.body.dataset.detailImageryRequests),
     localImageryCache: Number(document.body.dataset.detailImageryCache),
     imageryPatches: Number(document.body.dataset.detailImageryPatches),
     imageryDraws: Number(document.body.dataset.detailImageryDraws),
@@ -377,16 +393,41 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
   expect(initialMetrics.imageryPatches).toBeGreaterThan(0);
   expect(initialMetrics.imageryDraws).toBeGreaterThan(0);
   expect(initialMetrics.imageryDraws).toBeLessThanOrEqual(64);
-  expect(initialMetrics.geometryBytes).toBeLessThanOrEqual(
-    32 * 1_024 * 1_024,
-  );
+  expect(initialMetrics.geometryBytes).toBeLessThanOrEqual(32 * 1_024 * 1_024);
   expect(initialMetrics.vertices).toBeLessThanOrEqual(25 * 16_384);
   expect(initialMetrics.workerInflight).toBe(0);
   expect(maximumActiveElevationRequests).toBeLessThanOrEqual(4);
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-window-size",
+    "5x5",
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-horizon-coverage",
+    "true",
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-gibs-imagery-level",
+    "6",
+  );
+  const horizonDiagnostics = await page.evaluate(() => ({
+    degrees: Number(document.body.dataset.detailHorizonDegrees),
+    distanceKm: Number(document.body.dataset.detailHorizonDistanceKm),
+    margins: (document.body.dataset.detailCoverageMargins ?? "")
+      .split(",")
+      .map(Number),
+    actualErrors: document.body.dataset.detailActualErrorMetres ?? "",
+  }));
+  expect(horizonDiagnostics.degrees).toBeGreaterThan(14);
+  expect(horizonDiagnostics.degrees).toBeLessThan(15);
+  expect(horizonDiagnostics.distanceKm).toBeGreaterThan(1_500);
+  expect(horizonDiagnostics.distanceKm).toBeLessThan(1_700);
+  expect(horizonDiagnostics.margins).toHaveLength(4);
+  expect(horizonDiagnostics.margins.every((margin) => margin >= -0.001)).toBe(
+    true,
+  );
+  expect(horizonDiagnostics.actualErrors).not.toBe("");
   expect(
-    elevationUrls.every(
-      (url) => new URL(url).pathname.split("/")[1] === "5",
-    ),
+    elevationUrls.every((url) => new URL(url).pathname.split("/")[1] === "5"),
   ).toBe(true);
   expect(globalImageryUrls.length).toBeGreaterThan(0);
   expect(localImageryUrls).toEqual([]);
@@ -470,30 +511,46 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
   await expect
     .poll(
       () =>
-        new Set(
-          elevationUrls.filter((url) => !initialElevationKeys.has(url)),
-        ).size,
+        new Set(elevationUrls.filter((url) => !initialElevationKeys.has(url)))
+          .size,
     )
     .toBe(expectedNewTiles);
 
-  await page.keyboard.down("KeyZ");
-  await page.waitForFunction(
-    () => document.body.dataset.detailTargetZoom === "4",
-  );
-  expect(
-    elevationUrls.some(
-      (url) => new URL(url).pathname.split("/")[1] === "4",
-    ),
-  ).toBe(false);
-  expect(
-    await page.evaluate(
-      () => document.body.dataset.detailScaleMotion,
-    ),
-  ).toBe("true");
-  await page.keyboard.up("KeyZ");
+  const beforeRtinRefinement = elevationUrls.length;
+  await page.keyboard.down("KeyX");
   await page.waitForFunction(
     () =>
-      document.body.dataset.detailActiveZoom === "4" &&
+      document.body.dataset.detailTargetZoom === "5" &&
+      document.body.dataset.detailRequestedErrorMetres === "80",
+  );
+  await page.keyboard.up("KeyX");
+  await page.waitForFunction(
+    () =>
+      document.body.dataset.detailActiveZoom === "5" &&
+      document.body.dataset.detailStaging === "false" &&
+      (document.body.dataset.detailActualErrorMetres ?? "")
+        .split(",")
+        .includes("80"),
+    undefined,
+    { timeout: 15_000 },
+  );
+  expect(elevationUrls.length).toBe(beforeRtinRefinement);
+
+  await page.keyboard.down("KeyX");
+  await page.waitForFunction(
+    () => document.body.dataset.detailTargetZoom === "6",
+  );
+  expect(
+    elevationUrls.some((url) => new URL(url).pathname.split("/")[1] === "6"),
+  ).toBe(false);
+  expect(
+    await page.evaluate(() => document.body.dataset.detailScaleMotion),
+  ).toBe("true");
+  await expect(page.locator("#scale-readout")).toContainText("50.0 m");
+  await page.keyboard.up("KeyX");
+  await page.waitForFunction(
+    () =>
+      document.body.dataset.detailActiveZoom === "6" &&
       document.body.dataset.detailStaging === "false" &&
       document.body.dataset.detailWorkerQueued === "0" &&
       document.body.dataset.detailWorkerInflight === "0",
@@ -501,10 +558,28 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
     { timeout: 15_000 },
   );
   expect(
+    elevationUrls.some((url) => new URL(url).pathname.split("/")[1] === "6"),
+  ).toBe(true);
+  expect(
     elevationUrls.every(
-      (url) => Number(new URL(url).pathname.split("/")[1]) <= 12,
+      (url) => Number(new URL(url).pathname.split("/")[1]) <= 6,
     ),
   ).toBe(true);
+  expect(
+    Number(
+      await page
+        .locator("body")
+        .getAttribute("data-detail-source-sample-metres"),
+    ),
+  ).toBeLessThan(1_000);
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-gibs-imagery-level",
+    "7",
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-requested-error-metres",
+    "40",
+  );
   expect(consoleErrors).toEqual([]);
 });
 
@@ -513,6 +588,7 @@ test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
 }) => {
   test.setTimeout(60_000);
   const terrainImage = flatTerrariumPng();
+  const imageryPixel = onePixelPng();
   const missingTiles = new Set([
     "5/26/10",
     "5/27/10",
@@ -546,7 +622,7 @@ test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
     await route.fulfill({
       status: 200,
       contentType: "image/png",
-      body: terrainImage,
+      body: imageryPixel,
     });
   });
 
@@ -587,9 +663,7 @@ test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
   await expect
     .poll(async () =>
       Number(
-        await page
-          .locator("body")
-          .getAttribute("data-detail-imagery-patches"),
+        await page.locator("body").getAttribute("data-detail-imagery-patches"),
       ),
     )
     .toBeGreaterThan(0);
@@ -600,9 +674,7 @@ test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
     const screenshot = await page.screenshot({
       clip: { x: 400, y: 360, width: 480, height: 240 },
     });
-    frameHashes.push(
-      createHash("sha256").update(screenshot).digest("hex"),
-    );
+    frameHashes.push(createHash("sha256").update(screenshot).digest("hex"));
     await page.waitForTimeout(100);
   }
   expect(new Set(frameHashes).size).toBe(1);
