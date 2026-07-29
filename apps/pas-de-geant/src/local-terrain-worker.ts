@@ -1,4 +1,3 @@
-import Martini from "@mapbox/martini";
 import {
   EARTH_MEAN_RADIUS_KM,
   WGS84_A_KM,
@@ -8,26 +7,28 @@ import {
   LOCAL_GRID_SIZE,
   LOCAL_HEIGHT_CACHE_LIMIT,
   LOCAL_TILE_SIZE,
-  RTIN_ERROR_BUCKETS_M,
-  RTIN_FALLBACK_ERROR_BUCKETS_M,
   LruCache,
   buildHeightGrid513,
   decodeTerrariumPixels,
-  forceFullRtinBoundary,
   isOceanOnlyHeightTile,
   mercatorCoordinatesForTilePoint,
   mercatorTileKey,
+  terrainEdgeInterpolation,
   wrapMercatorX,
   type DecodedHeightTile,
+  type LocalEdgeMask,
   type LocalTerrainWorkerRequest,
   type LocalTerrainWorkerResult,
   type MercatorTileAddress,
+  type TerrainEdgeConstraint,
+  type TerrainEdgeConstraints,
 } from "./local-terrain-core.js";
 
 type CachedHeightTile = DecodedHeightTile | "ocean";
 
 const decoded = new LruCache<CachedHeightTile>(LOCAL_HEIGHT_CACHE_LIMIT);
-const martini = new Martini(LOCAL_GRID_SIZE);
+const WGS84_ECCENTRICITY_SQUARED =
+  1 - (WGS84_B_KM * WGS84_B_KM) / (WGS84_A_KM * WGS84_A_KM);
 const worker = self as unknown as {
   addEventListener(
     type: "message",
@@ -61,6 +62,20 @@ async function decodeTile(
 ): Promise<void> {
   let bitmap: ImageBitmap | undefined;
   try {
+    if (request.zeroHeight) {
+      decoded.set(
+        mercatorTileKey(request.address),
+        new Int16Array(LOCAL_TILE_SIZE * LOCAL_TILE_SIZE),
+      );
+      worker.postMessage({
+        type: "decoded",
+        requestId: request.requestId,
+        generation: request.generation,
+        address: request.address,
+        oceanOnly: true,
+      });
+      return;
+    }
     bitmap = await createImageBitmap(
       new Blob([request.bytes], {
         type: request.contentType || "image/webp",
@@ -86,7 +101,7 @@ async function decodeTile(
     const oceanOnly = isOceanOnlyHeightTile(heights);
     decoded.set(
       mercatorTileKey(request.address),
-      oceanOnly ? "ocean" : heights,
+      oceanOnly && !request.retainOcean ? "ocean" : heights,
     );
     worker.postMessage({
       type: "decoded",
@@ -109,61 +124,235 @@ async function decodeTile(
   }
 }
 
-/**
- * Martini calculates source errors in its constructor. After forcing the edge
- * samples, only the parent maxima need another bottom-up pass.
- */
-function propagateForcedBoundaryErrors(
-  errors: Float32Array,
-  source: Martini,
-): void {
-  const { coords, gridSize: size, numParentTriangles } = source;
-  for (let index = numParentTriangles - 1; index >= 0; index -= 1) {
-    const offset = index * 4;
-    const ax = coords[offset] ?? 0;
-    const ay = coords[offset + 1] ?? 0;
-    const bx = coords[offset + 2] ?? 0;
-    const by = coords[offset + 3] ?? 0;
-    const middleX = (ax + bx) >> 1;
-    const middleY = (ay + by) >> 1;
-    const oppositeX = middleX + middleY - ay;
-    const oppositeY = middleY + ax - middleX;
-    const middle = middleY * size + middleX;
-    const left =
-      ((ay + oppositeY) >> 1) * size + ((ax + oppositeX) >> 1);
-    const right =
-      ((by + oppositeY) >> 1) * size + ((bx + oppositeX) >> 1);
-    errors[middle] = Math.max(
-      errors[middle] ?? 0,
-      errors[left] ?? 0,
-      errors[right] ?? 0,
-    );
-  }
-}
-
-function bucketCandidates(requestedErrorM: number): number[] {
-  const buckets = [
-    ...RTIN_ERROR_BUCKETS_M,
-    ...RTIN_FALLBACK_ERROR_BUCKETS_M,
-  ];
-  const requestedIndex = buckets.findIndex(
-    (candidate) => candidate >= requestedErrorM,
-  );
-  const first = requestedIndex < 0 ? buckets.length - 1 : requestedIndex;
-  return buckets.slice(first);
-}
-
-function boundaryDuplicateCount(vertices: Uint16Array): number {
+function boundaryDuplicateCount(
+  vertices: Uint16Array,
+  edges: LocalEdgeMask,
+): number {
   let count = 0;
   for (let index = 0; index < vertices.length; index += 2) {
     const x = vertices[index] ?? 0;
     const y = vertices[index + 1] ?? 0;
-    if (y === 0) count += 1;
-    if (x === LOCAL_TILE_SIZE) count += 1;
-    if (y === LOCAL_TILE_SIZE) count += 1;
-    if (x === 0) count += 1;
+    if (edges.north > 0 && y === 0) count += 1;
+    if (edges.east > 0 && x === LOCAL_TILE_SIZE) count += 1;
+    if (edges.south > 0 && y === LOCAL_TILE_SIZE) count += 1;
+    if (edges.west > 0 && x === 0) count += 1;
   }
   return count;
+}
+
+function regularGridMesh(segments: number): {
+  vertices: Uint16Array;
+  triangles: Uint32Array;
+} {
+  const selectedSegments = Math.max(1, Math.min(LOCAL_TILE_SIZE, segments));
+  if (LOCAL_TILE_SIZE % selectedSegments !== 0) {
+    throw new Error("The fixed terrain grid must divide the source tile.");
+  }
+  const side = selectedSegments + 1;
+  const step = LOCAL_TILE_SIZE / selectedSegments;
+  const vertices = new Uint16Array(side * side * 2);
+  for (let row = 0; row < side; row += 1) {
+    for (let column = 0; column < side; column += 1) {
+      const vertex = row * side + column;
+      vertices[vertex * 2] = column * step;
+      vertices[vertex * 2 + 1] = row * step;
+    }
+  }
+  const triangles = new Uint32Array(selectedSegments ** 2 * 6);
+  let offset = 0;
+  for (let row = 0; row < selectedSegments; row += 1) {
+    for (let column = 0; column < selectedSegments; column += 1) {
+      const northWest = row * side + column;
+      const northEast = northWest + 1;
+      const southWest = northWest + side;
+      const southEast = southWest + 1;
+      triangles[offset++] = northWest;
+      triangles[offset++] = northEast;
+      triangles[offset++] = southWest;
+      triangles[offset++] = northEast;
+      triangles[offset++] = southEast;
+      triangles[offset++] = southWest;
+    }
+  }
+  return { vertices, triangles };
+}
+
+interface TerrainSurfacePoint {
+  position: [number, number, number];
+  normal: [number, number, number];
+  heightM: number;
+  detailOffsetM: [number, number, number];
+}
+
+function terrainSurfacePoint(
+  address: MercatorTileAddress,
+  pixelX: number,
+  pixelY: number,
+  heightM: number,
+): TerrainSurfacePoint {
+  const coordinates = mercatorCoordinatesForTilePoint(
+    address,
+    pixelX,
+    pixelY,
+  );
+  const latitude = coordinates.latitudeDegrees * Math.PI / 180;
+  const longitude = coordinates.longitudeDegrees * Math.PI / 180;
+  const sineLatitude = Math.sin(latitude);
+  const cosineLatitude = Math.cos(latitude);
+  const primeVerticalRadius =
+    WGS84_A_KM /
+    Math.sqrt(
+      1 - WGS84_ECCENTRICITY_SQUARED * sineLatitude * sineLatitude,
+    );
+  const normal: [number, number, number] = [
+    cosineLatitude * Math.cos(longitude),
+    sineLatitude,
+    -cosineLatitude * Math.sin(longitude),
+  ];
+  return {
+    position: [
+      primeVerticalRadius * normal[0] / EARTH_MEAN_RADIUS_KM,
+      primeVerticalRadius *
+        (1 - WGS84_ECCENTRICITY_SQUARED) *
+        sineLatitude /
+        EARTH_MEAN_RADIUS_KM,
+      primeVerticalRadius * normal[2] / EARTH_MEAN_RADIUS_KM,
+    ],
+    normal,
+    heightM,
+    detailOffsetM: [
+      normal[0] * heightM,
+      normal[1] * heightM,
+      normal[2] * heightM,
+    ],
+  };
+}
+
+function decodedHeightAtGridPoint(
+  address: MercatorTileAddress,
+  pixelX: number,
+  pixelY: number,
+): number | undefined {
+  const centre = decodedHeights(address);
+  if (!centre) return undefined;
+  if (pixelX < LOCAL_TILE_SIZE && pixelY < LOCAL_TILE_SIZE) {
+    return centre[pixelY * LOCAL_TILE_SIZE + pixelX] ?? 0;
+  }
+  if (pixelX === LOCAL_TILE_SIZE && pixelY < LOCAL_TILE_SIZE) {
+    const east = decodedHeights(adjacentAddress(address, 1, 0));
+    return (
+      east?.[pixelY * LOCAL_TILE_SIZE] ??
+      centre[pixelY * LOCAL_TILE_SIZE + LOCAL_TILE_SIZE - 1] ??
+      0
+    );
+  }
+  if (pixelY === LOCAL_TILE_SIZE && pixelX < LOCAL_TILE_SIZE) {
+    const south = decodedHeights(adjacentAddress(address, 0, 1));
+    return (
+      south?.[pixelX] ??
+      centre[(LOCAL_TILE_SIZE - 1) * LOCAL_TILE_SIZE + pixelX] ??
+      0
+    );
+  }
+  const southEast = decodedHeights(adjacentAddress(address, 1, 1));
+  const south = decodedHeights(adjacentAddress(address, 0, 1));
+  const east = decodedHeights(adjacentAddress(address, 1, 0));
+  return (
+    southEast?.[0] ??
+    south?.[LOCAL_TILE_SIZE - 1] ??
+    east?.[(LOCAL_TILE_SIZE - 1) * LOCAL_TILE_SIZE] ??
+    centre[centre.length - 1] ??
+    0
+  );
+}
+
+function constrainedSurfacePoint(
+  sourceAddress: MercatorTileAddress,
+  pixelX: number,
+  pixelY: number,
+  constraint: TerrainEdgeConstraint,
+): TerrainSurfacePoint | undefined {
+  const zoomScale = 2 ** (constraint.address.z - sourceAddress.z);
+  const targetWorldWidth = 2 ** constraint.address.z;
+  let targetTileX =
+    (sourceAddress.x + pixelX / LOCAL_TILE_SIZE) * zoomScale -
+    constraint.address.x;
+  targetTileX -= Math.round(targetTileX / targetWorldWidth) * targetWorldWidth;
+  const targetTileY =
+    (sourceAddress.y + pixelY / LOCAL_TILE_SIZE) * zoomScale -
+    constraint.address.y;
+  const targetPixelX = Math.max(
+    0,
+    Math.min(LOCAL_TILE_SIZE, targetTileX * LOCAL_TILE_SIZE),
+  );
+  const targetPixelY = Math.max(
+    0,
+    Math.min(LOCAL_TILE_SIZE, targetTileY * LOCAL_TILE_SIZE),
+  );
+  const along =
+    constraint.edge === "north" || constraint.edge === "south"
+      ? targetPixelX
+      : targetPixelY;
+  const interpolation = terrainEdgeInterpolation(
+    constraint.segments,
+    along,
+  );
+  const endpoint = (pixelAlongEdge: number): TerrainSurfacePoint => {
+    const endpointX =
+      constraint.edge === "west"
+        ? 0
+        : constraint.edge === "east"
+          ? LOCAL_TILE_SIZE
+          : pixelAlongEdge;
+    const endpointY =
+      constraint.edge === "north"
+        ? 0
+        : constraint.edge === "south"
+          ? LOCAL_TILE_SIZE
+          : pixelAlongEdge;
+    const heightM = decodedHeightAtGridPoint(
+      constraint.address,
+      endpointX,
+      endpointY,
+    );
+    if (heightM === undefined) {
+      throw new Error("The seam source tile is no longer cached.");
+    }
+    return terrainSurfacePoint(
+      constraint.address,
+      endpointX,
+      endpointY,
+      heightM,
+    );
+  };
+  const first = endpoint(interpolation.firstPixel);
+  const second = endpoint(interpolation.secondPixel);
+  const interpolate = (firstValue: number, secondValue: number): number =>
+    firstValue +
+    (secondValue - firstValue) * interpolation.fraction;
+  const normal: [number, number, number] = [
+    interpolate(first.normal[0], second.normal[0]),
+    interpolate(first.normal[1], second.normal[1]),
+    interpolate(first.normal[2], second.normal[2]),
+  ];
+  const normalLength = Math.hypot(...normal) || 1;
+  normal[0] /= normalLength;
+  normal[1] /= normalLength;
+  normal[2] /= normalLength;
+  return {
+    position: [
+      interpolate(first.position[0], second.position[0]),
+      interpolate(first.position[1], second.position[1]),
+      interpolate(first.position[2], second.position[2]),
+    ],
+    normal,
+    heightM: interpolate(first.heightM, second.heightM),
+    detailOffsetM: [
+      interpolate(first.detailOffsetM[0], second.detailOffsetM[0]),
+      interpolate(first.detailOffsetM[1], second.detailOffsetM[1]),
+      interpolate(first.detailOffsetM[2], second.detailOffsetM[2]),
+    ],
+  };
 }
 
 function buildFinalGeometry(
@@ -171,23 +360,29 @@ function buildFinalGeometry(
   grid: Float32Array,
   vertices: Uint16Array,
   triangles: Uint32Array,
+  enabledSkirtEdges: LocalEdgeMask,
+  edgeConstraints: TerrainEdgeConstraints,
+  includeDetailOffsets: boolean,
 ): Omit<
   Extract<LocalTerrainWorkerResult, { type: "mesh" }>,
   | "type"
   | "requestId"
   | "generation"
   | "address"
-  | "requestedErrorM"
-  | "actualErrorM"
+  | "requestedSegments"
+  | "actualSegments"
 > {
   const baseVertexCount = vertices.length / 2;
   const finalVertexCount =
-    baseVertexCount + boundaryDuplicateCount(vertices);
+    baseVertexCount + boundaryDuplicateCount(vertices, enabledSkirtEdges);
   const positions = new Float32Array(finalVertexCount * 3);
   const normals = new Float32Array(finalVertexCount * 3);
   const uvs = new Float32Array(finalVertexCount * 2);
   const heightUvs = new Float32Array(finalVertexCount * 2);
   const detailHeightsM = new Float32Array(finalVertexCount);
+  const detailOffsetsM = includeDetailOffsets
+    ? new Float32Array(finalVertexCount * 3)
+    : undefined;
   const skirtEdges = new Float32Array(finalVertexCount);
   const edgeSets: Array<Array<{ vertex: number; coordinate: number }>> = [
     [],
@@ -195,58 +390,115 @@ function buildFinalGeometry(
     [],
     [],
   ];
-  const eccentricitySquared =
-    1 - (WGS84_B_KM * WGS84_B_KM) / (WGS84_A_KM * WGS84_A_KM);
 
   for (let index = 0; index < baseVertexCount; index += 1) {
     const pixelX = vertices[index * 2] ?? 0;
     const pixelY = vertices[index * 2 + 1] ?? 0;
+    const heightM = grid[pixelY * LOCAL_GRID_SIZE + pixelX] ?? 0;
+    const surface = terrainSurfacePoint(address, pixelX, pixelY, heightM);
     const coordinates = mercatorCoordinatesForTilePoint(
       address,
       pixelX,
       pixelY,
     );
-    const latitude = coordinates.latitudeDegrees * Math.PI / 180;
-    const longitude = coordinates.longitudeDegrees * Math.PI / 180;
-    const sineLatitude = Math.sin(latitude);
-    const cosineLatitude = Math.cos(latitude);
-    const primeVerticalRadius =
-      WGS84_A_KM /
-      Math.sqrt(1 - eccentricitySquared * sineLatitude * sineLatitude);
-    const normalX = cosineLatitude * Math.cos(longitude);
-    const normalY = sineLatitude;
-    const normalZ = -cosineLatitude * Math.sin(longitude);
     const positionOffset = index * 3;
-    positions[positionOffset] =
-      primeVerticalRadius * normalX / EARTH_MEAN_RADIUS_KM;
-    positions[positionOffset + 1] =
-      primeVerticalRadius *
-      (1 - eccentricitySquared) *
-      sineLatitude /
-      EARTH_MEAN_RADIUS_KM;
-    positions[positionOffset + 2] =
-      primeVerticalRadius * normalZ / EARTH_MEAN_RADIUS_KM;
-    normals[positionOffset] = normalX;
-    normals[positionOffset + 1] = normalY;
-    normals[positionOffset + 2] = normalZ;
+    positions.set(surface.position, positionOffset);
+    normals.set(surface.normal, positionOffset);
+    detailOffsetsM?.set(surface.detailOffsetM, positionOffset);
     const uvOffset = index * 2;
     uvs[uvOffset] = pixelX / LOCAL_TILE_SIZE;
     uvs[uvOffset + 1] = pixelY / LOCAL_TILE_SIZE;
     heightUvs[uvOffset] = (coordinates.longitudeDegrees + 180) / 360;
     heightUvs[uvOffset + 1] = (90 - coordinates.latitudeDegrees) / 180;
-    detailHeightsM[index] =
-      grid[pixelY * LOCAL_GRID_SIZE + pixelX] ?? 0;
-    if (pixelY === 0) {
+    detailHeightsM[index] = heightM;
+    if (enabledSkirtEdges.north > 0 && pixelY === 0) {
       edgeSets[0]!.push({ vertex: index, coordinate: pixelX });
     }
-    if (pixelX === LOCAL_TILE_SIZE) {
+    if (
+      enabledSkirtEdges.east > 0 &&
+      pixelX === LOCAL_TILE_SIZE
+    ) {
       edgeSets[1]!.push({ vertex: index, coordinate: pixelY });
     }
-    if (pixelY === LOCAL_TILE_SIZE) {
+    if (
+      enabledSkirtEdges.south > 0 &&
+      pixelY === LOCAL_TILE_SIZE
+    ) {
       edgeSets[2]!.push({ vertex: index, coordinate: -pixelX });
     }
-    if (pixelX === 0) {
+    if (enabledSkirtEdges.west > 0 && pixelX === 0) {
       edgeSets[3]!.push({ vertex: index, coordinate: -pixelY });
+    }
+  }
+
+  for (let index = 0; index < baseVertexCount; index += 1) {
+    const pixelX = vertices[index * 2] ?? 0;
+    const pixelY = vertices[index * 2 + 1] ?? 0;
+    const applicable = [
+      pixelY === 0 ? edgeConstraints.north : undefined,
+      pixelX === LOCAL_TILE_SIZE ? edgeConstraints.east : undefined,
+      pixelY === LOCAL_TILE_SIZE ? edgeConstraints.south : undefined,
+      pixelX === 0 ? edgeConstraints.west : undefined,
+    ].filter(
+      (constraint): constraint is TerrainEdgeConstraint =>
+        constraint !== undefined,
+    );
+    if (applicable.length === 0) continue;
+    const conformed: TerrainSurfacePoint[] = [];
+    for (const constraint of applicable) {
+      const surface = constrainedSurfacePoint(
+        address,
+        pixelX,
+        pixelY,
+        constraint,
+      );
+      if (surface) conformed.push(surface);
+    }
+    if (conformed.length === 0) continue;
+    const positionOffset = index * 3;
+    const average = (
+      values: TerrainSurfacePoint[],
+      read: (value: TerrainSurfacePoint) => number,
+    ): number =>
+      values.reduce((sum, value) => sum + read(value), 0) / values.length;
+    positions[positionOffset] = average(
+      conformed,
+      (surface) => surface.position[0],
+    );
+    positions[positionOffset + 1] = average(
+      conformed,
+      (surface) => surface.position[1],
+    );
+    positions[positionOffset + 2] = average(
+      conformed,
+      (surface) => surface.position[2],
+    );
+    const normal = [
+      average(conformed, (surface) => surface.normal[0]),
+      average(conformed, (surface) => surface.normal[1]),
+      average(conformed, (surface) => surface.normal[2]),
+    ];
+    const normalLength = Math.hypot(...normal) || 1;
+    normals[positionOffset] = normal[0]! / normalLength;
+    normals[positionOffset + 1] = normal[1]! / normalLength;
+    normals[positionOffset + 2] = normal[2]! / normalLength;
+    detailHeightsM[index] = average(
+      conformed,
+      (surface) => surface.heightM,
+    );
+    if (detailOffsetsM) {
+      detailOffsetsM[positionOffset] = average(
+        conformed,
+        (surface) => surface.detailOffsetM[0],
+      );
+      detailOffsetsM[positionOffset + 1] = average(
+        conformed,
+        (surface) => surface.detailOffsetM[1],
+      );
+      detailOffsetsM[positionOffset + 2] = average(
+        conformed,
+        (surface) => surface.detailOffsetM[2],
+      );
     }
   }
 
@@ -279,6 +531,12 @@ function buildFinalGeometry(
         duplicate * 2,
       );
       detailHeightsM[duplicate] = detailHeightsM[vertex] ?? 0;
+      if (detailOffsetsM) {
+        detailOffsetsM.set(
+          detailOffsetsM.subarray(vertex * 3, vertex * 3 + 3),
+          duplicate * 3,
+        );
+      }
       skirtEdges[duplicate] = edgeIndex + 1;
     }
     for (let index = 0; index < edge.length - 1; index += 1) {
@@ -323,6 +581,7 @@ function buildFinalGeometry(
     uvs.byteLength +
     heightUvs.byteLength +
     detailHeightsM.byteLength +
+    (detailOffsetsM?.byteLength ?? 0) +
     skirtEdges.byteLength +
     indices.byteLength;
   return {
@@ -331,6 +590,7 @@ function buildFinalGeometry(
     uvs,
     heightUvs,
     detailHeightsM,
+    ...(detailOffsetsM ? { detailOffsetsM } : {}),
     skirtEdges,
     indices,
     boundingCentre,
@@ -342,9 +602,16 @@ function buildFinalGeometry(
 function buildMesh(
   request: Extract<LocalTerrainWorkerRequest, { type: "mesh" }>,
 ): void {
-  const key = mercatorTileKey(request.address);
-  const centre = decodedHeights(request.address);
-  if (!centre) {
+  const requiredSources = [
+    request.address,
+    ...Object.values(request.edgeConstraints ?? {}).map(
+      (constraint) => constraint.address,
+    ),
+  ];
+  const missingSource = requiredSources.find(
+    (address) => !decodedHeights(address),
+  );
+  if (missingSource) {
     worker.postMessage({
       type: "error",
       requestId: request.requestId,
@@ -352,9 +619,11 @@ function buildMesh(
       address: request.address,
       message: "The decoded elevation tile is no longer cached.",
       missing: true,
+      missingAddress: missingSource,
     });
     return;
   }
+  const centre = decodedHeights(request.address)!;
   try {
     const grid = buildHeightGrid513(
       centre,
@@ -362,53 +631,31 @@ function buildMesh(
       decodedHeights(adjacentAddress(request.address, 0, 1)),
       decodedHeights(adjacentAddress(request.address, 1, 1)),
     );
-    const tile = martini.createTile(grid);
-    forceFullRtinBoundary(tile.errors);
-    propagateForcedBoundaryErrors(tile.errors, martini);
-    let selected:
-      | {
-          actualErrorM: number;
-          vertices: Uint16Array;
-          triangles: Uint32Array;
-        }
-      | undefined;
-    let lastVertexCount = 0;
-    for (const actualErrorM of bucketCandidates(request.errorM)) {
-      const mesh = tile.getMesh(actualErrorM);
-      lastVertexCount =
-        mesh.vertices.length / 2 + boundaryDuplicateCount(mesh.vertices);
-      if (lastVertexCount <= request.vertexLimit) {
-        selected = { actualErrorM, ...mesh };
-        break;
-      }
-    }
-    if (!selected) {
-      worker.postMessage({
-        type: "overbudget",
-        requestId: request.requestId,
-        generation: request.generation,
-        address: request.address,
-        requestedErrorM: request.errorM,
-        vertexCount: lastVertexCount,
-      });
-      return;
-    }
+    const selected = regularGridMesh(request.segments);
+    const enabledSkirtEdges =
+      request.includeSkirts === false
+        ? { north: 0, east: 0, south: 0, west: 0 }
+        : request.skirtEdges ??
+          { north: 1, east: 1, south: 1, west: 1 };
     const geometry = buildFinalGeometry(
       request.address,
       grid,
       selected.vertices,
       selected.triangles,
+      enabledSkirtEdges,
+      request.edgeConstraints ?? {},
+      request.includeDetailOffsets ?? false,
     );
     const result: LocalTerrainWorkerResult = {
       type: "mesh",
       requestId: request.requestId,
       generation: request.generation,
       address: request.address,
-      requestedErrorM: request.errorM,
-      actualErrorM: selected.actualErrorM,
+      requestedSegments: request.segments,
+      actualSegments: request.segments,
       ...geometry,
     };
-    worker.postMessage(result, [
+    const transfer: Transferable[] = [
       result.positions.buffer,
       result.normals.buffer,
       result.uvs.buffer,
@@ -417,7 +664,11 @@ function buildMesh(
       result.skirtEdges.buffer,
       result.indices.buffer,
       result.boundingCentre.buffer,
-    ]);
+    ];
+    if (result.detailOffsetsM) {
+      transfer.push(result.detailOffsetsM.buffer);
+    }
+    worker.postMessage(result, transfer);
   } catch (error) {
     worker.postMessage({
       type: "error",
@@ -425,7 +676,7 @@ function buildMesh(
       generation: request.generation,
       address: request.address,
       message:
-        error instanceof Error ? error.message : "RTIN mesh generation failed.",
+        error instanceof Error ? error.message : "Terrain mesh generation failed.",
     });
   }
 }

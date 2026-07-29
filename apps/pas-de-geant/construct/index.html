@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+      name="description"
+      content="A minimal fixed-pattern Mapterhorn terrain test over the Alps and Po valley."
+    >
+    <meta name="theme-color" content="#071018">
+    <title>The Construct — Pas de Géant</title>
+  </head>
+  <body>
+    <main class="construct">
+      <div id="construct-scene" class="construct-scene" aria-hidden="true"></div>
+
+      <header class="construct-header">
+        <div>
+          <p class="construct-kicker">Terrain test rig</p>
+          <h1>The Construct</h1>
+          <p class="construct-subtitle">
+            One persistent terrain stencil. One texture. No fallback globe.
+          </p>
+        </div>
+        <div id="construct-vr" class="construct-vr"></div>
+      </header>
+
+      <section class="construct-console" aria-live="polite">
+        <div class="construct-location">
+          <span>Alps / Po valley</span>
+          <strong id="construct-coordinates">45.900° N · 9.250° E</strong>
+        </div>
+        <dl>
+          <div>
+            <dt>Global scale</dt>
+            <dd id="construct-scale">1.00×</dd>
+          </div>
+          <div>
+            <dt>Radial</dt>
+            <dd id="construct-radial">1.0×</dd>
+          </div>
+          <div>
+            <dt>Source level</dt>
+            <dd id="construct-zoom">z6</dd>
+          </div>
+          <div>
+            <dt>Construct</dt>
+            <dd id="construct-tiles">0/4 meshes</dd>
+          </div>
+          <div>
+            <dt>Ocean</dt>
+            <dd id="construct-ocean">Surface</dd>
+          </div>
+        </dl>
+
+        <div class="construct-presets" aria-label="Preview scales">
+          <span>Preview scale</span>
+          <div>
+            <button type="button" data-scale-factor="1">Start · 1×</button>
+            <button type="button" data-scale-factor="100">100×</button>
+            <button type="button" data-scale-factor="250">250×</button>
+            <button type="button" data-scale-factor="500">500×</button>
+            <button type="button" data-scale-factor="1000">1000×</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="construct-controls">
+        <p>
+          <strong>Left stick</strong> travel ·
+          <strong>left trigger</strong> accelerate
+        </p>
+        <p>
+          <strong>Right stick</strong> global scale / radial ·
+          <strong>X / Y</strong> source level
+        </p>
+        <p>
+          <strong>A</strong> ocean · <strong>hold B</strong> reset
+        </p>
+        <p class="construct-desktop">
+          Desktop: WASD · Z/X scale · C/V radial · O ocean · Backspace reset
+        </p>
+      </aside>
+
+      <div class="construct-actions">
+        <button id="construct-ocean-button" type="button">Reveal seabed</button>
+        <button id="construct-reset" type="button">Reset</button>
+      </div>
+
+      <div id="construct-loading" class="construct-loading" role="status">
+        <span aria-hidden="true"></span>
+        Loading the underfoot Mapterhorn tiles…
+      </div>
+
+      <footer class="construct-sources">
+        Elevation:
+        <a href="https://mapterhorn.com/attribution/">© Mapterhorn</a>
+        / Copernicus GLO-30 · Texture: NASA Blue Marble
+      </footer>
+    </main>
+    <script type="module" src="/src/construct.ts"></script>
+  </body>
+</html>

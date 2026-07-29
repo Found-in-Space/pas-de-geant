@@ -18,6 +18,39 @@ Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel,
 Z/X to change planet scale, C/V to change the radial multiplier, O to reveal
 the seabed, and Backspace to reset.
 
+### The Construct
+
+Open `http://127.0.0.1:4197/construct/` for the isolated terrain test over the
+Alps–Po valley transition at 45.90° N, 9.25° E. It renders a fixed two-level
+Mapterhorn stencil with one bundled NASA Blue Marble texture. It does not
+instantiate the GEBCO globe, GIBS imagery, stars, aircraft, or another terrain
+fallback.
+
+The finest level is an 8×8 block. Its four underfoot pages retain the complete
+512×512 grid while the other 60 use 64×64 cells. Two clean, two-tile-wide
+parent rings add 48 pages each at the next two source levels, using 32×32 and
+16×16 cells. The complete 160-mesh construct therefore steps gradually through
+z, z−1, and z−2 and spans 32 finest-tile widths. The snapped anchor changes
+while the user is still several tiles from the visible edge. Shared meshes
+remain in place across an anchor change; a source-level change keeps the old
+construct until the four new underfoot meshes are ready. Ground height is
+bilinearly sampled and filtered over eight seconds with a
+four-centimetre-per-second world-space speed limit.
+
+The five preview buttons load the same fixed 2×2 construct at 1×, 100×, 250×,
+500×, and 1000× global scale. At this latitude those scales select Mapterhorn
+z6, z12, and then the verified local source cap of z14. The 250×, 500×, and
+1000× previews therefore reuse the same source addresses. The existing Quest
+and desktop controller mappings are unchanged.
+
+Run the fixed-pattern and automated visual previews with:
+
+```sh
+npm test -- --run tests/pas-de-geant-construct.test.ts
+npm run build
+npm run test:construct:browser
+```
+
 WebXR requires a secure context. For a USB-connected Quest 2, an Android
 reverse tunnel lets Oculus Browser treat the app as device-local:
 
@@ -32,7 +65,7 @@ build should be served over HTTPS.
 
 - Left stick: head-relative travel
 - Left trigger: faster travel
-- X / Y: bias terrain LOD one screen-space step coarser / finer
+- X / Y: bias the native Mapterhorn level coarser / finer
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: radial multiplier
 - A: toggle sea surface / bathymetry
@@ -44,11 +77,10 @@ current underfoot position on a whole-Earth map. It remains available offline;
 the latitude and longitude appear directly beneath the map, followed by the
 planet-root global scale factor, radial multiplier, and selected topography
 zoom range. The terrain readout says `AUTO` at zero bias. Each Y press halves
-the permitted source-sample and mesh error, while each X press doubles it;
-hold B to reset the planet and return to zero bias. `CAP` appears only when the
-decoded-tile or geometry safety budget has forced part of the plan coarser. Its
-map readout is throttled and hosted under an isolated scene node so it does not
-traverse or invalidate the terrain scene.
+the native tile width and increases fixed mesh density, while each X press
+doubles the tile width and reduces mesh density. Hold B to reset the planet
+and return to zero bias. The map readout is throttled and hosted under an
+isolated scene node so it does not traverse or invalidate the terrain scene.
 
 The camera and XR reference space are never moved to simulate travel. The
 planet root is rolled and translated so the selected mean-sea-level contact
@@ -78,72 +110,48 @@ official stride-21 NetCDF subset:
 npm run prepare:relief --workspace @found-in-space/pas-de-geant
 ```
 
-Around the current contact point, the renderer asynchronously requests mixed
-zoom levels from Mapterhorn's global 512 px Terrarium pyramid. A quadtree first
-clips candidates to the eye-height spherical horizon, then estimates each
-source sample in the current eye buffer:
+Around the current contact point, the renderer requests native tiles from
+Mapterhorn's global 512 px Terrarium pyramid. Source selection is a fixed
+render-space clipmap rather than a screen-space quadtree search. The finest
+level is one complete 8×8 tile square. Each of the next two coarser levels is
+the same 8×8 square with its central 4×4 tiles removed, producing a repeating
+two-tile-wide ring. Each finer square exactly fills the parent ring's hole.
+The complete three-level stencil therefore contains 64 + 48 + 48 = 160
+addresses.
 
-```text
-samplePixels =
-  scaledSourceSampleMetres × focalLengthPixels / nearestTileDistance
-```
+The target native tile width is 5.12 room metres, or about 1 cm per source
+pixel. The selected source zoom changes only when the current tile becomes
+smaller than 3.5 m or larger than 7.5 m; the wider-than-two hysteresis band
+prevents a level change from immediately reversing itself. Mapterhorn
+refinement stops at z12, and regional z13–17 LiDAR is intentionally not
+requested. At z0–2 the renderer simply uses every available world tile because
+an 8×8 footprint cannot yet exist.
 
-In WebXR, focal length comes from each eye's real framebuffer viewport and
-projection matrix rather than CSS pixels. Desktop uses the WebGL drawing
-buffer. Source samples target 0.5 px, refine above 0.65 px, and coarsen below
-0.35 px; the gap supplies hysteresis. Latitude-dependent Web Mercator sample
-spacing is scaled by the current rendered planet radius, and nearest distance
-includes the actual eye height above the globe. This naturally creates fine
-tiles underfoot, progressively coarser onion layers with distance, and GEBCO
-at and beyond the local horizon. Mapterhorn refinement stops at z12; regional
-z13–17 LiDAR is intentionally not requested. LOD planning also holds a
-cumulative 4 cm three-dimensional head-pose deadzone: rendering and physical
-travel remain continuous, but small horizontal or vertical headset jitter does
-not move the planning anchor.
+All tile offsets, ring membership, edge fades, skirts, priorities, and mesh
+density are fixed. Four tiles around the contact point retain the complete
+512×512 source grid. The rest of the finest level uses 128×128 cells, and the
+two parent rings use 64×64 and 32×32 cells. Same-zoom neighbours share decoded
+boundary samples; changes in mesh density and source zoom blend both sides to
+the same coarse surface before a shallow skirt closes the join. There is no
+terrain-planning worker, RTIN simplification, per-tile screen-space
+calculation, budget collapse, or per-frame neighbour search. Movement inside
+the snapped quadtree anchor does not alter the ring addresses; the four
+full-resolution tiles move only when the contact point crosses their stable
+2×2 anchor. Crossing a scale threshold shifts the same stencil up or down one
+source level.
 
-LOD selection runs in a dedicated worker with one request in flight. Newer
-planning poses are coalesced while it runs, stale results are discarded, and
-the renderer keeps the current terrain plan until a complete current result
-arrives. A separate worker decodes elevations and builds adaptive 513×513 RTIN
-meshes with
-`@mapbox/martini`. Source zoom and triangle density are separate decisions:
-each tile chooses the coarsest RTIN metre-error bucket whose exaggerated
-vertical error stays below a 0.75 px eye-buffer target. RTIN refinement and
-coarsening use their own 0.9/0.6 px hysteresis thresholds, so a distant z12
-source tile does not imply a dense mesh. Same-zoom active neighbours share
-decoded boundary samples and forced full-resolution RTIN borders. Mixed-zoom
-T-junctions retain shallow skirts. The outer plan boundary blends back to
-GEBCO, and unavailable neighbours receive a shorter edge fade.
+At most four elevation pages are active across the complete fetch-and-decode
+pipeline. Successful Mapterhorn responses are written to the browser's named
+Cache API storage and checked there before the network; malformed images are
+evicted as soon as worker decoding rejects them. The worker retains up to 192
+decoded pages, which covers the full 160-tile stencil plus overlap while the
+anchor moves. Browser storage quotas and eviction policy still apply.
 
-At most four elevation requests run concurrently. Up to 128 active source
-tiles are planned, while 192 decoded tiles are retained to keep overlap
-headroom during travel. If the screen-space plan exceeds its active limit,
-quadtree branches are collapsed from farthest to nearest; the 96 MiB
-geometry cap applies the same policy as a secondary safety valve. Successful
-Mapterhorn responses are also written to the browser's
-named Cache API storage and checked there before the network; malformed images
-are evicted as soon as worker decoding rejects them. Browser storage quotas and
-eviction policy still apply. Prepared local meshes write an exact stencil
-before the coarse globe renders, so missing, malformed, ocean-only, polar, and
-offline tiles remain continuous GEBCO terrain and bathymetry without
-approximate mask edges.
-During a scale or radial-LOD change, the renderer waits 250 ms for the control
-to settle before requesting only the final source plan. It no longer retires
-the complete local layer when one LOD decision changes. RTIN-only updates
-replace geometry in place; coarsening atomically replaces descendants with
-their prepared parent; refinement keeps the live parent until every replacement
-child in that region is prepared or has reached a terminal GEBCO fallback.
-Only obsolete, non-overlapping tiles fade individually after the desired plan
-is settled. One
-generation-tagged RTIN job runs at a time and completed GPU-ready meshes install
-one per frame. Each mesh is capped at 16,384 vertices and all active local
-geometry is capped at 96 MiB. The worker progressively relaxes RTIN error only
-when needed to keep a tile within its vertex ceiling, and the nearest tile is
-queued first. A tile that still cannot meet those limits remains GEBCO. GEBCO
-always continues beyond the local patch. Runtime body-data diagnostics report
-the horizon, source zoom range, source-sample pixel range, LOD bias, budget
-state, and requested and actual RTIN errors. A depth-only shell below
-the deepest exaggerated seabed prevents distant terrain and ocean faces from
+Prepared local meshes write an exact stencil before the coarse globe renders,
+so missing, malformed, ocean-only, polar, and offline tiles remain continuous
+GEBCO terrain and bathymetry. The outer ring blends back to GEBCO, unavailable
+neighbours receive a shorter edge fade, and a depth-only shell below the
+deepest exaggerated seabed prevents distant terrain and ocean faces from
 showing through transient seams.
 
 NASA GIBS supplies up to 32 nearby 512 px Blue Marble images from its native
@@ -154,12 +162,11 @@ current planet scale and latitude, capped at the native 500 m level. Failed
 imagery requests retry after 1, 5, and then 30 seconds while the tile remains
 relevant. GIBS marks these pre-generated tiles as browser-cacheable, so repeat
 headset visits can reuse them without bundling a global imagery archive. Local
-RTIN meshes reuse the highest available cached preview or exact geographic
-image selection and texture lease. The selected GIBS coverage patches are
-mirrored onto the detailed geometry, while the bundled Blue Marble texture
-remains the common fallback. There is no separate EPSG:3857 imagery requester
-or local imagery cache, so local relief cannot conceal the global layer with a
-coarser or competing image pyramid.
+terrain meshes reuse the highest available cached preview or exact geographic
+image selection and texture lease. The bundled Blue Marble texture remains
+the common fallback. There is no separate EPSG:3857 imagery requester or local
+imagery cache, so local relief cannot conceal the global layer with a coarser
+or competing image pyramid.
 
 The checked-in 2048×1024 Blue Marble image is displayed immediately beneath
 the progressive tiles and remains usable when offline. Detailed global imagery

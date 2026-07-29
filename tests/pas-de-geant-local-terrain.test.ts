@@ -1,33 +1,26 @@
 import { describe, expect, it } from "vitest";
 import {
-  LOCAL_GRID_SIZE,
-  LOCAL_ACTIVE_TILE_BUDGET,
   LOCAL_HEIGHT_CACHE_LIMIT,
-  LOCAL_LOD_HEADPOSE_DEADZONE_M,
-  LOCAL_TERRAIN_MAX_ZOOM,
+  LOCAL_RING_LEVELS,
+  LOCAL_RING_OUTER_TILES,
+  LOCAL_TILE_COARSEN_WIDTH_M,
+  LOCAL_TILE_REFINE_WIDTH_M,
   LOCAL_TILE_SIZE,
-  RTIN_TARGET_ERROR_PIXELS,
+  LOCAL_TILE_TARGET_WIDTH_M,
+  LOCAL_UNDERFOOT_MESH_SEGMENTS,
   TileRequestQueue,
-  angularDistanceToMercatorTile,
   buildHeightGrid513,
   decodeTerrariumPixels,
-  distanceFromEyeToMercatorTileWorldM,
-  forceFullRtinBoundary,
-  isValidMercatorAddress,
   isOceanOnlyHeightTile,
-  localDetailBlendWeight,
   localDetailEdgeFadeWeight,
-  localTerrainHorizonCoverage,
-  mercatorHorizonBounds,
+  meshSegmentsForRing,
   mercatorTileKey,
+  nativeTerrainPlanAnchorKey,
+  renderedMercatorTileWidthM,
   resolveLocalElevation,
-  samplePixelsForMercatorTile,
-  screenSpacePlanningPoseMovementM,
-  screenSpaceRtinErrorBucket,
-  selectScreenSpaceTerrainPlan,
-  selectLocalTerrainZoom,
-  selectLocalTileWindow,
-  verticalErrorPixelsForTile,
+  selectNativeTerrainPlan,
+  selectNativeTerrainZoom,
+  terrainEdgeInterpolation,
 } from "../apps/pas-de-geant/src/local-terrain-core.js";
 import {
   MAPTERHORN_ELEVATION_CACHE_NAME,
@@ -36,29 +29,137 @@ import {
   type ElevationCacheStorage,
 } from "../apps/pas-de-geant/src/elevation-cache.js";
 
-describe("Pas de Géant local-terrain regressions", () => {
-  it("retains decoded overlap beyond the maximum active plan", () => {
-    expect(LOCAL_HEIGHT_CACHE_LIMIT).toBeGreaterThan(
-      LOCAL_ACTIVE_TILE_BUDGET,
-    );
+describe("Pas de Géant native terrain rings", () => {
+  it("keeps enough decoded tiles for the complete three-level stencil", () => {
+    const completeStencilTiles =
+      LOCAL_RING_OUTER_TILES ** 2 +
+      (LOCAL_RING_OUTER_TILES ** 2 - 4 ** 2) *
+        (LOCAL_RING_LEVELS - 1);
+    expect(completeStencilTiles).toBe(160);
+    expect(LOCAL_HEIGHT_CACHE_LIMIT).toBeGreaterThan(completeStencilTiles);
   });
 
-  it("does not duplicate wrapped or polar tiles at low zoom", () => {
-    for (const zoom of [0, 1, 2, 3]) {
-      for (const [latitude, longitude] of [
-        [0, 0],
-        [84, 179.99],
-        [-84, -179.99],
-      ] satisfies Array<[number, number]>) {
-        const window = selectLocalTileWindow(latitude, longitude, zoom);
-        const worldCells = (2 ** zoom) ** 2;
-        expect(window.active).toHaveLength(worldCells);
-        expect(window.required).toHaveLength(worldCells);
-        expect(new Set(window.required.map(mercatorTileKey)).size).toBe(
-          worldCells,
-        );
-        expect(window.required.every(isValidMercatorAddress)).toBe(true);
+  it("selects zoom solely from native tile width in render space", () => {
+    const radiusForTargetAtZoomFive =
+      LOCAL_TILE_TARGET_WIDTH_M * 2 ** 5 / (2 * Math.PI);
+    expect(
+      renderedMercatorTileWidthM(0, radiusForTargetAtZoomFive, 5),
+    ).toBeCloseTo(LOCAL_TILE_TARGET_WIDTH_M);
+    expect(
+      selectNativeTerrainZoom(0, radiusForTargetAtZoomFive),
+    ).toBe(5);
+
+    const radiusAtUpper =
+      LOCAL_TILE_REFINE_WIDTH_M * 2 ** 5 / (2 * Math.PI);
+    expect(selectNativeTerrainZoom(0, radiusAtUpper * 0.99, 5)).toBe(5);
+    expect(selectNativeTerrainZoom(0, radiusAtUpper * 1.01, 5)).toBe(6);
+
+    const radiusAtLower =
+      LOCAL_TILE_COARSEN_WIDTH_M * 2 ** 5 / (2 * Math.PI);
+    expect(selectNativeTerrainZoom(0, radiusAtLower * 1.01, 5)).toBe(5);
+    expect(selectNativeTerrainZoom(0, radiusAtLower * 0.99, 5)).toBe(4);
+  });
+
+  it("builds one 8x8 cap and two identical two-tile-wide parent rings", () => {
+    const radiusForZoomSix =
+      LOCAL_TILE_TARGET_WIDTH_M * 2 ** 6 / (2 * Math.PI);
+    const plan = selectNativeTerrainPlan({
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+      displayRadiusM: radiusForZoomSix,
+    });
+
+    expect(plan.finestZoom).toBe(6);
+    expect(plan.minZoom).toBe(4);
+    expect(plan.active).toHaveLength(160);
+    expect(plan.active.filter((tile) => tile.ring === 0)).toHaveLength(64);
+    expect(plan.active.filter((tile) => tile.ring === 1)).toHaveLength(48);
+    expect(plan.active.filter((tile) => tile.ring === 2)).toHaveLength(48);
+    expect(
+      plan.active.filter(
+        (tile) => tile.meshSegments === LOCAL_UNDERFOOT_MESH_SEGMENTS,
+      ),
+    ).toHaveLength(4);
+    expect(new Set(plan.active.map(mercatorTileKey)).size).toBe(160);
+
+    for (const tile of plan.active) {
+      for (const other of plan.active) {
+        if (tile === other || tile.z >= other.z) continue;
+        const divisor = 2 ** (other.z - tile.z);
+        expect(
+          Math.floor(other.x / divisor) === tile.x &&
+            Math.floor(other.y / divisor) === tile.y,
+        ).toBe(false);
       }
+    }
+  });
+
+  it("keeps the stencil fixed until its quadtree-aligned anchor shifts", () => {
+    const radiusForZoomSix =
+      LOCAL_TILE_TARGET_WIDTH_M * 2 ** 6 / (2 * Math.PI);
+    const first = selectNativeTerrainPlan({
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+      displayRadiusM: radiusForZoomSix,
+    });
+    const nearby = selectNativeTerrainPlan({
+      latitudeDegrees: 0,
+      longitudeDegrees: 1,
+      displayRadiusM: radiusForZoomSix,
+      previousBaseZoom: first.baseZoom,
+    });
+    const shifted = selectNativeTerrainPlan({
+      latitudeDegrees: 0,
+      longitudeDegrees: 30,
+      displayRadiusM: radiusForZoomSix,
+      previousBaseZoom: first.baseZoom,
+    });
+
+    expect(nearby.signature).toBe(first.signature);
+    expect(shifted.signature).not.toBe(first.signature);
+    expect(
+      nativeTerrainPlanAnchorKey(0, 1, first.finestZoom),
+    ).toBe(nativeTerrainPlanAnchorKey(0, 0, first.finestZoom));
+  });
+
+  it("uses all available world tiles before an 8x8 ring can exist", () => {
+    for (const zoom of [0, 1, 2]) {
+      const radius =
+        LOCAL_TILE_TARGET_WIDTH_M * 2 ** zoom / (2 * Math.PI);
+      const plan = selectNativeTerrainPlan({
+        latitudeDegrees: 0,
+        longitudeDegrees: 179.99,
+        displayRadiusM: radius,
+      });
+      expect(plan.finestZoom).toBe(zoom);
+      expect(plan.active).toHaveLength((2 ** zoom) ** 2);
+      expect(new Set(plan.active.map(mercatorTileKey)).size).toBe(
+        plan.active.length,
+      );
+    }
+  });
+
+  it("assigns full source density underfoot and fixed densities outside", () => {
+    expect(meshSegmentsForRing(0)).toBe(128);
+    expect(meshSegmentsForRing(1)).toBe(64);
+    expect(meshSegmentsForRing(2)).toBe(32);
+    expect(meshSegmentsForRing(1, 1)).toBe(128);
+
+    const radiusForZoomSix =
+      LOCAL_TILE_TARGET_WIDTH_M * 2 ** 6 / (2 * Math.PI);
+    const plan = selectNativeTerrainPlan({
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+      displayRadiusM: radiusForZoomSix,
+    });
+    const underfoot = plan.active.filter(
+      (tile) => tile.meshSegments === LOCAL_UNDERFOOT_MESH_SEGMENTS,
+    );
+    expect(underfoot).toHaveLength(4);
+    for (const tile of underfoot) {
+      expect(
+        Object.values(tile.outerEdges).filter((edge) => edge > 0),
+      ).toHaveLength(2);
     }
   });
 
@@ -147,10 +248,39 @@ describe("Pas de Géant local-terrain regressions", () => {
     expect(westGrid[512 * 513 + 512]).toBe(50);
   });
 
-  it("fades only patch boundaries back to continuous global relief", () => {
+  it("maps detailed seam vertices onto the coarse edge intervals exactly", () => {
+    const coarseSegments = 16;
+    const step = LOCAL_TILE_SIZE / coarseSegments;
+    const coarseHeight = (pixel: number): number =>
+      300 + 1_700 * Math.sin(pixel / LOCAL_TILE_SIZE * Math.PI * 3.5);
+    for (let pixel = 0; pixel <= LOCAL_TILE_SIZE; pixel += 1) {
+      const interpolation = terrainEdgeInterpolation(
+        coarseSegments,
+        pixel,
+      );
+      expect(interpolation.firstPixel % step).toBe(0);
+      expect(interpolation.secondPixel % step).toBe(0);
+      expect(interpolation.secondPixel - interpolation.firstPixel).toBe(step);
+      expect(interpolation.fraction).toBeGreaterThanOrEqual(0);
+      expect(interpolation.fraction).toBeLessThanOrEqual(1);
+      const reconstructed =
+        interpolation.firstPixel +
+        (interpolation.secondPixel - interpolation.firstPixel) *
+          interpolation.fraction;
+      expect(reconstructed).toBeCloseTo(pixel, 10);
+      const conformedHeight =
+        coarseHeight(interpolation.firstPixel) +
+        (coarseHeight(interpolation.secondPixel) -
+          coarseHeight(interpolation.firstPixel)) *
+          interpolation.fraction;
+      if (pixel % step === 0) {
+        expect(conformedHeight).toBeCloseTo(coarseHeight(pixel), 10);
+      }
+    }
+  });
+
+  it("fades only selected patch boundaries back to global relief", () => {
     const noEdges = { north: 0, east: 0, south: 0, west: 0 };
-    expect(localDetailBlendWeight(0, 2, 0, 256)).toBe(0);
-    expect(localDetailBlendWeight(2, 2, 256, 256)).toBe(1);
     expect(resolveLocalElevation(-4_200, 0, 1)).toBe(-4_200);
     expect(resolveLocalElevation(800, 1_200, 0.5)).toBe(1_000);
     expect(localDetailEdgeFadeWeight(0, 0.5, noEdges, noEdges)).toBe(1);
@@ -172,209 +302,30 @@ describe("Pas de Géant local-terrain regressions", () => {
     ).toBe(1);
   });
 
-  it("forces RTIN borders so independently simplified tiles cannot crack", () => {
-    const errors = new Float32Array(LOCAL_GRID_SIZE ** 2);
-    forceFullRtinBoundary(errors);
-    for (let coordinate = 0; coordinate < LOCAL_GRID_SIZE; coordinate += 1) {
-      expect(errors[coordinate]).toBe(Infinity);
-      expect(errors[(LOCAL_GRID_SIZE - 1) * LOCAL_GRID_SIZE + coordinate]).toBe(
-        Infinity,
-      );
-      expect(errors[coordinate * LOCAL_GRID_SIZE]).toBe(Infinity);
-      expect(errors[coordinate * LOCAL_GRID_SIZE + LOCAL_GRID_SIZE - 1]).toBe(
-        Infinity,
-      );
-    }
-    expect(errors[Math.floor(errors.length / 2)]).toBe(0);
-  });
-
-  it("selects the finest actual tile window that contains the horizon", () => {
-    for (const [latitude, longitude, radius] of [
-      [0, 0, 1],
-      [40, -4, 63.710088],
-      [80, 0, 63.710088],
-      [-80, 179.99, 63.710088],
-    ] satisfies Array<[number, number, number]>) {
-      const bounds = mercatorHorizonBounds(latitude, longitude, radius);
-      const zoom = selectLocalTerrainZoom(latitude, longitude, radius);
-      expect(
-        localTerrainHorizonCoverage(
-          selectLocalTileWindow(latitude, longitude, zoom),
-          bounds,
-        ).covered,
-      ).toBe(true);
-      if (zoom < LOCAL_TERRAIN_MAX_ZOOM) {
-        expect(
-          localTerrainHorizonCoverage(
-            selectLocalTileWindow(latitude, longitude, zoom + 1),
-            bounds,
-          ).covered,
-        ).toBe(false);
-      }
-    }
-  });
-
-  it("selects mixed source zooms from per-eye sample size", () => {
-    const options = {
-      latitudeDegrees: 45,
-      longitudeDegrees: 7,
-      displayRadiusM: 1,
-      eyeHeightWorldM: 1.65,
-      focalLengthPixels: 1_100,
-    };
-    const plan = selectScreenSpaceTerrainPlan(options);
-    expect(plan.budgetLimited).toBe(false);
-    expect(plan.active.length).toBeLessThanOrEqual(LOCAL_ACTIVE_TILE_BUDGET);
-    expect(plan.minZoom).toBeLessThan(plan.maxZoom);
-    expect(new Set(plan.active.map((tile) => tile.z)).size).toBeGreaterThan(1);
-    expect(Math.max(...plan.active.map((tile) => tile.samplePixels))).toBeLessThan(
-      0.5,
-    );
-
-    for (const tile of plan.active) {
-      for (const other of plan.active) {
-        if (tile === other || tile.z >= other.z) continue;
-        const divisor = 2 ** (other.z - tile.z);
-        expect(
-          Math.floor(other.x / divisor) === tile.x &&
-            Math.floor(other.y / divisor) === tile.y,
-        ).toBe(false);
-      }
-    }
-  });
-
-  it("uses source-LOD hysteresis and an error-halving bias", () => {
-    const baseOptions = {
-      latitudeDegrees: 45,
-      longitudeDegrees: 7,
-      displayRadiusM: 1,
-      eyeHeightWorldM: 1.65,
-      focalLengthPixels: 1_100,
-    };
-    const base = selectScreenSpaceTerrainPlan(baseOptions);
-    const previousActiveKeys = new Set(base.active.map(mercatorTileKey));
-    const coldAtHigherResolution = selectScreenSpaceTerrainPlan({
-      ...baseOptions,
-      focalLengthPixels: 1_250,
-    });
-    const hystereticAtHigherResolution = selectScreenSpaceTerrainPlan({
-      ...baseOptions,
-      focalLengthPixels: 1_250,
-      previousActiveKeys,
-    });
-    expect(hystereticAtHigherResolution.maxZoom).toBe(base.maxZoom);
-    expect(hystereticAtHigherResolution.active).toHaveLength(
-      base.active.length,
-    );
-    expect(coldAtHigherResolution.maxZoom).toBeGreaterThan(base.maxZoom);
-
-    const finerBias = selectScreenSpaceTerrainPlan({
-      ...baseOptions,
-      lodBias: 1,
-    });
-    expect(finerBias.maxZoom).toBeGreaterThanOrEqual(base.maxZoom);
-    expect(finerBias.active.length).toBeGreaterThan(base.active.length);
-  });
-
-  it("holds LOD planning inside a cumulative centimetre head-pose deadzone", () => {
-    const anchor = {
-      latitudeDegrees: 45,
-      longitudeDegrees: 7,
-      eyeHeightWorldM: 1.65,
-    };
-    const oneDegreeWorldM = Math.PI / 180;
-    const smallHorizontalDegrees =
-      0.025 / (oneDegreeWorldM * Math.cos(Math.PI / 4));
-    const withinDeadzone = screenSpacePlanningPoseMovementM(
-      anchor,
-      {
-        latitudeDegrees: anchor.latitudeDegrees,
-        longitudeDegrees: anchor.longitudeDegrees + smallHorizontalDegrees,
-        eyeHeightWorldM: 1.67,
-      },
-      1,
-    );
-    const beyondDeadzone = screenSpacePlanningPoseMovementM(
-      anchor,
-      {
-        latitudeDegrees: anchor.latitudeDegrees,
-        longitudeDegrees: anchor.longitudeDegrees + smallHorizontalDegrees * 2,
-        eyeHeightWorldM: 1.67,
-      },
-      1,
-    );
-    expect(withinDeadzone).toBeLessThan(LOCAL_LOD_HEADPOSE_DEADZONE_M);
-    expect(beyondDeadzone).toBeGreaterThan(LOCAL_LOD_HEADPOSE_DEADZONE_M);
-  });
-
-  it("measures source and RTIN errors in actual eye-buffer pixels", () => {
-    const underEye = { z: 12, x: 2_048, y: 2_048 };
-    expect(angularDistanceToMercatorTile(0, 0, underEye)).toBe(0);
-    expect(
-      distanceFromEyeToMercatorTileWorldM(0, 0, underEye, 10, 1.65),
-    ).toBeCloseTo(1.65);
-    const sampleAtTen = samplePixelsForMercatorTile(
-      0,
-      0,
-      underEye,
-      10,
-      1.65,
-      1_100,
-    );
-    const sampleAtTwenty = samplePixelsForMercatorTile(
-      0,
-      0,
-      underEye,
-      20,
-      1.65,
-      1_100,
-    );
-    expect(sampleAtTwenty).toBeCloseTo(sampleAtTen * 2);
-
-    const nearError = screenSpaceRtinErrorBucket(2, 637, 1, 1_100);
-    const farError = screenSpaceRtinErrorBucket(20, 637, 1, 1_100);
-    const biasedError = screenSpaceRtinErrorBucket(2, 637, 1, 1_100, 1);
-    expect(farError).toBeGreaterThanOrEqual(nearError);
-    expect(biasedError).toBeLessThanOrEqual(nearError);
-    expect(
-      verticalErrorPixelsForTile(nearError, 2, 637, 1, 1_100),
-    ).toBeLessThanOrEqual(RTIN_TARGET_ERROR_PIXELS);
-  });
-
-  it("restarts a tile re-added while its aborted request settles", async () => {
-    let calls = 0;
+  it("holds queue slots until asynchronous decode processing finishes", async () => {
+    let loads = 0;
+    const releases: Array<() => void> = [];
     const queue = new TileRequestQueue<number>(
-      (_address, signal) =>
-        new Promise((resolve, reject) => {
-          calls += 1;
-          if (calls === 2) {
-            resolve(2);
-            return;
-          }
-          signal.addEventListener(
-            "abort",
-            () => {
-              const error = new Error("aborted");
-              error.name = "AbortError";
-              reject(error);
-            },
-            { once: true },
-          );
+      async () => ++loads,
+      () =>
+        new Promise<void>((resolve) => {
+          releases.push(resolve);
         }),
       () => undefined,
-      () => undefined,
-      1,
+      2,
     );
-    const task = {
-      address: { z: 5, x: 1, y: 1 },
-      priority: 0,
-    };
+    const tasks = Array.from({ length: 5 }, (_, index) => ({
+      address: { z: 5, x: index, y: 1 },
+      priority: index,
+    }));
 
-    queue.sync([task]);
-    queue.sync([]);
-    queue.sync([task]);
+    queue.sync(tasks);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(calls).toBe(2);
+    expect(loads).toBe(2);
+    releases.shift()?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loads).toBe(3);
     queue.dispose();
+    for (const release of releases) release();
   });
 });

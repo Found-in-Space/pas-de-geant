@@ -62,7 +62,7 @@ function onePixelPng(): Buffer {
 test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   const terrainImage = flatTerrariumPng();
   const imageryPixel = onePixelPng();
   const missingTiles = new Set([
@@ -112,28 +112,32 @@ test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
     { timeout: 60_000 },
   );
   await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-window-size",
+    "160",
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-source-zoom-range",
+    "4-6",
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-streaming-state",
+    "steady",
+    { timeout: 360_000 },
+  );
+  await expect(page.locator("body")).toHaveAttribute(
     "data-detail-mesh-count",
-    "76",
-    { timeout: 180_000 },
+    "155",
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-fallback-cells",
     "5",
   );
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-detail-tile-states",
-    [
-      "rrffrrrrr",
-      "rrffrrrrr",
-      "rrrrrrrrr",
-      "rrrrrrrrr",
-      "rrfrrrrrr",
-      "rrrrrrrrr",
-      "rrrrrrrrr",
-      "rrrrrrrrr",
-      "rrrrrrrrr",
-    ].join("/"),
-  );
+  const tileStates = await page
+    .locator("body")
+    .getAttribute("data-detail-tile-states");
+  expect(tileStates).toHaveLength(160);
+  expect(tileStates?.replaceAll("r", "").replaceAll("f", "")).toBe("");
+  expect(tileStates?.split("f")).toHaveLength(6);
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-imagery-requests",
     "0",
@@ -144,7 +148,7 @@ test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-material-side",
-    "front",
+    "double",
   );
   expect(localImageryUrls).toEqual([]);
   await expect

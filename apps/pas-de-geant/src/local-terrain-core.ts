@@ -1,37 +1,23 @@
-import {
-  DEFAULT_EYE_HEIGHT_M,
-  terrainHorizonRadians,
-} from "./terrain-horizon.js";
-
 export const LOCAL_TERRAIN_MIN_ZOOM = 0;
 export const LOCAL_TERRAIN_MAX_ZOOM = 12;
 export const LOCAL_TILE_SIZE = 512;
 export const LOCAL_GRID_SIZE = LOCAL_TILE_SIZE + 1;
-export const LOCAL_WINDOW_SIZE = 9;
-export const LOCAL_HEIGHT_TILE_BUDGET = 128;
-export const LOCAL_HEIGHT_CACHE_LIMIT = 192;
-export const LOCAL_ACTIVE_TILE_BUDGET = 128;
+export const LOCAL_HEIGHT_CACHE_LIMIT = 256;
 export const MAX_CONCURRENT_HEIGHT_REQUESTS = 4;
-export const LOCAL_MESH_VERTEX_LIMIT = 16_384;
-export const LOCAL_GEOMETRY_BUDGET_BYTES = 96 * 1_024 * 1_024;
-export const LOCAL_SCALE_SETTLE_MS = 250;
-export const LOCAL_RETIRE_SECONDS = 0.12;
-export const LOCAL_LOD_HEADPOSE_DEADZONE_M = 0.04;
-export const LOCAL_TRANSIENT_RETRY_DELAYS_MS = [1_000, 5_000] as const;
 export const LOCAL_MALFORMED_RETRY_DELAY_MS = 5 * 60_000;
+export const LOCAL_TRANSIENT_RETRY_DELAYS_MS = [1_000, 5_000] as const;
 export const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
-export const RTIN_ERROR_BUCKETS_M = [5, 10, 20, 40, 80, 150] as const;
-export const RTIN_FALLBACK_ERROR_BUCKETS_M = [
-  300, 600, 1_200, 2_400, 4_800, 9_600,
-] as const;
-export const SOURCE_SAMPLE_TARGET_PIXELS = 0.5;
-export const SOURCE_SAMPLE_REFINE_PIXELS = 0.65;
-export const SOURCE_SAMPLE_COARSEN_PIXELS = 0.35;
-export const RTIN_TARGET_ERROR_PIXELS = 0.75;
-export const RTIN_REFINE_ERROR_PIXELS = 0.9;
-export const RTIN_COARSEN_ERROR_PIXELS = 0.6;
+export const LOCAL_RING_MESH_SEGMENTS = [128, 64, 32] as const;
+export const LOCAL_UNDERFOOT_MESH_SEGMENTS = 512;
+
+export const LOCAL_TILE_TARGET_WIDTH_M = 5.12;
+export const LOCAL_TILE_COARSEN_WIDTH_M = 3.5;
+export const LOCAL_TILE_REFINE_WIDTH_M = 7.5;
+export const LOCAL_RING_OUTER_TILES = 8;
+export const LOCAL_RING_HOLE_TILES = 4;
+export const LOCAL_RING_LEVELS = 3;
+
 const EARTH_RADIUS_M = 6_371_008.8;
-const TARGET_PROJECTED_VERTICAL_ERROR_M = 0.002;
 
 export interface MercatorTileAddress {
   z: number;
@@ -39,80 +25,56 @@ export interface MercatorTileAddress {
   y: number;
 }
 
-export interface LocalTileAddress extends MercatorTileAddress {
-  column: number;
-  row: number;
-}
-
-export interface ScreenSpaceLocalTile extends LocalTileAddress {
-  distanceWorldM: number;
-  samplePixels: number;
-}
-
-export interface ScreenSpaceTerrainPlan {
-  active: ScreenSpaceLocalTile[];
-  required: MercatorTileAddress[];
-  minZoom: number;
-  maxZoom: number;
-  budgetLimited: boolean;
-}
-
-export interface ScreenSpaceTerrainPlanOptions {
-  latitudeDegrees: number;
-  longitudeDegrees: number;
-  displayRadiusM: number;
-  eyeHeightWorldM: number;
-  focalLengthPixels: number;
-  lodBias?: number;
-  previousActiveKeys?: ReadonlySet<string>;
-  activeTileBudget?: number;
-  heightTileBudget?: number;
-}
-
-export interface ScreenSpacePlanningPose {
-  latitudeDegrees: number;
-  longitudeDegrees: number;
-  eyeHeightWorldM: number;
-}
-
-export interface MercatorTileWindow {
-  zoom: number;
-  originX: number;
-  originY: number;
-  columns: number;
-  rows: number;
-  active: LocalTileAddress[];
-  required: LocalTileAddress[];
-}
-
-export interface MercatorHorizonBounds {
-  angularRadiusRadians: number;
-  centreX: number;
-  centreY: number;
-  westX: number;
-  eastX: number;
-  northY: number;
-  southY: number;
-}
-
-export interface MercatorHorizonCoverage {
-  covered: boolean;
-  westMarginTiles: number;
-  eastMarginTiles: number;
-  northMarginTiles: number;
-  southMarginTiles: number;
-}
-
-export interface TileLoadTask {
-  address: MercatorTileAddress;
-  priority: number;
-}
-
 export interface LocalEdgeMask {
   north: number;
   east: number;
   south: number;
   west: number;
+}
+
+export type TerrainEdge = keyof LocalEdgeMask;
+
+export interface TerrainEdgeConstraint {
+  address: MercatorTileAddress;
+  edge: TerrainEdge;
+  segments: number;
+}
+
+export type TerrainEdgeConstraints = Partial<
+  Record<TerrainEdge, TerrainEdgeConstraint>
+>;
+
+export interface NativeTerrainTile extends MercatorTileAddress {
+  ring: number;
+  priority: number;
+  meshSegments: number;
+  outerEdges: LocalEdgeMask;
+  skirtEdges: LocalEdgeMask;
+}
+
+export interface NativeTerrainPlan {
+  active: NativeTerrainTile[];
+  required: MercatorTileAddress[];
+  baseZoom: number;
+  finestZoom: number;
+  minZoom: number;
+  maxZoom: number;
+  finestTileWidthM: number;
+  signature: string;
+}
+
+export interface NativeTerrainPlanOptions {
+  latitudeDegrees: number;
+  longitudeDegrees: number;
+  displayRadiusM: number;
+  previousBaseZoom?: number;
+  lodBias?: number;
+  ringLevels?: number;
+}
+
+export interface TileLoadTask {
+  address: MercatorTileAddress;
+  priority: number;
 }
 
 export type ElevationFailureKind = "not-found" | "transient" | "malformed";
@@ -133,14 +95,19 @@ export type LocalTerrainWorkerRequest =
       address: MercatorTileAddress;
       bytes: ArrayBuffer;
       contentType: string;
+      retainOcean?: boolean;
+      zeroHeight?: boolean;
     }
   | {
       type: "mesh";
       requestId: number;
       generation: number;
       address: MercatorTileAddress;
-      errorM: number;
-      vertexLimit: number;
+      segments: number;
+      includeSkirts?: boolean;
+      skirtEdges?: LocalEdgeMask;
+      edgeConstraints?: TerrainEdgeConstraints;
+      includeDetailOffsets?: boolean;
     }
   | { type: "dispose" };
 
@@ -157,26 +124,19 @@ export type LocalTerrainWorkerResult =
       requestId: number;
       generation: number;
       address: MercatorTileAddress;
-      requestedErrorM: number;
-      actualErrorM: number;
+      requestedSegments: number;
+      actualSegments: number;
       positions: Float32Array;
       normals: Float32Array;
       uvs: Float32Array;
       heightUvs: Float32Array;
       detailHeightsM: Float32Array;
+      detailOffsetsM?: Float32Array;
       skirtEdges: Float32Array;
       indices: Uint32Array;
       boundingCentre: Float32Array;
       boundingRadius: number;
       geometryBytes: number;
-    }
-  | {
-      type: "overbudget";
-      requestId: number;
-      generation: number;
-      address: MercatorTileAddress;
-      requestedErrorM: number;
-      vertexCount: number;
     }
   | {
       type: "error";
@@ -185,37 +145,8 @@ export type LocalTerrainWorkerResult =
       address?: MercatorTileAddress;
       message: string;
       missing?: boolean;
+      missingAddress?: MercatorTileAddress;
     };
-
-export function terrainScaleInputChanged(
-  previousDisplayRadiusM: number | undefined,
-  previousRadialMultiplier: number | undefined,
-  displayRadiusM: number,
-  radialMultiplier: number,
-): boolean {
-  if (
-    previousDisplayRadiusM === undefined ||
-    previousRadialMultiplier === undefined
-  ) {
-    return false;
-  }
-  return (
-    Math.abs(
-      Math.log2(
-        Math.max(0.001, displayRadiusM) /
-          Math.max(0.001, previousDisplayRadiusM),
-      ),
-    ) > 1e-5 || Math.abs(radialMultiplier - previousRadialMultiplier) > 1e-5
-  );
-}
-
-export function terrainScaleInputIsStable(
-  nowMs: number,
-  lastChangeMs: number,
-  settleMs = LOCAL_SCALE_SETTLE_MS,
-): boolean {
-  return nowMs - lastChangeMs >= settleMs;
-}
 
 export function elevationFailureDecision(
   kind: ElevationFailureKind,
@@ -285,15 +216,15 @@ export function mercatorPointForCoordinates(
   zoom = LOCAL_TERRAIN_MAX_ZOOM,
 ): { x: number; y: number } {
   const latitudeRadians =
-    (clampMercatorLatitude(latitudeDegrees) * Math.PI) / 180;
+    clampMercatorLatitude(latitudeDegrees) * Math.PI / 180;
   const width = 2 ** zoom;
   return {
-    x: ((wrapLongitude(longitudeDegrees) + 180) / 360) * width,
+    x: (wrapLongitude(longitudeDegrees) + 180) / 360 * width,
     y:
-      ((1 -
+      (1 -
         Math.log(Math.tan(latitudeRadians) + 1 / Math.cos(latitudeRadians)) /
           Math.PI) /
-        2) *
+      2 *
       width,
   };
 }
@@ -327,84 +258,393 @@ export function mercatorCoordinatesForTilePoint(
   return {
     longitudeDegrees: x * 360 - 180,
     latitudeDegrees:
-      (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI,
+      Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180 / Math.PI,
   };
 }
 
-export function selectLocalTileWindow(
+/**
+ * Local physical width of one native Web Mercator tile after the planet is
+ * scaled into render space.
+ */
+export function renderedMercatorTileWidthM(
+  latitudeDegrees: number,
+  displayRadiusM: number,
+  zoom: number,
+): number {
+  const latitude =
+    clampMercatorLatitude(latitudeDegrees) * Math.PI / 180;
+  return (
+    2 *
+    Math.PI *
+    Math.max(0.001, displayRadiusM) *
+    Math.max(1e-6, Math.cos(latitude)) /
+    2 ** Math.max(LOCAL_TERRAIN_MIN_ZOOM, Math.min(LOCAL_TERRAIN_MAX_ZOOM, zoom))
+  );
+}
+
+function nearestNativeTerrainZoom(
+  latitudeDegrees: number,
+  displayRadiusM: number,
+): number {
+  let bestZoom = LOCAL_TERRAIN_MIN_ZOOM;
+  let bestDistance = Infinity;
+  for (
+    let zoom = LOCAL_TERRAIN_MIN_ZOOM;
+    zoom <= LOCAL_TERRAIN_MAX_ZOOM;
+    zoom += 1
+  ) {
+    const width = renderedMercatorTileWidthM(
+      latitudeDegrees,
+      displayRadiusM,
+      zoom,
+    );
+    const distance = Math.abs(Math.log2(width / LOCAL_TILE_TARGET_WIDTH_M));
+    if (distance < bestDistance) {
+      bestZoom = zoom;
+      bestDistance = distance;
+    }
+  }
+  return bestZoom;
+}
+
+/**
+ * The only source-LOD state transition. Native tiles halve or double in render
+ * space when their source zoom changes, so the hysteresis band must be wider
+ * than a factor of two.
+ */
+export function selectNativeTerrainZoom(
+  latitudeDegrees: number,
+  displayRadiusM: number,
+  previousZoom?: number,
+): number {
+  let zoom =
+    previousZoom === undefined
+      ? nearestNativeTerrainZoom(latitudeDegrees, displayRadiusM)
+      : Math.max(
+          LOCAL_TERRAIN_MIN_ZOOM,
+          Math.min(LOCAL_TERRAIN_MAX_ZOOM, Math.round(previousZoom)),
+        );
+  let width = renderedMercatorTileWidthM(
+    latitudeDegrees,
+    displayRadiusM,
+    zoom,
+  );
+  while (
+    width > LOCAL_TILE_REFINE_WIDTH_M &&
+    zoom < LOCAL_TERRAIN_MAX_ZOOM
+  ) {
+    zoom += 1;
+    width *= 0.5;
+  }
+  while (
+    width < LOCAL_TILE_COARSEN_WIDTH_M &&
+    zoom > LOCAL_TERRAIN_MIN_ZOOM
+  ) {
+    zoom -= 1;
+    width *= 2;
+  }
+  return zoom;
+}
+
+function emptyEdgeMask(): LocalEdgeMask {
+  return { north: 0, east: 0, south: 0, west: 0 };
+}
+
+function parentAddress(
+  address: MercatorTileAddress,
+): MercatorTileAddress | undefined {
+  if (address.z <= LOCAL_TERRAIN_MIN_ZOOM) return undefined;
+  return {
+    z: address.z - 1,
+    x: Math.floor(address.x / 2),
+    y: Math.floor(address.y / 2),
+  };
+}
+
+function tileHasCoverage(
+  address: MercatorTileAddress,
+  exactKeys: ReadonlySet<string>,
+  descendantCoverageKeys: ReadonlySet<string>,
+): "same" | "mixed" | "none" {
+  if (exactKeys.has(mercatorTileKey(address))) return "same";
+  let ancestor = parentAddress(address);
+  while (ancestor) {
+    if (exactKeys.has(mercatorTileKey(ancestor))) return "mixed";
+    ancestor = parentAddress(ancestor);
+  }
+  return descendantCoverageKeys.has(mercatorTileKey(address))
+    ? "mixed"
+    : "none";
+}
+
+function applyPlanEdgeMasks(active: NativeTerrainTile[]): void {
+  const exactKeys = new Set(active.map(mercatorTileKey));
+  const exactTiles = new Map(active.map((tile) => [mercatorTileKey(tile), tile]));
+  const descendantCoverageKeys = new Set<string>();
+  for (const tile of active) {
+    let parent = parentAddress(tile);
+    while (parent) {
+      descendantCoverageKeys.add(mercatorTileKey(parent));
+      parent = parentAddress(parent);
+    }
+  }
+  const directions = [
+    ["north", 0, -1],
+    ["east", 1, 0],
+    ["south", 0, 1],
+    ["west", -1, 0],
+  ] as const;
+  for (const tile of active) {
+    for (const [edge, deltaX, deltaY] of directions) {
+      const neighbour = {
+        z: tile.z,
+        x: wrapMercatorX(tile.x + deltaX, tile.z),
+        y: tile.y + deltaY,
+      };
+      if (!isValidMercatorAddress(neighbour)) {
+        tile.outerEdges[edge] = 1;
+        tile.skirtEdges[edge] = 1;
+        continue;
+      }
+      const exactNeighbour = exactTiles.get(mercatorTileKey(neighbour));
+      if (
+        exactNeighbour &&
+        exactNeighbour.meshSegments !== tile.meshSegments
+      ) {
+        tile.outerEdges[edge] = 1;
+        tile.skirtEdges[edge] = 1;
+        continue;
+      }
+      const coverage = tileHasCoverage(
+        neighbour,
+        exactKeys,
+        descendantCoverageKeys,
+      );
+      if (coverage === "none") {
+        tile.outerEdges[edge] = 1;
+        tile.skirtEdges[edge] = 1;
+      } else if (coverage === "mixed") {
+        tile.outerEdges[edge] = 1;
+        tile.skirtEdges[edge] = 1;
+      }
+    }
+  }
+}
+
+function allWorldTiles(zoom: number): NativeTerrainTile[] {
+  const width = 2 ** zoom;
+  const active: NativeTerrainTile[] = [];
+  const centre = (width - 1) * 0.5;
+  for (let y = 0; y < width; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      active.push({
+        z: zoom,
+        x,
+        y,
+        ring: 0,
+        priority: Math.hypot(x - centre, y - centre),
+        meshSegments: meshSegmentsForRing(0),
+        outerEdges: emptyEdgeMask(),
+        skirtEdges: emptyEdgeMask(),
+      });
+    }
+  }
+  return active;
+}
+
+function fixedRingLayout(
   latitudeDegrees: number,
   longitudeDegrees: number,
-  zoom: number,
-): MercatorTileWindow {
-  const selectedZoom = Math.max(
-    LOCAL_TERRAIN_MIN_ZOOM,
-    Math.min(LOCAL_TERRAIN_MAX_ZOOM, Math.round(zoom)),
+  finestZoom: number,
+  requestedRingLevels: number,
+): {
+  ringLevels: number;
+  origins: Array<{ x: number; y: number }>;
+  underfootOrigin: { x: number; y: number };
+} {
+  const ringLevels = Math.max(
+    1,
+    Math.min(
+      Math.floor(requestedRingLevels),
+      LOCAL_RING_LEVELS,
+      finestZoom - 2,
+    ),
   );
-  const centre = mercatorAddressForCoordinates(
+  const finestCentre = mercatorAddressForCoordinates(
     latitudeDegrees,
     longitudeDegrees,
-    selectedZoom,
+    finestZoom,
   );
-  const width = 2 ** selectedZoom;
-  const columns = Math.min(LOCAL_WINDOW_SIZE, width);
-  const rows = Math.min(LOCAL_WINDOW_SIZE, width);
-  const originX =
-    columns === width
-      ? 0
-      : wrapMercatorX(centre.x - Math.floor(columns / 2), selectedZoom);
-  const originY = Math.max(
+  const finestPoint = mercatorPointForCoordinates(
+    latitudeDegrees,
+    longitudeDegrees,
+    finestZoom,
+  );
+  const finestWidth = 2 ** finestZoom;
+  const anchorStride = 2 ** (ringLevels - 1);
+  const anchorMargin = Math.round(
+    (LOCAL_RING_OUTER_TILES - anchorStride) * 0.5,
+  );
+  let originX =
+    Math.floor((finestCentre.x - anchorMargin) / anchorStride) * anchorStride;
+  let originY =
+    Math.floor((finestCentre.y - anchorMargin) / anchorStride) * anchorStride;
+  originY = Math.max(
     0,
-    Math.min(width - rows, centre.y - Math.floor(rows / 2)),
+    Math.min(finestWidth - LOCAL_RING_OUTER_TILES, originY),
   );
-  const addressAt = (column: number, row: number): LocalTileAddress => ({
-    z: selectedZoom,
-    x: wrapMercatorX(originX + column, selectedZoom),
-    y: originY + row,
-    column,
-    row,
-  });
-  const active: LocalTileAddress[] = [];
-  for (let row = 0; row < rows; row += 1) {
-    for (let column = 0; column < columns; column += 1) {
-      active.push(addressAt(column, row));
-    }
-  }
-  active.sort((first, second) => {
-    const firstDistance = Math.hypot(
-      first.column - columns / 2 + 0.5,
-      first.row - rows / 2 + 0.5,
-    );
-    const secondDistance = Math.hypot(
-      second.column - columns / 2 + 0.5,
-      second.row - rows / 2 + 0.5,
-    );
-    return (
-      firstDistance - secondDistance ||
-      first.row - second.row ||
-      first.column - second.column
-    );
-  });
-  const required = [...active];
-  const hasSouthHalo = originY + rows < width;
-  if (columns < width) {
-    const requiredRows = rows + Number(hasSouthHalo);
-    for (let row = 0; row < requiredRows; row += 1) {
-      required.push(addressAt(columns, row));
-    }
-  }
-  if (hasSouthHalo) {
-    for (let column = 0; column < columns; column += 1) {
-      required.push(addressAt(column, rows));
-    }
+  const origins: Array<{ x: number; y: number }> = [{ x: originX, y: originY }];
+  for (let ring = 1; ring < ringLevels; ring += 1) {
+    originX = Math.floor(originX / 2) - 2;
+    originY = Math.floor(originY / 2) - 2;
+    origins.push({ x: originX, y: originY });
   }
   return {
-    zoom: selectedZoom,
-    originX,
-    originY,
-    columns,
-    rows,
+    ringLevels,
+    origins,
+    underfootOrigin: {
+      x: Math.floor(finestPoint.x - 0.5),
+      y: Math.max(
+        0,
+        Math.min(finestWidth - 2, Math.floor(finestPoint.y - 0.5)),
+      ),
+    },
+  };
+}
+
+export function nativeTerrainPlanAnchorKey(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+  finestZoom: number,
+  requestedRingLevels = LOCAL_RING_LEVELS,
+): string {
+  if (finestZoom < 3) return `${finestZoom}:world`;
+  const layout = fixedRingLayout(
+    latitudeDegrees,
+    longitudeDegrees,
+    finestZoom,
+    requestedRingLevels,
+  );
+  return [
+    finestZoom,
+    layout.ringLevels,
+    layout.underfootOrigin.x,
+    layout.underfootOrigin.y,
+    ...layout.origins.flatMap((origin) => [origin.x, origin.y]),
+  ].join(":");
+}
+
+function fixedRingTiles(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+  finestZoom: number,
+  requestedRingLevels: number,
+): NativeTerrainTile[] {
+  if (finestZoom < 3) return allWorldTiles(finestZoom);
+
+  const { ringLevels, origins, underfootOrigin } = fixedRingLayout(
+    latitudeDegrees,
+    longitudeDegrees,
+    finestZoom,
+    requestedRingLevels,
+  );
+  const active: NativeTerrainTile[] = [];
+  for (let ring = 0; ring < ringLevels; ring += 1) {
+    const zoom = finestZoom - ring;
+    const origin = origins[ring]!;
+    for (let row = 0; row < LOCAL_RING_OUTER_TILES; row += 1) {
+      for (let column = 0; column < LOCAL_RING_OUTER_TILES; column += 1) {
+        if (
+          ring > 0 &&
+          row >= 2 &&
+          row < 2 + LOCAL_RING_HOLE_TILES &&
+          column >= 2 &&
+          column < 2 + LOCAL_RING_HOLE_TILES
+        ) {
+          continue;
+        }
+        const address = {
+          z: zoom,
+          x: wrapMercatorX(origin.x + column, zoom),
+          y: origin.y + row,
+        };
+        if (!isValidMercatorAddress(address)) continue;
+        active.push({
+          ...address,
+          ring,
+          priority: ring * LOCAL_RING_OUTER_TILES +
+            Math.hypot(column - 3.5, row - 3.5),
+          meshSegments:
+            ring === 0 &&
+              (address.x === wrapMercatorX(underfootOrigin.x, finestZoom) ||
+                address.x ===
+                  wrapMercatorX(underfootOrigin.x + 1, finestZoom)) &&
+              (address.y === underfootOrigin.y ||
+                address.y === underfootOrigin.y + 1)
+              ? LOCAL_UNDERFOOT_MESH_SEGMENTS
+              : meshSegmentsForRing(ring),
+          outerEdges: emptyEdgeMask(),
+          skirtEdges: emptyEdgeMask(),
+        });
+      }
+    }
+  }
+  return active;
+}
+
+export function selectNativeTerrainPlan(
+  options: NativeTerrainPlanOptions,
+): NativeTerrainPlan {
+  const baseZoom = selectNativeTerrainZoom(
+    options.latitudeDegrees,
+    options.displayRadiusM,
+    options.previousBaseZoom,
+  );
+  const finestZoom = Math.max(
+    LOCAL_TERRAIN_MIN_ZOOM,
+    Math.min(
+      LOCAL_TERRAIN_MAX_ZOOM,
+      baseZoom + Math.max(-3, Math.min(3, Math.round(options.lodBias ?? 0))),
+    ),
+  );
+  const active = fixedRingTiles(
+    options.latitudeDegrees,
+    options.longitudeDegrees,
+    finestZoom,
+    options.ringLevels ?? LOCAL_RING_LEVELS,
+  );
+  applyPlanEdgeMasks(active);
+  active.sort(
+    (first, second) =>
+      first.priority - second.priority ||
+      second.z - first.z ||
+      first.y - second.y ||
+      first.x - second.x,
+  );
+  const minZoom =
+    active.length > 0
+      ? Math.min(...active.map((tile) => tile.z))
+      : finestZoom;
+  const signature = active
+    .map(
+      (tile) =>
+        `${mercatorTileKey(tile)}@${tile.ring}:${tile.meshSegments}`,
+    )
+    .sort()
+    .join("|");
+  return {
     active,
-    required,
+    required: active,
+    baseZoom,
+    finestZoom,
+    minZoom,
+    maxZoom: finestZoom,
+    finestTileWidthM: renderedMercatorTileWidthM(
+      options.latitudeDegrees,
+      options.displayRadiusM,
+      finestZoom,
+    ),
+    signature,
   };
 }
 
@@ -489,690 +729,43 @@ export function buildHeightGrid513(
   return grid;
 }
 
-export function rtinErrorBucket(
-  displayRadiusM: number,
-  radialMultiplier: number,
-  outerRing = false,
-): number {
-  const targetSourceErrorM =
-    (TARGET_PROJECTED_VERTICAL_ERROR_M * EARTH_RADIUS_M) /
-    Math.max(0.001, displayRadiusM * Math.max(0.25, radialMultiplier));
-  let index = 0;
-  for (
-    let candidate = 0;
-    candidate < RTIN_ERROR_BUCKETS_M.length;
-    candidate += 1
-  ) {
-    if (RTIN_ERROR_BUCKETS_M[candidate]! <= targetSourceErrorM) {
-      index = candidate;
-    }
-  }
-  if (outerRing) {
-    index = Math.min(index + 1, RTIN_ERROR_BUCKETS_M.length - 1);
-  }
-  return RTIN_ERROR_BUCKETS_M[index]!;
-}
-
-export function localTerrainSourceSampleM(
-  latitudeDegrees: number,
-  zoom: number,
-): number {
-  const latitude = (clampMercatorLatitude(latitudeDegrees) * Math.PI) / 180;
-  return (
-    (Math.max(0, Math.cos(latitude)) * 2 * Math.PI * EARTH_RADIUS_M) /
-    (LOCAL_TILE_SIZE * 2 ** zoom)
-  );
-}
-
-function mercatorTileLatitudeBounds(address: MercatorTileAddress): {
-  north: number;
-  south: number;
-} {
-  return {
-    north: mercatorCoordinatesForTilePoint(address, 0, 0).latitudeDegrees,
-    south: mercatorCoordinatesForTilePoint(
-      address,
-      0,
-      LOCAL_TILE_SIZE,
-    ).latitudeDegrees,
-  };
-}
-
-function closestEquivalentLongitude(
-  longitudeDegrees: number,
-  westDegrees: number,
-  eastDegrees: number,
-): number {
-  let closest = westDegrees;
-  let closestDelta = Infinity;
-  for (const offset of [-360, 0, 360]) {
-    const equivalent = longitudeDegrees + offset;
-    const candidate = Math.max(westDegrees, Math.min(eastDegrees, equivalent));
-    const delta = Math.abs(equivalent - candidate);
-    if (delta < closestDelta) {
-      closest = candidate;
-      closestDelta = delta;
-    }
-  }
-  return closest;
-}
-
-function wrappedRadians(value: number): number {
-  return Math.atan2(Math.sin(value), Math.cos(value));
-}
-
-/**
- * Exact nearest angular distance from a point to a latitude/longitude tile on
- * a sphere. Web Mercator tile edges are parallels and meridians.
- */
-export function angularDistanceToMercatorTile(
-  latitudeDegrees: number,
-  longitudeDegrees: number,
-  address: MercatorTileAddress,
-): number {
-  const latitude = (clampMercatorLatitude(latitudeDegrees) * Math.PI) / 180;
-  const longitude = (wrapLongitude(longitudeDegrees) * Math.PI) / 180;
-  const { north, south } = mercatorTileLatitudeBounds(address);
-  const west = (address.x / 2 ** address.z) * 360 - 180;
-  const east = ((address.x + 1) / 2 ** address.z) * 360 - 180;
-  const southRadians = (south * Math.PI) / 180;
-  const northRadians = (north * Math.PI) / 180;
-  const westRadians = (west * Math.PI) / 180;
-  const eastRadians = (east * Math.PI) / 180;
-  const dotAt = (candidateLatitude: number, candidateLongitude: number) =>
-    Math.sin(latitude) * Math.sin(candidateLatitude) +
-    Math.cos(latitude) *
-      Math.cos(candidateLatitude) *
-      Math.cos(wrappedRadians(longitude - candidateLongitude));
-  let maximumDot = -1;
-
-  // The closest point on either parallel has the nearest in-range longitude.
-  const parallelLongitude =
-    (closestEquivalentLongitude(longitudeDegrees, west, east) * Math.PI) / 180;
-  maximumDot = Math.max(
-    maximumDot,
-    dotAt(southRadians, parallelLongitude),
-    dotAt(northRadians, parallelLongitude),
-  );
-
-  // On a meridian, atan2 gives the unconstrained latitude that maximises the
-  // spherical dot product; clamp it to the tile's north/south extent.
-  for (const meridian of [westRadians, eastRadians]) {
-    const delta = wrappedRadians(longitude - meridian);
-    const optimum = Math.atan2(
-      Math.sin(latitude),
-      Math.cos(latitude) * Math.cos(delta),
-    );
-    const candidateLatitude = Math.max(
-      southRadians,
-      Math.min(northRadians, optimum),
-    );
-    maximumDot = Math.max(
-      maximumDot,
-      dotAt(candidateLatitude, meridian),
-    );
-  }
-
-  const insideLatitude =
-    latitude >= southRadians && latitude <= northRadians;
-  const nearestLongitude = closestEquivalentLongitude(
-    longitudeDegrees,
-    west,
-    east,
-  );
-  if (
-    insideLatitude &&
-    Math.abs(nearestLongitude - longitudeDegrees) < 1e-9
-  ) {
-    return 0;
-  }
-  return Math.acos(Math.max(-1, Math.min(1, maximumDot)));
-}
-
-export function distanceFromEyeToMercatorTileWorldM(
-  latitudeDegrees: number,
-  longitudeDegrees: number,
-  address: MercatorTileAddress,
-  displayRadiusM: number,
-  eyeHeightWorldM: number,
-): number {
-  const radius = Math.max(0.001, displayRadiusM);
-  const eyeRadius = radius + Math.max(0.001, eyeHeightWorldM);
-  const angle = angularDistanceToMercatorTile(
-    latitudeDegrees,
-    longitudeDegrees,
-    address,
-  );
-  return Math.max(
-    0.001,
-    Math.sqrt(
-      eyeRadius * eyeRadius +
-        radius * radius -
-        2 * eyeRadius * radius * Math.cos(angle),
-    ),
-  );
-}
-
-export function samplePixelsForMercatorTile(
-  latitudeDegrees: number,
-  longitudeDegrees: number,
-  address: MercatorTileAddress,
-  displayRadiusM: number,
-  eyeHeightWorldM: number,
-  focalLengthPixels: number,
-): number {
-  const { north, south } = mercatorTileLatitudeBounds(address);
-  const sampleLatitude =
-    south <= 0 && north >= 0
-      ? 0
-      : Math.abs(south) < Math.abs(north)
-        ? south
-        : north;
-  const sampleWorldM =
-    localTerrainSourceSampleM(sampleLatitude, address.z) *
-    Math.max(0.001, displayRadiusM) /
-    EARTH_RADIUS_M;
-  const distanceWorldM = distanceFromEyeToMercatorTileWorldM(
-    latitudeDegrees,
-    longitudeDegrees,
-    address,
-    displayRadiusM,
-    eyeHeightWorldM,
-  );
-  return (
-    sampleWorldM *
-    Math.max(1, focalLengthPixels) /
-    Math.max(0.001, distanceWorldM)
-  );
-}
-
-export function screenSpacePlanningPoseMovementM(
-  previous: ScreenSpacePlanningPose,
-  current: ScreenSpacePlanningPose,
-  displayRadiusM: number,
-): number {
-  const previousLatitude =
-    (clampMercatorLatitude(previous.latitudeDegrees) * Math.PI) / 180;
-  const currentLatitude =
-    (clampMercatorLatitude(current.latitudeDegrees) * Math.PI) / 180;
-  const longitudeDelta =
-    ((wrapLongitude(current.longitudeDegrees - previous.longitudeDegrees) *
-      Math.PI) /
-      180);
-  const cosineAngle =
-    Math.sin(previousLatitude) * Math.sin(currentLatitude) +
-    Math.cos(previousLatitude) *
-      Math.cos(currentLatitude) *
-      Math.cos(longitudeDelta);
-  const surfaceDistanceM =
-    Math.max(0.001, displayRadiusM) *
-    Math.acos(Math.max(-1, Math.min(1, cosineAngle)));
-  return Math.hypot(
-    surfaceDistanceM,
-    current.eyeHeightWorldM - previous.eyeHeightWorldM,
-  );
-}
-
-function localTileWithScreenSpace(
-  options: ScreenSpaceTerrainPlanOptions,
-  address: MercatorTileAddress,
-): ScreenSpaceLocalTile {
-  const distanceWorldM = distanceFromEyeToMercatorTileWorldM(
-    options.latitudeDegrees,
-    options.longitudeDegrees,
-    address,
-    options.displayRadiusM,
-    options.eyeHeightWorldM,
-  );
-  return {
-    ...address,
-    column: address.x,
-    row: address.y,
-    distanceWorldM,
-    samplePixels: samplePixelsForMercatorTile(
-      options.latitudeDegrees,
-      options.longitudeDegrees,
-      address,
-      options.displayRadiusM,
-      options.eyeHeightWorldM,
-      options.focalLengthPixels,
-    ),
-  };
-}
-
-function parentAddress(
-  address: MercatorTileAddress,
-): MercatorTileAddress | undefined {
-  if (address.z <= LOCAL_TERRAIN_MIN_ZOOM) return undefined;
-  return {
-    z: address.z - 1,
-    x: Math.floor(address.x / 2),
-    y: Math.floor(address.y / 2),
-  };
-}
-
-function addressIsDescendantOf(
-  address: MercatorTileAddress,
-  ancestor: MercatorTileAddress,
-): boolean {
-  if (address.z <= ancestor.z) return false;
-  const shift = 2 ** (address.z - ancestor.z);
-  return (
-    Math.floor(address.x / shift) === ancestor.x &&
-    Math.floor(address.y / shift) === ancestor.y
-  );
-}
-
-function requiredHeightTilesForActive(
-  active: readonly ScreenSpaceLocalTile[],
-): MercatorTileAddress[] {
-  const required = new Map<string, MercatorTileAddress>();
-  for (const tile of active) {
-    const key = mercatorTileKey(tile);
-    if (!required.has(key)) required.set(key, tile);
-  }
-  return [...required.values()];
-}
-
-function collapseFarthestTilesToBudget(
-  options: ScreenSpaceTerrainPlanOptions,
-  selected: ScreenSpaceLocalTile[],
-  activeTileBudget: number,
-  heightTileBudget: number,
-): { active: ScreenSpaceLocalTile[]; budgetLimited: boolean } {
-  let active = selected;
-  let required = requiredHeightTilesForActive(active);
-  let budgetLimited = false;
-  while (
-    active.length > activeTileBudget ||
-    required.length > heightTileBudget
-  ) {
-    const groups = new Map<
-      string,
-      { parent: MercatorTileAddress; descendants: ScreenSpaceLocalTile[] }
-    >();
-    for (const tile of active) {
-      let parent = parentAddress(tile);
-      while (parent) {
-        const key = mercatorTileKey(parent);
-        const group = groups.get(key) ?? { parent, descendants: [] };
-        group.descendants.push(tile);
-        groups.set(key, group);
-        parent = parentAddress(parent);
-      }
-    }
-    const candidate = [...groups.values()]
-      .filter((group) => group.descendants.length > 1)
-      .sort((first, second) => {
-        const firstDistance = Math.min(
-          ...first.descendants.map((tile) => tile.distanceWorldM),
-        );
-        const secondDistance = Math.min(
-          ...second.descendants.map((tile) => tile.distanceWorldM),
-        );
-        return (
-          secondDistance - firstDistance ||
-          second.parent.z - first.parent.z
-        );
-      })[0];
-    if (!candidate) break;
-    active = active.filter(
-      (tile) => !addressIsDescendantOf(tile, candidate.parent),
-    );
-    active.push(localTileWithScreenSpace(options, candidate.parent));
-    required = requiredHeightTilesForActive(active);
-    budgetLimited = true;
-  }
-  return { active, budgetLimited };
-}
-
-/**
- * Builds mixed source-zoom onion layers from the current per-eye pixel scale.
- * Exact previous leaves and previously-refined parents supply source-LOD
- * hysteresis without turning a 9×9 region into an architectural constraint.
- */
-export function selectScreenSpaceTerrainPlan(
-  options: ScreenSpaceTerrainPlanOptions,
-): ScreenSpaceTerrainPlan {
-  const previousLeaves = options.previousActiveKeys ?? new Set<string>();
-  const previouslyRefined = new Set<string>();
-  for (const key of previousLeaves) {
-    const [zText, xText, yText] = key.split("/");
-    let address: MercatorTileAddress | undefined = {
-      z: Number(zText),
-      x: Number(xText),
-      y: Number(yText),
-    };
-    while ((address = parentAddress(address))) {
-      previouslyRefined.add(mercatorTileKey(address));
-    }
-  }
-  const biasScale = 2 ** -(options.lodBias ?? 0);
-  const targetPixels = SOURCE_SAMPLE_TARGET_PIXELS * biasScale;
-  const refinePixels = SOURCE_SAMPLE_REFINE_PIXELS * biasScale;
-  const coarsenPixels = SOURCE_SAMPLE_COARSEN_PIXELS * biasScale;
-  const horizonRadians = terrainHorizonRadians(
-    options.displayRadiusM,
-    options.eyeHeightWorldM,
-  );
-  const selected: ScreenSpaceLocalTile[] = [];
-  const visit = (address: MercatorTileAddress): void => {
-    if (
-      angularDistanceToMercatorTile(
-        options.latitudeDegrees,
-        options.longitudeDegrees,
-        address,
-      ) > horizonRadians + 1e-9
-    ) {
-      return;
-    }
-    const tile = localTileWithScreenSpace(options, address);
-    const key = mercatorTileKey(address);
-    const shouldRefine =
-      address.z < LOCAL_TERRAIN_MAX_ZOOM &&
-      (previousLeaves.has(key)
-        ? tile.samplePixels > refinePixels
-        : previouslyRefined.has(key)
-          ? tile.samplePixels >= coarsenPixels
-          : tile.samplePixels > targetPixels);
-    if (!shouldRefine) {
-      selected.push(tile);
-      return;
-    }
-    const childZ = address.z + 1;
-    const childX = address.x * 2;
-    const childY = address.y * 2;
-    visit({ z: childZ, x: childX, y: childY });
-    visit({ z: childZ, x: childX + 1, y: childY });
-    visit({ z: childZ, x: childX, y: childY + 1 });
-    visit({ z: childZ, x: childX + 1, y: childY + 1 });
-  };
-  visit({ z: 0, x: 0, y: 0 });
-
-  const activeTileBudget = Math.max(
+export function terrainEdgeInterpolation(
+  segments: number,
+  pixelAlongEdge: number,
+): { firstPixel: number; secondPixel: number; fraction: number } {
+  const selectedSegments = Math.max(
     1,
-    Math.floor(options.activeTileBudget ?? LOCAL_ACTIVE_TILE_BUDGET),
+    Math.min(LOCAL_TILE_SIZE, Math.round(segments)),
   );
-  const heightTileBudget = Math.max(
-    1,
-    Math.floor(options.heightTileBudget ?? LOCAL_HEIGHT_TILE_BUDGET),
+  if (LOCAL_TILE_SIZE % selectedSegments !== 0) {
+    throw new Error("The fixed terrain grid must divide the source tile.");
+  }
+  const step = LOCAL_TILE_SIZE / selectedSegments;
+  const clampedPixel = Math.max(
+    0,
+    Math.min(LOCAL_TILE_SIZE, pixelAlongEdge),
   );
-  const budgeted = collapseFarthestTilesToBudget(
-    options,
-    selected,
-    activeTileBudget,
-    heightTileBudget,
+  const firstPixel = Math.min(
+    LOCAL_TILE_SIZE - step,
+    Math.floor(clampedPixel / step) * step,
   );
-  const active = budgeted.active.sort(
-    (first, second) =>
-      first.distanceWorldM - second.distanceWorldM ||
-      second.z - first.z ||
-      first.y - second.y ||
-      first.x - second.x,
-  );
-  const zooms = active.map((tile) => tile.z);
+  const secondPixel = firstPixel + step;
   return {
-    active,
-    required: requiredHeightTilesForActive(active),
-    minZoom: zooms.length > 0 ? Math.min(...zooms) : LOCAL_TERRAIN_MIN_ZOOM,
-    maxZoom: zooms.length > 0 ? Math.max(...zooms) : LOCAL_TERRAIN_MIN_ZOOM,
-    budgetLimited: budgeted.budgetLimited,
+    firstPixel,
+    secondPixel,
+    fraction: (clampedPixel - firstPixel) / step,
   };
 }
 
-export function verticalErrorPixelsForTile(
-  errorMetres: number,
-  distanceWorldM: number,
-  displayRadiusM: number,
-  radialMultiplier: number,
-  focalLengthPixels: number,
-): number {
-  const errorWorldM =
-    Math.max(0, errorMetres) *
-    Math.max(0.001, displayRadiusM) *
-    Math.max(0.25, radialMultiplier) /
-    EARTH_RADIUS_M;
-  return (
-    errorWorldM *
-    Math.max(1, focalLengthPixels) /
-    Math.max(0.001, distanceWorldM)
-  );
-}
-
-export function screenSpaceRtinErrorBucket(
-  distanceWorldM: number,
-  displayRadiusM: number,
-  radialMultiplier: number,
-  focalLengthPixels: number,
-  lodBias = 0,
-  previousErrorM?: number,
-): number {
-  const buckets = [
-    ...RTIN_ERROR_BUCKETS_M,
-    ...RTIN_FALLBACK_ERROR_BUCKETS_M,
-  ];
-  const biasScale = 2 ** -lodBias;
-  const targetPixels = RTIN_TARGET_ERROR_PIXELS * biasScale;
-  const refinePixels = RTIN_REFINE_ERROR_PIXELS * biasScale;
-  const coarsenPixels = RTIN_COARSEN_ERROR_PIXELS * biasScale;
-  const errorPixels = (errorM: number) =>
-    verticalErrorPixelsForTile(
-      errorM,
-      distanceWorldM,
-      displayRadiusM,
-      radialMultiplier,
-      focalLengthPixels,
-    );
-  let ideal = buckets[0]!;
-  for (const bucket of buckets) {
-    if (errorPixels(bucket) <= targetPixels) ideal = bucket;
-  }
-  if (previousErrorM === undefined) return ideal;
-  const previousIndex = buckets.findIndex(
-    (bucket) => bucket === previousErrorM,
-  );
-  if (previousIndex < 0) return ideal;
-  const previousPixels = errorPixels(previousErrorM);
-  if (previousPixels > refinePixels) return Math.min(previousErrorM, ideal);
-  const nextCoarser = buckets[previousIndex + 1];
-  if (nextCoarser !== undefined && errorPixels(nextCoarser) < coarsenPixels) {
-    return Math.max(previousErrorM, ideal);
-  }
-  return previousErrorM;
-}
-
-function horizonLongitudeDeltaRadians(
-  centreLatitudeRadians: number,
-  angularRadiusRadians: number,
-  latitudeRadians: number,
-): number {
-  const denominator =
-    Math.cos(centreLatitudeRadians) * Math.cos(latitudeRadians);
-  if (Math.abs(denominator) < 1e-12) return Math.PI;
-  const cosineDelta =
-    (Math.cos(angularRadiusRadians) -
-      Math.sin(centreLatitudeRadians) * Math.sin(latitudeRadians)) /
-    denominator;
-  if (cosineDelta <= -1) return Math.PI;
-  if (cosineDelta >= 1) return 0;
-  return Math.acos(cosineDelta);
-}
-
-export function mercatorHorizonBounds(
-  latitudeDegrees: number,
-  longitudeDegrees: number,
-  displayRadiusM: number,
-  eyeHeightM = DEFAULT_EYE_HEIGHT_M,
-): MercatorHorizonBounds {
-  const maximumLatitudeRadians = (WEB_MERCATOR_MAX_LATITUDE * Math.PI) / 180;
-  const centreLatitudeRadians =
-    (clampMercatorLatitude(latitudeDegrees) * Math.PI) / 180;
-  const angularRadiusRadians = terrainHorizonRadians(
-    displayRadiusM,
-    eyeHeightM,
-  );
-  const northLatitudeRadians = Math.min(
-    maximumLatitudeRadians,
-    centreLatitudeRadians + angularRadiusRadians,
-  );
-  const southLatitudeRadians = Math.max(
-    -maximumLatitudeRadians,
-    centreLatitudeRadians - angularRadiusRadians,
-  );
-  const longitudeCandidates = [
-    southLatitudeRadians,
-    centreLatitudeRadians,
-    northLatitudeRadians,
-  ];
-  const criticalSine =
-    Math.sin(centreLatitudeRadians) /
-    Math.max(1e-12, Math.cos(angularRadiusRadians));
-  if (Math.abs(criticalSine) <= 1) {
-    const criticalLatitude = Math.asin(criticalSine);
-    if (
-      criticalLatitude >= southLatitudeRadians &&
-      criticalLatitude <= northLatitudeRadians
-    ) {
-      longitudeCandidates.push(criticalLatitude);
-    }
-  }
-  const longitudeDeltaRadians = Math.min(
-    Math.PI,
-    Math.max(
-      ...longitudeCandidates.map((latitude) =>
-        horizonLongitudeDeltaRadians(
-          centreLatitudeRadians,
-          angularRadiusRadians,
-          latitude,
-        ),
-      ),
-    ),
-  );
-  const centre = mercatorPointForCoordinates(
-    latitudeDegrees,
-    longitudeDegrees,
+export function meshSegmentsForRing(ring: number, lodBias = 0): number {
+  const index = Math.max(
     0,
-  );
-  const north = mercatorPointForCoordinates(
-    (northLatitudeRadians * 180) / Math.PI,
-    longitudeDegrees,
-    0,
-  );
-  const south = mercatorPointForCoordinates(
-    (southLatitudeRadians * 180) / Math.PI,
-    longitudeDegrees,
-    0,
-  );
-  const longitudeOffset = longitudeDeltaRadians / (2 * Math.PI);
-  return {
-    angularRadiusRadians,
-    centreX: centre.x,
-    centreY: centre.y,
-    westX: centre.x - longitudeOffset,
-    eastX: centre.x + longitudeOffset,
-    northY: north.y,
-    southY: south.y,
-  };
-}
-
-export function localTerrainHorizonCoverage(
-  window: MercatorTileWindow,
-  bounds: MercatorHorizonBounds,
-): MercatorHorizonCoverage {
-  const width = 2 ** window.zoom;
-  let westMarginTiles: number;
-  let eastMarginTiles: number;
-  if (window.columns === width) {
-    westMarginTiles = 0;
-    eastMarginTiles = 0;
-  } else {
-    let windowWest = window.originX / width;
-    while (windowWest > bounds.centreX) windowWest -= 1;
-    while (windowWest + window.columns / width < bounds.centreX) {
-      windowWest += 1;
-    }
-    const windowEast = windowWest + window.columns / width;
-    westMarginTiles = (bounds.westX - windowWest) * width;
-    eastMarginTiles = (windowEast - bounds.eastX) * width;
-  }
-  const windowNorth = window.originY / width;
-  const windowSouth = (window.originY + window.rows) / width;
-  const northMarginTiles = (bounds.northY - windowNorth) * width;
-  const southMarginTiles = (windowSouth - bounds.southY) * width;
-  const epsilon = 1e-9;
-  return {
-    covered:
-      westMarginTiles >= -epsilon &&
-      eastMarginTiles >= -epsilon &&
-      northMarginTiles >= -epsilon &&
-      southMarginTiles >= -epsilon,
-    westMarginTiles,
-    eastMarginTiles,
-    northMarginTiles,
-    southMarginTiles,
-  };
-}
-
-export function selectLocalTerrainZoom(
-  latitudeDegrees: number,
-  longitudeDegrees: number,
-  displayRadiusM: number,
-  eyeHeightM = DEFAULT_EYE_HEIGHT_M,
-): number {
-  const bounds = mercatorHorizonBounds(
-    latitudeDegrees,
-    longitudeDegrees,
-    displayRadiusM,
-    eyeHeightM,
-  );
-  for (
-    let zoom = LOCAL_TERRAIN_MAX_ZOOM;
-    zoom >= LOCAL_TERRAIN_MIN_ZOOM;
-    zoom -= 1
-  ) {
-    const window = selectLocalTileWindow(
-      latitudeDegrees,
-      longitudeDegrees,
-      zoom,
-    );
-    if (localTerrainHorizonCoverage(window, bounds).covered) {
-      return zoom;
-    }
-  }
-  return LOCAL_TERRAIN_MIN_ZOOM;
-}
-
-export function resolveLocalTerrainZoom(
-  calculatedZoom: number,
-  overrideZoom?: number,
-): number {
-  return Math.max(
-    LOCAL_TERRAIN_MIN_ZOOM,
     Math.min(
-      LOCAL_TERRAIN_MAX_ZOOM,
-      Math.round(overrideZoom ?? calculatedZoom),
+      LOCAL_RING_MESH_SEGMENTS.length - 1,
+      Math.round(ring) - Math.round(lodBias),
     ),
   );
-}
-
-export function localDetailEnabled(latitudeDegrees: number): boolean {
-  return Math.abs(latitudeDegrees) < WEB_MERCATOR_MAX_LATITUDE;
-}
-
-export function localDetailBlendWeight(
-  column: number,
-  row: number,
-  pixelX: number,
-  pixelY: number,
-): number {
-  const x = column + pixelX / LOCAL_TILE_SIZE;
-  const y = row + pixelY / LOCAL_TILE_SIZE;
-  const distance = Math.max(
-    0,
-    Math.min(x, y, LOCAL_WINDOW_SIZE - x, LOCAL_WINDOW_SIZE - y),
-  );
-  const fraction = Math.min(1, distance);
-  return fraction * fraction * (3 - 2 * fraction);
+  return LOCAL_RING_MESH_SEGMENTS[index]!;
 }
 
 function smoothstep01(value: number): number {
@@ -1206,22 +799,6 @@ export function localDetailEdgeFadeWeight(
   );
 }
 
-export function forceFullRtinBoundary(
-  errors: Float32Array,
-  gridSize = LOCAL_GRID_SIZE,
-): void {
-  if (errors.length !== gridSize * gridSize) {
-    throw new Error("The RTIN error grid has an unexpected size.");
-  }
-  const last = gridSize - 1;
-  for (let coordinate = 0; coordinate < gridSize; coordinate += 1) {
-    errors[coordinate] = Infinity;
-    errors[last * gridSize + coordinate] = Infinity;
-    errors[coordinate * gridSize] = Infinity;
-    errors[coordinate * gridSize + last] = Infinity;
-  }
-}
-
 export function resolveLocalElevation(
   globalHeightM: number,
   detailHeightM: number,
@@ -1235,6 +812,10 @@ export function resolveLocalElevation(
     globalHeightM +
     (resolvedDetailM - globalHeightM) * Math.max(0, Math.min(1, detailWeight))
   );
+}
+
+export function localDetailEnabled(latitudeDegrees: number): boolean {
+  return Math.abs(latitudeDegrees) < WEB_MERCATOR_MAX_LATITUDE;
 }
 
 export function lruEvictionKeys(
@@ -1294,10 +875,6 @@ export class LruCache<T> {
     return this.items.delete(key);
   }
 
-  entries(): Array<[string, T]> {
-    return [...this.items].map(([key, item]) => [key, item.value]);
-  }
-
   clear(): void {
     this.items.clear();
   }
@@ -1315,7 +892,10 @@ export class TileRequestQueue<T> {
       address: MercatorTileAddress,
       signal: AbortSignal,
     ) => Promise<T>,
-    private readonly onLoaded: (task: TileLoadTask, value: T) => void,
+    private readonly onLoaded: (
+      task: TileLoadTask,
+      value: T,
+    ) => void | Promise<void>,
     private readonly onFailed: (task: TileLoadTask, error: unknown) => void,
     readonly concurrency = MAX_CONCURRENT_HEIGHT_REQUESTS,
   ) {}
@@ -1367,8 +947,10 @@ export class TileRequestQueue<T> {
       const controller = new AbortController();
       this.active.set(key, { task, controller });
       void this.load(task.address, controller.signal)
-        .then((value) => {
-          if (!controller.signal.aborted) this.onLoaded(task, value);
+        .then(async (value) => {
+          if (!controller.signal.aborted) {
+            await this.onLoaded(task, value);
+          }
         })
         .catch((error: unknown) => {
           if (!controller.signal.aborted) this.onFailed(task, error);
@@ -1377,8 +959,6 @@ export class TileRequestQueue<T> {
           if (this.active.get(key)?.controller === controller) {
             this.active.delete(key);
           }
-          // An aborted request may have been re-added before its promise
-          // settled. Preserve that newer wanted entry so pump() can restart it.
           if (!controller.signal.aborted) this.wanted.delete(key);
           this.pump();
         });
