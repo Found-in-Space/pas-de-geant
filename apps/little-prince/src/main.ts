@@ -29,7 +29,9 @@ import {
   formatCoordinates,
   HAND_PANEL_SURFACE,
   HAND_PANEL_THEME,
+  type HandPanelDirection,
 } from "./hand-panel.js";
+import { directionOnHandPanel } from "./hand-panel-orientation.js";
 import {
   applyLogarithmicScale,
   applyRadialMultiplierRate,
@@ -169,13 +171,14 @@ const handPanelRuntime = createRuntime({
 const handPanelHostRoot = new THREE.Group();
 handPanelHostRoot.name = "hand-panel-host";
 scene.add(handPanelHostRoot);
+const HAND_PANEL_TILT_RADIANS = -Math.PI * 0.24;
 const handPanelDriver = createPoseAnchoredPanelDriver({
   runtime: handPanelRuntime,
   parent: handPanelHostRoot,
   surface: HAND_PANEL_SURFACE,
   panelWidth: 0.32,
   panelHeight: 0.18,
-  tiltRadians: -Math.PI * 0.24,
+  tiltRadians: HAND_PANEL_TILT_RADIANS,
   offset: { x: 0.04, y: 0.05, z: -0.03 },
   depthTest: false,
   depthWrite: false,
@@ -193,7 +196,7 @@ const handPanel = createThreePanelSession({
 handPanel.attach();
 let handPanelLocationSignature =
   `${initialCoordinates.latitudeDegrees.toFixed(2)}:` +
-  initialCoordinates.longitudeDegrees.toFixed(2);
+  `${initialCoordinates.longitudeDegrees.toFixed(2)}:north`;
 let handPanelLastRedrawMs = -Infinity;
 let handPanelRedrawCount = 1;
 document.body.dataset.handPanelRedrawCount = String(handPanelRedrawCount);
@@ -206,6 +209,7 @@ const desktopTravel = new THREE.Vector2();
 const keys = new Set<string>();
 const buttonLatch = freshButtonLatch();
 let handPanelVisible = true;
+let handPanelNorthDirection: HandPanelDirection = { x: 0, y: -1 };
 let pointerActive = false;
 let pointerX = 0;
 let pointerY = 0;
@@ -272,10 +276,6 @@ function updatePresentation(): void {
   radialReadout.textContent =
     `${state.radialMultiplier.toFixed(1)}× · ` +
     `1 km = ${formatRoomDistance(radialMetresPerKilometre)}`;
-  syncHandPanelLocation(
-    coordinates.latitudeDegrees,
-    coordinates.longitudeDegrees,
-  );
 }
 
 function formatRoomDistance(metres: number): string {
@@ -285,22 +285,26 @@ function formatRoomDistance(metres: number): string {
   return `${metres.toFixed(2)} m`;
 }
 
-function syncHandPanelLocation(
+function syncHandPanelState(
   latitudeDegrees: number,
   longitudeDegrees: number,
+  northDirection: HandPanelDirection,
+  nowMs: number,
 ): void {
   if (!renderer.xr.isPresenting || !handPanelVisible) return;
+  const northAngle = Math.atan2(northDirection.y, northDirection.x);
   const signature =
-    `${latitudeDegrees.toFixed(2)}:${longitudeDegrees.toFixed(2)}`;
+    `${latitudeDegrees.toFixed(2)}:${longitudeDegrees.toFixed(2)}:` +
+    northAngle.toFixed(2);
   if (signature === handPanelLocationSignature) return;
-  const nowMs = performance.now();
-  if (nowMs - handPanelLastRedrawMs < 100) return;
+  if (nowMs - handPanelLastRedrawMs < 50) return;
   handPanelLocationSignature = signature;
   handPanelLastRedrawMs = nowMs;
   handPanelRuntime.setRoot(
     createHandPanelRoot(
       { latitudeDegrees, longitudeDegrees },
       earthMapBitmap,
+      northDirection,
     ),
   );
   handPanelRedrawCount += 1;
@@ -310,6 +314,12 @@ function syncHandPanelLocation(
 
 const handPanelAnchorPosition = new THREE.Vector3();
 const handPanelAnchorQuaternion = new THREE.Quaternion();
+const handPanelWorldQuaternion = new THREE.Quaternion();
+const handPanelTiltQuaternion = new THREE.Quaternion().setFromAxisAngle(
+  new THREE.Vector3(1, 0, 0),
+  HAND_PANEL_TILT_RADIANS,
+);
+const geographicNorthWorld = new THREE.Vector3();
 const xrControllerBindings = [0, 1].map((index) => ({
   controller: renderer.xr.getController(index),
   grip: renderer.xr.getControllerGrip(index),
@@ -371,6 +381,37 @@ function updateHandPanel(nowMs: number): void {
     return;
   }
   handPanel.enabled = true;
+  handPanelWorldQuaternion
+    .set(
+      anchorPose.orientation.x,
+      anchorPose.orientation.y,
+      anchorPose.orientation.z,
+      anchorPose.orientation.w,
+    )
+    .multiply(handPanelTiltQuaternion);
+  // Project the Earth pole onto the local tangent plane. This is the
+  // geographic-north direction at the point currently underfoot.
+  geographicNorthWorld
+    .set(0, 1, 0)
+    .addScaledVector(state.contact.upEcef, -state.contact.upEcef.y);
+  if (geographicNorthWorld.lengthSq() < 1e-8) {
+    geographicNorthWorld.copy(state.contact.northEcef);
+  }
+  geographicNorthWorld
+    .normalize()
+    .applyQuaternion(planetRoot.quaternion);
+  handPanelNorthDirection =
+    directionOnHandPanel(
+      geographicNorthWorld,
+      handPanelWorldQuaternion,
+    ) ?? handPanelNorthDirection;
+  const coordinates = coordinatesForFrame(state.contact);
+  syncHandPanelState(
+    coordinates.latitudeDegrees,
+    coordinates.longitudeDegrees,
+    handPanelNorthDirection,
+    nowMs,
+  );
   handPanel.update({
     timestamp: nowMs,
     camera: renderer.xr.getCamera(),

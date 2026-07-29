@@ -45,10 +45,19 @@ export interface HandPanelLocation {
   longitudeDegrees: number;
 }
 
+export interface HandPanelDirection {
+  x: number;
+  y: number;
+}
+
 interface EarthLocationMapProps extends HandPanelLocation {
   map: BitmapHandle;
   height: number;
+  northDirection: HandPanelDirection;
 }
+
+const EARTH_MAP_ZOOM = 4;
+const EARTH_MAP_BORDER_WIDTH = 12;
 
 const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
   kind: "little-planet-earth-location-map",
@@ -61,14 +70,23 @@ const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
   render(ctx) {
     const theme = ctx.services.theme.getTokens();
     const mapRect = containAspectRatio(ctx.bounds, 2);
-    const marker = earthMapPoint(
+    const imageRects = earthMapImageRects(
       ctx.props.latitudeDegrees,
       ctx.props.longitudeDegrees,
       mapRect,
     );
+    const marker = {
+      x: mapRect.x + mapRect.width / 2,
+      y: mapRect.y + mapRect.height / 2,
+    };
+    const borderRect = insetRect(mapRect, EARTH_MAP_BORDER_WIDTH / 2);
+    const northPointer = compassBorderPoint(
+      ctx.props.northDirection,
+      borderRect,
+    );
     const labelRect: Rect = {
-      x: mapRect.x + 8,
-      y: mapRect.y + 8,
+      x: mapRect.x + EARTH_MAP_BORDER_WIDTH + 6,
+      y: mapRect.y + EARTH_MAP_BORDER_WIDTH + 6,
       width: 132,
       height: 28,
     };
@@ -83,14 +101,24 @@ const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
         strokeWidth: 1,
         radius: theme.radius,
       },
-      {
+      ...imageRects.map<DrawCommand>((rect) => ({
         type: "bitmap",
         componentId: ctx.id,
         role: "earth-map-image",
-        rect: mapRect,
+        clipRect: mapRect,
+        rect,
         handle: ctx.props.map,
         fit: "stretch",
         sampling: "linear",
+      })),
+      {
+        type: "rect",
+        componentId: ctx.id,
+        role: "earth-map-border",
+        rect: borderRect,
+        stroke: "#000000",
+        strokeWidth: EARTH_MAP_BORDER_WIDTH,
+        radius: 3,
       },
       {
         type: "rect",
@@ -138,6 +166,26 @@ const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
         stroke: theme.accentTextColor,
         strokeWidth: 1,
       },
+      {
+        type: "circle",
+        componentId: ctx.id,
+        role: "earth-map-north-pointer-halo",
+        cx: northPointer.x,
+        cy: northPointer.y,
+        radius: 10,
+        fill: "#000000",
+      },
+      {
+        type: "circle",
+        componentId: ctx.id,
+        role: "earth-map-north-pointer",
+        cx: northPointer.x,
+        cy: northPointer.y,
+        radius: 7,
+        fill: "#ff3b30",
+        stroke: "#5c0804",
+        strokeWidth: 2,
+      },
     ];
     return commands;
   },
@@ -149,6 +197,7 @@ const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
 export function createHandPanelRoot(
   location: HandPanelLocation,
   map: BitmapHandle,
+  northDirection: HandPanelDirection = { x: 0, y: -1 },
 ): DisplayNode<unknown> {
   return createColumn("little-planet-hand-panel", {
     padding: 8,
@@ -158,6 +207,7 @@ export function createHandPanelRoot(
       createNode("little-planet-earth-map", EarthLocationMapComponent, {
         ...location,
         map,
+        northDirection,
         height: 298,
       }),
       createValueReadout("little-planet-coordinates", {
@@ -169,6 +219,30 @@ export function createHandPanelRoot(
       }),
     ],
   });
+}
+
+export function earthMapImageRects(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+  rect: Rect,
+  zoom = EARTH_MAP_ZOOM,
+): Rect[] {
+  const latitude = Math.max(-90, Math.min(90, latitudeDegrees));
+  const longitude =
+    ((longitudeDegrees + 180) % 360 + 360) % 360 - 180;
+  const resolvedZoom = Math.max(1, zoom);
+  const width = rect.width * resolvedZoom;
+  const height = width / 2;
+  const centreX = rect.x + rect.width / 2;
+  const centreY = rect.y + rect.height / 2;
+  const x = centreX - (longitude + 180) / 360 * width;
+  const y = centreY - (90 - latitude) / 180 * height;
+  return [0, -1, 1].map((wrap) => ({
+    x: x + wrap * width,
+    y,
+    width,
+    height,
+  }));
 }
 
 export function earthMapPoint(
@@ -185,6 +259,33 @@ export function earthMapPoint(
   };
 }
 
+export function compassBorderPoint(
+  direction: HandPanelDirection,
+  rect: Rect,
+): { x: number; y: number } {
+  let x = Number.isFinite(direction.x) ? direction.x : 0;
+  let y = Number.isFinite(direction.y) ? direction.y : -1;
+  const length = Math.hypot(x, y);
+  if (length < 1e-8) {
+    x = 0;
+    y = -1;
+  } else {
+    x /= length;
+    y /= length;
+  }
+  const halfWidth = rect.width / 2;
+  const halfHeight = rect.height / 2;
+  const horizontalScale =
+    Math.abs(x) < 1e-8 ? Number.POSITIVE_INFINITY : halfWidth / Math.abs(x);
+  const verticalScale =
+    Math.abs(y) < 1e-8 ? Number.POSITIVE_INFINITY : halfHeight / Math.abs(y);
+  const scale = Math.min(horizontalScale, verticalScale);
+  return {
+    x: rect.x + halfWidth + x * scale,
+    y: rect.y + halfHeight + y * scale,
+  };
+}
+
 export function formatCoordinates(
   latitudeDegrees: number,
   longitudeDegrees: number,
@@ -195,6 +296,15 @@ export function formatCoordinates(
     `${Math.abs(longitudeDegrees).toFixed(2)}° ` +
     `${longitudeDegrees >= 0 ? "E" : "W"}`
   );
+}
+
+function insetRect(rect: Rect, inset: number): Rect {
+  return {
+    x: rect.x + inset,
+    y: rect.y + inset,
+    width: Math.max(0, rect.width - inset * 2),
+    height: Math.max(0, rect.height - inset * 2),
+  };
 }
 
 function containAspectRatio(rect: Rect, aspectRatio: number): Rect {
