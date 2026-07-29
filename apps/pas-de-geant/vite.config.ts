@@ -5,10 +5,10 @@ export default defineConfig(({ mode }) => {
   return {
     base: environment.PAS_DE_GEANT_BASE || "./",
     server: {
-      allowedHosts: ["pas-de-geant.dev.k-si.com"],
+      allowedHosts: ["geant.dev.k-si.com"],
     },
     preview: {
-      allowedHosts: ["pas-de-geant.dev.k-si.com"],
+      allowedHosts: ["geant.dev.k-si.com"],
     },
     build: {
       outDir: "../../dist/pas-de-geant",
