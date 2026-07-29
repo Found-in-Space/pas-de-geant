@@ -2,7 +2,6 @@ import { Vector2, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import {
   INITIAL_DISPLAY_RADIUS_M,
-  MAX_DISPLAY_RADIUS_M,
   MIN_DISPLAY_RADIUS_M,
   apexError,
   applyLogarithmicScale,
@@ -82,7 +81,11 @@ describe("Little Planet rolling contact frame", () => {
     );
     for (const radialMultiplier of [0, 1, 20]) {
       state.radialMultiplier = radialMultiplier;
-      for (const radius of [1, INITIAL_DISPLAY_RADIUS_M, MAX_DISPLAY_RADIUS_M]) {
+      for (const radius of [
+        1,
+        INITIAL_DISPLAY_RADIUS_M,
+        INITIAL_DISPLAY_RADIUS_M * 100,
+      ]) {
         state.displayRadiusM = radius;
         const headset = new Vector2(2.4, -1.1);
         const error = apexError(
@@ -97,11 +100,15 @@ describe("Little Planet rolling contact frame", () => {
 });
 
 describe("Little Planet scale controls", () => {
-  it("clamps world scale and retains the tactile initial-scale detent", () => {
+  it("keeps the lower scale bound without imposing an upper cap", () => {
     expect(applyLogarithmicScale(1, -1, 10)).toBe(MIN_DISPLAY_RADIUS_M);
+    const formerUpperLimit = INITIAL_DISPLAY_RADIUS_M * 5;
     expect(
-      applyLogarithmicScale(MAX_DISPLAY_RADIUS_M, 1, 10),
-    ).toBe(MAX_DISPLAY_RADIUS_M);
+      applyLogarithmicScale(formerUpperLimit, 1, 10),
+    ).toBeGreaterThan(formerUpperLimit);
+  });
+
+  it("retains the tactile initial-scale detent", () => {
     expect(
       applyLogarithmicScale(INITIAL_DISPLAY_RADIUS_M * 1.01, 0, 1),
     ).toBe(INITIAL_DISPLAY_RADIUS_M);

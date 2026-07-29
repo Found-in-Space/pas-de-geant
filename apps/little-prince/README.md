@@ -53,6 +53,8 @@ meridian. Reset returns to whichever starting location was resolved. Location
 discovery runs entirely in the browser and is not stored by the app.
 
 Planet scale uniformly converts geographic kilometres into room metres.
+It has a 1 m rendered-radius lower bound and no application-imposed upper
+bound.
 The separate radial multiplier applies after that conversion to terrain,
 aircraft altitude, bathymetry, and the 100 km atmosphere. The mean-sea-level
 WGS84 ellipsoid remains the floor contact even when radial features are

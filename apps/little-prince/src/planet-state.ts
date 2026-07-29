@@ -9,8 +9,6 @@ export const INITIAL_DISPLAY_RADIUS_M =
   (EARTH_MEAN_RADIUS_KM / SCALE_REFERENCE_DISTANCE_KM) *
   INITIAL_REFERENCE_DISTANCE_M;
 export const MIN_DISPLAY_RADIUS_M = 1;
-export const MAX_DISPLAY_RADIUS_M =
-  (EARTH_MEAN_RADIUS_KM / SCALE_REFERENCE_DISTANCE_KM) * 50;
 export const MIN_RADIAL_MULTIPLIER = 0;
 export const MAX_RADIAL_MULTIPLIER = 20;
 
@@ -253,10 +251,7 @@ export function applyLogarithmicScale(
   octavesPerSecond = 0.72,
 ): number {
   const next = radiusM * 2 ** (axis * octavesPerSecond * deltaSeconds);
-  const clamped = Math.max(
-    MIN_DISPLAY_RADIUS_M,
-    Math.min(MAX_DISPLAY_RADIUS_M, next),
-  );
+  const clamped = Math.max(MIN_DISPLAY_RADIUS_M, next);
   const detentDistance =
     Math.abs(Math.log2(clamped / INITIAL_DISPLAY_RADIUS_M));
   if (Math.abs(axis) < 0.12 && detentDistance < 0.035) {
