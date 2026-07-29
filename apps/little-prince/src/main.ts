@@ -35,13 +35,14 @@ import {
   applyRadialMultiplierRate,
   coordinatesForFrame,
   horizontalWorldMetresForKilometres,
-  iberiaWidthForDisplayRadius,
   initialPlanetState,
   radialWorldMetresForKilometres,
+  referenceDistanceForDisplayRadius,
   rollContactFrame,
   solvePlanetPose,
   type PlanetState,
 } from "./planet-state.js";
+import { resolveInitialLocation } from "../../shared/initial-location.js";
 import { loadReliefDataset } from "./relief.js";
 import { TerrainTileRenderer } from "./terrain-tiles.js";
 
@@ -64,6 +65,7 @@ const aircraftReadout = element<HTMLElement>("aircraft-readout");
 const oceanButton = element<HTMLButtonElement>("ocean-button");
 const resetButton = element<HTMLButtonElement>("reset-button");
 const aircraftToggle = element<HTMLInputElement>("aircraft-toggle");
+const initialLocationPromise = resolveInitialLocation();
 
 let renderer: THREE.WebGLRenderer;
 try {
@@ -145,7 +147,12 @@ planetRoot.add(aircraftLayer.group);
 const atmosphere = new AtmosphereLayer();
 planetRoot.add(atmosphere.mesh);
 
-let state = initialPlanetState();
+const initialLocation = await initialLocationPromise;
+document.body.dataset.locationSource = initialLocation.source;
+let state = initialPlanetState(
+  initialLocation.latitudeDegrees,
+  initialLocation.longitudeDegrees,
+);
 const initialCoordinates = coordinatesForFrame(state.contact);
 const earthMapBitmap: BitmapHandle = {
   kind: "bitmap",
@@ -211,7 +218,10 @@ let aircraftPollTimer: number | undefined;
 let aircraftRequest: AbortController | undefined;
 
 function resetPlanet(): void {
-  state = initialPlanetState();
+  state = initialPlanetState(
+    initialLocation.latitudeDegrees,
+    initialLocation.longitudeDegrees,
+  );
   previousXrHead = null;
   updatePresentation();
 }
@@ -244,7 +254,8 @@ function updatePresentation(): void {
     coordinates.latitudeDegrees,
     coordinates.longitudeDegrees,
   );
-  const iberiaWidth = iberiaWidthForDisplayRadius(state.displayRadiusM);
+  const referenceDistance =
+    referenceDistanceForDisplayRadius(state.displayRadiusM);
   const horizontalMetresPerKilometre =
     horizontalWorldMetresForKilometres(1, state.displayRadiusM);
   const radialMetresPerKilometre =
@@ -254,9 +265,9 @@ function updatePresentation(): void {
       state.radialMultiplier,
     );
   scaleReadout.textContent =
-    `${iberiaWidth < 1
-      ? `Iberia ≈ ${Math.round(iberiaWidth * 100)} cm`
-      : `Iberia ≈ ${iberiaWidth.toFixed(1)} m`} · ` +
+    `${referenceDistance < 1
+      ? `1,000 km ≈ ${Math.round(referenceDistance * 100)} cm`
+      : `1,000 km ≈ ${referenceDistance.toFixed(1)} m`} · ` +
     `1 km = ${formatRoomDistance(horizontalMetresPerKilometre)}`;
   radialReadout.textContent =
     `${state.radialMultiplier.toFixed(1)}× · ` +

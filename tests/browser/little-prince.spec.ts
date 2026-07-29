@@ -116,8 +116,8 @@ test("loads and operates the Little Planet desktop fallback", async ({
           {
             hex: "484abc",
             flight: "KLM123",
-            lat: 40.1,
-            lon: -3.9,
+            lat: 35.7,
+            lon: 139.7,
             alt_baro: 32_000,
             gs: 430,
             track: 91,
@@ -135,7 +135,12 @@ test("loads and operates the Little Planet desktop fallback", async ({
     "data-relief-fallback",
     "false",
   );
-  await expect(page.locator("#coordinates")).toContainText("40.00° N");
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-location-source",
+    "device",
+  );
+  await expect(page.locator("#coordinates")).toContainText("35.68° N");
+  await expect(page.locator("#coordinates")).toContainText("139.65° E");
   await expect(page.locator("#scale-readout")).toContainText("10.0 m");
   await expect(page.locator("#scale-readout")).toContainText(
     "1 km = 1.0 cm",
@@ -245,7 +250,9 @@ test("loads and operates the Little Planet desktop fallback", async ({
   await page.keyboard.up("KeyV");
   await expect(page.locator("#radial-readout")).not.toContainText("1.0×");
 
-  await page.getByRole("button", { name: "Reset Iberia" }).click();
+  await page.getByRole("button", { name: "Reset view" }).click();
+  await expect(page.locator("#coordinates")).toContainText("35.68° N");
+  await expect(page.locator("#coordinates")).toContainText("139.65° E");
   await expect(page.locator("#scale-readout")).toContainText("10.0 m");
   await expect(page.locator("#radial-readout")).toContainText("1.0×");
   await expect(page.locator("#ocean-readout")).toHaveText("Surface");
@@ -507,12 +514,12 @@ test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
   test.setTimeout(60_000);
   const terrainImage = flatTerrariumPng();
   const missingTiles = new Set([
-    "5/13/10",
-    "5/14/10",
-    "5/13/11",
-    "5/14/11",
-    "5/13/13",
-    "5/13/15",
+    "5/26/10",
+    "5/27/10",
+    "5/26/11",
+    "5/27/11",
+    "5/26/13",
+    "5/26/15",
   ]);
   const localImageryUrls: string[] = [];
   await page.route("https://tiles.mapterhorn.com/**", async (route) => {

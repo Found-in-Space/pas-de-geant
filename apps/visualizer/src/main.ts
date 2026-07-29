@@ -16,11 +16,16 @@ import {
   ECLIPSE_LAYER_KEYS,
   type EclipseLayerKey,
   type EclipseLayerVisibility,
+  type MapView,
 } from "./renderer.js";
 import {
   EclipseWorkerClient,
   type PageDirection,
 } from "./worker-client.js";
+import {
+  resolveInitialLocation,
+  type InitialLocationSource,
+} from "../../shared/initial-location.js";
 
 const PAGE_SIZE = 5;
 const MATCHING_ECLIPSE_WINDOW_MS = 36 * 60 * 60 * 1000;
@@ -92,6 +97,12 @@ let locationVersion = 0;
 const eventsById = new Map<string, EclipseSummary>();
 const yearCache = new Map<number, Promise<EclipseSummary[]>>();
 
+interface InitialMapView {
+  view: MapView;
+  source: InitialLocationSource | "url";
+  fitSelectedEvent: boolean;
+}
+
 function timelineState(heading: string): TimelineState {
   return {
     items: [],
@@ -108,13 +119,15 @@ function timelineState(heading: string): TimelineState {
 const dateTimeline = timelineState("Upcoming solar eclipses");
 const placeTimeline = timelineState("Visible eclipses at a selected place");
 
+const initialMapView = await readMapView();
+document.body.dataset.locationSource = initialMapView.source;
 const map = new EclipseMapWorkspace(
   {
     mercator: element("mercator-map"),
     globe: element("globe-map"),
     world: element("world-map"),
   },
-  readMapView(),
+  initialMapView.view,
 );
 map.onLocation = (observer) => {
   setSelectedObserver(observer);
@@ -640,7 +653,10 @@ function setSelectedObserver(observer: Observer): void {
   }
 }
 
-async function selectEvent(event: EclipseSummary): Promise<void> {
+async function selectEvent(
+  event: EclipseSummary,
+  fitEvent = true,
+): Promise<void> {
   const version = ++selectionVersion;
   locationVersion += 1;
   selectedEvent = event;
@@ -671,7 +687,7 @@ async function selectEvent(event: EclipseSummary): Promise<void> {
     if (scene.centralPath) {
       map.showPath(scene);
       map.showGlobalVisibility(scene);
-      map.fitPath();
+      if (fitEvent) map.fitPath();
       fitButton.disabled = false;
       geoJsonButton.disabled = false;
       kmlButton.disabled = false;
@@ -679,7 +695,7 @@ async function selectEvent(event: EclipseSummary): Promise<void> {
       renderSummary(scene.event);
     } else {
       map.showGlobalVisibility(scene);
-      map.fitGlobalVisibility();
+      if (fitEvent) map.fitGlobalVisibility();
       geoJsonButton.disabled = false;
       kmlButton.disabled = false;
       calculationStatus.textContent = `Partial-eclipse visibility calculated from ${dateLabel(scene.contacts[0]!.utc)} to ${dateLabel(scene.contacts.at(-1)!.utc)}; no central track exists.`;
@@ -713,21 +729,62 @@ function escapeHtml(value: string): string {
   return node.innerHTML;
 }
 
-function readMapView(): {
-  latitude: number;
-  longitude: number;
-  zoom: number;
-} {
+function mapViewFromUrl(): InitialMapView | undefined {
   const match = location.hash.match(
     /^#map=([0-9.]+)\/(-?[0-9.]+)\/(-?[0-9.]+)$/,
   );
-  return match
-    ? {
-        zoom: Number(match[1]),
-        latitude: Number(match[2]),
-        longitude: Number(match[3]),
-      }
-    : { latitude: 28, longitude: -12, zoom: 2 };
+  if (match) {
+    const view = {
+      zoom: Number(match[1]),
+      latitude: Number(match[2]),
+      longitude: Number(match[3]),
+    };
+    if (
+      Number.isFinite(view.zoom) &&
+      Number.isFinite(view.latitude) &&
+      Number.isFinite(view.longitude) &&
+      view.latitude >= -90 &&
+      view.latitude <= 90
+    ) {
+      return { view, source: "url", fitSelectedEvent: false };
+    }
+  }
+
+  const params = new URLSearchParams(location.search);
+  const latitude = Number(params.get("lat"));
+  const longitude = Number(params.get("lon"));
+  if (
+    params.has("lat") &&
+    params.has("lon") &&
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  ) {
+    return {
+      view: { latitude, longitude, zoom: 5 },
+      source: "url",
+      fitSelectedEvent: false,
+    };
+  }
+  return undefined;
+}
+
+async function readMapView(): Promise<InitialMapView> {
+  const requestedView = mapViewFromUrl();
+  if (requestedView) return requestedView;
+  const detected = await resolveInitialLocation();
+  return {
+    view: {
+      latitude: detected.latitudeDegrees,
+      longitude: detected.longitudeDegrees,
+      zoom: detected.source === "fallback" ? 2 : 5,
+    },
+    source: detected.source,
+    fitSelectedEvent: detected.source === "fallback",
+  };
 }
 
 function writeUrlState(): void {
@@ -895,7 +952,7 @@ async function start(): Promise<void> {
       nowUtc.slice(0, 10);
     aroundInput.value = aroundDate;
     renderTimeline();
-    await selectEvent(selectedEvent);
+    await selectEvent(selectedEvent, initialMapView.fitSelectedEvent);
     if (locatorMode === "place" && selectedObserver) {
       await resetPlaceTimeline();
     }

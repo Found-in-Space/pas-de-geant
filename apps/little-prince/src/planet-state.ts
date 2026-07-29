@@ -3,14 +3,14 @@ import { Matrix4, Quaternion, Vector2, Vector3 } from "three";
 export const EARTH_MEAN_RADIUS_KM = 6371.0088;
 export const WGS84_A_KM = 6378.137;
 export const WGS84_B_KM = 6356.752314245;
-export const IBERIA_REFERENCE_WIDTH_KM = 1000;
-export const INITIAL_IBERIA_WIDTH_M = 10;
+export const SCALE_REFERENCE_DISTANCE_KM = 1000;
+export const INITIAL_REFERENCE_DISTANCE_M = 10;
 export const INITIAL_DISPLAY_RADIUS_M =
-  (EARTH_MEAN_RADIUS_KM / IBERIA_REFERENCE_WIDTH_KM) *
-  INITIAL_IBERIA_WIDTH_M;
+  (EARTH_MEAN_RADIUS_KM / SCALE_REFERENCE_DISTANCE_KM) *
+  INITIAL_REFERENCE_DISTANCE_M;
 export const MIN_DISPLAY_RADIUS_M = 1;
 export const MAX_DISPLAY_RADIUS_M =
-  (EARTH_MEAN_RADIUS_KM / IBERIA_REFERENCE_WIDTH_KM) * 50;
+  (EARTH_MEAN_RADIUS_KM / SCALE_REFERENCE_DISTANCE_KM) * 50;
 export const MIN_RADIAL_MULTIPLIER = 0;
 export const MAX_RADIAL_MULTIPLIER = 20;
 
@@ -66,9 +66,12 @@ export function contactFrame(
   };
 }
 
-export function initialPlanetState(): PlanetState {
+export function initialPlanetState(
+  latitudeDegrees = 0,
+  longitudeDegrees = 0,
+): PlanetState {
   return {
-    contact: contactFrame(40, -4),
+    contact: contactFrame(latitudeDegrees, longitudeDegrees),
     displayRadiusM: INITIAL_DISPLAY_RADIUS_M,
     radialMultiplier: 1,
     oceanMode: "surface",
@@ -188,12 +191,18 @@ export function solvePlanetPose(
   };
 }
 
-export function displayRadiusForIberiaWidth(widthM: number): number {
-  return (EARTH_MEAN_RADIUS_KM / IBERIA_REFERENCE_WIDTH_KM) * widthM;
+export function displayRadiusForReferenceDistance(
+  distanceM: number,
+): number {
+  return EARTH_MEAN_RADIUS_KM /
+    SCALE_REFERENCE_DISTANCE_KM *
+    distanceM;
 }
 
-export function iberiaWidthForDisplayRadius(radiusM: number): number {
-  return radiusM * IBERIA_REFERENCE_WIDTH_KM / EARTH_MEAN_RADIUS_KM;
+export function referenceDistanceForDisplayRadius(radiusM: number): number {
+  return radiusM *
+    SCALE_REFERENCE_DISTANCE_KM /
+    EARTH_MEAN_RADIUS_KM;
 }
 
 /** Room metres occupied by one real kilometre along the sea-level ellipsoid. */

@@ -171,7 +171,9 @@ describe("Little Planet SkyKit celestial sphere", () => {
 
   it("advances alignment on the live clock at a bounded update cadence", () => {
     const sphere = new CelestialSphere(async () => []);
-    const earthToWorld = earthToWorldQuaternion(contactFrame(40, -4));
+    const earthToWorld = earthToWorldQuaternion(
+      contactFrame(-33.8688, 151.2093),
+    );
     const cameraPosition = new THREE.Vector3();
     const startMs = new Date("2026-08-12T17:45:46.794Z").getTime();
 

@@ -104,6 +104,11 @@ click in any panel selects one observer, updates every marker, and starts one
 local-circumstances calculation. Layer visibility is shared, but the two
 interactive cameras remain independent.
 
+Without a shared map position in the URL, the planning view starts at the
+browser's device location. If device access is unavailable or denied, it uses
+an approximate GeoJS IP location, then a neutral whole-world fallback if the
+network lookup also fails. Explicit URL coordinates always take precedence.
+
 MapLibre's globe is an Earth-surface renderer. Its projection-aware custom
 WebGL layers provide a future route to nearby 3D effects, but a correctly scaled
 Sun–Moon–Earth or XR scene will remain a separate astronomical Three.js

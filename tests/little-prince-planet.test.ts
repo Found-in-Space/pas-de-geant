@@ -20,16 +20,16 @@ import {
 } from "../apps/little-prince/src/planet-state.js";
 
 describe("Little Planet rolling contact frame", () => {
-  it("starts at central Iberia with an orthonormal frame", () => {
-    const state = initialPlanetState();
+  it("starts at the supplied global location with an orthonormal frame", () => {
+    const state = initialPlanetState(-33.8688, 151.2093);
     const coordinates = coordinatesForFrame(state.contact);
-    expect(coordinates.latitudeDegrees).toBeCloseTo(40, 12);
-    expect(coordinates.longitudeDegrees).toBeCloseTo(-4, 12);
+    expect(coordinates.latitudeDegrees).toBeCloseTo(-33.8688, 12);
+    expect(coordinates.longitudeDegrees).toBeCloseTo(151.2093, 12);
     expect(frameIsOrthonormal(state.contact)).toBe(true);
   });
 
   it("maps the right-handed contact frame onto the room axes", () => {
-    const frame = contactFrame(40, -4);
+    const frame = contactFrame(35.6762, 139.6503);
     const earthToWorld = earthToWorldQuaternion(frame);
     expect(
       frame.upEcef
@@ -97,7 +97,7 @@ describe("Little Planet rolling contact frame", () => {
 });
 
 describe("Little Planet scale controls", () => {
-  it("clamps world scale and retains the tactile Iberia detent", () => {
+  it("clamps world scale and retains the tactile initial-scale detent", () => {
     expect(applyLogarithmicScale(1, -1, 10)).toBe(MIN_DISPLAY_RADIUS_M);
     expect(
       applyLogarithmicScale(MAX_DISPLAY_RADIUS_M, 1, 10),

@@ -81,6 +81,11 @@ test("initializes three coordinated projection panels", async ({ page }) => {
     "data-projection",
     "globe",
   );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-location-source",
+    "device",
+  );
+  await expect(page).toHaveURL(/#map=5\/35\.6762\/139\.6503/);
 });
 
 test("lets every map fill its projection panel edge to edge", async ({
@@ -141,6 +146,9 @@ test("keeps polar Web Mercator fits inside the projected world", async ({
   await expect(
     page.getByText("track calculated from", { exact: false }),
   ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Fit complete track" })
+    .click();
 
   const mapBox = await page.locator("#mercator-map").boundingBox();
   const match = new URL(page.url()).hash.match(
@@ -496,7 +504,9 @@ test("uses the maps as the place picker while keeping date discovery active", as
 });
 
 test("calculates shadows by clicking an eclipse overlay", async ({ page }) => {
-  await page.goto("/?eclipse=solar-2026-08-12-total");
+  await page.goto(
+    "/?eclipse=solar-2026-08-12-total#map=4/64.0000/-25.0000",
+  );
   await expect(
     page.getByText("track calculated from", { exact: false }),
   ).toBeVisible();

@@ -56,8 +56,8 @@ describe("Little Planet Airplanes.live feed", () => {
   });
 
   it("builds bounded point-query URLs", () => {
-    expect(airplanesLiveUrl(40, -4)).toBe(
-      "https://api.airplanes.live/v2/point/40.0000/-4.0000/250",
+    expect(airplanesLiveUrl(-33.8688, 151.2093)).toBe(
+      "https://api.airplanes.live/v2/point/-33.8688/151.2093/250",
     );
     expect(airplanesLiveUrl(100, 540, 999)).toBe(
       "https://api.airplanes.live/v2/point/90.0000/-180.0000/250",
@@ -71,8 +71,8 @@ describe("Little Planet Airplanes.live feed", () => {
           {
             hex: "484abc",
             flight: " KLM123 ",
-            lat: 40.1,
-            lon: -3.9,
+            lat: -33.86,
+            lon: 151.2,
             alt_baro: 32_000,
             alt_geom: 33_000,
             gs: 430,
@@ -82,8 +82,8 @@ describe("Little Planet Airplanes.live feed", () => {
           },
           {
             hex: "ground1",
-            lat: 40,
-            lon: -4,
+            lat: -33.87,
+            lon: 151.21,
             alt_baro: "ground",
           },
           { hex: "nopos", alt_baro: 10_000 },
@@ -96,8 +96,8 @@ describe("Little Planet Airplanes.live feed", () => {
       {
         id: "484ABC",
         callsign: "KLM123",
-        latitudeDegrees: 40.1,
-        longitudeDegrees: -3.9,
+        latitudeDegrees: -33.86,
+        longitudeDegrees: 151.2,
         altitudeFt: 32_000,
         groundSpeedKt: 430,
         trackDegrees: 91,

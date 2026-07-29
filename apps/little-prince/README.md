@@ -33,7 +33,7 @@ build should be served over HTTPS.
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: radial multiplier
 - A: toggle sea surface / bathymetry
-- Hold B: reset to 40° N, 4° W and the 10 m Iberia scale
+- Hold B: reset to the detected starting location and initial scale
 - Right-stick press: toggle the left-hand Earth map panel
 
 The hand panel uses touch-os and the bundled NASA Blue Marble image to show the
@@ -45,6 +45,12 @@ does not traverse or invalidate the terrain scene.
 The camera and XR reference space are never moved to simulate travel. The
 planet root is rolled and translated so the selected mean-sea-level contact
 point remains beneath the headset.
+
+At startup, the app asks the browser for the device location. If that is
+unavailable or denied, it uses an approximate IP location from GeoJS; if both
+methods fail, it falls back to the intersection of the equator and prime
+meridian. Reset returns to whichever starting location was resolved. Location
+discovery runs entirely in the browser and is not stored by the app.
 
 Planet scale uniformly converts geographic kilometres into room metres.
 The separate radial multiplier applies after that conversion to terrain,
@@ -67,7 +73,8 @@ Around the current contact point, the renderer asynchronously requests a
 zoom 3–12 by first calculating the eye-and-relief tangent horizon. It chooses
 the finest level whose 5×5 footprint reaches beyond that horizon even when the
 contact point lies at the edge of the centre tile, capped by a 0.4 mm room-scale
-sample target. The initial 40° N scale selects zoom 5, giving roughly 1.9 km
+sample target. At typical mid-latitudes, the initial scale selects zoom 5,
+giving roughly 1.9 km
 source samples across a patch about 4,800 km wide, enough to cover the roughly
 3,500 km modeled horizon. Resolution changes retain 20% refinement hysteresis.
 The checked-in GEBCO terrain remains the continuous globe beyond that patch.

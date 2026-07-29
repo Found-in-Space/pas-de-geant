@@ -62,7 +62,7 @@ describe("Little Planet local Mercator terrain", () => {
   });
 
   it("selects 25 active tiles and only the required east/south halo", () => {
-    const window = selectLocalTileWindow(40, -4, 5);
+    const window = selectLocalTileWindow(40, -104, 5);
     const activeKeys = new Set(window.active.map(mercatorTileKey));
     const requiredKeys = new Set(window.required.map(mercatorTileKey));
     expect(window.zoom).toBe(5);
@@ -470,7 +470,7 @@ describe("Little Planet local terrain scheduling", () => {
 
   it("never exceeds the active 5 × 5 mesh-address ceiling", () => {
     for (const [latitude, longitude] of [
-      [40, -4],
+      [40, -104],
       [0, 179.99],
       [-70, -179.99],
     ] satisfies Array<[number, number]>) {

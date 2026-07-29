@@ -103,7 +103,7 @@ describe("Little Planet terrain selection", () => {
 
   it("keeps Quest-scale tile counts bounded while refining the apex", () => {
     for (const radius of [1, 63.71, 318.55]) {
-      const tiles = selectTerrainTiles(40, -4, radius);
+      const tiles = selectTerrainTiles(40, -104, radius);
       expect(tiles.length).toBeGreaterThan(2);
       expect(tiles.length, `radius ${radius}`).toBeLessThan(180);
       expect(Math.max(...tiles.map((tile) => tile.z))).toBeGreaterThanOrEqual(
@@ -143,10 +143,12 @@ describe("Little Planet terrain selection", () => {
     ).toBeGreaterThan(
       terrainBoundingExpansion(10_444, radius, 1),
     );
-    expect(selectTerrainTiles(40, -4, radius, 20).length).toBeGreaterThanOrEqual(
-      selectTerrainTiles(40, -4, radius, 1).length,
+    expect(
+      selectTerrainTiles(40, -104, radius, 20).length,
+    ).toBeGreaterThanOrEqual(
+      selectTerrainTiles(40, -104, radius, 1).length,
     );
-    expect(selectTerrainTiles(40, -4, 318.55, 20).length).toBeLessThan(400);
+    expect(selectTerrainTiles(40, -104, 318.55, 20).length).toBeLessThan(400);
   });
 });
 

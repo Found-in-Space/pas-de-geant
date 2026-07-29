@@ -23,7 +23,7 @@ describe("Little Planet hand panel", () => {
   it("renders the whole-Earth map, underfoot marker, and coordinates", () => {
     const runtime = createRuntime({
       root: createHandPanelRoot(
-        { latitudeDegrees: 40, longitudeDegrees: -4 },
+        { latitudeDegrees: -33.87, longitudeDegrees: 151.21 },
         map,
       ),
       surface: HAND_PANEL_SURFACE,
@@ -38,12 +38,12 @@ describe("Little Planet hand panel", () => {
       "value-readout-value",
       "text",
     );
-    const expected = earthMapPoint(40, -4, image.rect);
+    const expected = earthMapPoint(-33.87, 151.21, image.rect);
 
     expect(image.handle).toBe(map);
     expect(marker.cx).toBeCloseTo(expected.x);
     expect(marker.cy).toBeCloseTo(expected.y);
-    expect(coordinates.text).toBe("40.00° N · 4.00° W");
+    expect(coordinates.text).toBe("33.87° S · 151.21° E");
 
     runtime.dispose();
   });
