@@ -645,6 +645,19 @@ export function selectLocalTerrainZoom(
   return LOCAL_TERRAIN_MIN_ZOOM;
 }
 
+export function resolveLocalTerrainZoom(
+  calculatedZoom: number,
+  overrideZoom?: number,
+): number {
+  return Math.max(
+    LOCAL_TERRAIN_MIN_ZOOM,
+    Math.min(
+      LOCAL_TERRAIN_MAX_ZOOM,
+      Math.round(overrideZoom ?? calculatedZoom),
+    ),
+  );
+}
+
 export function localDetailEnabled(latitudeDegrees: number): boolean {
   return Math.abs(latitudeDegrees) < WEB_MERCATOR_MAX_LATITUDE;
 }

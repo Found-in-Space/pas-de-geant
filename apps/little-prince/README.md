@@ -30,6 +30,7 @@ build should be served over HTTPS.
 
 - Left stick: head-relative travel
 - Left trigger: faster travel
+- X / Y: override the local topography source one zoom level coarser / finer
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: radial multiplier
 - A: toggle sea surface / bathymetry
@@ -38,9 +39,13 @@ build should be served over HTTPS.
 
 The hand panel uses touch-os and the bundled NASA Blue Marble image to show the
 current underfoot position on a whole-Earth map. It remains available offline;
-the latitude and longitude appear directly beneath the map. Its map readout is
-limited to 10 updates per second and hosted under an isolated scene node so it
-does not traverse or invalidate the terrain scene.
+the latitude and longitude appear directly beneath the map, followed by the
+planet-root global scale factor, radial multiplier, and selected topography
+zoom. The terrain readout says `AUTO` while the horizon calculation controls
+the source. Pressing X or Y changes to an absolute manual zoom and also shows
+the calculated zoom for comparison; hold B to reset the planet and return to
+automatic selection. Its map readout is throttled and hosted under an isolated
+scene node so it does not traverse or invalidate the terrain scene.
 
 The camera and XR reference space are never moved to simulate travel. The
 planet root is rolled and translated so the selected mean-sea-level contact
@@ -109,7 +114,8 @@ calculated independently from planet scale and radial multiplier, so cached
 height data is retained while RTIN meshes rebuild into finer buckets even when
 the source-tile zoom does not cross a boundary. Runtime body-data diagnostics
 report horizon angle and source distance, selected zoom, actual window coverage,
-requested and actual RTIN error, and imagery level. A depth-only shell below
+calculated zoom, any manual zoom override, requested and actual RTIN error, and
+imagery level. A depth-only shell below
 the deepest exaggerated seabed prevents distant terrain and ocean faces from
 showing through transient seams.
 

@@ -50,14 +50,33 @@ export interface HandPanelDirection {
   y: number;
 }
 
+export interface HandPanelStatus {
+  globalScaleFactor: number;
+  radialMultiplier: number;
+  calculatedTerrainZoom: number;
+  selectedTerrainZoom: number;
+  terrainZoomOverridden: boolean;
+}
+
 interface EarthLocationMapProps extends HandPanelLocation {
   map: BitmapHandle;
   height: number;
   northDirection: HandPanelDirection;
 }
 
+interface HandPanelStatusProps extends HandPanelStatus {
+  height: number;
+}
+
 const EARTH_MAP_ZOOM = 4;
 const EARTH_MAP_BORDER_WIDTH = 12;
+const DEFAULT_HAND_PANEL_STATUS: HandPanelStatus = {
+  globalScaleFactor: 1,
+  radialMultiplier: 1,
+  calculatedTerrainZoom: 0,
+  selectedTerrainZoom: 0,
+  terrainZoomOverridden: false,
+};
 
 const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
   kind: "little-planet-earth-location-map",
@@ -194,10 +213,108 @@ const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
   },
 };
 
+const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
+  kind: "little-planet-status",
+  measure(ctx) {
+    return {
+      width: ctx.constraints.maxWidth,
+      height: Math.min(ctx.props.height, ctx.constraints.maxHeight),
+    };
+  },
+  render(ctx) {
+    const theme = ctx.services.theme.getTokens();
+    const fields = [
+      {
+        label: "GLOBAL SCALE",
+        value: `${ctx.props.globalScaleFactor.toFixed(2)}×`,
+      },
+      {
+        label: "RADIAL",
+        value: `${ctx.props.radialMultiplier.toFixed(1)}×`,
+      },
+      {
+        label: "TOPO  X−  Y+",
+        value: ctx.props.terrainZoomOverridden
+          ? `z${ctx.props.selectedTerrainZoom} · CALC z${ctx.props.calculatedTerrainZoom}`
+          : `z${ctx.props.selectedTerrainZoom} · AUTO`,
+      },
+    ];
+    const commands: DrawCommand[] = [];
+    for (const [index, field] of fields.entries()) {
+      const x =
+        ctx.bounds.x + ctx.bounds.width * index / fields.length;
+      const nextX =
+        ctx.bounds.x + ctx.bounds.width * (index + 1) / fields.length;
+      const rect: Rect = {
+        x,
+        y: ctx.bounds.y,
+        width: nextX - x,
+        height: ctx.bounds.height,
+      };
+      const labelRect: Rect = {
+        x: rect.x + 6,
+        y: rect.y + 2,
+        width: rect.width - 12,
+        height: rect.height * 0.42,
+      };
+      const valueRect: Rect = {
+        x: rect.x + 6,
+        y: rect.y + rect.height * 0.38,
+        width: rect.width - 12,
+        height: rect.height * 0.6,
+      };
+      commands.push(
+        {
+          type: "rect",
+          componentId: ctx.id,
+          role: "planet-status-cell",
+          rect,
+          fill: theme.surfaceColor,
+          stroke: theme.borderColor,
+          strokeWidth: 1,
+          radius:
+            index === 0 || index === fields.length - 1
+              ? theme.radius
+              : 0,
+        },
+        {
+          type: "text",
+          componentId: ctx.id,
+          role: "planet-status-label",
+          rect: labelRect,
+          text: field.label,
+          color: theme.mutedTextColor,
+          align: "center",
+          verticalAlign: "middle",
+          fontSize: 12,
+          fontWeight: 700,
+        },
+        {
+          type: "text",
+          componentId: ctx.id,
+          role: "planet-status-value",
+          rect: valueRect,
+          text: field.value,
+          color: theme.textColor,
+          align: "center",
+          verticalAlign: "middle",
+          fontSize: 16,
+          fontWeight: 750,
+        },
+      );
+    }
+    return commands;
+  },
+  hitTest() {
+    return null;
+  },
+};
+
 export function createHandPanelRoot(
   location: HandPanelLocation,
   map: BitmapHandle,
   northDirection: HandPanelDirection = { x: 0, y: -1 },
+  status: HandPanelStatus = DEFAULT_HAND_PANEL_STATUS,
 ): DisplayNode<unknown> {
   return createColumn("little-planet-hand-panel", {
     padding: 8,
@@ -208,7 +325,7 @@ export function createHandPanelRoot(
         ...location,
         map,
         northDirection,
-        height: 298,
+        height: 238,
       }),
       createValueReadout("little-planet-coordinates", {
         label: "Underfoot",
@@ -217,6 +334,14 @@ export function createHandPanelRoot(
           location.longitudeDegrees,
         ),
       }),
+      createNode(
+        "little-planet-status",
+        HandPanelStatusComponent,
+        {
+          ...status,
+          height: 48,
+        },
+      ),
     ],
   });
 }

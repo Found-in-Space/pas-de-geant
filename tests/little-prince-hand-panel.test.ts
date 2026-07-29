@@ -30,6 +30,13 @@ describe("Little Planet hand panel", () => {
         { latitudeDegrees: -33.87, longitudeDegrees: 151.21 },
         map,
         { x: 0, y: -1 },
+        {
+          globalScaleFactor: 63.710088,
+          radialMultiplier: 4,
+          calculatedTerrainZoom: 5,
+          selectedTerrainZoom: 7,
+          terrainZoomOverridden: true,
+        },
       ),
       surface: HAND_PANEL_SURFACE,
       theme: HAND_PANEL_THEME,
@@ -57,6 +64,15 @@ describe("Little Planet hand panel", () => {
       "text",
     );
     const expected = earthMapPoint(-33.87, 151.21, image.rect);
+    const statusValues = commands
+      .filter(
+        (
+          command,
+        ): command is Extract<DrawCommand, { type: "text" }> =>
+          command.role === "planet-status-value" &&
+          command.type === "text",
+      )
+      .map((command) => command.text);
 
     expect(images).toHaveLength(3);
     expect(image.handle).toBe(map);
@@ -75,6 +91,11 @@ describe("Little Planet hand panel", () => {
     );
     expect(northPointer.cy).toBeCloseTo(border.rect.y);
     expect(coordinates.text).toBe("33.87° S · 151.21° E");
+    expect(statusValues).toEqual([
+      "63.71×",
+      "4.0×",
+      "z7 · CALC z5",
+    ]);
 
     runtime.dispose();
   });

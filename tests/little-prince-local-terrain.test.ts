@@ -31,6 +31,7 @@ import {
   mercatorHorizonBounds,
   mercatorTileKey,
   resolveLocalElevation,
+  resolveLocalTerrainZoom,
   rtinErrorBucket,
   selectLocalTerrainZoom,
   selectLocalTileWindow,
@@ -324,6 +325,17 @@ describe("Little Planet local Mercator terrain", () => {
     expect(selectLocalTerrainZoom(80, 0, 63.710088)).toBe(2);
     expect(rtinErrorBucket(318.55044, 20)).not.toBe(
       rtinErrorBucket(318.55044, 1),
+    );
+  });
+
+  it("uses calculated terrain zoom by default and clamps manual overrides", () => {
+    expect(resolveLocalTerrainZoom(5)).toBe(5);
+    expect(resolveLocalTerrainZoom(5, 7)).toBe(7);
+    expect(resolveLocalTerrainZoom(5, -10)).toBe(
+      LOCAL_TERRAIN_MIN_ZOOM,
+    );
+    expect(resolveLocalTerrainZoom(5, 99)).toBe(
+      LOCAL_TERRAIN_MAX_ZOOM,
     );
   });
 

@@ -970,6 +970,7 @@ export class TerrainTileRenderer {
     displayRadiusM: number,
     radialMultiplier: number,
     oceanSurface: boolean,
+    localTerrainZoomOverride?: number,
   ): void {
     const normalizedRadialMetres = normalizedRadialOffsetForMetres(
       1,
@@ -1087,6 +1088,7 @@ export class TerrainTileRenderer {
       displayRadiusM,
       radialMultiplier,
       oceanSurface,
+      localTerrainZoomOverride,
     );
     this.updateImageryDiagnostics();
   }

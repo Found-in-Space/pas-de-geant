@@ -22,6 +22,7 @@ import {
   mercatorCoordinatesForTilePoint,
   mercatorTileKey,
   rtinErrorBucket,
+  resolveLocalTerrainZoom,
   selectLocalTerrainZoom,
   selectLocalTileWindow,
   terrainScaleInputChanged,
@@ -481,6 +482,8 @@ export class LocalTerrainRenderer {
   private elevationAbortTotal = 0;
   private elevationRetryTotal = 0;
   private desiredZoom: number | undefined;
+  private calculatedZoom: number | undefined;
+  private zoomOverride: number | undefined;
   private lastUpdateMs =
     typeof performance === "undefined" ? 0 : performance.now();
 
@@ -534,6 +537,7 @@ export class LocalTerrainRenderer {
     displayRadiusM: number,
     radialMultiplier: number,
     oceanSurface: boolean,
+    zoomOverride?: number,
   ): void {
     const nowMs = typeof performance === "undefined" ? 0 : performance.now();
     const deltaSeconds = Math.max(
@@ -563,6 +567,16 @@ export class LocalTerrainRenderer {
     this.displayRadiusM = displayRadiusM;
     this.radialMultiplier = radialMultiplier;
     this.oceanSurface = oceanSurface;
+    const calculatedZoom = selectLocalTerrainZoom(
+      latitudeDegrees,
+      longitudeDegrees,
+      displayRadiusM,
+    );
+    const zoom = resolveLocalTerrainZoom(calculatedZoom, zoomOverride);
+    this.calculatedZoom = calculatedZoom;
+    this.zoomOverride =
+      zoomOverride === undefined ? undefined : zoom;
+    this.desiredZoom = zoom;
     if (!this.stencilAvailable || !localDetailEnabled(latitudeDegrees)) {
       this.clearActive();
       this.loadQueue.sync([]);
@@ -570,12 +584,6 @@ export class LocalTerrainRenderer {
       this.updateDiagnostics();
       return;
     }
-    const zoom = selectLocalTerrainZoom(
-      latitudeDegrees,
-      longitudeDegrees,
-      displayRadiusM,
-    );
-    this.desiredZoom = zoom;
     const window = selectLocalTileWindow(
       latitudeDegrees,
       longitudeDegrees,
@@ -1320,6 +1328,10 @@ export class LocalTerrainRenderer {
       : "";
     document.body.dataset.detailDesiredZoom =
       this.desiredZoom === undefined ? "" : String(this.desiredZoom);
+    document.body.dataset.detailCalculatedZoom =
+      this.calculatedZoom === undefined ? "" : String(this.calculatedZoom);
+    document.body.dataset.detailZoomOverride =
+      this.zoomOverride === undefined ? "" : String(this.zoomOverride);
     document.body.dataset.detailSourceSampleMetres = targetWindow
       ? localTerrainSourceSampleM(
           this.latitudeDegrees,

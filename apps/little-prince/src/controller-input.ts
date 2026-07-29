@@ -5,6 +5,7 @@ export interface ControllerIntent {
   scaleAxis: number;
   radialAxis: number;
   boost: boolean;
+  terrainZoomDelta: number;
   toggleOcean: boolean;
   reset: boolean;
   togglePanel: boolean;
@@ -14,6 +15,8 @@ export interface ButtonLatch {
   a: boolean;
   bStartedAt: number | null;
   stick: boolean;
+  x: boolean;
+  y: boolean;
 }
 
 export function deadzone(value: number, threshold = 0.16): number {
@@ -53,10 +56,16 @@ export function controllerIntent(
   const aPressed = rightButtons[4]?.pressed ?? rightButtons[0]?.pressed ?? false;
   const bPressed = rightButtons[5]?.pressed ?? rightButtons[1]?.pressed ?? false;
   const stickPressed = rightButtons[3]?.pressed ?? false;
+  const xPressed = leftButtons[4]?.pressed ?? false;
+  const yPressed = leftButtons[5]?.pressed ?? false;
   const toggleOcean = aPressed && !latch.a;
   const togglePanel = stickPressed && !latch.stick;
+  const terrainZoomDelta =
+    Number(yPressed && !latch.y) - Number(xPressed && !latch.x);
   latch.a = aPressed;
   latch.stick = stickPressed;
+  latch.x = xPressed;
+  latch.y = yPressed;
   if (bPressed && latch.bStartedAt === null) latch.bStartedAt = nowMs;
   const reset =
     bPressed &&
@@ -70,6 +79,7 @@ export function controllerIntent(
     boost:
       (leftButtons[0]?.value ?? 0) > 0.55 ||
       (leftButtons[1]?.value ?? 0) > 0.55,
+    terrainZoomDelta,
     toggleOcean,
     reset,
     togglePanel,
@@ -98,5 +108,11 @@ export function headRelativeTravel(
 }
 
 export function freshButtonLatch(): ButtonLatch {
-  return { a: false, bStartedAt: null, stick: false };
+  return {
+    a: false,
+    bStartedAt: null,
+    stick: false,
+    x: false,
+    y: false,
+  };
 }

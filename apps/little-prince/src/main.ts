@@ -30,8 +30,13 @@ import {
   HAND_PANEL_SURFACE,
   HAND_PANEL_THEME,
   type HandPanelDirection,
+  type HandPanelStatus,
 } from "./hand-panel.js";
 import { directionOnHandPanel } from "./hand-panel-orientation.js";
+import {
+  resolveLocalTerrainZoom,
+  selectLocalTerrainZoom,
+} from "./local-terrain-core.js";
 import {
   applyLogarithmicScale,
   applyRadialMultiplierRate,
@@ -155,7 +160,12 @@ let state = initialPlanetState(
   initialLocation.latitudeDegrees,
   initialLocation.longitudeDegrees,
 );
+let terrainZoomOverride: number | undefined;
 const initialCoordinates = coordinatesForFrame(state.contact);
+const initialHandPanelStatus = handPanelStatus(
+  initialCoordinates.latitudeDegrees,
+  initialCoordinates.longitudeDegrees,
+);
 const earthMapBitmap: BitmapHandle = {
   kind: "bitmap",
   image: fallbackTexture.image,
@@ -164,7 +174,12 @@ const earthMapBitmap: BitmapHandle = {
   revision: 1,
 };
 const handPanelRuntime = createRuntime({
-  root: createHandPanelRoot(initialCoordinates, earthMapBitmap),
+  root: createHandPanelRoot(
+    initialCoordinates,
+    earthMapBitmap,
+    { x: 0, y: -1 },
+    initialHandPanelStatus,
+  ),
   surface: HAND_PANEL_SURFACE,
   theme: HAND_PANEL_THEME,
 });
@@ -195,8 +210,12 @@ const handPanel = createThreePanelSession({
 });
 handPanel.attach();
 let handPanelLocationSignature =
-  `${initialCoordinates.latitudeDegrees.toFixed(2)}:` +
-  `${initialCoordinates.longitudeDegrees.toFixed(2)}:north`;
+  handPanelStateSignature(
+    initialCoordinates.latitudeDegrees,
+    initialCoordinates.longitudeDegrees,
+    { x: 0, y: -1 },
+    initialHandPanelStatus,
+  );
 let handPanelLastRedrawMs = -Infinity;
 let handPanelRedrawCount = 1;
 document.body.dataset.handPanelRedrawCount = String(handPanelRedrawCount);
@@ -226,6 +245,7 @@ function resetPlanet(): void {
     initialLocation.latitudeDegrees,
     initialLocation.longitudeDegrees,
   );
+  terrainZoomOverride = undefined;
   previousXrHead = null;
   updatePresentation();
 }
@@ -248,6 +268,7 @@ function updatePresentation(): void {
     state.displayRadiusM,
     state.radialMultiplier,
     state.oceanMode === "surface",
+    terrainZoomOverride,
   );
   atmosphere.update(state.radialMultiplier);
   oceanReadout.textContent =
@@ -285,6 +306,66 @@ function formatRoomDistance(metres: number): string {
   return `${metres.toFixed(2)} m`;
 }
 
+function handPanelStatus(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+): HandPanelStatus {
+  const calculatedTerrainZoom = selectLocalTerrainZoom(
+    latitudeDegrees,
+    longitudeDegrees,
+    state.displayRadiusM,
+  );
+  return {
+    globalScaleFactor: state.displayRadiusM,
+    radialMultiplier: state.radialMultiplier,
+    calculatedTerrainZoom,
+    selectedTerrainZoom: resolveLocalTerrainZoom(
+      calculatedTerrainZoom,
+      terrainZoomOverride,
+    ),
+    terrainZoomOverridden: terrainZoomOverride !== undefined,
+  };
+}
+
+function handPanelStateSignature(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+  northDirection: HandPanelDirection,
+  status: HandPanelStatus,
+): string {
+  const northAngle = Math.atan2(northDirection.y, northDirection.x);
+  return [
+    latitudeDegrees.toFixed(2),
+    longitudeDegrees.toFixed(2),
+    northAngle.toFixed(2),
+    status.globalScaleFactor.toFixed(2),
+    status.radialMultiplier.toFixed(1),
+    status.calculatedTerrainZoom,
+    status.selectedTerrainZoom,
+    status.terrainZoomOverridden ? "manual" : "auto",
+  ].join(":");
+}
+
+function stepTerrainZoomOverride(delta: number): void {
+  if (delta === 0) return;
+  const coordinates = coordinatesForFrame(state.contact);
+  const calculatedZoom = selectLocalTerrainZoom(
+    coordinates.latitudeDegrees,
+    coordinates.longitudeDegrees,
+    state.displayRadiusM,
+  );
+  const selectedZoom = resolveLocalTerrainZoom(
+    calculatedZoom,
+    terrainZoomOverride,
+  );
+  const nextZoom = resolveLocalTerrainZoom(
+    calculatedZoom,
+    selectedZoom + Math.sign(delta),
+  );
+  if (nextZoom === selectedZoom && terrainZoomOverride === undefined) return;
+  terrainZoomOverride = nextZoom;
+}
+
 function syncHandPanelState(
   latitudeDegrees: number,
   longitudeDegrees: number,
@@ -292,10 +373,13 @@ function syncHandPanelState(
   nowMs: number,
 ): void {
   if (!renderer.xr.isPresenting || !handPanelVisible) return;
-  const northAngle = Math.atan2(northDirection.y, northDirection.x);
-  const signature =
-    `${latitudeDegrees.toFixed(2)}:${longitudeDegrees.toFixed(2)}:` +
-    northAngle.toFixed(2);
+  const status = handPanelStatus(latitudeDegrees, longitudeDegrees);
+  const signature = handPanelStateSignature(
+    latitudeDegrees,
+    longitudeDegrees,
+    northDirection,
+    status,
+  );
   if (signature === handPanelLocationSignature) return;
   if (nowMs - handPanelLastRedrawMs < 50) return;
   handPanelLocationSignature = signature;
@@ -305,6 +389,7 @@ function syncHandPanelState(
       { latitudeDegrees, longitudeDegrees },
       earthMapBitmap,
       northDirection,
+      status,
     ),
   );
   handPanelRedrawCount += 1;
@@ -461,6 +546,7 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
     intent.radialAxis,
     deltaSeconds,
   );
+  stepTerrainZoomOverride(intent.terrainZoomDelta);
   if (intent.toggleOcean) toggleOcean();
   if (intent.reset) resetPlanet();
   if (intent.togglePanel) {
