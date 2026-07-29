@@ -8,6 +8,7 @@ import {
   fallbackUvTransform,
   imageryEvictionKeys,
   imageryLoadTasksForTiles,
+  imageryRetryDelayMs,
   imageryUvTransform,
   imageryUrlForTile,
   previewAddressForTile,
@@ -15,6 +16,8 @@ import {
   selectTerrainTiles,
   terrainBoundingExpansion,
   terrainHorizonDegrees,
+  terrainMaximumLevel,
+  terrainOccluderRadius,
   tileMatrixDimensions,
 } from "../apps/little-prince/src/terrain-tiles.js";
 
@@ -109,6 +112,27 @@ describe("Little Planet terrain selection", () => {
     }
   });
 
+  it("changes the global terrain and imagery level with planet scale", () => {
+    const initialRadius = 63.710088;
+    expect(terrainMaximumLevel(initialRadius / 8)).toBe(3);
+    expect(terrainMaximumLevel(initialRadius / 4)).toBe(4);
+    expect(terrainMaximumLevel(initialRadius / 2)).toBe(5);
+    expect(terrainMaximumLevel(initialRadius)).toBe(6);
+    expect(terrainMaximumLevel(initialRadius * 1.5)).toBe(7);
+    expect(terrainMaximumLevel(initialRadius * 5)).toBe(7);
+  });
+
+  it("keeps an inner depth shell behind every terrain elevation", () => {
+    const shallow = terrainOccluderRadius(63.710088, 0, 0);
+    const deep = terrainOccluderRadius(63.710088, 10_444, 20);
+    expect(shallow).toBeLessThan(1);
+    expect(deep).toBeGreaterThan(0.9);
+    expect(deep).toBeLessThan(shallow);
+    expect(terrainOccluderRadius(318.55044, 0, 0)).toBeGreaterThan(
+      shallow,
+    );
+  });
+
   it("extends visibility and displaced bounds for radial terrain", () => {
     const radius = 63.710088;
     expect(terrainHorizonDegrees(radius, 20)).toBeGreaterThan(
@@ -127,6 +151,14 @@ describe("Little Planet terrain selection", () => {
 });
 
 describe("Little Planet imagery scheduling", () => {
+  it("retries imagery quickly before settling on a bounded delay", () => {
+    expect(imageryRetryDelayMs(0)).toBe(1_000);
+    expect(imageryRetryDelayMs(1)).toBe(1_000);
+    expect(imageryRetryDelayMs(2)).toBe(5_000);
+    expect(imageryRetryDelayMs(3)).toBe(30_000);
+    expect(imageryRetryDelayMs(99)).toBe(30_000);
+  });
+
   it("deduplicates shared previews and prioritizes them before exact tiles", () => {
     const tasks = imageryLoadTasksForTiles([
       { z: 7, x: 78, y: 22 },

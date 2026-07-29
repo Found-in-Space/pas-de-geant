@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import {
   EARTH_MEAN_RADIUS_KM,
+  INITIAL_DISPLAY_RADIUS_M,
   WGS84_A_KM,
   WGS84_B_KM,
   normalizedRadialOffsetForMetres,
@@ -23,10 +24,16 @@ const GIBS_WMTS =
 const GIBS_ROOT_TILE_SPAN_DEGREES = 288;
 const TILE_SEGMENTS = 24;
 const SKIRT_DEPTH_WORLD_M = 0.02;
+const OCCLUDER_SEGMENTS = 96;
+const OCCLUDER_MARGIN_SOURCE_M = 500;
+const OCCLUDER_MARGIN_WORLD_M = 0.002;
 export const DETAIL_TILE_LIMIT = 32;
 export const IMAGERY_CACHE_LIMIT = 48;
 export const MAX_CONCURRENT_IMAGERY_REQUESTS = 6;
-const IMAGERY_RETRY_DELAY_MS = 30_000;
+export const IMAGERY_RETRY_DELAYS_MS = [1_000, 5_000, 30_000] as const;
+export const MIN_GLOBAL_TERRAIN_LEVEL = 3;
+export const MAX_GLOBAL_TERRAIN_LEVEL = 7;
+export const INITIAL_GLOBAL_TERRAIN_LEVEL = 6;
 const FINE_REFINEMENT_RADIUS_DEGREES = 8;
 const EXACT_IMAGERY_PRIORITY_OFFSET = 1_000;
 const LAND_AMBIENT_LIGHT = 0.46;
@@ -81,6 +88,30 @@ export function tileKey(address: TileAddress): string {
 
 export function imageryUrlForTile(address: TileAddress): string {
   return `${GIBS_WMTS}/${address.z}/${address.y}/${address.x}.jpeg`;
+}
+
+export function imageryRetryDelayMs(failedAttempts: number): number {
+  const index = Math.max(
+    0,
+    Math.min(
+      IMAGERY_RETRY_DELAYS_MS.length - 1,
+      Math.floor(failedAttempts) - 1,
+    ),
+  );
+  return IMAGERY_RETRY_DELAYS_MS[index]!;
+}
+
+export function terrainMaximumLevel(displayRadiusM: number): number {
+  const scaleOctaves = Math.log2(
+    Math.max(0.001, displayRadiusM) / INITIAL_DISPLAY_RADIUS_M,
+  );
+  return Math.max(
+    MIN_GLOBAL_TERRAIN_LEVEL,
+    Math.min(
+      MAX_GLOBAL_TERRAIN_LEVEL,
+      INITIAL_GLOBAL_TERRAIN_LEVEL + Math.round(scaleOctaves),
+    ),
+  );
 }
 
 export function tileMatrixDimensions(level: number): {
@@ -353,8 +384,7 @@ export function selectTerrainTiles(
       THREE.MathUtils.degToRad(bounds.east - bounds.west) *
       displayRadiusM /
       TILE_SEGMENTS;
-    const maximumLevel =
-      displayRadiusM > 180 ? 7 : 6;
+    const maximumLevel = terrainMaximumLevel(displayRadiusM);
     const withinFineRefinementCap =
       address.z + 1 < maximumLevel ||
       distance <= FINE_REFINEMENT_RADIUS_DEGREES + angularRadius;
@@ -565,6 +595,9 @@ function terrainMaterial(
 ): THREE.ShaderMaterial {
   const fallbackTransform = fallbackUvTransform(address);
   return new THREE.ShaderMaterial({
+    side: THREE.FrontSide,
+    depthTest: true,
+    depthWrite: true,
     stencilWrite: stencilAvailable,
     stencilWriteMask: 0x00,
     stencilRef: 1,
@@ -681,6 +714,46 @@ function terrainMaterial(
       }
     `,
   });
+}
+
+export function terrainOccluderRadius(
+  displayRadiusM: number,
+  maximumDepthM: number,
+  radialMultiplier: number,
+): number {
+  const polarSeaLevelRadius = WGS84_B_KM / EARTH_MEAN_RADIUS_KM;
+  const terrainInset = Math.abs(
+    normalizedRadialOffsetForMetres(
+      Math.max(0, maximumDepthM) + OCCLUDER_MARGIN_SOURCE_M,
+      radialMultiplier,
+    ),
+  );
+  const roomInset =
+    OCCLUDER_MARGIN_WORLD_M / Math.max(0.001, displayRadiusM);
+  return Math.max(0.001, polarSeaLevelRadius - terrainInset - roomInset);
+}
+
+function terrainOccluder(): THREE.Mesh<
+  THREE.SphereGeometry,
+  THREE.MeshBasicMaterial
+> {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(
+      1,
+      OCCLUDER_SEGMENTS,
+      Math.floor(OCCLUDER_SEGMENTS / 2),
+    ),
+    new THREE.MeshBasicMaterial({
+      colorWrite: false,
+      depthTest: true,
+      depthWrite: true,
+      side: THREE.FrontSide,
+    }),
+  );
+  mesh.name = "terrain-inner-occluder";
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -2;
+  return mesh;
 }
 
 function abortError(): Error {
@@ -871,10 +944,12 @@ export class TerrainTileRenderer {
   readonly group = new THREE.Group();
   private readonly relief: ReliefDataset;
   private readonly fallbackTexture: THREE.Texture;
+  private readonly occluder = terrainOccluder();
   private readonly localTerrain: LocalTerrainRenderer;
   private readonly rendered = new Map<string, RenderedTile>();
   private readonly imagery = new Map<string, CachedImagery>();
   private readonly failedImageryUntil = new Map<string, number>();
+  private readonly imageryRetryCounts = new Map<string, number>();
   private readonly imageryTargets = new Map<string, TileAddress>();
   private readonly loadQueue: ImageryLoadQueue<THREE.Texture>;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -893,6 +968,7 @@ export class TerrainTileRenderer {
       fallbackTexture,
       stencilAvailable,
     );
+    this.group.add(this.occluder);
     this.group.add(this.localTerrain.group);
     this.loadQueue = new ImageryLoadQueue(
       loadImageryTexture,
@@ -916,6 +992,7 @@ export class TerrainTileRenderer {
       this.relief.metadata.outputElevationRangeMetres ??
       [-12_000, FALLBACK_MAX_ELEVATION_M];
     const maximumElevationM = Math.max(0, elevationRange[1]);
+    const maximumDepthM = Math.max(0, -elevationRange[0]);
     const maximumAbsoluteElevationM = Math.max(
       Math.abs(elevationRange[0]),
       Math.abs(elevationRange[1]),
@@ -924,6 +1001,13 @@ export class TerrainTileRenderer {
       maximumAbsoluteElevationM,
       displayRadiusM,
       radialMultiplier,
+    );
+    this.occluder.scale.setScalar(
+      terrainOccluderRadius(
+        displayRadiusM,
+        maximumDepthM,
+        radialMultiplier,
+      ),
     );
     const signature = [
       latitudeDegrees.toFixed(1),
@@ -1024,6 +1108,7 @@ export class TerrainTileRenderer {
       displayRadiusM,
       radialMultiplier,
       oceanSurface,
+      maximumElevationM,
     );
     this.updateImageryDiagnostics();
   }
@@ -1041,6 +1126,9 @@ export class TerrainTileRenderer {
     this.imagery.clear();
     this.imageryTargets.clear();
     this.failedImageryUntil.clear();
+    this.imageryRetryCounts.clear();
+    this.occluder.geometry.dispose();
+    this.occluder.material.dispose();
   }
 
   private scheduleImagery(): void {
@@ -1052,6 +1140,15 @@ export class TerrainTileRenderer {
       (address) => !this.imagery.has(tileKey(address)),
     );
     const tasks = imageryLoadTasksForTiles(unresolvedTargets);
+    const taskKeys = new Set(
+      tasks.map((task) => tileKey(task.address)),
+    );
+    for (const key of this.failedImageryUntil.keys()) {
+      if (!taskKeys.has(key)) this.failedImageryUntil.delete(key);
+    }
+    for (const key of this.imageryRetryCounts.keys()) {
+      if (!taskKeys.has(key)) this.imageryRetryCounts.delete(key);
+    }
     const ready: ImageryLoadTask[] = [];
     const now = Date.now();
     let earliestRetry = Infinity;
@@ -1091,6 +1188,7 @@ export class TerrainTileRenderer {
       this.imagery.set(key, { texture, usedAt: this.generation });
     }
     this.failedImageryUntil.delete(key);
+    this.imageryRetryCounts.delete(key);
     const cachedTexture = this.imagery.get(key)?.texture;
     if (cachedTexture) {
       for (const [targetKey, targetAddress] of this.imageryTargets) {
@@ -1108,9 +1206,12 @@ export class TerrainTileRenderer {
     error: unknown,
   ): void {
     if (isAbortError(error)) return;
+    const key = tileKey(task.address);
+    const failedAttempts = (this.imageryRetryCounts.get(key) ?? 0) + 1;
+    this.imageryRetryCounts.set(key, failedAttempts);
     this.failedImageryUntil.set(
-      tileKey(task.address),
-      Date.now() + IMAGERY_RETRY_DELAY_MS,
+      key,
+      Date.now() + imageryRetryDelayMs(failedAttempts),
     );
     this.scheduleImagery();
   }
@@ -1214,6 +1315,9 @@ export class TerrainTileRenderer {
     );
     document.body.dataset.gibsImageryQueued = String(
       this.loadQueue.queuedCount,
+    );
+    document.body.dataset.gibsImageryFailures = String(
+      this.failedImageryUntil.size,
     );
   }
 }

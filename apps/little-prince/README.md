@@ -64,12 +64,14 @@ npm run prepare:relief --workspace @found-in-space/little-prince
 
 Around the current contact point, the renderer asynchronously requests a
 5×5 window of Mapterhorn's global 512 px Terrarium tiles. The renderer chooses
-zoom 3–12 to keep source samples below 0.4 mm at the current room scale, with
-additional refinement as radial exaggeration increases. Zoom changes use 20%
-refinement hysteresis; the initial 40° N scale selects zoom 11, giving roughly
-30 m source samples across a local patch about 75 km wide. The checked-in GEBCO
-terrain remains the continuous globe and horizon outside that patch. Regional
-zoom 13–17 LiDAR is intentionally not requested.
+zoom 3–12 by first calculating the eye-and-relief tangent horizon. It chooses
+the finest level whose 5×5 footprint reaches beyond that horizon even when the
+contact point lies at the edge of the centre tile, capped by a 0.4 mm room-scale
+sample target. The initial 40° N scale selects zoom 5, giving roughly 1.9 km
+source samples across a patch about 4,800 km wide, enough to cover the roughly
+3,500 km modeled horizon. Resolution changes retain 20% refinement hysteresis.
+The checked-in GEBCO terrain remains the continuous globe beyond that patch.
+Regional zoom 13–17 LiDAR is intentionally not requested.
 
 A worker decodes elevations and builds adaptive 513×513 RTIN meshes with
 `@mapbox/martini`. The active window contains 2560×2560 height samples before
@@ -90,19 +92,25 @@ frame. Each mesh is capped at 16,384 vertices and all active local geometry is
 capped at 32 MiB. The worker progressively relaxes RTIN error only when needed
 to keep a tile within its vertex ceiling, and the centre tile is queued first.
 A cell that still cannot meet those limits remains GEBCO. GEBCO always
-continues beyond the local patch.
+continues beyond the local patch. Its projected error target is 2 mm, so the
+RTIN mesh is rebuilt into finer buckets as the globe expands even when the
+source-tile zoom does not cross a boundary. A depth-only shell below the
+deepest exaggerated seabed prevents distant terrain and ocean faces from
+showing through transient seams.
 
 NASA GIBS supplies up to 32 nearby 512 px Blue Marble images from its native
 500 m geographic WMTS pyramid. Shared two-level-coarser previews load before
 the nearest full-detail tiles, with no more than six image fetches and decodes
-active at once. GIBS marks these pre-generated tiles as browser-cacheable, so
-repeat headset visits can reuse them without bundling a global imagery archive.
-Local RTIN meshes reuse these same geographic image selections and texture
-leases. The selected GIBS coverage patches are mirrored onto the detailed
-geometry, while the bundled Blue Marble texture remains the common fallback.
-There is no separate EPSG:3857 imagery requester or local imagery cache, so
-local relief cannot conceal the global layer with a coarser or competing image
-pyramid.
+active at once. Levels 3–7 track the planet scale in half-octave steps, capped
+at the native 500 m level. Failed imagery requests retry after 1, 5, and then
+30 seconds while the tile remains relevant. GIBS marks these pre-generated
+tiles as browser-cacheable, so repeat headset visits can reuse them without
+bundling a global imagery archive. Local RTIN meshes reuse these same geographic
+image selections and texture leases. The selected GIBS coverage patches are
+mirrored onto the detailed geometry, while the bundled Blue Marble texture
+remains the common fallback. There is no separate EPSG:3857 imagery requester
+or local imagery cache, so local relief cannot conceal the global layer with a
+coarser or competing image pyramid.
 
 The checked-in 2048×1024 Blue Marble image is displayed immediately beneath
 the progressive tiles and remains usable when offline. Detailed global imagery

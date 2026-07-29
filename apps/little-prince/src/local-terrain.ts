@@ -3,6 +3,7 @@ import {
   normalizedRadialOffsetForMetres,
 } from "./planet-state.js";
 import type { ReliefDataset } from "./relief.js";
+import { DEFAULT_EYE_HEIGHT_M } from "./terrain-horizon.js";
 import {
   LOCAL_GEOMETRY_BUDGET_BYTES,
   LOCAL_HEIGHT_CACHE_LIMIT,
@@ -546,6 +547,7 @@ export class LocalTerrainRenderer {
     displayRadiusM: number,
     radialMultiplier: number,
     oceanSurface: boolean,
+    maximumElevationM: number,
   ): void {
     const nowMs =
       typeof performance === "undefined" ? 0 : performance.now();
@@ -589,6 +591,8 @@ export class LocalTerrainRenderer {
       displayRadiusM,
       radialMultiplier,
       this.candidateWindow?.zoom ?? this.currentWindow?.zoom,
+      DEFAULT_EYE_HEIGHT_M,
+      maximumElevationM,
     );
     this.desiredZoom = zoom;
     const window = selectLocalTileWindow(

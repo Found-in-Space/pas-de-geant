@@ -159,7 +159,7 @@ test("loads and operates the Little Planet desktop fallback", async ({
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-terrain-zoom",
-    "11",
+    "5",
   );
   await expect.poll(() => new Set(elevationRequests).size).toBe(36);
   const initialTerrainZoom = Number(
@@ -237,7 +237,7 @@ test("loads and operates the Little Planet desktop fallback", async ({
   await expect(page.locator("#scale-readout")).not.toContainText("10.0 m");
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-terrain-zoom",
-    "10",
+    "4",
   );
 
   await page.keyboard.down("KeyV");
@@ -251,7 +251,7 @@ test("loads and operates the Little Planet desktop fallback", async ({
   await expect(page.locator("#ocean-readout")).toHaveText("Surface");
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-terrain-zoom",
-    "11",
+    "5",
   );
 
   const aircraftToggle = page.getByRole("checkbox", {
@@ -378,7 +378,7 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
   expect(maximumActiveElevationRequests).toBeLessThanOrEqual(4);
   expect(
     elevationUrls.every(
-      (url) => new URL(url).pathname.split("/")[1] === "11",
+      (url) => new URL(url).pathname.split("/")[1] === "5",
     ),
   ).toBe(true);
   expect(globalImageryUrls.length).toBeGreaterThan(0);
@@ -471,11 +471,11 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
 
   await page.keyboard.down("KeyZ");
   await page.waitForFunction(
-    () => document.body.dataset.detailTargetZoom === "10",
+    () => document.body.dataset.detailTargetZoom === "4",
   );
   expect(
     elevationUrls.some(
-      (url) => new URL(url).pathname.split("/")[1] === "10",
+      (url) => new URL(url).pathname.split("/")[1] === "4",
     ),
   ).toBe(false);
   expect(
@@ -486,7 +486,7 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
   await page.keyboard.up("KeyZ");
   await page.waitForFunction(
     () =>
-      document.body.dataset.detailActiveZoom === "10" &&
+      document.body.dataset.detailActiveZoom === "4" &&
       document.body.dataset.detailStaging === "false" &&
       document.body.dataset.detailWorkerQueued === "0" &&
       document.body.dataset.detailWorkerInflight === "0",
@@ -507,12 +507,12 @@ test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
   test.setTimeout(60_000);
   const terrainImage = flatTerrariumPng();
   const missingTiles = new Set([
-    "11/999/773",
-    "11/1000/773",
-    "11/999/774",
-    "11/1000/774",
-    "11/999/776",
-    "11/999/778",
+    "5/13/10",
+    "5/14/10",
+    "5/13/11",
+    "5/14/11",
+    "5/13/13",
+    "5/13/15",
   ]);
   const localImageryUrls: string[] = [];
   await page.route("https://tiles.mapterhorn.com/**", async (route) => {

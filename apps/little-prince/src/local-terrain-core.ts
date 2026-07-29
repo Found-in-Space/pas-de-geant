@@ -1,3 +1,9 @@
+import {
+  DEFAULT_EYE_HEIGHT_M,
+  FALLBACK_MAX_ELEVATION_M,
+  terrainHorizonDiameterM,
+} from "./terrain-horizon.js";
+
 export const LOCAL_TERRAIN_MIN_ZOOM = 3;
 export const LOCAL_TERRAIN_MAX_ZOOM = 12;
 export const LOCAL_TILE_SIZE = 512;
@@ -24,9 +30,15 @@ export const RTIN_FALLBACK_ERROR_BUCKETS_M = [
 ] as const;
 export const LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M = 0.0004;
 export const LOCAL_DETAIL_ZOOM_HYSTERESIS = 1.2;
+/**
+ * The contact point can lie anywhere in the centre tile. This factor ensures
+ * the nearer edge of the 5×5 window still reaches the calculated horizon.
+ */
+export const LOCAL_HORIZON_COVERAGE_PADDING =
+  LOCAL_WINDOW_SIZE / (LOCAL_WINDOW_SIZE - 1);
 
 const EARTH_RADIUS_M = 6_371_008.8;
-const TARGET_PROJECTED_VERTICAL_ERROR_M = 0.005;
+const TARGET_PROJECTED_VERTICAL_ERROR_M = 0.002;
 
 export interface MercatorTileAddress {
   z: number;
@@ -490,8 +502,12 @@ export function selectLocalTerrainZoom(
   displayRadiusM: number,
   radialMultiplier: number,
   previousZoom?: number,
+  eyeHeightM = DEFAULT_EYE_HEIGHT_M,
+  maximumElevationM = FALLBACK_MAX_ELEVATION_M,
 ): number {
+  let detailZoom: number;
   if (previousZoom === undefined) {
+    detailZoom = LOCAL_TERRAIN_MAX_ZOOM;
     for (
       let zoom = LOCAL_TERRAIN_MIN_ZOOM;
       zoom <= LOCAL_TERRAIN_MAX_ZOOM;
@@ -505,40 +521,60 @@ export function selectLocalTerrainZoom(
           zoom,
         ) <= LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M
       ) {
-        return zoom;
+        detailZoom = zoom;
+        break;
       }
     }
-    return LOCAL_TERRAIN_MAX_ZOOM;
+  } else {
+    detailZoom = Math.max(
+      LOCAL_TERRAIN_MIN_ZOOM,
+      Math.min(LOCAL_TERRAIN_MAX_ZOOM, Math.round(previousZoom)),
+    );
+    while (
+      detailZoom < LOCAL_TERRAIN_MAX_ZOOM &&
+      localTerrainProjectedSampleM(
+        latitudeDegrees,
+        displayRadiusM,
+        radialMultiplier,
+        detailZoom,
+      ) >
+        LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M *
+          LOCAL_DETAIL_ZOOM_HYSTERESIS
+    ) {
+      detailZoom += 1;
+    }
+    while (
+      detailZoom > LOCAL_TERRAIN_MIN_ZOOM &&
+      localTerrainProjectedSampleM(
+        latitudeDegrees,
+        displayRadiusM,
+        radialMultiplier,
+        detailZoom - 1,
+      ) <= LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M
+    ) {
+      detailZoom -= 1;
+    }
   }
-  let zoom = Math.max(
-    LOCAL_TERRAIN_MIN_ZOOM,
-    Math.min(LOCAL_TERRAIN_MAX_ZOOM, Math.round(previousZoom)),
-  );
-  while (
-    zoom < LOCAL_TERRAIN_MAX_ZOOM &&
-    localTerrainProjectedSampleM(
-      latitudeDegrees,
+
+  const requiredPatchWidthM =
+    terrainHorizonDiameterM(
       displayRadiusM,
       radialMultiplier,
-      zoom,
-    ) >
-      LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M *
-        LOCAL_DETAIL_ZOOM_HYSTERESIS
-  ) {
-    zoom += 1;
-  }
+      eyeHeightM,
+      maximumElevationM,
+    ) * LOCAL_HORIZON_COVERAGE_PADDING;
+  let coverageZoom = LOCAL_TERRAIN_MIN_ZOOM;
   while (
-    zoom > LOCAL_TERRAIN_MIN_ZOOM &&
-    localTerrainProjectedSampleM(
+    coverageZoom < LOCAL_TERRAIN_MAX_ZOOM &&
+    localTerrainPatchWidthM(
       latitudeDegrees,
       displayRadiusM,
-      radialMultiplier,
-      zoom - 1,
-    ) <= LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M
+      coverageZoom + 1,
+    ) >= requiredPatchWidthM
   ) {
-    zoom -= 1;
+    coverageZoom += 1;
   }
-  return zoom;
+  return Math.min(detailZoom, coverageZoom);
 }
 
 export function localDetailEnabled(latitudeDegrees: number): boolean {

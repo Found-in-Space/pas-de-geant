@@ -4,6 +4,7 @@ import {
   LOCAL_DETAIL_ZOOM_HYSTERESIS,
   LOCAL_GEOMETRY_BUDGET_BYTES,
   LOCAL_HEIGHT_CACHE_LIMIT,
+  LOCAL_HORIZON_COVERAGE_PADDING,
   LOCAL_GRID_SIZE,
   LOCAL_MESH_VERTEX_LIMIT,
   LOCAL_SCALE_SETTLE_MS,
@@ -241,9 +242,10 @@ describe("Little Planet local Mercator terrain", () => {
 
   it("selects bounded RTIN error buckets and disables imperceptible detail", () => {
     expect(rtinErrorBucket(318.55, 20)).toBe(5);
-    expect(rtinErrorBucket(318.55, 1)).toBe(80);
+    expect(rtinErrorBucket(318.55, 1)).toBe(40);
+    expect(rtinErrorBucket(127.42, 1)).toBe(80);
     expect(rtinErrorBucket(63.71, 1)).toBe(150);
-    expect(rtinErrorBucket(318.55, 1, true)).toBe(150);
+    expect(rtinErrorBucket(318.55, 1, true)).toBe(80);
     expect(localDetailEnabled(40)).toBe(true);
     expect(localDetailEnabled(WEB_MERCATOR_MAX_LATITUDE)).toBe(false);
   });
@@ -262,45 +264,76 @@ describe("Little Planet local Mercator terrain", () => {
     );
   });
 
-  it("selects a genuinely local high-resolution patch around the user", () => {
+  it("keeps the high-resolution patch wider than the visible horizon", () => {
     const radius = 63.710088;
-    const zoom = selectLocalTerrainZoom(40, radius, 1);
-    expect(zoom).toBe(11);
+    const maximumElevationM = 6_940;
+    const horizonDiameterM = terrainHorizonDiameterM(
+      radius,
+      1,
+      1.7,
+      maximumElevationM,
+    );
+    const zoom = selectLocalTerrainZoom(
+      40,
+      radius,
+      1,
+      undefined,
+      1.7,
+      maximumElevationM,
+    );
+    expect(zoom).toBe(5);
+    expect(
+      localTerrainPatchWidthM(40, radius, zoom),
+    ).toBeGreaterThanOrEqual(
+      horizonDiameterM * LOCAL_HORIZON_COVERAGE_PADDING,
+    );
+    expect(
+      localTerrainPatchWidthM(40, radius, zoom + 1),
+    ).toBeLessThan(
+      horizonDiameterM * LOCAL_HORIZON_COVERAGE_PADDING,
+    );
     expect(
       localTerrainProjectedSampleM(40, radius, 1, zoom),
-    ).toBeLessThanOrEqual(LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M);
-    expect(
-      localTerrainProjectedSampleM(40, radius, 1, zoom - 1),
     ).toBeGreaterThan(LOCAL_DETAIL_TARGET_SAMPLE_WORLD_M);
     expect(
-      localTerrainPatchWidthM(40, radius, zoom),
-    ).toBeGreaterThan(0.7);
-    expect(
-      localTerrainPatchWidthM(40, radius, zoom),
-    ).toBeLessThan(0.8);
+      selectLocalTerrainZoom(40, radius, 1, undefined, 0, 0),
+    ).toBe(11);
   });
 
-  it("adapts local resolution across scale, exaggeration, and latitude", () => {
-    expect(selectLocalTerrainZoom(40, 1, 1)).toBe(5);
-    expect(selectLocalTerrainZoom(40, 63.710088, 1)).toBe(11);
-    expect(selectLocalTerrainZoom(40, 63.710088, 20)).toBe(12);
-    expect(selectLocalTerrainZoom(40, 318.55044, 1)).toBe(12);
-    expect(selectLocalTerrainZoom(0, 318.55044, 0)).toBe(12);
-    expect(selectLocalTerrainZoom(80, 63.710088, 1)).toBe(9);
-    expect(selectLocalTerrainZoom(0, 1e12, 0)).toBe(
+  it("adapts horizon coverage across scale, exaggeration, and latitude", () => {
+    const select = (
+      latitudeDegrees: number,
+      displayRadiusM: number,
+      radialMultiplier: number,
+    ): number =>
+      selectLocalTerrainZoom(
+        latitudeDegrees,
+        displayRadiusM,
+        radialMultiplier,
+        undefined,
+        1.7,
+        6_940,
+      );
+    expect(select(40, 1, 1)).toBe(3);
+    expect(select(40, 63.710088, 1)).toBe(5);
+    expect(select(40, 63.710088, 20)).toBe(4);
+    expect(select(40, 318.55044, 1)).toBe(6);
+    expect(select(0, 318.55044, 0)).toBe(6);
+    expect(select(80, 63.710088, 1)).toBe(3);
+    expect(select(0, 1e12, 0)).toBe(
       LOCAL_TERRAIN_MAX_ZOOM,
     );
-    expect(selectLocalTerrainZoom(80, 0.001, 20)).toBe(
+    expect(select(80, 0.001, 20)).toBe(
       LOCAL_TERRAIN_MIN_ZOOM,
     );
   });
 
-  it("uses 20% refinement hysteresis without retaining needless detail", () => {
+  it("keeps resolution hysteresis when the horizon does not constrain it", () => {
     expect(LOCAL_DETAIL_ZOOM_HYSTERESIS).toBe(1.2);
-    expect(selectLocalTerrainZoom(40, 50, 1)).toBe(11);
-    expect(selectLocalTerrainZoom(40, 50, 1, 10)).toBe(10);
-    expect(selectLocalTerrainZoom(40, 63.710088, 1, 10)).toBe(11);
-    expect(selectLocalTerrainZoom(40, 43, 1, 11)).toBe(10);
+    expect(selectLocalTerrainZoom(40, 50, 1, undefined, 0, 0)).toBe(11);
+    expect(selectLocalTerrainZoom(40, 50, 1, 10, 0, 0)).toBe(10);
+    expect(selectLocalTerrainZoom(40, 63.710088, 1, 10, 0, 0)).toBe(11);
+    expect(selectLocalTerrainZoom(40, 43, 1, 11, 0, 0)).toBe(10);
   });
 
   it("keeps emergency RTIN simplification available after normal buckets", () => {
