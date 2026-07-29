@@ -10,7 +10,10 @@ import {
   LOCAL_UNDERFOOT_MESH_SEGMENTS,
   TileRequestQueue,
   buildHeightGrid513,
+  clampOceanSurfaceOffsetM,
   decodeTerrariumPixels,
+  interpolateOceanSurfaceOffsetM,
+  interpolateTerrainOffsetM,
   isOceanOnlyHeightTile,
   localDetailEdgeFadeWeight,
   meshSegmentsForRing,
@@ -211,6 +214,67 @@ describe("Pas de Géant native terrain rings", () => {
     expect(await deleteCachedElevation(address, cacheStorage)).toBe("deleted");
   });
 
+  it("evicts an empty cached elevation tile and refetches it", async () => {
+    const deleted: string[] = [];
+    const stored = new Map<string, Response>();
+    let fetchCalls = 0;
+    const cacheStorage: ElevationCacheStorage = {
+      async open() {
+        return {
+          async match() {
+            return new Response(new Uint8Array(), { status: 200 });
+          },
+          async put(request, response) {
+            stored.set(String(request), response.clone());
+          },
+          async delete(request) {
+            deleted.push(String(request));
+            return true;
+          },
+        };
+      },
+    };
+    const fetcher = (async () => {
+      fetchCalls += 1;
+      return new Response(new Uint8Array([9, 8, 7]), { status: 200 });
+    }) as typeof fetch;
+
+    const result = await loadCachedElevation(
+      { z: 12, x: 2_031, y: 1_377 },
+      new AbortController().signal,
+      { cacheStorage, fetcher },
+    );
+
+    expect(deleted).toHaveLength(1);
+    expect(fetchCalls).toBe(1);
+    expect(result.cacheStatus).toBe("stored");
+    expect([...new Uint8Array(result.bytes)]).toEqual([9, 8, 7]);
+    expect(stored.size).toBe(1);
+  });
+
+  it("uses the network when the Cache API fails", async () => {
+    const cacheStorage: ElevationCacheStorage = {
+      async open() {
+        throw new Error("Cache storage is unavailable.");
+      },
+    };
+    let fetchCalls = 0;
+    const fetcher = (async () => {
+      fetchCalls += 1;
+      return new Response(new Uint8Array([4, 5, 6]), { status: 200 });
+    }) as typeof fetch;
+
+    const result = await loadCachedElevation(
+      { z: 12, x: 2_031, y: 1_377 },
+      new AbortController().signal,
+      { cacheStorage, fetcher },
+    );
+
+    expect(fetchCalls).toBe(1);
+    expect(result.cacheStatus).toBe("error");
+    expect([...new Uint8Array(result.bytes)]).toEqual([4, 5, 6]);
+  });
+
   it("decodes the external Terrarium pixel format", () => {
     const pixels = new Uint8ClampedArray(LOCAL_TILE_SIZE ** 2 * 4);
     for (let index = 0; index < pixels.length; index += 4) {
@@ -279,6 +343,38 @@ describe("Pas de Géant native terrain rings", () => {
     }
   });
 
+  it("clamps coastline endpoints before interpolating a conformed seam", () => {
+    const underwaterOffset = [-300, -30, 3] as const;
+    const landOffset = [350, 35, -3.5] as const;
+    const fraction = 0.5;
+    const conformedOceanOffset = interpolateOceanSurfaceOffsetM(
+      -300,
+      underwaterOffset,
+      350,
+      landOffset,
+      fraction,
+    );
+
+    expect(conformedOceanOffset).toEqual([175, 17.5, -1.75]);
+    expect(conformedOceanOffset).toEqual(
+      interpolateTerrainOffsetM(
+        clampOceanSurfaceOffsetM(-300, underwaterOffset),
+        clampOceanSurfaceOffsetM(350, landOffset),
+        fraction,
+      ),
+    );
+    expect(conformedOceanOffset).not.toEqual(
+      clampOceanSurfaceOffsetM(
+        25,
+        interpolateTerrainOffsetM(
+          underwaterOffset,
+          landOffset,
+          fraction,
+        ),
+      ),
+    );
+  });
+
   it("fades only selected patch boundaries back to global relief", () => {
     const noEdges = { north: 0, east: 0, south: 0, west: 0 };
     expect(resolveLocalElevation(-4_200, 0, 1)).toBe(-4_200);
@@ -327,5 +423,76 @@ describe("Pas de Géant native terrain rings", () => {
     expect(loads).toBe(3);
     queue.dispose();
     for (const release of releases) release();
+  });
+
+  it("aborts stale work and starts the replacement without callbacks", async () => {
+    const pending = new Map<
+      string,
+      { resolve: (value: number) => void; signal: AbortSignal }
+    >();
+    const loaded: string[] = [];
+    const failed: string[] = [];
+    const queue = new TileRequestQueue<number>(
+      (address, signal) =>
+        new Promise<number>((resolve) => {
+          pending.set(mercatorTileKey(address), { resolve, signal });
+        }),
+      (task) => {
+        loaded.push(mercatorTileKey(task.address));
+      },
+      (task) => {
+        failed.push(mercatorTileKey(task.address));
+      },
+      1,
+    );
+    const stale = { address: { z: 5, x: 1, y: 1 }, priority: 0 };
+    const replacement = {
+      address: { z: 5, x: 2, y: 1 },
+      priority: 0,
+    };
+    const staleKey = mercatorTileKey(stale.address);
+    const replacementKey = mercatorTileKey(replacement.address);
+
+    queue.sync([stale]);
+    queue.sync([replacement]);
+    expect(pending.get(staleKey)?.signal.aborted).toBe(true);
+    pending.get(staleKey)?.resolve(1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(pending.has(replacementKey)).toBe(true);
+    pending.get(replacementKey)?.resolve(2);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(loaded).toEqual([replacementKey]);
+    expect(failed).toEqual([]);
+    queue.dispose();
+  });
+
+  it("continues loading after a queued request fails", async () => {
+    const loaded: string[] = [];
+    const failed: string[] = [];
+    const queue = new TileRequestQueue<number>(
+      async (address) => {
+        if (address.x === 1) throw new Error("Synthetic network failure.");
+        return address.x;
+      },
+      (task) => {
+        loaded.push(mercatorTileKey(task.address));
+      },
+      (task) => {
+        failed.push(mercatorTileKey(task.address));
+      },
+      1,
+    );
+    const first = { address: { z: 5, x: 1, y: 1 }, priority: 0 };
+    const second = { address: { z: 5, x: 2, y: 1 }, priority: 1 };
+
+    queue.sync([first, second]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(failed).toEqual([mercatorTileKey(first.address)]);
+    expect(loaded).toEqual([mercatorTileKey(second.address)]);
+    expect(queue.activeCount).toBe(0);
+    queue.dispose();
   });
 });

@@ -9,7 +9,10 @@ import {
   LOCAL_TILE_SIZE,
   LruCache,
   buildHeightGrid513,
+  clampOceanSurfaceOffsetM,
   decodeTerrariumPixels,
+  interpolateOceanSurfaceOffsetM,
+  interpolateTerrainOffsetM,
   isOceanOnlyHeightTile,
   mercatorCoordinatesForTilePoint,
   mercatorTileKey,
@@ -182,6 +185,7 @@ interface TerrainSurfacePoint {
   normal: [number, number, number];
   heightM: number;
   detailOffsetM: [number, number, number];
+  oceanSurfaceOffsetM: [number, number, number];
 }
 
 function terrainSurfacePoint(
@@ -209,6 +213,11 @@ function terrainSurfacePoint(
     sineLatitude,
     -cosineLatitude * Math.sin(longitude),
   ];
+  const detailOffsetM: [number, number, number] = [
+    normal[0] * heightM,
+    normal[1] * heightM,
+    normal[2] * heightM,
+  ];
   return {
     position: [
       primeVerticalRadius * normal[0] / EARTH_MEAN_RADIUS_KM,
@@ -220,11 +229,8 @@ function terrainSurfacePoint(
     ],
     normal,
     heightM,
-    detailOffsetM: [
-      normal[0] * heightM,
-      normal[1] * heightM,
-      normal[2] * heightM,
-    ],
+    detailOffsetM,
+    oceanSurfaceOffsetM: clampOceanSurfaceOffsetM(heightM, detailOffsetM),
   };
 }
 
@@ -347,11 +353,18 @@ function constrainedSurfacePoint(
     ],
     normal,
     heightM: interpolate(first.heightM, second.heightM),
-    detailOffsetM: [
-      interpolate(first.detailOffsetM[0], second.detailOffsetM[0]),
-      interpolate(first.detailOffsetM[1], second.detailOffsetM[1]),
-      interpolate(first.detailOffsetM[2], second.detailOffsetM[2]),
-    ],
+    detailOffsetM: interpolateTerrainOffsetM(
+      first.detailOffsetM,
+      second.detailOffsetM,
+      interpolation.fraction,
+    ),
+    oceanSurfaceOffsetM: interpolateOceanSurfaceOffsetM(
+      first.heightM,
+      first.detailOffsetM,
+      second.heightM,
+      second.detailOffsetM,
+      interpolation.fraction,
+    ),
   };
 }
 
@@ -383,6 +396,9 @@ function buildFinalGeometry(
   const detailOffsetsM = includeDetailOffsets
     ? new Float32Array(finalVertexCount * 3)
     : undefined;
+  const oceanSurfaceOffsetsM = includeDetailOffsets
+    ? new Float32Array(finalVertexCount * 3)
+    : undefined;
   const skirtEdges = new Float32Array(finalVertexCount);
   const edgeSets: Array<Array<{ vertex: number; coordinate: number }>> = [
     [],
@@ -405,6 +421,10 @@ function buildFinalGeometry(
     positions.set(surface.position, positionOffset);
     normals.set(surface.normal, positionOffset);
     detailOffsetsM?.set(surface.detailOffsetM, positionOffset);
+    oceanSurfaceOffsetsM?.set(
+      surface.oceanSurfaceOffsetM,
+      positionOffset,
+    );
     const uvOffset = index * 2;
     uvs[uvOffset] = pixelX / LOCAL_TILE_SIZE;
     uvs[uvOffset + 1] = pixelY / LOCAL_TILE_SIZE;
@@ -500,6 +520,20 @@ function buildFinalGeometry(
         (surface) => surface.detailOffsetM[2],
       );
     }
+    if (oceanSurfaceOffsetsM) {
+      oceanSurfaceOffsetsM[positionOffset] = average(
+        conformed,
+        (surface) => surface.oceanSurfaceOffsetM[0],
+      );
+      oceanSurfaceOffsetsM[positionOffset + 1] = average(
+        conformed,
+        (surface) => surface.oceanSurfaceOffsetM[1],
+      );
+      oceanSurfaceOffsetsM[positionOffset + 2] = average(
+        conformed,
+        (surface) => surface.oceanSurfaceOffsetM[2],
+      );
+    }
   }
 
   const skirtIndexCount = edgeSets.reduce(
@@ -534,6 +568,12 @@ function buildFinalGeometry(
       if (detailOffsetsM) {
         detailOffsetsM.set(
           detailOffsetsM.subarray(vertex * 3, vertex * 3 + 3),
+          duplicate * 3,
+        );
+      }
+      if (oceanSurfaceOffsetsM) {
+        oceanSurfaceOffsetsM.set(
+          oceanSurfaceOffsetsM.subarray(vertex * 3, vertex * 3 + 3),
           duplicate * 3,
         );
       }
@@ -582,6 +622,7 @@ function buildFinalGeometry(
     heightUvs.byteLength +
     detailHeightsM.byteLength +
     (detailOffsetsM?.byteLength ?? 0) +
+    (oceanSurfaceOffsetsM?.byteLength ?? 0) +
     skirtEdges.byteLength +
     indices.byteLength;
   return {
@@ -591,6 +632,7 @@ function buildFinalGeometry(
     heightUvs,
     detailHeightsM,
     ...(detailOffsetsM ? { detailOffsetsM } : {}),
+    ...(oceanSurfaceOffsetsM ? { oceanSurfaceOffsetsM } : {}),
     skirtEdges,
     indices,
     boundingCentre,
@@ -667,6 +709,9 @@ function buildMesh(
     ];
     if (result.detailOffsetsM) {
       transfer.push(result.detailOffsetsM.buffer);
+    }
+    if (result.oceanSurfaceOffsetsM) {
+      transfer.push(result.oceanSurfaceOffsetsM.buffer);
     }
     worker.postMessage(result, transfer);
   } catch (error) {

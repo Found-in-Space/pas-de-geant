@@ -1,4 +1,7 @@
-import { INITIAL_DISPLAY_RADIUS_M } from "./planet-state.js";
+import {
+  INITIAL_DISPLAY_RADIUS_M,
+  normalizedRadialOffsetForMetres,
+} from "./planet-state.js";
 import {
   LOCAL_TILE_COARSEN_WIDTH_M,
   LOCAL_TILE_REFINE_WIDTH_M,
@@ -22,11 +25,14 @@ export const CONSTRUCT_UNDERFOOT_SEGMENTS = 512;
 export const CONSTRUCT_FINE_SEGMENTS = 64;
 export const CONSTRUCT_PARENT_SEGMENTS = 32;
 export const CONSTRUCT_OUTER_SEGMENTS = 16;
+export const CONSTRUCT_OUTER_SKIRT_DEPTH_M = 750;
+export const CONSTRUCT_SEAM_SKIRT_DEPTH_WORLD_M = 0.0005;
 
 export interface ConstructTerrainTile extends MercatorTileAddress {
   ring: number;
   priority: number;
   meshSegments: number;
+  outerEdges: LocalEdgeMask;
   skirtEdges: LocalEdgeMask;
   edgeConstraints: TerrainEdgeConstraints;
 }
@@ -137,6 +143,7 @@ function applyConstructEdgeStitching(
           footprintsShareEdge(footprint, candidate, edge),
       );
       if (neighbours.length === 0) {
+        footprint.tile.outerEdges[edge] = 1;
         footprint.tile.skirtEdges[edge] = 1;
         continue;
       }
@@ -161,6 +168,23 @@ function applyConstructEdgeStitching(
 export function constructDisplayRadiusM(scaleFactor: number): number {
   return INITIAL_DISPLAY_RADIUS_M *
     Math.max(1, Math.min(1000, scaleFactor));
+}
+
+export function constructSkirtDepths(
+  displayRadiusM: number,
+  radialMultiplier: number,
+): {
+  normalizedSeamSkirtDepth: number;
+  normalizedOuterSkirtDepth: number;
+} {
+  return {
+    normalizedSeamSkirtDepth:
+      CONSTRUCT_SEAM_SKIRT_DEPTH_WORLD_M / displayRadiusM,
+    normalizedOuterSkirtDepth: normalizedRadialOffsetForMetres(
+      CONSTRUCT_OUTER_SKIRT_DEPTH_M,
+      radialMultiplier,
+    ),
+  };
 }
 
 export function constructScaleFactor(value: string | null | undefined): number {
@@ -324,6 +348,7 @@ export function selectConstructTerrainPlan(options: {
               : ring === 1
                 ? CONSTRUCT_PARENT_SEGMENTS
                 : CONSTRUCT_OUTER_SEGMENTS,
+          outerEdges: emptyConstructEdgeMask(),
           skirtEdges: emptyConstructEdgeMask(),
           edgeConstraints: {},
         });

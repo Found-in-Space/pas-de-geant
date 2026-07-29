@@ -14,6 +14,7 @@ import {
   type TileLoadTask,
 } from "./local-terrain-core.js";
 import {
+  constructSkirtDepths,
   selectConstructTerrainPlan,
   type ConstructTerrainTile,
   type ConstructTerrainPlan,
@@ -49,7 +50,18 @@ interface ConstructTerrainStatus {
   ready: boolean;
 }
 
-const CONSTRUCT_SKIRT_DEPTH_M = 750;
+const CONSTRUCT_TERRAIN_EDGES = [
+  "north",
+  "east",
+  "south",
+  "west",
+] as const;
+
+function edgeMaskSignature(
+  mask: ConstructTerrainTile["skirtEdges"],
+): string {
+  return CONSTRUCT_TERRAIN_EDGES.map((edge) => mask[edge]).join("");
+}
 
 function tileGeometrySignature(tile: ConstructTerrainTile): string {
   const constraints = Object.entries(tile.edgeConstraints)
@@ -62,8 +74,8 @@ function tileGeometrySignature(tile: ConstructTerrainTile): string {
     .join(",");
   return (
     `${tile.meshSegments}:` +
-    `${tile.skirtEdges.north}${tile.skirtEdges.east}` +
-    `${tile.skirtEdges.south}${tile.skirtEdges.west}:` +
+    `${edgeMaskSignature(tile.skirtEdges)}:` +
+    `${edgeMaskSignature(tile.outerEdges)}:` +
     constraints
   );
 }
@@ -78,7 +90,8 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
     uniforms: {
       imageMap: { value: texture },
       normalizedRadialMetres: { value: 0 },
-      normalizedSkirtDepth: { value: 0 },
+      normalizedSeamSkirtDepth: { value: 0 },
+      normalizedOuterSkirtDepth: { value: 0 },
       oceanSurface: { value: 1 },
       sunlight: {
         value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize(),
@@ -86,23 +99,30 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
     },
     vertexShader: `
       attribute vec2 heightUv;
-      attribute float detailHeightM;
       attribute vec3 detailOffsetM;
-      attribute float skirtEdge;
+      attribute vec3 oceanSurfaceOffsetM;
+      attribute float skirtKind;
       uniform float normalizedRadialMetres;
-      uniform float normalizedSkirtDepth;
+      uniform float normalizedSeamSkirtDepth;
+      uniform float normalizedOuterSkirtDepth;
       uniform float oceanSurface;
       varying vec2 vImageUv;
       varying vec3 vBaseNormal;
       void main() {
-        vec3 displayedDetailOffsetM = detailOffsetM;
-        if (oceanSurface > 0.5 && detailHeightM < 0.0) {
-          displayedDetailOffsetM = vec3(0.0);
-        }
+        vec3 displayedDetailOffsetM = mix(
+          detailOffsetM,
+          oceanSurfaceOffsetM,
+          step(0.5, oceanSurface)
+        );
+        float skirtDepth = mix(
+          normalizedSeamSkirtDepth,
+          normalizedOuterSkirtDepth,
+          step(1.5, skirtKind)
+        ) * step(0.5, skirtKind);
         vec3 displaced =
           position +
           displayedDetailOffsetM * normalizedRadialMetres -
-          normal * normalizedSkirtDepth * step(0.5, skirtEdge);
+          normal * skirtDepth;
         vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
         vImageUv = heightUv;
         vBaseNormal = normalize(mat3(modelMatrix) * normal);
@@ -127,9 +147,19 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
   });
 }
 
-function geometryForTile(result: PreparedTile): THREE.BufferGeometry {
-  if (!result.detailOffsetsM) {
+function geometryForTile(
+  result: PreparedTile,
+  tile: ConstructTerrainTile,
+): THREE.BufferGeometry {
+  if (!result.detailOffsetsM || !result.oceanSurfaceOffsetsM) {
     throw new Error("Construct terrain requires vector height offsets.");
+  }
+  const skirtKinds = new Float32Array(result.skirtEdges.length);
+  for (let index = 0; index < result.skirtEdges.length; index += 1) {
+    const encodedEdge = Math.round(result.skirtEdges[index] ?? 0);
+    if (encodedEdge <= 0) continue;
+    const edge = CONSTRUCT_TERRAIN_EDGES[encodedEdge - 1];
+    skirtKinds[index] = edge && tile.outerEdges[edge] > 0 ? 2 : 1;
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
@@ -154,8 +184,12 @@ function geometryForTile(result: PreparedTile): THREE.BufferGeometry {
     new THREE.BufferAttribute(result.detailOffsetsM, 3),
   );
   geometry.setAttribute(
-    "skirtEdge",
-    new THREE.BufferAttribute(result.skirtEdges, 1),
+    "oceanSurfaceOffsetM",
+    new THREE.BufferAttribute(result.oceanSurfaceOffsetsM, 3),
+  );
+  geometry.setAttribute(
+    "skirtKind",
+    new THREE.BufferAttribute(skirtKinds, 1),
   );
   geometry.setIndex(new THREE.BufferAttribute(result.indices, 1));
   geometry.boundingSphere = new THREE.Sphere(
@@ -276,11 +310,14 @@ export class ConstructTerrainRenderer {
     }
     this.material.uniforms.normalizedRadialMetres!.value =
       normalizedRadialOffsetForMetres(1, options.radialMultiplier);
-    this.material.uniforms.normalizedSkirtDepth!.value =
-      normalizedRadialOffsetForMetres(
-        CONSTRUCT_SKIRT_DEPTH_M,
-        options.radialMultiplier,
-      );
+    const skirtDepths = constructSkirtDepths(
+      options.displayRadiusM,
+      options.radialMultiplier,
+    );
+    this.material.uniforms.normalizedSeamSkirtDepth!.value =
+      skirtDepths.normalizedSeamSkirtDepth;
+    this.material.uniforms.normalizedOuterSkirtDepth!.value =
+      skirtDepths.normalizedOuterSkirtDepth;
     this.material.uniforms.oceanSurface!.value =
       options.oceanSurface ? 1 : 0;
   }
@@ -513,17 +550,25 @@ export class ConstructTerrainRenderer {
     } else {
       this.meshInFlight = false;
       this.meshInFlightKey = undefined;
+      const matchingTile =
+        result.type === "mesh"
+          ? this.plan?.rendered.find(
+              (tile) =>
+                mercatorTileKey(tile) === key &&
+                tile.meshSegments === result.requestedSegments &&
+                tileGeometrySignature(tile) === pending.geometrySignature,
+            )
+          : undefined;
       if (
         result.type === "mesh" &&
         result.generation === this.generation &&
-        this.plan?.rendered.some(
-          (tile) =>
-            mercatorTileKey(tile) === key &&
-            tile.meshSegments === result.requestedSegments &&
-            tileGeometrySignature(tile) === pending.geometrySignature,
-        )
+        matchingTile
       ) {
-        this.installMesh(result, pending.geometrySignature ?? "");
+        this.installMesh(
+          result,
+          matchingTile,
+          pending.geometrySignature ?? "",
+        );
       } else if (result.type === "error") {
         if (result.missing) {
           // The worker keeps decoded heights in a bounded LRU, while the
@@ -547,11 +592,15 @@ export class ConstructTerrainRenderer {
 
   private installMesh(
     result: PreparedTile,
+    tile: ConstructTerrainTile,
     geometrySignature: string,
   ): void {
     const key = mercatorTileKey(result.address);
     this.removeMesh(key);
-    const mesh = new THREE.Mesh(geometryForTile(result), this.material);
+    const mesh = new THREE.Mesh(
+      geometryForTile(result, tile),
+      this.material,
+    );
     mesh.frustumCulled = false;
     mesh.visible = !this.zoomTransitionPending;
     mesh.userData.meshSegments = result.actualSegments;
@@ -638,6 +687,8 @@ export class ConstructTerrainRenderer {
       const sourcePositions = sourceMesh.geometry.getAttribute("position");
       const sourceOffsets =
         sourceMesh.geometry.getAttribute("detailOffsetM");
+      const sourceOceanSurfaceOffsets =
+        sourceMesh.geometry.getAttribute("oceanSurfaceOffsetM");
       const sourceSide = tile.meshSegments + 1;
       const sourceStep = LOCAL_TILE_SIZE / tile.meshSegments;
       for (const [edge, constraint] of Object.entries(
@@ -656,6 +707,8 @@ export class ConstructTerrainRenderer {
         const targetPositions = targetMesh.geometry.getAttribute("position");
         const targetOffsets =
           targetMesh.geometry.getAttribute("detailOffsetM");
+        const targetOceanSurfaceOffsets =
+          targetMesh.geometry.getAttribute("oceanSurfaceOffsetM");
         const targetSide = constraint.segments + 1;
         const targetStep = LOCAL_TILE_SIZE / constraint.segments;
         for (
@@ -757,6 +810,10 @@ export class ConstructTerrainRenderer {
           maximumOffsetErrorM = Math.max(
             maximumOffsetErrorM,
             compareAttribute(sourceOffsets, targetOffsets),
+            compareAttribute(
+              sourceOceanSurfaceOffsets,
+              targetOceanSurfaceOffsets,
+            ),
           );
           checks += 1;
         }

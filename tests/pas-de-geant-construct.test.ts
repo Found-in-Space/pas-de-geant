@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   CONSTRUCT_LATITUDE_DEGREES,
   CONSTRUCT_LONGITUDE_DEGREES,
+  CONSTRUCT_OUTER_SKIRT_DEPTH_M,
   CONSTRUCT_SCALE_FACTORS,
+  CONSTRUCT_SEAM_SKIRT_DEPTH_WORLD_M,
   constructDisplayRadiusM,
   constructScaleFactor,
+  constructSkirtDepths,
   selectConstructTerrainPlan,
 } from "../apps/pas-de-geant/src/construct-core.js";
 import { mercatorTileKey } from "../apps/pas-de-geant/src/local-terrain-core.js";
@@ -16,6 +19,28 @@ describe("The Construct fixed terrain pattern", () => {
     }
     expect(constructScaleFactor("17")).toBe(1);
     expect(constructScaleFactor(null)).toBe(1);
+  });
+
+  it("keeps seam skirts sub-millimetre at every scale and exaggeration", () => {
+    for (const scaleFactor of CONSTRUCT_SCALE_FACTORS) {
+      const displayRadiusM = constructDisplayRadiusM(scaleFactor);
+      for (const radialMultiplier of [0.25, 1, 20]) {
+        const depths = constructSkirtDepths(
+          displayRadiusM,
+          radialMultiplier,
+        );
+        expect(
+          depths.normalizedSeamSkirtDepth * displayRadiusM,
+        ).toBeCloseTo(CONSTRUCT_SEAM_SKIRT_DEPTH_WORLD_M, 12);
+        expect(depths.normalizedOuterSkirtDepth * displayRadiusM).toBeCloseTo(
+          CONSTRUCT_OUTER_SKIRT_DEPTH_M *
+            radialMultiplier *
+            displayRadiusM /
+            6_371_008.8,
+          12,
+        );
+      }
+    }
   });
 
   it.each([
@@ -129,6 +154,27 @@ describe("The Construct fixed terrain pattern", () => {
     expect(coveredFinestTiles).toBe(32 * 32);
   });
 
+  it("reserves deep curtains for the outer stencil perimeter", () => {
+    const plan = selectConstructTerrainPlan({
+      latitudeDegrees: CONSTRUCT_LATITUDE_DEGREES,
+      longitudeDegrees: CONSTRUCT_LONGITUDE_DEGREES,
+      displayRadiusM: constructDisplayRadiusM(1),
+    });
+    const edges = ["north", "east", "south", "west"] as const;
+    const outerEdges = plan.rendered.flatMap((tile) =>
+      edges
+        .filter((edge) => tile.outerEdges[edge] > 0)
+        .map((edge) => ({ tile, edge })),
+    );
+
+    expect(outerEdges).toHaveLength(32);
+    for (const { tile, edge } of outerEdges) {
+      expect(tile.ring).toBe(2);
+      expect(tile.skirtEdges[edge]).toBe(1);
+      expect(tile.edgeConstraints[edge]).toBeUndefined();
+    }
+  });
+
   it("conforms every mixed-density border from the detailed side only", () => {
     const plan = selectConstructTerrainPlan({
       latitudeDegrees: CONSTRUCT_LATITUDE_DEGREES,
@@ -193,8 +239,10 @@ describe("The Construct fixed terrain pattern", () => {
           detailed.neighbour.tile.meshSegments,
         );
         expect(detailed.footprint.tile.skirtEdges[detailed.edge]).toBe(1);
+        expect(detailed.footprint.tile.outerEdges[detailed.edge]).toBe(0);
         expect(coarse.footprint.tile.edgeConstraints[coarse.edge]).toBeUndefined();
         expect(coarse.footprint.tile.skirtEdges[coarse.edge]).toBe(0);
+        expect(coarse.footprint.tile.outerEdges[coarse.edge]).toBe(0);
       }
     }
 

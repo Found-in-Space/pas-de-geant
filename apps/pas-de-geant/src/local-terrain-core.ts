@@ -132,6 +132,7 @@ export type LocalTerrainWorkerResult =
       heightUvs: Float32Array;
       detailHeightsM: Float32Array;
       detailOffsetsM?: Float32Array;
+      oceanSurfaceOffsetsM?: Float32Array;
       skirtEdges: Float32Array;
       indices: Uint32Array;
       boundingCentre: Float32Array;
@@ -755,6 +756,41 @@ export function terrainEdgeInterpolation(
     secondPixel,
     fraction: (clampedPixel - firstPixel) / step,
   };
+}
+
+export type TerrainOffsetM = readonly [number, number, number];
+
+export function clampOceanSurfaceOffsetM(
+  heightM: number,
+  detailOffsetM: TerrainOffsetM,
+): [number, number, number] {
+  return heightM < 0 ? [0, 0, 0] : [...detailOffsetM];
+}
+
+export function interpolateTerrainOffsetM(
+  first: TerrainOffsetM,
+  second: TerrainOffsetM,
+  fraction: number,
+): [number, number, number] {
+  return [
+    first[0] + (second[0] - first[0]) * fraction,
+    first[1] + (second[1] - first[1]) * fraction,
+    first[2] + (second[2] - first[2]) * fraction,
+  ];
+}
+
+export function interpolateOceanSurfaceOffsetM(
+  firstHeightM: number,
+  firstDetailOffsetM: TerrainOffsetM,
+  secondHeightM: number,
+  secondDetailOffsetM: TerrainOffsetM,
+  fraction: number,
+): [number, number, number] {
+  return interpolateTerrainOffsetM(
+    clampOceanSurfaceOffsetM(firstHeightM, firstDetailOffsetM),
+    clampOceanSurfaceOffsetM(secondHeightM, secondDetailOffsetM),
+    fraction,
+  );
 }
 
 export function meshSegmentsForRing(ring: number, lodBias = 0): number {

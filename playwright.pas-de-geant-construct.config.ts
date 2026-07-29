@@ -6,9 +6,9 @@ const baseURL = `http://127.0.0.1:${port}`;
 export default defineConfig({
   testDir: "tests/browser",
   testMatch: "pas-de-geant-construct.spec.ts",
-  timeout: 180_000,
+  timeout: 30_000,
   expect: {
-    timeout: 90_000,
+    timeout: 10_000,
   },
   use: {
     baseURL,
