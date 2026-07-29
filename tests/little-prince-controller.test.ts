@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import {
+  controllerIntent,
   deadzone,
+  freshButtonLatch,
   headRelativeTravel,
   stickForSource,
 } from "../apps/little-prince/src/controller-input.js";
@@ -38,5 +40,36 @@ describe("Little Planet controller input", () => {
 
     expect(planetScale).toBeGreaterThan(0);
     expect(radialMultiplier).toBe(0);
+  });
+
+  it("toggles the hand panel once per right-stick press", () => {
+    const stickButton = { pressed: true, value: 1 };
+    const right = {
+      handedness: "right",
+      gamepad: {
+        axes: [0, 0, 0, 0],
+        buttons: [
+          { pressed: false, value: 0 },
+          { pressed: false, value: 0 },
+          { pressed: false, value: 0 },
+          stickButton,
+          { pressed: false, value: 0 },
+          { pressed: false, value: 0 },
+        ],
+      },
+    } as unknown as XRInputSource;
+    const session = {
+      inputSources: [right],
+    } as unknown as XRSession;
+    const latch = freshButtonLatch();
+
+    expect(controllerIntent(session, 0, latch).togglePanel).toBe(true);
+    expect(controllerIntent(session, 16, latch).togglePanel).toBe(false);
+    stickButton.pressed = false;
+    stickButton.value = 0;
+    expect(controllerIntent(session, 32, latch).togglePanel).toBe(false);
+    stickButton.pressed = true;
+    stickButton.value = 1;
+    expect(controllerIntent(session, 48, latch).togglePanel).toBe(true);
   });
 });

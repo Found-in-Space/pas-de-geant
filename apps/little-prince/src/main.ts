@@ -1,5 +1,14 @@
 import "./style.css";
 
+import {
+  createRuntime,
+  type BitmapHandle,
+} from "@found-in-space/touch-os";
+import {
+  createPoseAnchoredPanelDriver,
+  createThreePanelSession,
+  type ThreeHostPose,
+} from "@found-in-space/touch-os/hosts/three";
 import * as THREE from "three";
 import { VRButton } from "three/addons/webxr/VRButton.js";
 import {
@@ -15,6 +24,12 @@ import {
   headRelativeTravel,
 } from "./controller-input.js";
 import { CelestialSphere } from "./celestial-sphere.js";
+import {
+  createHandPanelRoot,
+  formatCoordinates,
+  HAND_PANEL_SURFACE,
+  HAND_PANEL_THEME,
+} from "./hand-panel.js";
 import {
   applyLogarithmicScale,
   applyRadialMultiplierRate,
@@ -56,6 +71,7 @@ try {
     antialias: true,
     alpha: false,
     powerPreference: "high-performance",
+    stencil: true,
   });
 } catch (error) {
   loadingState.hidden = true;
@@ -114,7 +130,14 @@ fallbackTexture.anisotropy = Math.min(
 
 const relief = await loadReliefDataset();
 document.body.dataset.reliefFallback = String(relief.fallback);
-const terrain = new TerrainTileRenderer(relief, fallbackTexture);
+const renderingContext = renderer.getContext();
+const detailStencilAvailable =
+  renderingContext.getParameter(renderingContext.STENCIL_BITS) > 0;
+const terrain = new TerrainTileRenderer(
+  relief,
+  fallbackTexture,
+  detailStencilAvailable,
+);
 planetRoot.add(terrain.group);
 const aircraftLayer = new AircraftLayer();
 planetRoot.add(aircraftLayer.group);
@@ -123,6 +146,50 @@ const atmosphere = new AtmosphereLayer();
 planetRoot.add(atmosphere.mesh);
 
 let state = initialPlanetState();
+const initialCoordinates = coordinatesForFrame(state.contact);
+const earthMapBitmap: BitmapHandle = {
+  kind: "bitmap",
+  image: fallbackTexture.image,
+  width: 2_048,
+  height: 1_024,
+  revision: 1,
+};
+const handPanelRuntime = createRuntime({
+  root: createHandPanelRoot(initialCoordinates, earthMapBitmap),
+  surface: HAND_PANEL_SURFACE,
+  theme: HAND_PANEL_THEME,
+});
+const handPanelHostRoot = new THREE.Group();
+handPanelHostRoot.name = "hand-panel-host";
+scene.add(handPanelHostRoot);
+const handPanelDriver = createPoseAnchoredPanelDriver({
+  runtime: handPanelRuntime,
+  parent: handPanelHostRoot,
+  surface: HAND_PANEL_SURFACE,
+  panelWidth: 0.32,
+  panelHeight: 0.18,
+  tiltRadians: -Math.PI * 0.24,
+  offset: { x: 0.04, y: 0.05, z: -0.03 },
+  depthTest: false,
+  depthWrite: false,
+  renderOrder: 100,
+  textureQuality: {
+    anisotropy: Math.min(4, renderer.capabilities.getMaxAnisotropy()),
+  },
+});
+const handPanel = createThreePanelSession({
+  key: "little-planet-earth-map",
+  runtime: handPanelRuntime,
+  driver: handPanelDriver,
+  enabled: false,
+});
+handPanel.attach();
+let handPanelLocationSignature =
+  `${initialCoordinates.latitudeDegrees.toFixed(2)}:` +
+  initialCoordinates.longitudeDegrees.toFixed(2);
+let handPanelLastRedrawMs = -Infinity;
+let handPanelRedrawCount = 1;
+document.body.dataset.handPanelRedrawCount = String(handPanelRedrawCount);
 let previousFrameMs = performance.now();
 let previousXrHead: THREE.Vector2 | null = null;
 const headsetFloorPosition = new THREE.Vector2();
@@ -131,7 +198,7 @@ const xrViewQuaternion = new THREE.Quaternion();
 const desktopTravel = new THREE.Vector2();
 const keys = new Set<string>();
 const buttonLatch = freshButtonLatch();
-let hudVisible = true;
+let handPanelVisible = true;
 let pointerActive = false;
 let pointerX = 0;
 let pointerY = 0;
@@ -194,7 +261,10 @@ function updatePresentation(): void {
   radialReadout.textContent =
     `${state.radialMultiplier.toFixed(1)}× · ` +
     `1 km = ${formatRoomDistance(radialMetresPerKilometre)}`;
-  drawWristHud();
+  syncHandPanelLocation(
+    coordinates.latitudeDegrees,
+    coordinates.longitudeDegrees,
+  );
 }
 
 function formatRoomDistance(metres: number): string {
@@ -204,93 +274,97 @@ function formatRoomDistance(metres: number): string {
   return `${metres.toFixed(2)} m`;
 }
 
-function formatCoordinates(latitude: number, longitude: number): string {
-  return (
-    `${Math.abs(latitude).toFixed(2)}° ${latitude >= 0 ? "N" : "S"} · ` +
-    `${Math.abs(longitude).toFixed(2)}° ${longitude >= 0 ? "E" : "W"}`
+function syncHandPanelLocation(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+): void {
+  if (!renderer.xr.isPresenting || !handPanelVisible) return;
+  const signature =
+    `${latitudeDegrees.toFixed(2)}:${longitudeDegrees.toFixed(2)}`;
+  if (signature === handPanelLocationSignature) return;
+  const nowMs = performance.now();
+  if (nowMs - handPanelLastRedrawMs < 100) return;
+  handPanelLocationSignature = signature;
+  handPanelLastRedrawMs = nowMs;
+  handPanelRuntime.setRoot(
+    createHandPanelRoot(
+      { latitudeDegrees, longitudeDegrees },
+      earthMapBitmap,
+    ),
   );
+  handPanelRedrawCount += 1;
+  document.body.dataset.handPanelRedrawCount =
+    String(handPanelRedrawCount);
 }
 
-const wristCanvas = document.createElement("canvas");
-wristCanvas.width = 640;
-wristCanvas.height = 320;
-const wristContextValue = wristCanvas.getContext("2d");
-if (!wristContextValue) throw new Error("Canvas rendering is unavailable.");
-const wristContext: CanvasRenderingContext2D = wristContextValue;
-const wristTexture = new THREE.CanvasTexture(wristCanvas);
-wristTexture.colorSpace = THREE.SRGBColorSpace;
-const wristPanel = new THREE.Mesh(
-  new THREE.PlaneGeometry(0.24, 0.12),
-  new THREE.MeshBasicMaterial({
-    map: wristTexture,
-    transparent: true,
-    depthTest: false,
-  }),
-);
-wristPanel.position.set(0, 0.085, -0.11);
-wristPanel.rotation.x = -0.72;
-wristPanel.renderOrder = 100;
+const handPanelAnchorPosition = new THREE.Vector3();
+const handPanelAnchorQuaternion = new THREE.Quaternion();
+const xrControllerBindings = [0, 1].map((index) => ({
+  controller: renderer.xr.getController(index),
+  grip: renderer.xr.getControllerGrip(index),
+  connected: false,
+  handedness: "none" as XRHandedness,
+}));
 
-function drawWristHud(): void {
-  wristPanel.visible = hudVisible;
-  wristContext.clearRect(0, 0, wristCanvas.width, wristCanvas.height);
-  wristContext.fillStyle = "rgba(3, 12, 20, 0.88)";
-  wristContext.fillRect(0, 0, wristCanvas.width, wristCanvas.height);
-  wristContext.strokeStyle = "rgba(121, 215, 239, 0.75)";
-  wristContext.lineWidth = 5;
-  wristContext.strokeRect(7, 7, wristCanvas.width - 14, wristCanvas.height - 14);
-  wristContext.fillStyle = "#76ddf1";
-  wristContext.font = "700 34px system-ui";
-  wristContext.fillText("LITTLE PLANET", 34, 58);
-  wristContext.fillStyle = "#f1f8fb";
-  wristContext.font = "600 30px system-ui";
-  wristContext.fillText(coordinatesReadout.textContent ?? "", 34, 112);
-  const horizontalScale = horizontalWorldMetresForKilometres(
-    1,
-    state.displayRadiusM,
-  );
-  const radialScale = radialWorldMetresForKilometres(
-    1,
-    state.displayRadiusM,
-    state.radialMultiplier,
-  );
-  wristContext.fillText(
-    `Planet 1 km = ${formatRoomDistance(horizontalScale)}`,
-    34,
-    162,
-  );
-  wristContext.fillText(
-    `Radial ${state.radialMultiplier.toFixed(1)}× · ` +
-      `1 km = ${formatRoomDistance(radialScale)}`,
-    34,
-    212,
-  );
-  wristContext.fillStyle = "#76ddf1";
-  wristContext.font = "600 24px system-ui";
-  wristContext.fillText(
-    `${state.oceanMode === "surface" ? "Ocean" : "Seabed"} · ${
-      aircraftEnabled
-        ? aircraftReadout.textContent ?? `${aircraftCount} live aircraft`
-        : "Aircraft off"
-    }`,
-    34,
-    252,
-  );
-  wristContext.fillStyle = "#9babb5";
-  wristContext.font = "500 19px system-ui";
-  wristContext.fillText("A ocean · hold B reset · stick press HUD", 34, 294);
-  wristTexture.needsUpdate = true;
-}
-
-for (let index = 0; index < 2; index += 1) {
-  const controller = renderer.xr.getController(index);
-  controller.addEventListener("connected", (event) => {
+for (const binding of xrControllerBindings) {
+  binding.controller.addEventListener("connected", (event) => {
     const source = (event as THREE.Event & { data?: XRInputSource }).data;
-    if (source?.handedness === "right" || index === 1) {
-      controller.add(wristPanel);
-    }
+    binding.connected = true;
+    binding.handedness = source?.handedness ?? "none";
   });
-  scene.add(controller);
+  binding.controller.addEventListener("disconnected", () => {
+    binding.connected = false;
+    binding.handedness = "none";
+  });
+  scene.add(binding.controller);
+  scene.add(binding.grip);
+}
+
+function resolveHandPanelAnchorPose(): ThreeHostPose | undefined {
+  const binding =
+    xrControllerBindings.find(
+      (candidate) =>
+        candidate.connected && candidate.handedness === "left",
+    ) ??
+    xrControllerBindings.find(
+      (candidate) =>
+        candidate.connected && candidate.handedness === "none",
+    ) ??
+    xrControllerBindings.find((candidate) => candidate.connected);
+  if (!binding) return undefined;
+  binding.grip.getWorldPosition(handPanelAnchorPosition);
+  binding.grip.getWorldQuaternion(handPanelAnchorQuaternion);
+  return {
+    position: {
+      x: handPanelAnchorPosition.x,
+      y: handPanelAnchorPosition.y,
+      z: handPanelAnchorPosition.z,
+    },
+    orientation: {
+      x: handPanelAnchorQuaternion.x,
+      y: handPanelAnchorQuaternion.y,
+      z: handPanelAnchorQuaternion.z,
+      w: handPanelAnchorQuaternion.w,
+    },
+  };
+}
+
+function updateHandPanel(nowMs: number): void {
+  if (!renderer.xr.isPresenting || !handPanelVisible) {
+    if (handPanel.enabled) handPanel.enabled = false;
+    return;
+  }
+  const anchorPose = resolveHandPanelAnchorPose();
+  if (!anchorPose) {
+    if (handPanel.enabled) handPanel.enabled = false;
+    return;
+  }
+  handPanel.enabled = true;
+  handPanel.update({
+    timestamp: nowMs,
+    camera: renderer.xr.getCamera(),
+    anchorPose,
+  });
 }
 
 function updatePhysicalWalking(): void {
@@ -337,9 +411,8 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
   );
   if (intent.toggleOcean) toggleOcean();
   if (intent.reset) resetPlanet();
-  if (intent.toggleHud) {
-    hudVisible = !hudVisible;
-    drawWristHud();
+  if (intent.togglePanel) {
+    handPanelVisible = !handPanelVisible;
   }
 }
 
@@ -480,7 +553,6 @@ async function pollAircraft(): Promise<void> {
     aircraftCount = aircraft.length;
     aircraftReadout.textContent = `${aircraftCount} nearby · 30 s`;
     document.body.dataset.aircraftCount = String(aircraftCount);
-    drawWristHud();
   } catch (error) {
     if (!(error instanceof DOMException && error.name === "AbortError")) {
       console.warn("Live aircraft update failed:", error);
@@ -508,7 +580,6 @@ function setAircraftEnabled(enabled: boolean): void {
     stopAircraftPolling();
     aircraftReadout.textContent = "Off · optional";
   }
-  drawWristHud();
 }
 
 aircraftToggle.addEventListener("change", () => {
@@ -538,6 +609,7 @@ renderer.xr.addEventListener("sessionstart", () => {
 });
 renderer.xr.addEventListener("sessionend", () => {
   vrSessionActive = false;
+  handPanel.enabled = false;
   stopAircraftPolling();
   aircraftLayer.visible = false;
   aircraftReadout.textContent = aircraftEnabled
@@ -582,8 +654,14 @@ function render(nowMs: number): void {
     cameraWorldPosition,
     utcMilliseconds,
   );
+  updateHandPanel(nowMs);
   renderer.render(scene, camera);
 }
+
+window.addEventListener("beforeunload", () => {
+  handPanel.dispose();
+  handPanelRuntime.dispose();
+});
 
 updatePresentation();
 loadingState.hidden = true;

@@ -7,7 +7,7 @@ export interface ControllerIntent {
   boost: boolean;
   toggleOcean: boolean;
   reset: boolean;
-  toggleHud: boolean;
+  togglePanel: boolean;
 }
 
 export interface ButtonLatch {
@@ -54,7 +54,7 @@ export function controllerIntent(
   const bPressed = rightButtons[5]?.pressed ?? rightButtons[1]?.pressed ?? false;
   const stickPressed = rightButtons[3]?.pressed ?? false;
   const toggleOcean = aPressed && !latch.a;
-  const toggleHud = stickPressed && !latch.stick;
+  const togglePanel = stickPressed && !latch.stick;
   latch.a = aPressed;
   latch.stick = stickPressed;
   if (bPressed && latch.bStartedAt === null) latch.bStartedAt = nowMs;
@@ -72,7 +72,7 @@ export function controllerIntent(
       (leftButtons[1]?.value ?? 0) > 0.55,
     toggleOcean,
     reset,
-    toggleHud,
+    togglePanel,
   };
 }
 

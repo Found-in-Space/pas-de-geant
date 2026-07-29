@@ -4,9 +4,18 @@ import {
   WGS84_A_KM,
   WGS84_B_KM,
   normalizedRadialOffsetForMetres,
-  radialWorldMetresForKilometres,
 } from "./planet-state.js";
+import {
+  LocalTerrainRenderer,
+  type LocalTerrainImageryPatch,
+} from "./local-terrain.js";
 import type { ReliefDataset } from "./relief.js";
+import {
+  FALLBACK_MAX_ELEVATION_M,
+  terrainHorizonDegrees,
+} from "./terrain-horizon.js";
+
+export { terrainHorizonDegrees } from "./terrain-horizon.js";
 
 const GIBS_WMTS =
   "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/" +
@@ -18,7 +27,6 @@ export const DETAIL_TILE_LIMIT = 32;
 export const IMAGERY_CACHE_LIMIT = 48;
 export const MAX_CONCURRENT_IMAGERY_REQUESTS = 6;
 const IMAGERY_RETRY_DELAY_MS = 30_000;
-const FALLBACK_MAX_ELEVATION_M = 8_849;
 const FINE_REFINEMENT_RADIUS_DEGREES = 8;
 const EXACT_IMAGERY_PRIORITY_OFFSET = 1_000;
 const LAND_AMBIENT_LIGHT = 0.46;
@@ -370,27 +378,6 @@ export function selectTerrainTiles(
   return result;
 }
 
-export function terrainHorizonDegrees(
-  displayRadiusM: number,
-  radialMultiplier: number,
-  eyeHeightM = 1.7,
-  maximumElevationM = FALLBACK_MAX_ELEVATION_M,
-): number {
-  const horizonAngle = (heightM: number): number =>
-    Math.acos(
-      displayRadiusM /
-        Math.max(displayRadiusM + Math.max(0, heightM), displayRadiusM),
-    );
-  const maximumElevationWorldM = radialWorldMetresForKilometres(
-    maximumElevationM / 1_000,
-    displayRadiusM,
-    radialMultiplier,
-  );
-  return THREE.MathUtils.radToDeg(
-    horizonAngle(eyeHeightM) + horizonAngle(maximumElevationWorldM),
-  );
-}
-
 export function terrainBoundingExpansion(
   maximumAbsoluteElevationM: number,
   displayRadiusM: number,
@@ -574,9 +561,18 @@ function terrainMaterial(
   relief: ReliefDataset,
   fallbackTexture: THREE.Texture,
   address: TileAddress,
+  stencilAvailable: boolean,
 ): THREE.ShaderMaterial {
   const fallbackTransform = fallbackUvTransform(address);
   return new THREE.ShaderMaterial({
+    stencilWrite: stencilAvailable,
+    stencilWriteMask: 0x00,
+    stencilRef: 1,
+    stencilFunc: THREE.NotEqualStencilFunc,
+    stencilFuncMask: 0xff,
+    stencilFail: THREE.KeepStencilOp,
+    stencilZFail: THREE.KeepStencilOp,
+    stencilZPass: THREE.KeepStencilOp,
     uniforms: {
       heightMap: { value: relief.texture },
       imageMap: { value: fallbackTexture },
@@ -875,6 +871,7 @@ export class TerrainTileRenderer {
   readonly group = new THREE.Group();
   private readonly relief: ReliefDataset;
   private readonly fallbackTexture: THREE.Texture;
+  private readonly localTerrain: LocalTerrainRenderer;
   private readonly rendered = new Map<string, RenderedTile>();
   private readonly imagery = new Map<string, CachedImagery>();
   private readonly failedImageryUntil = new Map<string, number>();
@@ -884,9 +881,19 @@ export class TerrainTileRenderer {
   private generation = 0;
   private lastSelectionSignature = "";
 
-  constructor(relief: ReliefDataset, fallbackTexture: THREE.Texture) {
+  constructor(
+    relief: ReliefDataset,
+    fallbackTexture: THREE.Texture,
+    private readonly stencilAvailable = true,
+  ) {
     this.relief = relief;
     this.fallbackTexture = fallbackTexture;
+    this.localTerrain = new LocalTerrainRenderer(
+      relief,
+      fallbackTexture,
+      stencilAvailable,
+    );
+    this.group.add(this.localTerrain.group);
     this.loadQueue = new ImageryLoadQueue(
       loadImageryTexture,
       (task, texture) => this.handleImageryLoaded(task, texture),
@@ -936,11 +943,11 @@ export class TerrainTileRenderer {
           tile.baseBoundingRadius + maximumNormalizedDisplacement;
       }
     }
-    if (signature === this.lastSelectionSignature) return;
-    this.lastSelectionSignature = signature;
-    this.generation += 1;
-    const now = this.generation;
-    const selected = selectTerrainTiles(
+    if (signature !== this.lastSelectionSignature) {
+      this.lastSelectionSignature = signature;
+      this.generation += 1;
+      const now = this.generation;
+      const selected = selectTerrainTiles(
       latitudeDegrees,
       longitudeDegrees,
       displayRadiusM,
@@ -948,69 +955,81 @@ export class TerrainTileRenderer {
       1.7,
       maximumElevationM,
     );
-    const imageryAddresses = prioritizeTerrainTiles(
+      const imageryAddresses = prioritizeTerrainTiles(
       selected.filter((address) => address.z >= 2),
       latitudeDegrees,
       longitudeDegrees,
     ).slice(0, DETAIL_TILE_LIMIT);
-    this.imageryTargets.clear();
-    for (const address of imageryAddresses) {
-      this.imageryTargets.set(tileKey(address), address);
-    }
-    const imageryKeys = new Set(
+      this.imageryTargets.clear();
+      for (const address of imageryAddresses) {
+        this.imageryTargets.set(tileKey(address), address);
+      }
+      const imageryKeys = new Set(
       imageryAddresses.map((address) => tileKey(address)),
-    );
-    for (const address of selected) {
-      const key = tileKey(address);
-      let tile = this.rendered.get(key);
-      if (!tile) {
-        const material = terrainMaterial(
+      );
+      for (const address of selected) {
+        const key = tileKey(address);
+        let tile = this.rendered.get(key);
+        if (!tile) {
+          const material = terrainMaterial(
           this.relief,
           this.fallbackTexture,
           address,
+          this.stencilAvailable,
         );
-        material.uniforms.normalizedRadialMetres!.value =
+          material.uniforms.normalizedRadialMetres!.value =
           normalizedRadialMetres;
-        material.uniforms.oceanSurface!.value = oceanSurface ? 1 : 0;
-        material.uniforms.normalizedSkirtDepth!.value =
+          material.uniforms.oceanSurface!.value = oceanSurface ? 1 : 0;
+          material.uniforms.normalizedSkirtDepth!.value =
           normalizedSkirtDepth;
-        const geometry = geometryForTile(address);
-        const baseBoundingRadius = geometry.boundingSphere?.radius ?? 0;
-        if (geometry.boundingSphere) {
-          geometry.boundingSphere.radius =
+          const geometry = geometryForTile(address);
+          const baseBoundingRadius = geometry.boundingSphere?.radius ?? 0;
+          if (geometry.boundingSphere) {
+            geometry.boundingSphere.radius =
             baseBoundingRadius + maximumNormalizedDisplacement;
-        }
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.frustumCulled = true;
-        tile = {
+          }
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.frustumCulled = true;
+          tile = {
           mesh,
           address,
           lastUsedAt: now,
           baseBoundingRadius,
-        };
-        this.rendered.set(key, tile);
-        this.group.add(mesh);
+          };
+          this.rendered.set(key, tile);
+          this.group.add(mesh);
+        }
+        tile.lastUsedAt = now;
+        tile.mesh.visible = true;
+        if (imageryKeys.has(key)) {
+          this.applyBestCachedImagery(tile);
+        } else {
+          this.applyFallbackImagery(tile);
+        }
       }
-      tile.lastUsedAt = now;
-      tile.mesh.visible = true;
-      if (imageryKeys.has(key)) {
-        this.applyBestCachedImagery(tile);
-      } else {
-        this.applyFallbackImagery(tile);
+      for (const [key, tile] of this.rendered) {
+        if (tile.lastUsedAt === now) continue;
+        this.group.remove(tile.mesh);
+        tile.mesh.geometry.dispose();
+        tile.mesh.material.dispose();
+        this.rendered.delete(key);
       }
+      this.scheduleImagery();
+      this.evictImagery();
     }
-    for (const [key, tile] of this.rendered) {
-      if (tile.lastUsedAt === now) continue;
-      this.group.remove(tile.mesh);
-      tile.mesh.geometry.dispose();
-      tile.mesh.material.dispose();
-      this.rendered.delete(key);
-    }
-    this.scheduleImagery();
-    this.evictImagery();
+    this.syncLocalImageryPatches();
+    this.localTerrain.update(
+      latitudeDegrees,
+      longitudeDegrees,
+      displayRadiusM,
+      radialMultiplier,
+      oceanSurface,
+    );
+    this.updateImageryDiagnostics();
   }
 
   dispose(): void {
+    this.localTerrain.dispose();
     this.loadQueue.dispose();
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
     for (const tile of this.rendered.values()) {
@@ -1167,5 +1186,34 @@ export class TerrainTileRenderer {
       this.imagery.get(key)?.texture.dispose();
       this.imagery.delete(key);
     }
+  }
+
+  private syncLocalImageryPatches(): void {
+    const patches: LocalTerrainImageryPatch[] = [];
+    for (const [targetKey, targetAddress] of this.imageryTargets) {
+      const tile = this.rendered.get(targetKey);
+      const source = tile?.imagerySource;
+      if (!source) continue;
+      const texture = this.imagery.get(tileKey(source))?.texture;
+      if (!texture) continue;
+      patches.push({
+        key: `${targetKey}:${tileKey(source)}`,
+        texture,
+        targetBounds: boundsForTile(targetAddress),
+        sourceBounds: rawBoundsForTile(source),
+      });
+    }
+    this.localTerrain.setImageryPatches(patches);
+  }
+
+  private updateImageryDiagnostics(): void {
+    if (typeof document === "undefined") return;
+    document.body.dataset.gibsImageryCache = String(this.imagery.size);
+    document.body.dataset.gibsImageryActive = String(
+      this.loadQueue.activeCount,
+    );
+    document.body.dataset.gibsImageryQueued = String(
+      this.loadQueue.queuedCount,
+    );
   }
 }

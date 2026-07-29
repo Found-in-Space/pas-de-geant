@@ -34,7 +34,13 @@ build should be served over HTTPS.
 - Right stick vertical: radial multiplier
 - A: toggle sea surface / bathymetry
 - Hold B: reset to 40° N, 4° W and the 10 m Iberia scale
-- Right-stick press: toggle the wrist HUD
+- Right-stick press: toggle the left-hand Earth map panel
+
+The hand panel uses touch-os and the bundled NASA Blue Marble image to show the
+current underfoot position on a whole-Earth map. It remains available offline;
+the latitude and longitude appear directly beneath the map. Its map readout is
+limited to 10 updates per second and hosted under an isolated scene node so it
+does not traverse or invalidate the terrain scene.
 
 The camera and XR reference space are never moved to simulate travel. The
 planet root is rolled and translated so the selected mean-sea-level contact
@@ -56,17 +62,59 @@ official stride-21 NetCDF subset:
 npm run prepare:relief --workspace @found-in-space/little-prince
 ```
 
+Around the current contact point, the renderer asynchronously requests a
+5×5 window of Mapterhorn's global 512 px Terrarium tiles. The renderer chooses
+zoom 3–12 to keep source samples below 0.4 mm at the current room scale, with
+additional refinement as radial exaggeration increases. Zoom changes use 20%
+refinement hysteresis; the initial 40° N scale selects zoom 11, giving roughly
+30 m source samples across a local patch about 75 km wide. The checked-in GEBCO
+terrain remains the continuous globe and horizon outside that patch. Regional
+zoom 13–17 LiDAR is intentionally not requested.
+
+A worker decodes elevations and builds adaptive 513×513 RTIN meshes with
+`@mapbox/martini`. The active window contains 2560×2560 height samples before
+RTIN simplification. A fetched 6×6 east/south halo keeps shared heights aligned,
+and forced full-resolution RTIN borders prevent cracks between simplification
+levels. The outer ring blends back to GEBCO; unavailable neighbours receive a
+shorter edge fade and only patch or fallback boundaries retain shallow skirts.
+
+At most four elevation requests run concurrently, and up to 64 decoded tiles
+are retained. Prepared local meshes write an exact stencil before the coarse
+globe renders, so missing, malformed, ocean-only, polar, and offline tiles
+remain continuous GEBCO terrain and bathymetry without approximate mask edges.
+Overlapping meshes survive window movement. During a scale or radial-LOD
+change, obsolete detail fades to exact GEBCO and the renderer waits 250 ms for
+the control to settle before requesting only the final zoom. One generation-
+tagged RTIN job runs at a time and completed GPU-ready meshes install one per
+frame. Each mesh is capped at 16,384 vertices and all active local geometry is
+capped at 32 MiB. The worker progressively relaxes RTIN error only when needed
+to keep a tile within its vertex ceiling, and the centre tile is queued first.
+A cell that still cannot meet those limits remains GEBCO. GEBCO always
+continues beyond the local patch.
+
 NASA GIBS supplies up to 32 nearby 512 px Blue Marble images from its native
 500 m geographic WMTS pyramid. Shared two-level-coarser previews load before
 the nearest full-detail tiles, with no more than six image fetches and decodes
 active at once. GIBS marks these pre-generated tiles as browser-cacheable, so
 repeat headset visits can reuse them without bundling a global imagery archive.
+Local RTIN meshes reuse these same geographic image selections and texture
+leases. The selected GIBS coverage patches are mirrored onto the detailed
+geometry, while the bundled Blue Marble texture remains the common fallback.
+There is no separate EPSG:3857 imagery requester or local imagery cache, so
+local relief cannot conceal the global layer with a coarser or competing image
+pyramid.
 
 The checked-in 2048×1024 Blue Marble image is displayed immediately beneath
 the progressive tiles and remains usable when offline. Detailed global imagery
 still requires a network connection the first time a location is viewed.
 Source, license, datum, DOI, and checksum details live beside the relief asset
 and in `public/THIRD_PARTY_LICENSES.txt`.
+
+Mapterhorn publishes its tile format, endpoint, and complete source-level
+attribution at <https://mapterhorn.com/data-access/> and
+<https://mapterhorn.com/attribution/>. Its global source catalog identifies
+Copernicus GLO-30 as a 30 m source produced by DLR and Airbus Defence and Space
+and provided under Copernicus by the European Union and ESA.
 
 ## Celestial sphere
 
