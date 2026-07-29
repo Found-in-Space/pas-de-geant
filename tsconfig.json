@@ -2,15 +2,6 @@
   "files": [],
   "references": [
     {
-      "path": "./packages/shadowline"
-    },
-    {
-      "path": "./packages/shadowline-astronomy-engine"
-    },
-    {
-      "path": "./apps/visualizer"
-    },
-    {
       "path": "./apps/pas-de-geant"
     }
   ]

@@ -16,7 +16,7 @@ dev port="5173":
 build:
     npm run build
 
-# Run TypeScript checks and package/integration tests.
+# Run TypeScript checks and unit tests.
 test:
     npm run check
     npm test
@@ -41,4 +41,4 @@ serve port="8000":
 
 # Remove local environments, caches, test output, and compiled artifacts.
 clean:
-    rm -rf node_modules dist test-results playwright-report packages/shadowline/dist packages/shadowline-astronomy-engine/dist
+    rm -rf node_modules dist test-results playwright-report

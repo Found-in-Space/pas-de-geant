@@ -1,6 +1,5 @@
 node_modules/
 dist/
-packages/*/dist/
 coverage/
 *.lcov
 test-results/

@@ -49,7 +49,7 @@ import {
   solvePlanetPose,
   type PlanetState,
 } from "./planet-state.js";
-import { resolveInitialLocation } from "../../shared/initial-location.js";
+import { resolveInitialLocation } from "./initial-location.js";
 import { loadReliefDataset } from "./relief.js";
 import { TerrainTileRenderer } from "./terrain-tiles.js";
 

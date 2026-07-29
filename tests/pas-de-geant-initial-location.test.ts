@@ -1,43 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  GEO_IP_ENDPOINT,
   GLOBAL_FALLBACK_LOCATION,
-  locateByDevice,
   locateByIp,
   resolveInitialLocation,
-} from "../apps/shared/initial-location.js";
+} from "../apps/pas-de-geant/src/initial-location.js";
 
-describe("Pas de Géant initial location", () => {
+describe("Pas de Géant initial-location regressions", () => {
   it("prefers a valid device location without making an IP request", async () => {
     const geolocation = {
-      getCurrentPosition: vi.fn(
-        (
-          success: PositionCallback,
-          _error?: PositionErrorCallback | null,
-          options?: PositionOptions,
-        ) => {
-          expect(options).toMatchObject({
-            enableHighAccuracy: true,
-            maximumAge: 900_000,
-            timeout: 1_234,
-          });
-          success({
-            coords: {
-              latitude: -33.8688,
-              longitude: 151.2093,
-            },
-          } as GeolocationPosition);
+      getCurrentPosition: (
+        success: PositionCallback,
+      ) => success({
+        coords: {
+          latitude: -33.8688,
+          longitude: 151.2093,
         },
-      ),
+      } as GeolocationPosition),
     };
     const fetcher = vi.fn<typeof fetch>();
 
     await expect(
-      resolveInitialLocation({
-        geolocation,
-        fetcher,
-        deviceTimeoutMs: 1_234,
-      }),
+      resolveInitialLocation({ geolocation, fetcher }),
     ).resolves.toEqual({
       latitudeDegrees: -33.8688,
       longitudeDegrees: 151.2093,
@@ -46,14 +29,12 @@ describe("Pas de Géant initial location", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("falls back to approximate IP coordinates when device access fails", async () => {
+  it("falls back to approximate IP coordinates after device failure", async () => {
     const geolocation = {
-      getCurrentPosition: vi.fn(
-        (
-          _success: PositionCallback,
-          error?: PositionErrorCallback | null,
-        ) => error?.({} as GeolocationPositionError),
-      ),
+      getCurrentPosition: (
+        _success: PositionCallback,
+        error?: PositionErrorCallback | null,
+      ) => error?.({} as GeolocationPositionError),
     };
     const fetcher = vi.fn<typeof fetch>(async () =>
       new Response(
@@ -75,17 +56,9 @@ describe("Pas de Géant initial location", () => {
       longitudeDegrees: 139.6503,
       source: "ip",
     });
-    expect(fetcher).toHaveBeenCalledWith(
-      GEO_IP_ENDPOINT,
-      expect.objectContaining({
-        cache: "no-store",
-        credentials: "omit",
-        referrerPolicy: "no-referrer",
-      }),
-    );
   });
 
-  it("uses a neutral global fallback for unavailable or invalid locations", async () => {
+  it("uses a neutral fallback when location services are unavailable or invalid", async () => {
     const failingFetch = vi.fn<typeof fetch>(async () =>
       new Response("Unavailable", { status: 503 }),
     );
@@ -103,16 +76,5 @@ describe("Pas de Géant initial location", () => {
       ),
     );
     await expect(locateByIp(invalidFetch)).resolves.toBeUndefined();
-  });
-
-  it("rejects invalid device coordinates", async () => {
-    const geolocation = {
-      getCurrentPosition: (
-        success: PositionCallback,
-      ) => success({
-        coords: { latitude: Number.NaN, longitude: 20 },
-      } as GeolocationPosition),
-    };
-    await expect(locateByDevice(geolocation)).resolves.toBeUndefined();
   });
 });

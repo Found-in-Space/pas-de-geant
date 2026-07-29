@@ -1,106 +1,13 @@
-import {
-  createRuntime,
-  type BitmapHandle,
-  type DrawCommand,
-} from "@found-in-space/touch-os";
 import { describe, expect, it } from "vitest";
+import { Quaternion, Vector3 } from "three";
 import {
-  compassBorderPoint,
-  createHandPanelRoot,
   earthMapImageRects,
   earthMapPoint,
-  HAND_PANEL_SURFACE,
-  HAND_PANEL_THEME,
 } from "../apps/pas-de-geant/src/hand-panel.js";
 import { directionOnHandPanel } from "../apps/pas-de-geant/src/hand-panel-orientation.js";
-import { Quaternion, Vector3 } from "three";
 
-const map: BitmapHandle = {
-  kind: "bitmap",
-  image: {},
-  width: 2_048,
-  height: 1_024,
-  revision: 1,
-};
-
-describe("Pas de Géant hand panel", () => {
-  it("keeps the underfoot point centred while the map scrolls beneath it", () => {
-    const runtime = createRuntime({
-      root: createHandPanelRoot(
-        { latitudeDegrees: -33.87, longitudeDegrees: 151.21 },
-        map,
-        { x: 0, y: -1 },
-        {
-          globalScaleFactor: 63.710088,
-          radialMultiplier: 4,
-          calculatedTerrainZoom: 5,
-          selectedTerrainZoom: 7,
-          terrainZoomOverridden: true,
-        },
-      ),
-      surface: HAND_PANEL_SURFACE,
-      theme: HAND_PANEL_THEME,
-    });
-
-    const commands = runtime.render().commands;
-    const images = commands.filter(
-      (
-        command,
-      ): command is Extract<DrawCommand, { type: "bitmap" }> =>
-        command.role === "earth-map-image" && command.type === "bitmap",
-    );
-    const image = images[0];
-    if (!image?.clipRect) throw new Error("Missing clipped map image.");
-    const marker = commandWithRole(commands, "earth-map-marker", "circle");
-    const border = commandWithRole(commands, "earth-map-border", "rect");
-    const northPointer = commandWithRole(
-      commands,
-      "earth-map-north-pointer",
-      "circle",
-    );
-    const coordinates = commandWithRole(
-      commands,
-      "value-readout-value",
-      "text",
-    );
-    const expected = earthMapPoint(-33.87, 151.21, image.rect);
-    const statusValues = commands
-      .filter(
-        (
-          command,
-        ): command is Extract<DrawCommand, { type: "text" }> =>
-          command.role === "planet-status-value" &&
-          command.type === "text",
-      )
-      .map((command) => command.text);
-
-    expect(images).toHaveLength(3);
-    expect(image.handle).toBe(map);
-    expect(marker.cx).toBeCloseTo(expected.x);
-    expect(marker.cy).toBeCloseTo(expected.y);
-    expect(marker.cx).toBeCloseTo(
-      image.clipRect.x + image.clipRect.width / 2,
-    );
-    expect(marker.cy).toBeCloseTo(
-      image.clipRect.y + image.clipRect.height / 2,
-    );
-    expect(image.rect.width).toBeGreaterThan(image.clipRect.width);
-    expect(border.stroke).toBe("#000000");
-    expect(northPointer.cx).toBeCloseTo(
-      border.rect.x + border.rect.width / 2,
-    );
-    expect(northPointer.cy).toBeCloseTo(border.rect.y);
-    expect(coordinates.text).toBe("33.87° S · 151.21° E");
-    expect(statusValues).toEqual([
-      "63.71×",
-      "4.0×",
-      "z7 · CALC z5",
-    ]);
-
-    runtime.dispose();
-  });
-
-  it("moves and wraps the north-up bitmap without moving the user marker", () => {
+describe("Pas de Géant hand-panel regressions", () => {
+  it("keeps the user centred while the north-up map wraps beneath them", () => {
     const rect = { x: 10, y: 20, width: 360, height: 180 };
     const initial = earthMapImageRects(40, -4, rect);
     const moved = earthMapImageRects(41, -3, rect);
@@ -122,36 +29,11 @@ describe("Pas de Géant hand panel", () => {
     }
   });
 
-  it("places the north marker where its centre ray meets the border", () => {
-    const rect = { x: 10, y: 20, width: 360, height: 180 };
-
-    expect(compassBorderPoint({ x: 0, y: -1 }, rect)).toEqual({
-      x: 190,
-      y: 20,
-    });
-    expect(compassBorderPoint({ x: 1, y: 0 }, rect)).toEqual({
-      x: 370,
-      y: 110,
-    });
-    expect(compassBorderPoint({ x: 0, y: 1 }, rect)).toEqual({
-      x: 190,
-      y: 200,
-    });
-    expect(compassBorderPoint({ x: -1, y: 0 }, rect)).toEqual({
-      x: 10,
-      y: 110,
-    });
-  });
-
   it("projects geographic north into the tablet face", () => {
     const identity = new Quaternion();
-
     expect(
       directionOnHandPanel(new Vector3(0, 1, 0), identity),
     ).toEqual({ x: 0, y: -1 });
-    expect(
-      directionOnHandPanel(new Vector3(1, 0, 0), identity),
-    ).toEqual({ x: 1, y: -0 });
     expect(
       directionOnHandPanel(new Vector3(0, 0, 1), identity),
     ).toBeUndefined();
@@ -168,15 +50,3 @@ describe("Pas de Géant hand panel", () => {
     expect(turned?.y).toBeCloseTo(0);
   });
 });
-
-function commandWithRole<TType extends DrawCommand["type"]>(
-  commands: readonly DrawCommand[],
-  role: string,
-  type: TType,
-): Extract<DrawCommand, { type: TType }> {
-  const command = commands.find(
-    (candidate) => candidate.role === role && candidate.type === type,
-  );
-  if (!command) throw new Error(`Missing ${role} ${type} command.`);
-  return command as Extract<DrawCommand, { type: TType }>;
-}

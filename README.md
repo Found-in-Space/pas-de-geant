@@ -62,43 +62,16 @@ The detailed terrain, imagery, and rendering design is documented in
 
 ```sh
 npm run check              # TypeScript project references
-npm test                   # Unit and integration tests
+npm test                   # Focused unit regressions
 npm run build              # Pas de Géant production build
 npm run test:browser       # Pas de Géant browser suite
-npm run build:all          # Pas de Géant plus inherited Shadowline projects
-npm run test:browser:all   # Pas de Géant plus inherited browser suites
 ```
 
 The production application is written to `dist/pas-de-geant`.
 
-## Repository history
-
-Pas de Géant began as an experimental WebXR branch in the
-[Shadowline](https://github.com/Found-in-Space/shadowline) repository. The
-project retains that ancestry intentionally, along with the reusable Shadowline
-packages and visualizer that supported its early development:
-
-```text
-apps/pas-de-geant
-  room-scale WebXR planetary experience
-
-apps/shared
-  browser location support shared with the original visualizer
-
-packages/shadowline
-packages/shadowline-astronomy-engine
-apps/visualizer
-  inherited eclipse geometry, ephemerides, and visual experiments
-```
-
-Pas de Géant is the default application for root-level development, build, and
-browser-test commands. The inherited packages keep their existing
-`@found-in-space/shadowline*` identities.
-
 ## Data, licences, and limitations
 
 Source, licence, datum, DOI, checksum, and service-attribution details live in
-[`NOTICE.md`](NOTICE.md) and
 [`apps/pas-de-geant/public/THIRD_PARTY_LICENSES.txt`](apps/pas-de-geant/public/THIRD_PARTY_LICENSES.txt).
 
 Live aircraft are an opt-in proof of concept and are disabled on each page
