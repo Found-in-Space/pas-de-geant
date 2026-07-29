@@ -11,6 +11,7 @@ import {
   LOCAL_ACTIVE_TILE_BUDGET,
   LOCAL_GEOMETRY_BUDGET_BYTES,
   LOCAL_HEIGHT_CACHE_LIMIT,
+  LOCAL_HEIGHT_TILE_BUDGET,
   LOCAL_LOD_HEADPOSE_DEADZONE_M,
   LOCAL_MESH_VERTEX_LIMIT,
   LOCAL_RETIRE_SECONDS,
@@ -28,7 +29,6 @@ import {
   mercatorTileKey,
   screenSpaceRtinErrorBucket,
   screenSpacePlanningPoseMovementM,
-  selectScreenSpaceTerrainPlan,
   terrainScaleInputChanged,
   terrainScaleInputIsStable,
   wrapMercatorX,
@@ -40,6 +40,12 @@ import {
   type ScreenSpaceTerrainPlan,
   type TileLoadTask,
 } from "./local-terrain-core.js";
+import {
+  LatestTerrainPlanScheduler,
+  type TerrainPlanningInput,
+  type TerrainPlanningWorkerInput,
+  type TerrainPlanWorkerResult,
+} from "./local-terrain-planner.js";
 
 const HEIGHT_RETRY_DELAY_MS = 30_000;
 const LOCAL_TRANSITION_SECONDS = 0.25;
@@ -459,6 +465,8 @@ function localImageryMaterial(
 export class LocalTerrainRenderer {
   readonly group = new THREE.Group();
   private readonly worker: Worker;
+  private readonly plannerWorker: Worker;
+  private readonly planner: LatestTerrainPlanScheduler;
   private readonly rendered = new Map<string, RenderedLocalTile>();
   private readonly decoded = new LruCache<"decoded" | "ocean">(
     LOCAL_HEIGHT_CACHE_LIMIT,
@@ -510,6 +518,7 @@ export class LocalTerrainRenderer {
   private planningPose: ScreenSpacePlanningPose | undefined;
   private planningFocalLengthPixels = 1_000;
   private planningPoseMovementM = 0;
+  private planSelectionTotal = 0;
   private atomicSwapTotal = 0;
   private lastUpdateMs =
     typeof performance === "undefined" ? 0 : performance.now();
@@ -528,6 +537,22 @@ export class LocalTerrainRenderer {
       "message",
       (event: MessageEvent<LocalTerrainWorkerResult>) =>
         this.handleWorkerResult(event.data),
+    );
+    this.plannerWorker = new Worker(
+      new URL("./local-terrain-planner-worker.ts", import.meta.url),
+      { type: "module" },
+    );
+    this.planner = new LatestTerrainPlanScheduler(
+      (request) => this.plannerWorker.postMessage(request),
+      () =>
+        (this.currentWindow ?? this.candidateWindow)?.active.map(
+          mercatorTileKey,
+        ) ?? [],
+    );
+    this.plannerWorker.addEventListener(
+      "message",
+      (event: MessageEvent<TerrainPlanWorkerResult>) =>
+        this.handlePlannerResult(event.data),
     );
     this.loadQueue = new TileRequestQueue(
       (address, signal) => {
@@ -571,6 +596,18 @@ export class LocalTerrainRenderer {
       bias: this.lodBias,
       budgetLimited: plan?.budgetLimited ?? false,
     };
+  }
+
+  getImageryTextureUuidsInUse(): Set<string> {
+    const textureUuids = new Set<string>();
+    for (const tile of this.rendered.values()) {
+      for (const overlay of tile.overlays.values()) {
+        const texture = overlay.material.uniforms.detailImageMap!
+          .value as THREE.Texture | undefined;
+        if (texture) textureUuids.add(texture.uuid);
+      }
+    }
+    return textureUuids;
   }
 
   private stablePlanningView(
@@ -661,49 +698,20 @@ export class LocalTerrainRenderer {
       this.updateDiagnostics();
       return;
     }
-    const planningView = this.stablePlanningView(
+    this.stablePlanningView(
       latitudeDegrees,
       longitudeDegrees,
       this.eyeHeightWorldM,
       this.focalLengthPixels,
     );
-    const previousActiveKeys = new Set(
-      (this.currentWindow ?? this.candidateWindow)?.active.map(
-        mercatorTileKey,
-      ) ?? [],
-    );
-    const window = this.preparePlan(
-      selectScreenSpaceTerrainPlan({
-        latitudeDegrees: planningView.latitudeDegrees,
-        longitudeDegrees: planningView.longitudeDegrees,
-        displayRadiusM,
-        eyeHeightWorldM: planningView.eyeHeightWorldM,
-        focalLengthPixels: planningView.focalLengthPixels,
-        lodBias: this.lodBias,
-        previousActiveKeys,
-        activeTileBudget: this.activeTileBudget,
-        heightTileBudget: LOCAL_HEIGHT_CACHE_LIMIT,
-      }),
-    );
-    const desiredLod = window.signature;
-    if (
-      this.currentWindow &&
-      this.currentLodSignature === desiredLod
-    ) {
-      this.candidateWindow = undefined;
-      this.currentWindow = window;
-      this.active = new Map(
-        window.active.map((address) => [mercatorTileKey(address), address]),
-      );
-      for (const [key, tile] of this.rendered) {
-        const address = this.active.get(key);
-        if (address) tile.address = address;
-      }
+    if (this.scaleMotion) {
+      this.planner.setPaused(true);
+      this.recordPlanningInput();
     } else {
-      this.candidateWindow = window;
-      if (!this.scaleMotion) {
-        this.beginStreaming(window);
-      }
+      // When scale motion has just settled, update the coalesced input before
+      // unpausing so the worker receives only the newest stable snapshot.
+      this.recordPlanningInput();
+      this.planner.setPaused(false);
     }
 
     this.updateMaterialUniforms(deltaSeconds);
@@ -728,6 +736,8 @@ export class LocalTerrainRenderer {
 
   dispose(): void {
     this.loadQueue.dispose();
+    this.planner.dispose();
+    this.plannerWorker.terminate();
     this.worker.postMessage({
       type: "dispose",
     } satisfies LocalTerrainWorkerRequest);
@@ -788,6 +798,7 @@ export class LocalTerrainRenderer {
     this.streamingState = "waiting";
     this.planningPose = undefined;
     this.planningPoseMovementM = 0;
+    this.planner.reset();
     this.clearRendered();
   }
 
@@ -820,7 +831,35 @@ export class LocalTerrainRenderer {
     this.rendered.delete(key);
   }
 
-  private preparePlan(plan: ScreenSpaceTerrainPlan): PreparedTerrainPlan {
+  private handlePlannerResult(result: TerrainPlanWorkerResult): void {
+    this.planSelectionTotal += 1;
+    const completion = this.planner.handleResult(result);
+    if (!completion) return;
+    if ("error" in completion) {
+      console.error(`Terrain planning failed: ${completion.error}`);
+      return;
+    }
+    this.acceptPlan(this.preparePlan(completion.plan, completion.input));
+  }
+
+  private recordPlanningInput(): void {
+    if (!this.planningPose) return;
+    const input: TerrainPlanningInput = {
+      ...this.planningPose,
+      displayRadiusM: this.displayRadiusM,
+      radialMultiplier: this.radialMultiplier,
+      focalLengthPixels: this.planningFocalLengthPixels,
+      lodBias: this.lodBias,
+      activeTileBudget: this.activeTileBudget,
+      heightTileBudget: LOCAL_HEIGHT_TILE_BUDGET,
+    };
+    this.planner.record(input);
+  }
+
+  private preparePlan(
+    plan: ScreenSpaceTerrainPlan,
+    input: TerrainPlanningWorkerInput,
+  ): PreparedTerrainPlan {
     const requestedErrors = new Map<string, number>();
     for (const address of plan.active) {
       const key = mercatorTileKey(address);
@@ -828,10 +867,10 @@ export class LocalTerrainRenderer {
         key,
         screenSpaceRtinErrorBucket(
           address.distanceWorldM,
-          this.displayRadiusM,
-          this.radialMultiplier,
-          this.planningFocalLengthPixels,
-          this.lodBias,
+          input.displayRadiusM,
+          input.radialMultiplier,
+          input.focalLengthPixels,
+          input.lodBias,
           this.rendered.get(key)?.requestedErrorM,
         ),
       );
@@ -848,8 +887,27 @@ export class LocalTerrainRenderer {
     return { ...plan, requestedErrors, signature };
   }
 
+  private acceptPlan(window: PreparedTerrainPlan): void {
+    if (
+      this.currentWindow &&
+      this.currentLodSignature === window.signature
+    ) {
+      this.candidateWindow = undefined;
+      this.currentWindow = window;
+      this.active = new Map(
+        window.active.map((address) => [mercatorTileKey(address), address]),
+      );
+      for (const [key, tile] of this.rendered) {
+        const address = this.active.get(key);
+        if (address) tile.address = address;
+      }
+      return;
+    }
+    this.candidateWindow = window;
+    if (!this.scaleMotion) this.beginStreaming(window);
+  }
+
   private beginStreaming(window: PreparedTerrainPlan): void {
-    this.cancelMeshGeneration();
     for (const tile of this.rendered.values()) tile.detailTarget = 1;
     this.currentWindow = window;
     this.candidateWindow = undefined;
@@ -857,7 +915,42 @@ export class LocalTerrainRenderer {
     this.active = new Map(
       window.active.map((address) => [mercatorTileKey(address), address]),
     );
+    this.reconcileMeshGeneration();
     this.streamingState = "streaming";
+  }
+
+  private reconcileMeshGeneration(): void {
+    for (const [key, task] of this.meshQueue) {
+      const address = this.active.get(key);
+      if (
+        task.generation !== this.generation ||
+        !address ||
+        task.errorM !== this.errorForAddress(address)
+      ) {
+        this.meshQueue.delete(key);
+      }
+    }
+    const relevantInstallResults = this.installQueue.filter((result) => {
+      const key = mercatorTileKey(result.address);
+      const address = this.active.get(key);
+      return (
+        result.generation === this.generation &&
+        address !== undefined &&
+        result.requestedErrorM === this.errorForAddress(address)
+      );
+    });
+    this.installQueue.length = 0;
+    this.installQueue.push(...relevantInstallResults);
+    for (const [key, result] of this.stagedMeshes) {
+      const address = this.active.get(key);
+      if (
+        result.generation !== this.generation ||
+        !address ||
+        result.requestedErrorM !== this.errorForAddress(address)
+      ) {
+        this.stagedMeshes.delete(key);
+      }
+    }
   }
 
   private cancelMeshGeneration(): void {
@@ -1302,6 +1395,7 @@ export class LocalTerrainRenderer {
         1,
         Math.min(this.activeTileBudget - 1, this.rendered.size),
       );
+      this.recordPlanningInput();
       return false;
     }
     const geometries = validResults.map((result) => ({
@@ -1353,16 +1447,23 @@ export class LocalTerrainRenderer {
     result: PreparedLocalTile,
     geometry: THREE.BufferGeometry,
   ): void {
-    this.clearTileOverlays(existing);
     const previousGeometry = existing.mesh.geometry;
     existing.mesh.geometry = geometry;
+    for (const overlay of existing.overlays.values()) {
+      overlay.geometry = geometry;
+    }
     existing.address = activeAddress;
     existing.requestedErrorM = result.requestedErrorM;
     existing.actualErrorM = result.actualErrorM;
     existing.geometryBytes = result.geometryBytes;
     previousGeometry.dispose();
     existing.detailTarget = 1;
-    this.imageryRefreshQueue.add(mercatorTileKey(activeAddress));
+    const key = mercatorTileKey(activeAddress);
+    if (this.refreshImageryTile(key)) {
+      this.imageryRefreshQueue.delete(key);
+    } else {
+      this.imageryRefreshQueue.add(key);
+    }
   }
 
   private addRenderedGeometry(
@@ -1391,7 +1492,11 @@ export class LocalTerrainRenderer {
     };
     this.rendered.set(key, tile);
     this.group.add(mesh);
-    this.imageryRefreshQueue.add(key);
+    if (this.refreshImageryTile(key)) {
+      this.imageryRefreshQueue.delete(key);
+    } else {
+      this.imageryRefreshQueue.add(key);
+    }
   }
 
   private clearTileOverlays(tile: RenderedLocalTile): void {
@@ -1412,8 +1517,14 @@ export class LocalTerrainRenderer {
       | undefined;
     if (!queued) return;
     this.imageryRefreshQueue.delete(queued);
-    const tile = this.rendered.get(queued);
-    if (!tile) return;
+    if (!this.refreshImageryTile(queued)) {
+      this.imageryRefreshQueue.add(queued);
+    }
+  }
+
+  private refreshImageryTile(key: string): boolean {
+    const tile = this.rendered.get(key);
+    if (!tile) return true;
 
     const intersecting = new Map<string, LocalTerrainImageryPatch>();
     const northWest = mercatorCoordinatesForTilePoint(tile.address, 0, 0);
@@ -1450,7 +1561,9 @@ export class LocalTerrainRenderer {
     }
     for (const [patchKey, patch] of intersecting) {
       if (tile.overlays.has(patchKey)) continue;
-      if (this.imageryOverlayCount >= LOCAL_IMAGERY_OVERLAY_LIMIT) break;
+      if (this.imageryOverlayCount >= LOCAL_IMAGERY_OVERLAY_LIMIT) {
+        return false;
+      }
       const material = localImageryMaterial(tile.mesh.material, patch);
       const overlay = new THREE.Mesh(tile.mesh.geometry, material);
       overlay.frustumCulled = false;
@@ -1459,6 +1572,7 @@ export class LocalTerrainRenderer {
       this.group.add(overlay);
       this.imageryOverlayCount += 1;
     }
+    return true;
   }
 
   private refreshEdgeTargets(): void {
@@ -1694,6 +1808,9 @@ export class LocalTerrainRenderer {
       LOCAL_LOD_HEADPOSE_DEADZONE_M.toFixed(3);
     document.body.dataset.detailLodHeadMovementMetres =
       this.planningPoseMovementM.toFixed(3);
+    document.body.dataset.detailPlanSelectionTotal = String(
+      this.planSelectionTotal,
+    );
     document.body.dataset.detailStagedMeshes = String(this.stagedMeshes.size);
     document.body.dataset.detailAtomicSwapTotal = String(this.atomicSwapTotal);
     document.body.dataset.detailReadyCells = String(readyCells);

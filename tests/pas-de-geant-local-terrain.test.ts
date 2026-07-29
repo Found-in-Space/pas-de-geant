@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   LOCAL_GRID_SIZE,
   LOCAL_ACTIVE_TILE_BUDGET,
+  LOCAL_HEIGHT_CACHE_LIMIT,
   LOCAL_LOD_HEADPOSE_DEADZONE_M,
   LOCAL_TERRAIN_MAX_ZOOM,
   LOCAL_TILE_SIZE,
@@ -36,6 +37,12 @@ import {
 } from "../apps/pas-de-geant/src/elevation-cache.js";
 
 describe("Pas de Géant local-terrain regressions", () => {
+  it("retains decoded overlap beyond the maximum active plan", () => {
+    expect(LOCAL_HEIGHT_CACHE_LIMIT).toBeGreaterThan(
+      LOCAL_ACTIVE_TILE_BUDGET,
+    );
+  });
+
   it("does not duplicate wrapped or polar tiles at low zoom", () => {
     for (const zoom of [0, 1, 2, 3]) {
       for (const [latitude, longitude] of [

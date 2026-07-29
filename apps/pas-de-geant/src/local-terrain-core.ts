@@ -8,7 +8,8 @@ export const LOCAL_TERRAIN_MAX_ZOOM = 12;
 export const LOCAL_TILE_SIZE = 512;
 export const LOCAL_GRID_SIZE = LOCAL_TILE_SIZE + 1;
 export const LOCAL_WINDOW_SIZE = 9;
-export const LOCAL_HEIGHT_CACHE_LIMIT = 128;
+export const LOCAL_HEIGHT_TILE_BUDGET = 128;
+export const LOCAL_HEIGHT_CACHE_LIMIT = 192;
 export const LOCAL_ACTIVE_TILE_BUDGET = 128;
 export const MAX_CONCURRENT_HEIGHT_REQUESTS = 4;
 export const LOCAL_MESH_VERTEX_LIMIT = 16_384;
@@ -894,7 +895,7 @@ export function selectScreenSpaceTerrainPlan(
   );
   const heightTileBudget = Math.max(
     1,
-    Math.floor(options.heightTileBudget ?? LOCAL_HEIGHT_CACHE_LIMIT),
+    Math.floor(options.heightTileBudget ?? LOCAL_HEIGHT_TILE_BUDGET),
   );
   const budgeted = collapseFarthestTilesToBudget(
     options,

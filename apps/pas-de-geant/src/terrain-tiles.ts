@@ -1258,6 +1258,10 @@ export class TerrainTileRenderer {
         .filter((address): address is TileAddress => address !== undefined)
         .map(tileKey),
     );
+    const localTextureUuids = this.localTerrain.getImageryTextureUuidsInUse();
+    for (const [key, item] of this.imagery) {
+      if (localTextureUuids.has(item.texture.uuid)) pinned.add(key);
+    }
     const evictions = imageryEvictionKeys(
       [...this.imagery].map(([key, item]) => ({
         key,

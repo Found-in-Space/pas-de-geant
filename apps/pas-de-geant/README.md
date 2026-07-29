@@ -101,7 +101,11 @@ cumulative 4 cm three-dimensional head-pose deadzone: rendering and physical
 travel remain continuous, but small horizontal or vertical headset jitter does
 not move the planning anchor.
 
-A worker decodes elevations and builds adaptive 513×513 RTIN meshes with
+LOD selection runs in a dedicated worker with one request in flight. Newer
+planning poses are coalesced while it runs, stale results are discarded, and
+the renderer keeps the current terrain plan until a complete current result
+arrives. A separate worker decodes elevations and builds adaptive 513×513 RTIN
+meshes with
 `@mapbox/martini`. Source zoom and triangle density are separate decisions:
 each tile chooses the coarsest RTIN metre-error bucket whose exaggerated
 vertical error stays below a 0.75 px eye-buffer target. RTIN refinement and
@@ -111,9 +115,10 @@ decoded boundary samples and forced full-resolution RTIN borders. Mixed-zoom
 T-junctions retain shallow skirts. The outer plan boundary blends back to
 GEBCO, and unavailable neighbours receive a shorter edge fade.
 
-At most four elevation requests run concurrently, and up to 128 decoded tiles
-and active source tiles are retained. If the screen-space plan exceeds that
-limit, quadtree branches are collapsed from farthest to nearest; the 96 MiB
+At most four elevation requests run concurrently. Up to 128 active source
+tiles are planned, while 192 decoded tiles are retained to keep overlap
+headroom during travel. If the screen-space plan exceeds its active limit,
+quadtree branches are collapsed from farthest to nearest; the 96 MiB
 geometry cap applies the same policy as a secondary safety valve. Successful
 Mapterhorn responses are also written to the browser's
 named Cache API storage and checked there before the network; malformed images
