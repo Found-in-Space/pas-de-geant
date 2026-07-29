@@ -53,9 +53,10 @@ export interface HandPanelDirection {
 export interface HandPanelStatus {
   globalScaleFactor: number;
   radialMultiplier: number;
-  calculatedTerrainZoom: number;
-  selectedTerrainZoom: number;
-  terrainZoomOverridden: boolean;
+  terrainLodBias: number;
+  minimumTerrainZoom: number;
+  maximumTerrainZoom: number;
+  terrainBudgetLimited: boolean;
 }
 
 interface EarthLocationMapProps extends HandPanelLocation {
@@ -73,9 +74,10 @@ const EARTH_MAP_BORDER_WIDTH = 12;
 const DEFAULT_HAND_PANEL_STATUS: HandPanelStatus = {
   globalScaleFactor: 1,
   radialMultiplier: 1,
-  calculatedTerrainZoom: 0,
-  selectedTerrainZoom: 0,
-  terrainZoomOverridden: false,
+  terrainLodBias: 0,
+  minimumTerrainZoom: 0,
+  maximumTerrainZoom: 0,
+  terrainBudgetLimited: false,
 };
 
 const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
@@ -233,10 +235,13 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
         value: `${ctx.props.radialMultiplier.toFixed(1)}×`,
       },
       {
-        label: "TOPO  X−  Y+",
-        value: ctx.props.terrainZoomOverridden
-          ? `z${ctx.props.selectedTerrainZoom} · CALC z${ctx.props.calculatedTerrainZoom}`
-          : `z${ctx.props.selectedTerrainZoom} · AUTO`,
+        label: "LOD  X−  Y+",
+        value:
+          `${ctx.props.terrainLodBias === 0
+            ? "AUTO"
+            : `BIAS ${ctx.props.terrainLodBias > 0 ? "+" : ""}${ctx.props.terrainLodBias}`} · ` +
+          `z${ctx.props.minimumTerrainZoom}–${ctx.props.maximumTerrainZoom}` +
+          (ctx.props.terrainBudgetLimited ? " · CAP" : ""),
       },
     ];
     const commands: DrawCommand[] = [];

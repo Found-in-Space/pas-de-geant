@@ -34,10 +34,6 @@ import {
 } from "./hand-panel.js";
 import { directionOnHandPanel } from "./hand-panel-orientation.js";
 import {
-  resolveLocalTerrainZoom,
-  selectLocalTerrainZoom,
-} from "./local-terrain-core.js";
-import {
   applyLogarithmicScale,
   applyRadialMultiplierRate,
   coordinatesForFrame,
@@ -160,7 +156,7 @@ let state = initialPlanetState(
   initialLocation.latitudeDegrees,
   initialLocation.longitudeDegrees,
 );
-let terrainZoomOverride: number | undefined;
+let terrainLodBias = 0;
 const initialCoordinates = coordinatesForFrame(state.contact);
 const initialHandPanelStatus = handPanelStatus(
   initialCoordinates.latitudeDegrees,
@@ -245,7 +241,7 @@ function resetPlanet(): void {
     initialLocation.latitudeDegrees,
     initialLocation.longitudeDegrees,
   );
-  terrainZoomOverride = undefined;
+  terrainLodBias = 0;
   previousXrHead = null;
   updatePresentation();
 }
@@ -256,19 +252,62 @@ function toggleOcean(): void {
   updatePresentation();
 }
 
+const terrainEyeWorldPosition = new THREE.Vector3();
+const terrainDrawingBufferSize = new THREE.Vector2();
+
+function terrainViewMetrics(): {
+  eyeHeightWorldM: number;
+  focalLengthPixels: number;
+} {
+  const viewCamera = renderer.xr.isPresenting
+    ? renderer.xr.getCamera()
+    : camera;
+  viewCamera.updateWorldMatrix(true, false);
+  viewCamera.getWorldPosition(terrainEyeWorldPosition);
+  // The local-floor reference space and planet pose keep mean sea level at
+  // world y=0 directly beneath the headset.
+  const eyeHeightWorldM = Math.max(0.001, terrainEyeWorldPosition.y);
+  let focalLengthPixels = 1;
+  if (renderer.xr.isPresenting && viewCamera instanceof THREE.ArrayCamera) {
+    for (const eyeCamera of viewCamera.cameras) {
+      const viewport = (
+        eyeCamera as THREE.PerspectiveCamera & { viewport?: THREE.Vector4 }
+      ).viewport;
+      if (!viewport) continue;
+      focalLengthPixels = Math.max(
+        focalLengthPixels,
+        viewport.w * eyeCamera.projectionMatrix.elements[5]! * 0.5,
+      );
+    }
+  } else {
+    renderer.getDrawingBufferSize(terrainDrawingBufferSize);
+    focalLengthPixels =
+      terrainDrawingBufferSize.y *
+      viewCamera.projectionMatrix.elements[5]! *
+      0.5;
+  }
+  return {
+    eyeHeightWorldM,
+    focalLengthPixels: Math.max(1, focalLengthPixels),
+  };
+}
+
 function updatePresentation(): void {
   const coordinates = coordinatesForFrame(state.contact);
   const pose = solvePlanetPose(state, headsetFloorPosition);
   planetRoot.quaternion.copy(pose.earthToWorld);
   planetRoot.position.copy(pose.centre);
   planetRoot.scale.setScalar(state.displayRadiusM);
+  const view = terrainViewMetrics();
   terrain.update(
     coordinates.latitudeDegrees,
     coordinates.longitudeDegrees,
     state.displayRadiusM,
     state.radialMultiplier,
     state.oceanMode === "surface",
-    terrainZoomOverride,
+    terrainLodBias,
+    view.eyeHeightWorldM,
+    view.focalLengthPixels,
   );
   atmosphere.update(state.radialMultiplier);
   oceanReadout.textContent =
@@ -307,23 +346,17 @@ function formatRoomDistance(metres: number): string {
 }
 
 function handPanelStatus(
-  latitudeDegrees: number,
-  longitudeDegrees: number,
+  _latitudeDegrees: number,
+  _longitudeDegrees: number,
 ): HandPanelStatus {
-  const calculatedTerrainZoom = selectLocalTerrainZoom(
-    latitudeDegrees,
-    longitudeDegrees,
-    state.displayRadiusM,
-  );
+  const lod = terrain.getLodStatus();
   return {
     globalScaleFactor: state.displayRadiusM,
     radialMultiplier: state.radialMultiplier,
-    calculatedTerrainZoom,
-    selectedTerrainZoom: resolveLocalTerrainZoom(
-      calculatedTerrainZoom,
-      terrainZoomOverride,
-    ),
-    terrainZoomOverridden: terrainZoomOverride !== undefined,
+    terrainLodBias: lod.bias,
+    minimumTerrainZoom: lod.minZoom,
+    maximumTerrainZoom: lod.maxZoom,
+    terrainBudgetLimited: lod.budgetLimited,
   };
 }
 
@@ -340,30 +373,19 @@ function handPanelStateSignature(
     northAngle.toFixed(2),
     status.globalScaleFactor.toFixed(2),
     status.radialMultiplier.toFixed(1),
-    status.calculatedTerrainZoom,
-    status.selectedTerrainZoom,
-    status.terrainZoomOverridden ? "manual" : "auto",
+    status.terrainLodBias,
+    status.minimumTerrainZoom,
+    status.maximumTerrainZoom,
+    status.terrainBudgetLimited ? "capped" : "screen",
   ].join(":");
 }
 
-function stepTerrainZoomOverride(delta: number): void {
+function stepTerrainLodBias(delta: number): void {
   if (delta === 0) return;
-  const coordinates = coordinatesForFrame(state.contact);
-  const calculatedZoom = selectLocalTerrainZoom(
-    coordinates.latitudeDegrees,
-    coordinates.longitudeDegrees,
-    state.displayRadiusM,
+  terrainLodBias = Math.max(
+    -3,
+    Math.min(3, terrainLodBias + Math.sign(delta)),
   );
-  const selectedZoom = resolveLocalTerrainZoom(
-    calculatedZoom,
-    terrainZoomOverride,
-  );
-  const nextZoom = resolveLocalTerrainZoom(
-    calculatedZoom,
-    selectedZoom + Math.sign(delta),
-  );
-  if (nextZoom === selectedZoom && terrainZoomOverride === undefined) return;
-  terrainZoomOverride = nextZoom;
 }
 
 function syncHandPanelState(
@@ -546,7 +568,7 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
     intent.radialAxis,
     deltaSeconds,
   );
-  stepTerrainZoomOverride(intent.terrainZoomDelta);
+  stepTerrainLodBias(intent.terrainLodBiasDelta);
   if (intent.toggleOcean) toggleOcean();
   if (intent.reset) resetPlanet();
   if (intent.togglePanel) {

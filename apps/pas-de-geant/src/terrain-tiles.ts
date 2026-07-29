@@ -970,7 +970,9 @@ export class TerrainTileRenderer {
     displayRadiusM: number,
     radialMultiplier: number,
     oceanSurface: boolean,
-    localTerrainZoomOverride?: number,
+    localTerrainLodBias = 0,
+    eyeHeightWorldM = 1.65,
+    focalLengthPixels = 1_000,
   ): void {
     const normalizedRadialMetres = normalizedRadialOffsetForMetres(
       1,
@@ -1088,9 +1090,20 @@ export class TerrainTileRenderer {
       displayRadiusM,
       radialMultiplier,
       oceanSurface,
-      localTerrainZoomOverride,
+      localTerrainLodBias,
+      eyeHeightWorldM,
+      focalLengthPixels,
     );
     this.updateImageryDiagnostics();
+  }
+
+  getLodStatus(): {
+    minZoom: number;
+    maxZoom: number;
+    bias: number;
+    budgetLimited: boolean;
+  } {
+    return this.localTerrain.getLodStatus();
   }
 
   dispose(): void {

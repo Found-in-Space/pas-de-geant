@@ -32,7 +32,7 @@ build should be served over HTTPS.
 
 - Left stick: head-relative travel
 - Left trigger: faster travel
-- X / Y: override the local topography source one zoom level coarser / finer
+- X / Y: bias terrain LOD one screen-space step coarser / finer
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: radial multiplier
 - A: toggle sea surface / bathymetry
@@ -43,11 +43,12 @@ The hand panel uses touch-os and the bundled NASA Blue Marble image to show the
 current underfoot position on a whole-Earth map. It remains available offline;
 the latitude and longitude appear directly beneath the map, followed by the
 planet-root global scale factor, radial multiplier, and selected topography
-zoom. The terrain readout says `AUTO` while the horizon calculation controls
-the source. Pressing X or Y changes to an absolute manual zoom and also shows
-the calculated zoom for comparison; hold B to reset the planet and return to
-automatic selection. Its map readout is throttled and hosted under an isolated
-scene node so it does not traverse or invalidate the terrain scene.
+zoom range. The terrain readout says `AUTO` at zero bias. Each Y press halves
+the permitted source-sample and mesh error, while each X press doubles it;
+hold B to reset the planet and return to zero bias. `CAP` appears only when the
+decoded-tile or geometry safety budget has forced part of the plan coarser. Its
+map readout is throttled and hosted under an isolated scene node so it does not
+traverse or invalidate the terrain scene.
 
 The camera and XR reference space are never moved to simulate travel. The
 planet root is rolled and translated so the selected mean-sea-level contact
@@ -77,51 +78,66 @@ official stride-21 NetCDF subset:
 npm run prepare:relief --workspace @found-in-space/pas-de-geant
 ```
 
-Around the current contact point, the renderer asynchronously requests a
-logical 9×9 window of Mapterhorn's global 512 px Terrarium tiles. Its source
-zoom is calculated rather than mapped to named scales: a fixed 2 m observer
-height gives the sea-level spherical horizon
-`acos(radius / (radius + 2 m))`, that cap is converted to clipped Web Mercator
-bounds, and zooms 12–0 are tested until the finest actual user-centred window
-contains the complete cap. This accounts for tile alignment, latitude
-distortion, unequal north/south extents, polar clipping, and antimeridian
-wrapping. At zooms 0–3 the logical window collapses to the unique valid
-whole-world cells, without wrapped duplicates or polar halo requests. The
-underlying global source is Copernicus GLO-30; the checked-in GEBCO terrain
-remains the continuous globe beyond the local patch and across the distant
-horizon. Regional zoom 13–17 LiDAR is intentionally not requested.
+Around the current contact point, the renderer asynchronously requests mixed
+zoom levels from Mapterhorn's global 512 px Terrarium pyramid. A quadtree first
+clips candidates to the eye-height spherical horizon, then estimates each
+source sample in the current eye buffer:
+
+```text
+samplePixels =
+  scaledSourceSampleMetres × focalLengthPixels / nearestTileDistance
+```
+
+In WebXR, focal length comes from each eye's real framebuffer viewport and
+projection matrix rather than CSS pixels. Desktop uses the WebGL drawing
+buffer. Source samples target 0.5 px, refine above 0.65 px, and coarsen below
+0.35 px; the gap supplies hysteresis. Latitude-dependent Web Mercator sample
+spacing is scaled by the current rendered planet radius, and nearest distance
+includes the actual eye height above the globe. This naturally creates fine
+tiles underfoot, progressively coarser onion layers with distance, and GEBCO
+at and beyond the local horizon. Mapterhorn refinement stops at z12; regional
+z13–17 LiDAR is intentionally not requested. LOD planning also holds a
+cumulative 4 cm three-dimensional head-pose deadzone: rendering and physical
+travel remain continuous, but small horizontal or vertical headset jitter does
+not move the planning anchor.
 
 A worker decodes elevations and builds adaptive 513×513 RTIN meshes with
-`@mapbox/martini`. A full 9×9 active window contains 4608×4608 height samples
-before RTIN simplification. Its valid east/south halo keeps shared heights
-aligned, and forced full-resolution RTIN borders prevent cracks between
-simplification levels. The outer ring blends back to GEBCO; unavailable
-neighbours receive a shorter edge fade and only patch or fallback boundaries
-retain shallow skirts.
+`@mapbox/martini`. Source zoom and triangle density are separate decisions:
+each tile chooses the coarsest RTIN metre-error bucket whose exaggerated
+vertical error stays below a 0.75 px eye-buffer target. RTIN refinement and
+coarsening use their own 0.9/0.6 px hysteresis thresholds, so a distant z12
+source tile does not imply a dense mesh. Same-zoom active neighbours share
+decoded boundary samples and forced full-resolution RTIN borders. Mixed-zoom
+T-junctions retain shallow skirts. The outer plan boundary blends back to
+GEBCO, and unavailable neighbours receive a shorter edge fade.
 
 At most four elevation requests run concurrently, and up to 128 decoded tiles
-are retained. Successful Mapterhorn responses are also written to the browser's
+and active source tiles are retained. If the screen-space plan exceeds that
+limit, quadtree branches are collapsed from farthest to nearest; the 96 MiB
+geometry cap applies the same policy as a secondary safety valve. Successful
+Mapterhorn responses are also written to the browser's
 named Cache API storage and checked there before the network; malformed images
 are evicted as soon as worker decoding rejects them. Browser storage quotas and
 eviction policy still apply. Prepared local meshes write an exact stencil
 before the coarse globe renders, so missing, malformed, ocean-only, polar, and
 offline tiles remain continuous GEBCO terrain and bathymetry without
 approximate mask edges.
-Overlapping meshes survive window movement. During a scale or radial-LOD
-change, obsolete detail fades to exact GEBCO and the renderer waits 250 ms for
-the control to settle before requesting only the final source window. One
+During a scale or radial-LOD change, the renderer waits 250 ms for the control
+to settle before requesting only the final source plan. It no longer retires
+the complete local layer when one LOD decision changes. RTIN-only updates
+replace geometry in place; coarsening atomically replaces descendants with
+their prepared parent; refinement keeps the live parent until every replacement
+child in that region is prepared or has reached a terminal GEBCO fallback.
+Only obsolete, non-overlapping tiles fade individually after the desired plan
+is settled. One
 generation-tagged RTIN job runs at a time and completed GPU-ready meshes install
 one per frame. Each mesh is capped at 16,384 vertices and all active local
 geometry is capped at 96 MiB. The worker progressively relaxes RTIN error only
-when needed to keep a tile within its vertex ceiling, and the centre tile is
-queued first. A cell that still cannot meet those limits remains GEBCO. GEBCO
-always continues beyond the local patch. Its projected error target is 2 mm,
-calculated independently from planet scale and radial multiplier, so cached
-height data is retained while RTIN meshes rebuild into finer buckets even when
-the source-tile zoom does not cross a boundary. Runtime body-data diagnostics
-report horizon angle and source distance, selected zoom, actual window coverage,
-calculated zoom, any manual zoom override, requested and actual RTIN error, and
-imagery level. A depth-only shell below
+when needed to keep a tile within its vertex ceiling, and the nearest tile is
+queued first. A tile that still cannot meet those limits remains GEBCO. GEBCO
+always continues beyond the local patch. Runtime body-data diagnostics report
+the horizon, source zoom range, source-sample pixel range, LOD bias, budget
+state, and requested and actual RTIN errors. A depth-only shell below
 the deepest exaggerated seabed prevents distant terrain and ocean faces from
 showing through transient seams.
 

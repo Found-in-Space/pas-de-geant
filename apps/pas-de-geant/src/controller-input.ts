@@ -5,7 +5,7 @@ export interface ControllerIntent {
   scaleAxis: number;
   radialAxis: number;
   boost: boolean;
-  terrainZoomDelta: number;
+  terrainLodBiasDelta: number;
   toggleOcean: boolean;
   reset: boolean;
   togglePanel: boolean;
@@ -60,7 +60,7 @@ export function controllerIntent(
   const yPressed = leftButtons[5]?.pressed ?? false;
   const toggleOcean = aPressed && !latch.a;
   const togglePanel = stickPressed && !latch.stick;
-  const terrainZoomDelta =
+  const terrainLodBiasDelta =
     Number(yPressed && !latch.y) - Number(xPressed && !latch.x);
   latch.a = aPressed;
   latch.stick = stickPressed;
@@ -79,7 +79,7 @@ export function controllerIntent(
     boost:
       (leftButtons[0]?.value ?? 0) > 0.55 ||
       (leftButtons[1]?.value ?? 0) > 0.55,
-    terrainZoomDelta,
+    terrainLodBiasDelta,
     toggleOcean,
     reset,
     togglePanel,

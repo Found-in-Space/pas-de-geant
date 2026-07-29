@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   LOCAL_GRID_SIZE,
+  LOCAL_ACTIVE_TILE_BUDGET,
+  LOCAL_LOD_HEADPOSE_DEADZONE_M,
   LOCAL_TERRAIN_MAX_ZOOM,
   LOCAL_TILE_SIZE,
+  RTIN_TARGET_ERROR_PIXELS,
   TileRequestQueue,
+  angularDistanceToMercatorTile,
   buildHeightGrid513,
   decodeTerrariumPixels,
+  distanceFromEyeToMercatorTileWorldM,
   forceFullRtinBoundary,
   isValidMercatorAddress,
   isOceanOnlyHeightTile,
@@ -15,8 +20,13 @@ import {
   mercatorHorizonBounds,
   mercatorTileKey,
   resolveLocalElevation,
+  samplePixelsForMercatorTile,
+  screenSpacePlanningPoseMovementM,
+  screenSpaceRtinErrorBucket,
+  selectScreenSpaceTerrainPlan,
   selectLocalTerrainZoom,
   selectLocalTileWindow,
+  verticalErrorPixelsForTile,
 } from "../apps/pas-de-geant/src/local-terrain-core.js";
 import {
   MAPTERHORN_ELEVATION_CACHE_NAME,
@@ -195,6 +205,133 @@ describe("Pas de Géant local-terrain regressions", () => {
         ).toBe(false);
       }
     }
+  });
+
+  it("selects mixed source zooms from per-eye sample size", () => {
+    const options = {
+      latitudeDegrees: 45,
+      longitudeDegrees: 7,
+      displayRadiusM: 1,
+      eyeHeightWorldM: 1.65,
+      focalLengthPixels: 1_100,
+    };
+    const plan = selectScreenSpaceTerrainPlan(options);
+    expect(plan.budgetLimited).toBe(false);
+    expect(plan.active.length).toBeLessThanOrEqual(LOCAL_ACTIVE_TILE_BUDGET);
+    expect(plan.minZoom).toBeLessThan(plan.maxZoom);
+    expect(new Set(plan.active.map((tile) => tile.z)).size).toBeGreaterThan(1);
+    expect(Math.max(...plan.active.map((tile) => tile.samplePixels))).toBeLessThan(
+      0.5,
+    );
+
+    for (const tile of plan.active) {
+      for (const other of plan.active) {
+        if (tile === other || tile.z >= other.z) continue;
+        const divisor = 2 ** (other.z - tile.z);
+        expect(
+          Math.floor(other.x / divisor) === tile.x &&
+            Math.floor(other.y / divisor) === tile.y,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("uses source-LOD hysteresis and an error-halving bias", () => {
+    const baseOptions = {
+      latitudeDegrees: 45,
+      longitudeDegrees: 7,
+      displayRadiusM: 1,
+      eyeHeightWorldM: 1.65,
+      focalLengthPixels: 1_100,
+    };
+    const base = selectScreenSpaceTerrainPlan(baseOptions);
+    const previousActiveKeys = new Set(base.active.map(mercatorTileKey));
+    const coldAtHigherResolution = selectScreenSpaceTerrainPlan({
+      ...baseOptions,
+      focalLengthPixels: 1_250,
+    });
+    const hystereticAtHigherResolution = selectScreenSpaceTerrainPlan({
+      ...baseOptions,
+      focalLengthPixels: 1_250,
+      previousActiveKeys,
+    });
+    expect(hystereticAtHigherResolution.maxZoom).toBe(base.maxZoom);
+    expect(hystereticAtHigherResolution.active).toHaveLength(
+      base.active.length,
+    );
+    expect(coldAtHigherResolution.maxZoom).toBeGreaterThan(base.maxZoom);
+
+    const finerBias = selectScreenSpaceTerrainPlan({
+      ...baseOptions,
+      lodBias: 1,
+    });
+    expect(finerBias.maxZoom).toBeGreaterThanOrEqual(base.maxZoom);
+    expect(finerBias.active.length).toBeGreaterThan(base.active.length);
+  });
+
+  it("holds LOD planning inside a cumulative centimetre head-pose deadzone", () => {
+    const anchor = {
+      latitudeDegrees: 45,
+      longitudeDegrees: 7,
+      eyeHeightWorldM: 1.65,
+    };
+    const oneDegreeWorldM = Math.PI / 180;
+    const smallHorizontalDegrees =
+      0.025 / (oneDegreeWorldM * Math.cos(Math.PI / 4));
+    const withinDeadzone = screenSpacePlanningPoseMovementM(
+      anchor,
+      {
+        latitudeDegrees: anchor.latitudeDegrees,
+        longitudeDegrees: anchor.longitudeDegrees + smallHorizontalDegrees,
+        eyeHeightWorldM: 1.67,
+      },
+      1,
+    );
+    const beyondDeadzone = screenSpacePlanningPoseMovementM(
+      anchor,
+      {
+        latitudeDegrees: anchor.latitudeDegrees,
+        longitudeDegrees: anchor.longitudeDegrees + smallHorizontalDegrees * 2,
+        eyeHeightWorldM: 1.67,
+      },
+      1,
+    );
+    expect(withinDeadzone).toBeLessThan(LOCAL_LOD_HEADPOSE_DEADZONE_M);
+    expect(beyondDeadzone).toBeGreaterThan(LOCAL_LOD_HEADPOSE_DEADZONE_M);
+  });
+
+  it("measures source and RTIN errors in actual eye-buffer pixels", () => {
+    const underEye = { z: 12, x: 2_048, y: 2_048 };
+    expect(angularDistanceToMercatorTile(0, 0, underEye)).toBe(0);
+    expect(
+      distanceFromEyeToMercatorTileWorldM(0, 0, underEye, 10, 1.65),
+    ).toBeCloseTo(1.65);
+    const sampleAtTen = samplePixelsForMercatorTile(
+      0,
+      0,
+      underEye,
+      10,
+      1.65,
+      1_100,
+    );
+    const sampleAtTwenty = samplePixelsForMercatorTile(
+      0,
+      0,
+      underEye,
+      20,
+      1.65,
+      1_100,
+    );
+    expect(sampleAtTwenty).toBeCloseTo(sampleAtTen * 2);
+
+    const nearError = screenSpaceRtinErrorBucket(2, 637, 1, 1_100);
+    const farError = screenSpaceRtinErrorBucket(20, 637, 1, 1_100);
+    const biasedError = screenSpaceRtinErrorBucket(2, 637, 1, 1_100, 1);
+    expect(farError).toBeGreaterThanOrEqual(nearError);
+    expect(biasedError).toBeLessThanOrEqual(nearError);
+    expect(
+      verticalErrorPixelsForTile(nearError, 2, 637, 1, 1_100),
+    ).toBeLessThanOrEqual(RTIN_TARGET_ERROR_PIXELS);
   });
 
   it("restarts a tile re-added while its aborted request settles", async () => {

@@ -8,8 +8,10 @@ import { normalizedRadialOffsetForMetres } from "./planet-state.js";
 import type { ReliefDataset } from "./relief.js";
 import { terrainHorizonSourceDistanceKm } from "./terrain-horizon.js";
 import {
+  LOCAL_ACTIVE_TILE_BUDGET,
   LOCAL_GEOMETRY_BUDGET_BYTES,
   LOCAL_HEIGHT_CACHE_LIMIT,
+  LOCAL_LOD_HEADPOSE_DEADZONE_M,
   LOCAL_MESH_VERTEX_LIMIT,
   LOCAL_RETIRE_SECONDS,
   LOCAL_SCALE_SETTLE_MS,
@@ -20,23 +22,22 @@ import {
   heightLoadTasksForWindow,
   isValidMercatorAddress,
   localDetailEnabled,
-  localTerrainHorizonCoverage,
-  localTerrainSourceSampleM,
   mercatorHorizonBounds,
+  mercatorAddressForCoordinates,
   mercatorCoordinatesForTilePoint,
   mercatorTileKey,
-  rtinErrorBucket,
-  resolveLocalTerrainZoom,
-  selectLocalTerrainZoom,
-  selectLocalTileWindow,
+  screenSpaceRtinErrorBucket,
+  screenSpacePlanningPoseMovementM,
+  selectScreenSpaceTerrainPlan,
   terrainScaleInputChanged,
   terrainScaleInputIsStable,
   wrapMercatorX,
   type LocalTerrainWorkerRequest,
   type LocalTerrainWorkerResult,
-  type LocalTileAddress,
   type MercatorTileAddress,
-  type MercatorTileWindow,
+  type ScreenSpaceLocalTile,
+  type ScreenSpacePlanningPose,
+  type ScreenSpaceTerrainPlan,
   type TileLoadTask,
 } from "./local-terrain-core.js";
 
@@ -68,7 +69,7 @@ class ElevationRequestError extends Error {
 
 interface RenderedLocalTile {
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
-  address: LocalTileAddress;
+  address: ScreenSpaceLocalTile;
   requestedErrorM: number;
   actualErrorM: number;
   geometryBytes: number;
@@ -87,9 +88,14 @@ interface PendingWorkerRequest {
 }
 
 interface QueuedMeshRequest {
-  address: LocalTileAddress;
+  address: ScreenSpaceLocalTile;
   generation: number;
   errorM: number;
+}
+
+interface PreparedTerrainPlan extends ScreenSpaceTerrainPlan {
+  requestedErrors: Map<string, number>;
+  signature: string;
 }
 
 type PreparedLocalTile = Extract<LocalTerrainWorkerResult, { type: "mesh" }>;
@@ -111,10 +117,32 @@ export interface LocalTerrainImageryPatch {
   };
 }
 
-type StreamingState = "steady" | "retiring" | "waiting" | "streaming";
+type StreamingState = "steady" | "waiting" | "streaming";
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function mercatorTileContains(
+  ancestor: MercatorTileAddress,
+  address: MercatorTileAddress,
+): boolean {
+  if (ancestor.z > address.z) return false;
+  const divisor = 2 ** (address.z - ancestor.z);
+  return (
+    Math.floor(address.x / divisor) === ancestor.x &&
+    Math.floor(address.y / divisor) === ancestor.y
+  );
+}
+
+function mercatorTilesOverlap(
+  first: MercatorTileAddress,
+  second: MercatorTileAddress,
+): boolean {
+  return (
+    mercatorTileContains(first, second) ||
+    mercatorTileContains(second, first)
+  );
 }
 
 async function loadElevation(
@@ -444,10 +472,11 @@ export class LocalTerrainRenderer {
   private readonly pendingWorker = new Map<number, PendingWorkerRequest>();
   private readonly meshQueue = new Map<string, QueuedMeshRequest>();
   private readonly installQueue: PreparedLocalTile[] = [];
+  private readonly stagedMeshes = new Map<string, PreparedLocalTile>();
   private readonly loadQueue: TileRequestQueue<ElevationPayload>;
-  private currentWindow: MercatorTileWindow | undefined;
-  private candidateWindow: MercatorTileWindow | undefined;
-  private active = new Map<string, LocalTileAddress>();
+  private currentWindow: PreparedTerrainPlan | undefined;
+  private candidateWindow: PreparedTerrainPlan | undefined;
+  private active = new Map<string, ScreenSpaceLocalTile>();
   private currentLodSignature = "";
   private streamingState: StreamingState = "waiting";
   private generation = 0;
@@ -466,6 +495,7 @@ export class LocalTerrainRenderer {
   private readonly imageryRefreshQueue = new Set<string>();
   private imageryOverlayCount = 0;
   private geometryBytes = 0;
+  private activeTileBudget = LOCAL_ACTIVE_TILE_BUDGET;
   private staleWorkerResults = 0;
   private elevationRequestTotal = 0;
   private elevationAbortTotal = 0;
@@ -474,9 +504,13 @@ export class LocalTerrainRenderer {
   private elevationPersistentCacheWrites = 0;
   private elevationPersistentCacheErrors = 0;
   private elevationPersistentCacheDeletes = 0;
-  private desiredZoom: number | undefined;
-  private calculatedZoom: number | undefined;
-  private zoomOverride: number | undefined;
+  private lodBias = 0;
+  private eyeHeightWorldM = 1.65;
+  private focalLengthPixels = 1_000;
+  private planningPose: ScreenSpacePlanningPose | undefined;
+  private planningFocalLengthPixels = 1_000;
+  private planningPoseMovementM = 0;
+  private atomicSwapTotal = 0;
   private lastUpdateMs =
     typeof performance === "undefined" ? 0 : performance.now();
 
@@ -524,13 +558,70 @@ export class LocalTerrainRenderer {
     }
   }
 
+  getLodStatus(): {
+    minZoom: number;
+    maxZoom: number;
+    bias: number;
+    budgetLimited: boolean;
+  } {
+    const plan = this.candidateWindow ?? this.currentWindow;
+    return {
+      minZoom: plan?.minZoom ?? 0,
+      maxZoom: plan?.maxZoom ?? 0,
+      bias: this.lodBias,
+      budgetLimited: plan?.budgetLimited ?? false,
+    };
+  }
+
+  private stablePlanningView(
+    latitudeDegrees: number,
+    longitudeDegrees: number,
+    eyeHeightWorldM: number,
+    focalLengthPixels: number,
+  ): ScreenSpacePlanningPose & { focalLengthPixels: number } {
+    const current: ScreenSpacePlanningPose = {
+      latitudeDegrees,
+      longitudeDegrees,
+      eyeHeightWorldM,
+    };
+    if (!this.planningPose) {
+      this.planningPose = current;
+      this.planningFocalLengthPixels = focalLengthPixels;
+      this.planningPoseMovementM = 0;
+    } else {
+      this.planningPoseMovementM = screenSpacePlanningPoseMovementM(
+        this.planningPose,
+        current,
+        this.displayRadiusM,
+      );
+      if (
+        this.planningPoseMovementM > LOCAL_LOD_HEADPOSE_DEADZONE_M
+      ) {
+        this.planningPose = current;
+        this.planningPoseMovementM = 0;
+      }
+      const focalRatio =
+        focalLengthPixels /
+        Math.max(1, this.planningFocalLengthPixels);
+      if (Math.abs(Math.log2(focalRatio)) > 0.02) {
+        this.planningFocalLengthPixels = focalLengthPixels;
+      }
+    }
+    return {
+      ...this.planningPose,
+      focalLengthPixels: this.planningFocalLengthPixels,
+    };
+  }
+
   update(
     latitudeDegrees: number,
     longitudeDegrees: number,
     displayRadiusM: number,
     radialMultiplier: number,
     oceanSurface: boolean,
-    zoomOverride?: number,
+    lodBias = 0,
+    eyeHeightWorldM = 1.65,
+    focalLengthPixels = 1_000,
   ): void {
     const nowMs = typeof performance === "undefined" ? 0 : performance.now();
     const deltaSeconds = Math.max(
@@ -560,16 +651,9 @@ export class LocalTerrainRenderer {
     this.displayRadiusM = displayRadiusM;
     this.radialMultiplier = radialMultiplier;
     this.oceanSurface = oceanSurface;
-    const calculatedZoom = selectLocalTerrainZoom(
-      latitudeDegrees,
-      longitudeDegrees,
-      displayRadiusM,
-    );
-    const zoom = resolveLocalTerrainZoom(calculatedZoom, zoomOverride);
-    this.calculatedZoom = calculatedZoom;
-    this.zoomOverride =
-      zoomOverride === undefined ? undefined : zoom;
-    this.desiredZoom = zoom;
+    this.lodBias = Math.max(-3, Math.min(3, Math.round(lodBias)));
+    this.eyeHeightWorldM = Math.max(0.001, eyeHeightWorldM);
+    this.focalLengthPixels = Math.max(1, focalLengthPixels);
     if (!this.stencilAvailable || !localDetailEnabled(latitudeDegrees)) {
       this.clearActive();
       this.loadQueue.sync([]);
@@ -577,69 +661,62 @@ export class LocalTerrainRenderer {
       this.updateDiagnostics();
       return;
     }
-    const window = selectLocalTileWindow(
+    const planningView = this.stablePlanningView(
       latitudeDegrees,
       longitudeDegrees,
-      zoom,
+      this.eyeHeightWorldM,
+      this.focalLengthPixels,
     );
-    const desiredLod = this.lodSignature(window);
+    const previousActiveKeys = new Set(
+      (this.currentWindow ?? this.candidateWindow)?.active.map(
+        mercatorTileKey,
+      ) ?? [],
+    );
+    const window = this.preparePlan(
+      selectScreenSpaceTerrainPlan({
+        latitudeDegrees: planningView.latitudeDegrees,
+        longitudeDegrees: planningView.longitudeDegrees,
+        displayRadiusM,
+        eyeHeightWorldM: planningView.eyeHeightWorldM,
+        focalLengthPixels: planningView.focalLengthPixels,
+        lodBias: this.lodBias,
+        previousActiveKeys,
+        activeTileBudget: this.activeTileBudget,
+        heightTileBudget: LOCAL_HEIGHT_CACHE_LIMIT,
+      }),
+    );
+    const desiredLod = window.signature;
     if (
       this.currentWindow &&
-      this.currentWindow.zoom === window.zoom &&
       this.currentLodSignature === desiredLod
     ) {
       this.candidateWindow = undefined;
-      if (this.streamingState === "retiring") {
-        for (const tile of this.rendered.values()) tile.detailTarget = 1;
-        this.streamingState = "streaming";
-      }
-      if (
-        this.currentWindow.originX !== window.originX ||
-        this.currentWindow.originY !== window.originY
-      ) {
-        this.applyLiveWindow(window);
+      this.currentWindow = window;
+      this.active = new Map(
+        window.active.map((address) => [mercatorTileKey(address), address]),
+      );
+      for (const [key, tile] of this.rendered) {
+        const address = this.active.get(key);
+        if (address) tile.address = address;
       }
     } else {
       this.candidateWindow = window;
-      if (this.rendered.size > 0) {
-        if (this.streamingState !== "retiring") {
-          this.cancelMeshGeneration();
-          for (const tile of this.rendered.values()) tile.detailTarget = 0;
-          this.streamingState = "retiring";
-        }
-      } else {
-        this.currentWindow = undefined;
-        this.active.clear();
-        this.currentLodSignature = "";
-        this.streamingState = "waiting";
+      if (!this.scaleMotion) {
+        this.beginStreaming(window);
       }
     }
 
     this.updateMaterialUniforms(deltaSeconds);
-    if (
-      this.streamingState === "retiring" &&
-      [...this.rendered.values()].every(
-        (tile) => Number(tile.mesh.material.uniforms.detailMix!.value) <= 0.001,
-      )
-    ) {
-      this.clearRendered();
-      this.currentWindow = undefined;
-      this.active.clear();
-      this.currentLodSignature = "";
-      this.streamingState = "waiting";
-    }
-    if (
-      this.streamingState === "waiting" &&
-      this.candidateWindow &&
-      !this.scaleMotion
-    ) {
+    this.removeRetiredTiles();
+    if (this.candidateWindow && !this.scaleMotion) {
       this.beginStreaming(this.candidateWindow);
     }
-    if (this.currentWindow && this.streamingState !== "retiring") {
+    if (this.currentWindow) {
       this.scheduleElevation();
       this.queueBuildableMeshes();
       this.dispatchNextMesh();
-      this.installOnePreparedMesh();
+      this.stageOnePreparedMesh();
+      this.commitReadyReplacements();
       this.updateStreamingCompletion();
     } else {
       this.loadQueue.sync([]);
@@ -709,7 +786,20 @@ export class LocalTerrainRenderer {
     this.active.clear();
     this.currentLodSignature = "";
     this.streamingState = "waiting";
+    this.planningPose = undefined;
+    this.planningPoseMovementM = 0;
     this.clearRendered();
+  }
+
+  private removeRetiredTiles(): void {
+    for (const [key, tile] of this.rendered) {
+      if (
+        tile.detailTarget <= 0 &&
+        Number(tile.mesh.material.uniforms.detailMix!.value) <= 0.001
+      ) {
+        this.removeRenderedTile(key);
+      }
+    }
   }
 
   private clearRendered(): void {
@@ -730,19 +820,40 @@ export class LocalTerrainRenderer {
     this.rendered.delete(key);
   }
 
-  private lodSignature(window: MercatorTileWindow): string {
-    return [
-      window.zoom,
-      rtinErrorBucket(this.displayRadiusM, this.radialMultiplier),
-      rtinErrorBucket(this.displayRadiusM, this.radialMultiplier, true),
-    ].join(":");
+  private preparePlan(plan: ScreenSpaceTerrainPlan): PreparedTerrainPlan {
+    const requestedErrors = new Map<string, number>();
+    for (const address of plan.active) {
+      const key = mercatorTileKey(address);
+      requestedErrors.set(
+        key,
+        screenSpaceRtinErrorBucket(
+          address.distanceWorldM,
+          this.displayRadiusM,
+          this.radialMultiplier,
+          this.planningFocalLengthPixels,
+          this.lodBias,
+          this.rendered.get(key)?.requestedErrorM,
+        ),
+      );
+    }
+    const signature = plan.active
+      .map(
+        (address) =>
+          `${mercatorTileKey(address)}@${requestedErrors.get(
+            mercatorTileKey(address),
+          )}`,
+      )
+      .sort()
+      .join("|");
+    return { ...plan, requestedErrors, signature };
   }
 
-  private beginStreaming(window: MercatorTileWindow): void {
+  private beginStreaming(window: PreparedTerrainPlan): void {
     this.cancelMeshGeneration();
+    for (const tile of this.rendered.values()) tile.detailTarget = 1;
     this.currentWindow = window;
     this.candidateWindow = undefined;
-    this.currentLodSignature = this.lodSignature(window);
+    this.currentLodSignature = window.signature;
     this.active = new Map(
       window.active.map((address) => [mercatorTileKey(address), address]),
     );
@@ -753,23 +864,7 @@ export class LocalTerrainRenderer {
     this.generation += 1;
     this.meshQueue.clear();
     this.installQueue.length = 0;
-  }
-
-  private applyLiveWindow(window: MercatorTileWindow): void {
-    this.cancelMeshGeneration();
-    this.currentWindow = window;
-    const nextActive = new Map(
-      window.active.map((address) => [mercatorTileKey(address), address]),
-    );
-    for (const key of this.rendered.keys()) {
-      if (!nextActive.has(key)) this.removeRenderedTile(key);
-    }
-    for (const [key, tile] of this.rendered) {
-      const address = nextActive.get(key);
-      if (address) tile.address = address;
-    }
-    this.active = nextActive;
-    this.streamingState = "streaming";
+    this.stagedMeshes.clear();
   }
 
   private scheduleElevation(): void {
@@ -950,6 +1045,7 @@ export class LocalTerrainRenderer {
         )
       )
         continue;
+      if (this.stagedMeshes.get(key)?.requestedErrorM === errorM) continue;
       if (this.overbudgetMeshes.get(key) === this.currentLodSignature) continue;
       const centreState = this.prerequisiteState(address);
       if (centreState === "ocean" || centreState === "failed") continue;
@@ -957,7 +1053,9 @@ export class LocalTerrainRenderer {
       const neighbours = this.meshPrerequisites(address);
       if (
         neighbours.some(
-          (neighbour) => this.prerequisiteState(neighbour) === "pending",
+          (neighbour) =>
+            this.active.has(mercatorTileKey(neighbour)) &&
+            this.prerequisiteState(neighbour) === "pending",
         )
       ) {
         continue;
@@ -1024,69 +1122,258 @@ export class LocalTerrainRenderer {
     ];
   }
 
-  private errorForAddress(address: LocalTileAddress): number {
-    const window = this.currentWindow;
-    const outerRing =
-      !window ||
-      address.column === 0 ||
-      address.row === 0 ||
-      address.column === window.columns - 1 ||
-      address.row === window.rows - 1;
-    return rtinErrorBucket(
-      this.displayRadiusM,
-      this.radialMultiplier,
-      outerRing,
+  private errorForAddress(address: ScreenSpaceLocalTile): number {
+    return (
+      this.currentWindow?.requestedErrors.get(mercatorTileKey(address)) ??
+      screenSpaceRtinErrorBucket(
+        address.distanceWorldM,
+        this.displayRadiusM,
+        this.radialMultiplier,
+        this.planningFocalLengthPixels,
+        this.lodBias,
+        this.rendered.get(mercatorTileKey(address))?.requestedErrorM,
+      )
     );
   }
 
-  private installOnePreparedMesh(): void {
+  private stageOnePreparedMesh(): void {
     while (this.installQueue.length > 0) {
       const result = this.installQueue.shift()!;
+      const key = mercatorTileKey(result.address);
       if (
         result.generation !== this.generation ||
-        !this.active.has(mercatorTileKey(result.address))
+        !this.active.has(key) ||
+        this.errorForAddress(this.active.get(key)!) !== result.requestedErrorM
       ) {
         this.staleWorkerResults += 1;
         continue;
       }
-      this.installOrReplaceMesh(result);
+      this.stagedMeshes.set(key, result);
       break;
     }
   }
 
-  private installOrReplaceMesh(result: PreparedLocalTile): void {
-    const activeAddress = this.active.get(mercatorTileKey(result.address));
-    if (!activeAddress) return;
-    const geometry = geometryForLocalTile(result);
-    const key = mercatorTileKey(activeAddress);
+  private desiredTileTerminal(address: ScreenSpaceLocalTile): boolean {
+    const key = mercatorTileKey(address);
+    const requestedErrorM = this.errorForAddress(address);
     const existing = this.rendered.get(key);
-    const nextGeometryBytes =
-      this.geometryBytes -
-      (existing?.geometryBytes ?? 0) +
-      result.geometryBytes;
-    if (nextGeometryBytes > LOCAL_GEOMETRY_BUDGET_BYTES) {
-      geometry.dispose();
-      this.overbudgetMeshes.set(key, this.currentLodSignature);
-      return;
+    if (existing?.requestedErrorM === requestedErrorM) return true;
+    if (this.stagedMeshes.get(key)?.requestedErrorM === requestedErrorM) {
+      return true;
     }
-    if (existing) {
-      this.clearTileOverlays(existing);
-      const previousGeometry = existing.mesh.geometry;
-      existing.mesh.geometry = geometry;
-      existing.address = activeAddress;
-      existing.requestedErrorM = result.requestedErrorM;
-      existing.actualErrorM = result.actualErrorM;
-      this.geometryBytes = nextGeometryBytes;
-      existing.geometryBytes = result.geometryBytes;
-      previousGeometry.dispose();
-      existing.detailTarget = 1;
-      for (const overlay of existing.overlays.values()) {
-        overlay.geometry = geometry;
+    const state = this.prerequisiteState(address);
+    return (
+      state === "ocean" ||
+      state === "failed" ||
+      this.overbudgetMeshes.get(key) === this.currentLodSignature ||
+      (this.failedMeshUntil.get(key) ?? 0) > Date.now()
+    );
+  }
+
+  private desiredTileSettled(address: ScreenSpaceLocalTile): boolean {
+    const key = mercatorTileKey(address);
+    const existing = this.rendered.get(key);
+    if (existing?.requestedErrorM === this.errorForAddress(address)) return true;
+    const state = this.prerequisiteState(address);
+    return (
+      state === "ocean" ||
+      state === "failed" ||
+      this.overbudgetMeshes.get(key) === this.currentLodSignature ||
+      (this.failedMeshUntil.get(key) ?? 0) > Date.now()
+    );
+  }
+
+  private commitReadyReplacements(): void {
+    const plan = this.currentWindow;
+    if (!plan) return;
+
+    // RTIN-only changes never retire a source tile. Replace its geometry after
+    // the worker result is ready.
+    for (const [key, result] of [...this.stagedMeshes]) {
+      if (this.rendered.has(key)) {
+        this.commitPreparedMeshes([result], []);
       }
-      this.imageryRefreshQueue.add(key);
-      return;
     }
+
+    // Coarsening is one atomic parent-for-descendants swap.
+    for (const [key, result] of [...this.stagedMeshes]) {
+      const desired = this.active.get(key);
+      if (!desired) continue;
+      const descendants = [...this.rendered]
+        .filter(
+          ([renderedKey, tile]) =>
+            renderedKey !== key &&
+            desired.z < tile.address.z &&
+            mercatorTileContains(desired, tile.address),
+        )
+        .map(([renderedKey]) => renderedKey);
+      if (descendants.length > 0) {
+        this.commitPreparedMeshes([result], descendants);
+      }
+    }
+
+    // Refinement keeps the old parent until every desired child in that region
+    // is prepared or has reached a terminal fallback state.
+    for (const [renderedKey, renderedTile] of [...this.rendered]) {
+      if (this.active.has(renderedKey)) continue;
+      const desiredDescendants = plan.active.filter(
+        (address) =>
+          address.z > renderedTile.address.z &&
+          mercatorTileContains(renderedTile.address, address),
+      );
+      if (
+        desiredDescendants.length === 0 ||
+        !desiredDescendants.every((address) =>
+          this.desiredTileTerminal(address),
+        )
+      ) {
+        continue;
+      }
+      const prepared = desiredDescendants
+        .map((address) => this.stagedMeshes.get(mercatorTileKey(address)))
+        .filter((result): result is PreparedLocalTile => result !== undefined);
+      this.commitPreparedMeshes(prepared, [renderedKey]);
+    }
+
+    // Initial tiles and newly exposed, non-overlapping regions can appear as
+    // soon as they are ready.
+    for (const [key, result] of [...this.stagedMeshes]) {
+      const desired = this.active.get(key);
+      if (!desired) continue;
+      const overlapsLiveTile = [...this.rendered.values()].some((tile) =>
+        mercatorTilesOverlap(desired, tile.address),
+      );
+      if (!overlapsLiveTile) this.commitPreparedMeshes([result], []);
+    }
+
+    const allDesiredSettled = plan.active.every((address) =>
+      this.desiredTileSettled(address),
+    );
+    if (allDesiredSettled) {
+      for (const [key, tile] of this.rendered) {
+        const overlapsDesired = plan.active.some((address) =>
+          mercatorTilesOverlap(address, tile.address),
+        );
+        if (!this.active.has(key) && !overlapsDesired) {
+          tile.detailTarget = 0;
+        }
+      }
+    }
+  }
+
+  private commitPreparedMeshes(
+    results: PreparedLocalTile[],
+    conflictKeys: string[],
+  ): boolean {
+    const validResults = results.filter((result) => {
+      const key = mercatorTileKey(result.address);
+      const activeAddress = this.active.get(key);
+      return (
+        result.generation === this.generation &&
+        activeAddress !== undefined &&
+        this.errorForAddress(activeAddress) === result.requestedErrorM
+      );
+    });
+    if (validResults.length !== results.length) return false;
+    const conflicts = new Set(conflictKeys);
+    const exactReplacements = new Set(
+      validResults
+        .map((result) => mercatorTileKey(result.address))
+        .filter((key) => this.rendered.has(key)),
+    );
+    const removedBytes = [...new Set([...conflicts, ...exactReplacements])]
+      .reduce(
+        (total, key) => total + (this.rendered.get(key)?.geometryBytes ?? 0),
+        0,
+      );
+    const addedBytes = validResults.reduce(
+      (total, result) => total + result.geometryBytes,
+      0,
+    );
+    const nextGeometryBytes =
+      this.geometryBytes - removedBytes + addedBytes;
+    if (nextGeometryBytes > LOCAL_GEOMETRY_BUDGET_BYTES) {
+      for (const result of validResults) {
+        const key = mercatorTileKey(result.address);
+        this.overbudgetMeshes.set(key, this.currentLodSignature);
+        this.stagedMeshes.delete(key);
+      }
+      this.activeTileBudget = Math.max(
+        1,
+        Math.min(this.activeTileBudget - 1, this.rendered.size),
+      );
+      return false;
+    }
+    const geometries = validResults.map((result) => ({
+      result,
+      geometry: geometryForLocalTile(result),
+    }));
+    for (const key of conflicts) {
+      if (!exactReplacements.has(key)) this.removeRenderedTile(key);
+    }
+    const instantDetail = conflicts.size > 0;
+    for (const { result, geometry } of geometries) {
+      const key = mercatorTileKey(result.address);
+      const activeAddress = this.active.get(key)!;
+      const existing = this.rendered.get(key);
+      if (existing) {
+        this.replaceRenderedGeometry(existing, activeAddress, result, geometry);
+      } else {
+        this.addRenderedGeometry(
+          activeAddress,
+          result,
+          geometry,
+          instantDetail,
+        );
+      }
+      this.stagedMeshes.delete(key);
+    }
+    this.geometryBytes = nextGeometryBytes;
+    if (conflicts.size > 0) this.atomicSwapTotal += 1;
+    this.refreshEdgeTargets();
+    this.updateMaterialUniforms(0);
+    if (instantDetail) {
+      for (const result of validResults) {
+        const tile = this.rendered.get(mercatorTileKey(result.address));
+        if (!tile) continue;
+        const uniforms = tile.mesh.material.uniforms;
+        (uniforms.outerEdges!.value as THREE.Vector4).copy(tile.outerEdges);
+        (uniforms.unavailableEdges!.value as THREE.Vector4).copy(
+          tile.unavailableEdges,
+        );
+        (uniforms.skirtEdges!.value as THREE.Vector4).copy(tile.skirtEdges);
+      }
+    }
+    return true;
+  }
+
+  private replaceRenderedGeometry(
+    existing: RenderedLocalTile,
+    activeAddress: ScreenSpaceLocalTile,
+    result: PreparedLocalTile,
+    geometry: THREE.BufferGeometry,
+  ): void {
+    this.clearTileOverlays(existing);
+    const previousGeometry = existing.mesh.geometry;
+    existing.mesh.geometry = geometry;
+    existing.address = activeAddress;
+    existing.requestedErrorM = result.requestedErrorM;
+    existing.actualErrorM = result.actualErrorM;
+    existing.geometryBytes = result.geometryBytes;
+    previousGeometry.dispose();
+    existing.detailTarget = 1;
+    this.imageryRefreshQueue.add(mercatorTileKey(activeAddress));
+  }
+
+  private addRenderedGeometry(
+    activeAddress: ScreenSpaceLocalTile,
+    result: PreparedLocalTile,
+    geometry: THREE.BufferGeometry,
+    instantDetail: boolean,
+  ): void {
+    const key = mercatorTileKey(activeAddress);
     const material = localTerrainMaterial(this.relief, this.fallbackTexture);
+    if (instantDetail) material.uniforms.detailMix!.value = 1;
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
     mesh.renderOrder = -1;
@@ -1102,10 +1389,8 @@ export class LocalTerrainRenderer {
       unavailableEdges: new THREE.Vector4(),
       skirtEdges: new THREE.Vector4(),
     };
-    this.geometryBytes = nextGeometryBytes;
     this.rendered.set(key, tile);
     this.group.add(mesh);
-    this.refreshEdgeTargets();
     this.imageryRefreshQueue.add(key);
   }
 
@@ -1179,10 +1464,20 @@ export class LocalTerrainRenderer {
   private refreshEdgeTargets(): void {
     if (!this.currentWindow) return;
     const directions = [
-      { deltaX: 0, deltaY: -1 },
-      { deltaX: 1, deltaY: 0 },
-      { deltaX: 0, deltaY: 1 },
-      { deltaX: -1, deltaY: 0 },
+      { deltaX: 0, deltaY: -1, pixelX: 256, pixelY: -0.5 },
+      {
+        deltaX: 1,
+        deltaY: 0,
+        pixelX: LOCAL_TILE_SIZE + 0.5,
+        pixelY: 256,
+      },
+      {
+        deltaX: 0,
+        deltaY: 1,
+        pixelX: 256,
+        pixelY: LOCAL_TILE_SIZE + 0.5,
+      },
+      { deltaX: -1, deltaY: 0, pixelX: -0.5, pixelY: 256 },
     ];
     for (const tile of this.rendered.values()) {
       const outer = [0, 0, 0, 0];
@@ -1190,17 +1485,38 @@ export class LocalTerrainRenderer {
       const skirts = [0, 0, 0, 0];
       for (let index = 0; index < directions.length; index += 1) {
         const direction = directions[index]!;
-        const neighbour = {
+        const sameZoomNeighbour = {
           z: tile.address.z,
           x: wrapMercatorX(tile.address.x + direction.deltaX, tile.address.z),
           y: tile.address.y + direction.deltaY,
         };
-        const neighbourKey = mercatorTileKey(neighbour);
-        if (!this.active.has(neighbourKey)) {
+        if (!isValidMercatorAddress(sameZoomNeighbour)) {
           outer[index] = 1;
           skirts[index] = 1;
-        } else if (!this.rendered.has(neighbourKey)) {
-          unavailable[index] = 1;
+          continue;
+        }
+        const coordinates = mercatorCoordinatesForTilePoint(
+          tile.address,
+          direction.pixelX,
+          direction.pixelY,
+        );
+        const neighbour = [...this.rendered.values()].find((candidate) => {
+          const address = mercatorAddressForCoordinates(
+            coordinates.latitudeDegrees,
+            coordinates.longitudeDegrees,
+            candidate.address.z,
+          );
+          return (
+            address.x === candidate.address.x &&
+            address.y === candidate.address.y
+          );
+        });
+        if (!neighbour) {
+          outer[index] = 1;
+          skirts[index] = 1;
+        } else if (neighbour.address.z !== tile.address.z) {
+          // Full-resolution RTIN edges align within one source zoom. A shallow
+          // skirt hides the T-junction where different source zooms meet.
           skirts[index] = 1;
         }
       }
@@ -1233,16 +1549,9 @@ export class LocalTerrainRenderer {
     const requiredTerminal = this.currentWindow.required.every(
       (address) => this.prerequisiteState(address) !== "pending",
     );
-    const activeTerminal = [...this.active].every(([key, address]) => {
-      const state = this.prerequisiteState(address);
-      return (
-        state === "ocean" ||
-        state === "failed" ||
-        this.rendered.has(key) ||
-        this.overbudgetMeshes.get(key) === this.currentLodSignature ||
-        (this.failedMeshUntil.get(key) ?? 0) > Date.now()
-      );
-    });
+    const activeTerminal = [...this.active.values()].every((address) =>
+      this.desiredTileSettled(address),
+    );
     const workerBusy = [...this.pendingWorker.values()].some(
       (pending) => pending.kind === "mesh",
     );
@@ -1251,7 +1560,8 @@ export class LocalTerrainRenderer {
       activeTerminal &&
       !workerBusy &&
       this.meshQueue.size === 0 &&
-      this.installQueue.length === 0
+      this.installQueue.length === 0 &&
+      this.stagedMeshes.size === 0
     ) {
       this.streamingState = "steady";
     }
@@ -1268,14 +1578,12 @@ export class LocalTerrainRenderer {
           ]),
         )
       : this.active;
-    const columns = targetWindow?.columns ?? 0;
-    const rows = targetWindow?.rows ?? 0;
-    const states = Array.from({ length: columns * rows }, () => "p");
+    const states: string[] = [];
     let readyCells = 0;
     let fallbackCells = 0;
     let overbudgetCells = 0;
     const now = Date.now();
-    for (const [key, address] of target) {
+    for (const [key] of target) {
       let state = "p";
       if (this.rendered.has(key)) {
         state = "r";
@@ -1297,95 +1605,102 @@ export class LocalTerrainRenderer {
       } else if (this.decoded.peek(key) === "decoded") {
         state = "d";
       }
-      states[address.row * columns + address.column] = state;
+      states.push(state);
     }
     const horizonBounds = targetWindow
       ? mercatorHorizonBounds(
           this.latitudeDegrees,
           this.longitudeDegrees,
           this.displayRadiusM,
+          this.eyeHeightWorldM,
         )
       : undefined;
-    const horizonCoverage =
-      targetWindow && horizonBounds
-        ? localTerrainHorizonCoverage(targetWindow, horizonBounds)
-        : undefined;
     const actualErrors = [
       ...new Set([...this.rendered.values()].map((tile) => tile.actualErrorM)),
     ].sort((first, second) => first - second);
+    const requestedErrors = targetWindow
+      ? [...new Set(targetWindow.requestedErrors.values())].sort(
+          (first, second) => first - second,
+        )
+      : [];
+    const samplePixels = targetWindow?.active.map(
+      (tile) => tile.samplePixels,
+    ) ?? [];
     document.body.dataset.detailRelief = this.diagnosticStatus();
     document.body.dataset.detailMeshCount = String(this.rendered.size);
     document.body.dataset.detailHeightCache = String(this.decoded.size);
     document.body.dataset.detailHeightRequests = String(
       this.loadQueue.activeCount,
     );
-    document.body.dataset.detailWindowOrigin = targetWindow
-      ? `${targetWindow.originX}/${targetWindow.originY}`
-      : "";
+    document.body.dataset.detailWindowOrigin = "";
     document.body.dataset.detailWindowSize = targetWindow
-      ? `${columns}x${rows}`
+      ? String(targetWindow.active.length)
       : "";
     document.body.dataset.detailTerrainZoom = targetWindow
-      ? String(targetWindow.zoom)
+      ? String(targetWindow.maxZoom)
       : "";
     document.body.dataset.detailActiveZoom = this.currentWindow
-      ? String(this.currentWindow.zoom)
+      ? String(this.currentWindow.maxZoom)
       : "";
     document.body.dataset.detailTargetZoom = targetWindow
-      ? String(targetWindow.zoom)
+      ? String(targetWindow.maxZoom)
       : "";
-    document.body.dataset.detailDesiredZoom =
-      this.desiredZoom === undefined ? "" : String(this.desiredZoom);
-    document.body.dataset.detailCalculatedZoom =
-      this.calculatedZoom === undefined ? "" : String(this.calculatedZoom);
-    document.body.dataset.detailZoomOverride =
-      this.zoomOverride === undefined ? "" : String(this.zoomOverride);
-    document.body.dataset.detailSourceSampleMetres = targetWindow
-      ? localTerrainSourceSampleM(
-          this.latitudeDegrees,
-          targetWindow.zoom,
-        ).toFixed(1)
+    document.body.dataset.detailDesiredZoom = targetWindow
+      ? String(targetWindow.maxZoom)
       : "";
-    document.body.dataset.detailRequestedErrorMetres = targetWindow
-      ? String(rtinErrorBucket(this.displayRadiusM, this.radialMultiplier))
+    document.body.dataset.detailCalculatedZoom = targetWindow
+      ? String(targetWindow.maxZoom)
       : "";
+    document.body.dataset.detailZoomOverride = "";
+    document.body.dataset.detailSourceZoomRange = targetWindow
+      ? `${targetWindow.minZoom}-${targetWindow.maxZoom}`
+      : "";
+    document.body.dataset.detailLodBias = String(this.lodBias);
+    document.body.dataset.detailSourceSampleMetres = "";
+    document.body.dataset.detailSourceSamplePixels =
+      samplePixels.length > 0
+        ? `${Math.min(...samplePixels).toFixed(3)},${Math.max(
+            ...samplePixels,
+          ).toFixed(3)}`
+        : "";
+    document.body.dataset.detailRequestedErrorMetres =
+      requestedErrors.join(",");
     document.body.dataset.detailActualErrorMetres = actualErrors.join(",");
     document.body.dataset.detailHorizonDegrees = horizonBounds
       ? ((horizonBounds.angularRadiusRadians * 180) / Math.PI).toFixed(3)
       : "";
     document.body.dataset.detailHorizonDistanceKm = horizonBounds
-      ? terrainHorizonSourceDistanceKm(this.displayRadiusM).toFixed(1)
+      ? terrainHorizonSourceDistanceKm(
+          this.displayRadiusM,
+          this.eyeHeightWorldM,
+        ).toFixed(1)
       : "";
-    document.body.dataset.detailHorizonCoverage = horizonCoverage
-      ? String(horizonCoverage.covered)
+    document.body.dataset.detailHorizonCoverage = targetWindow
+      ? String(targetWindow.active.length > 0)
       : "";
-    document.body.dataset.detailCoverageMargins = horizonCoverage
-      ? [
-          horizonCoverage.westMarginTiles,
-          horizonCoverage.eastMarginTiles,
-          horizonCoverage.northMarginTiles,
-          horizonCoverage.southMarginTiles,
-        ]
-          .map((margin) => margin.toFixed(3))
-          .join(",")
-      : "";
+    document.body.dataset.detailCoverageMargins = "";
+    document.body.dataset.detailBudgetLimited = String(
+      targetWindow?.budgetLimited ?? false,
+    );
+    document.body.dataset.detailActiveTileBudget = String(
+      this.activeTileBudget,
+    );
     document.body.dataset.detailStaging = String(
       this.streamingState !== "steady",
     );
     document.body.dataset.detailStreamingState = this.streamingState;
     document.body.dataset.detailScaleMotion = String(this.scaleMotion);
+    document.body.dataset.detailLodHeadDeadzoneMetres =
+      LOCAL_LOD_HEADPOSE_DEADZONE_M.toFixed(3);
+    document.body.dataset.detailLodHeadMovementMetres =
+      this.planningPoseMovementM.toFixed(3);
+    document.body.dataset.detailStagedMeshes = String(this.stagedMeshes.size);
+    document.body.dataset.detailAtomicSwapTotal = String(this.atomicSwapTotal);
     document.body.dataset.detailReadyCells = String(readyCells);
     document.body.dataset.detailFallbackCells = String(fallbackCells);
     document.body.dataset.detailOverbudgetCells = String(overbudgetCells);
-    document.body.dataset.detailCentreState =
-      rows > 0 && columns > 0
-        ? states[Math.floor(rows / 2) * columns + Math.floor(columns / 2)] ??
-          "p"
-        : "p";
-    document.body.dataset.detailTileStates = Array.from(
-      { length: rows },
-      (_, row) => states.slice(row * columns, (row + 1) * columns).join(""),
-    ).join("/");
+    document.body.dataset.detailCentreState = states[0] ?? "p";
+    document.body.dataset.detailTileStates = states.join("");
     document.body.dataset.detailImageryCache = "0";
     document.body.dataset.detailImageryRequests = "0";
     document.body.dataset.detailImageryPatches = String(

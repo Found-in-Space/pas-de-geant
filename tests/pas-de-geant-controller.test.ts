@@ -51,7 +51,7 @@ describe("Pas de Géant controller regressions", () => {
     expect(controllerIntent(session, 48, latch).togglePanel).toBe(true);
   });
 
-  it("emits one terrain-zoom step per X or Y press", () => {
+  it("emits one terrain LOD-bias step per X or Y press", () => {
     const xButton = { pressed: false, value: 0 };
     const yButton = { pressed: false, value: 0 };
     const session = {
@@ -76,15 +76,15 @@ describe("Pas de Géant controller regressions", () => {
 
     xButton.pressed = true;
     xButton.value = 1;
-    expect(controllerIntent(session, 0, latch).terrainZoomDelta).toBe(-1);
-    expect(controllerIntent(session, 16, latch).terrainZoomDelta).toBe(0);
+    expect(controllerIntent(session, 0, latch).terrainLodBiasDelta).toBe(-1);
+    expect(controllerIntent(session, 16, latch).terrainLodBiasDelta).toBe(0);
     xButton.pressed = false;
     xButton.value = 0;
     controllerIntent(session, 32, latch);
 
     yButton.pressed = true;
     yButton.value = 1;
-    expect(controllerIntent(session, 48, latch).terrainZoomDelta).toBe(1);
-    expect(controllerIntent(session, 64, latch).terrainZoomDelta).toBe(0);
+    expect(controllerIntent(session, 48, latch).terrainLodBiasDelta).toBe(1);
+    expect(controllerIntent(session, 64, latch).terrainLodBiasDelta).toBe(0);
   });
 });
