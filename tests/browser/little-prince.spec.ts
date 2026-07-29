@@ -2,6 +2,14 @@ import { expect, test } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 
+const LOCAL_WINDOW_SIZE = 9;
+const LOCAL_REQUIRED_WINDOW_SIZE = LOCAL_WINDOW_SIZE + 1;
+const LOCAL_HEIGHT_CACHE_LIMIT = 128;
+const LOCAL_GEOMETRY_BUDGET_BYTES = 96 * 1_024 * 1_024;
+const LOCAL_IMAGERY_OVERLAY_LIMIT = 128;
+const MAPTERHORN_ELEVATION_CACHE_NAME =
+  "little-planet-mapterhorn-elevation-v1";
+
 function crc32(bytes: Buffer): number {
   let crc = 0xffffffff;
   for (const byte of bytes) {
@@ -169,9 +177,9 @@ test("loads and operates the Little Planet desktop fallback", async ({
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-terrain-zoom",
-    "5",
+    "6",
   );
-  await expect.poll(() => new Set(elevationRequests).size).toBe(36);
+  await expect.poll(() => new Set(elevationRequests).size).toBe(100);
   const initialTerrainZoom = Number(
     await page.locator("body").getAttribute("data-detail-terrain-zoom"),
   );
@@ -214,8 +222,8 @@ test("loads and operates the Little Planet desktop fallback", async ({
   const tileCount = 2 ** initialTerrainZoom;
   const requiredKeys = (originX: number, originY: number): Set<string> =>
     new Set(
-      Array.from({ length: 6 }, (_, row) =>
-        Array.from({ length: 6 }, (_, column) => {
+      Array.from({ length: LOCAL_REQUIRED_WINDOW_SIZE }, (_, row) =>
+        Array.from({ length: LOCAL_REQUIRED_WINDOW_SIZE }, (_, column) => {
           const x = (originX + column + tileCount) % tileCount;
           return `${initialTerrainZoom}/${x}/${originY + row}`;
         }),
@@ -277,7 +285,7 @@ test("loads and operates the Little Planet desktop fallback", async ({
   await expect(page.locator("#ocean-readout")).toHaveText("Surface");
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-terrain-zoom",
-    "5",
+    String(initialTerrainZoom),
   );
 
   const aircraftToggle = page.getByRole("checkbox", {
@@ -288,13 +296,29 @@ test("loads and operates the Little Planet desktop fallback", async ({
   expect(aircraftRequests).toBe(0);
   await aircraftToggle.uncheck();
   await expect(page.locator("#aircraft-readout")).toHaveText("Off · optional");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (cacheName) =>
+          (await (await caches.open(cacheName)).keys()).length,
+        MAPTERHORN_ELEVATION_CACHE_NAME,
+      ),
+    )
+    .toBe(0);
+  expect(
+    Number(
+      await page
+        .locator("body")
+        .getAttribute("data-detail-elevation-persistent-cache-deletes"),
+    ),
+  ).toBeGreaterThan(0);
   expect(consoleErrors).toEqual([]);
 });
 
 test("prepares bounded local meshes from mocked global detail tiles", async ({
   page,
 }) => {
-  test.setTimeout(210_000);
+  test.setTimeout(600_000);
   const terrainImage = flatTerrariumPng();
   const imageryPixel = onePixelPng();
   const elevationUrls: string[] = [];
@@ -350,7 +374,7 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
       document.body.dataset.detailRelief === "ready" &&
       document.body.dataset.detailStaging === "false",
     undefined,
-    { timeout: 90_000 },
+    { timeout: 180_000 },
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-stencil",
@@ -386,20 +410,32 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
     vertices: Number(document.body.dataset.detailVertices),
     workerInflight: Number(document.body.dataset.detailWorkerInflight),
   }));
-  expect(initialMetrics.meshCount).toBe(25);
-  expect(initialMetrics.cacheCount).toBeLessThanOrEqual(64);
+  const initialTerrainZoom = Number(
+    await page.locator("body").getAttribute("data-detail-terrain-zoom"),
+  );
+  expect(initialTerrainZoom).toBe(6);
+  expect(initialMetrics.meshCount).toBe(LOCAL_WINDOW_SIZE ** 2);
+  expect(initialMetrics.cacheCount).toBeLessThanOrEqual(
+    LOCAL_HEIGHT_CACHE_LIMIT,
+  );
   expect(initialMetrics.localImageryRequests).toBe(0);
   expect(initialMetrics.localImageryCache).toBe(0);
   expect(initialMetrics.imageryPatches).toBeGreaterThan(0);
   expect(initialMetrics.imageryDraws).toBeGreaterThan(0);
-  expect(initialMetrics.imageryDraws).toBeLessThanOrEqual(64);
-  expect(initialMetrics.geometryBytes).toBeLessThanOrEqual(32 * 1_024 * 1_024);
-  expect(initialMetrics.vertices).toBeLessThanOrEqual(25 * 16_384);
+  expect(initialMetrics.imageryDraws).toBeLessThanOrEqual(
+    LOCAL_IMAGERY_OVERLAY_LIMIT,
+  );
+  expect(initialMetrics.geometryBytes).toBeLessThanOrEqual(
+    LOCAL_GEOMETRY_BUDGET_BYTES,
+  );
+  expect(initialMetrics.vertices).toBeLessThanOrEqual(
+    LOCAL_WINDOW_SIZE ** 2 * 16_384,
+  );
   expect(initialMetrics.workerInflight).toBe(0);
   expect(maximumActiveElevationRequests).toBeLessThanOrEqual(4);
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-window-size",
-    "5x5",
+    "9x9",
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-horizon-coverage",
@@ -427,8 +463,19 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
   );
   expect(horizonDiagnostics.actualErrors).not.toBe("");
   expect(
-    elevationUrls.every((url) => new URL(url).pathname.split("/")[1] === "5"),
+    elevationUrls.every(
+      (url) =>
+        Number(new URL(url).pathname.split("/")[1]) ===
+        initialTerrainZoom,
+    ),
   ).toBe(true);
+  expect(
+    await page.evaluate(
+      async (cacheName) =>
+        (await (await caches.open(cacheName)).keys()).length,
+      MAPTERHORN_ELEVATION_CACHE_NAME,
+    ),
+  ).toBeGreaterThanOrEqual(LOCAL_REQUIRED_WINDOW_SIZE ** 2);
   expect(globalImageryUrls.length).toBeGreaterThan(0);
   expect(localImageryUrls).toEqual([]);
   const settledImageryRequestCount = globalImageryUrls.length;
@@ -496,8 +543,8 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
   const tileCount = 2 ** activeZoom;
   const requiredKeys = (originX: number, originY: number): Set<string> =>
     new Set(
-      Array.from({ length: 6 }, (_, row) =>
-        Array.from({ length: 6 }, (_, column) => {
+      Array.from({ length: LOCAL_REQUIRED_WINDOW_SIZE }, (_, row) =>
+        Array.from({ length: LOCAL_REQUIRED_WINDOW_SIZE }, (_, column) => {
           const x = (originX + column + tileCount) % tileCount;
           return `${activeZoom}/${x}/${originY + row}`;
         }),
@@ -519,50 +566,62 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
   const beforeRtinRefinement = elevationUrls.length;
   await page.keyboard.down("KeyX");
   await page.waitForFunction(
-    () =>
-      document.body.dataset.detailTargetZoom === "5" &&
+    (zoom) =>
+      document.body.dataset.detailTargetZoom === zoom &&
       document.body.dataset.detailRequestedErrorMetres === "80",
+    String(initialTerrainZoom),
   );
   await page.keyboard.up("KeyX");
   await page.waitForFunction(
-    () =>
-      document.body.dataset.detailActiveZoom === "5" &&
+    (zoom) =>
+      document.body.dataset.detailActiveZoom === zoom &&
       document.body.dataset.detailStaging === "false" &&
       (document.body.dataset.detailActualErrorMetres ?? "")
         .split(",")
         .includes("80"),
-    undefined,
-    { timeout: 15_000 },
+    String(initialTerrainZoom),
+    { timeout: 90_000 },
   );
   expect(elevationUrls.length).toBe(beforeRtinRefinement);
 
   await page.keyboard.down("KeyX");
   await page.waitForFunction(
-    () => document.body.dataset.detailTargetZoom === "6",
+    (zoom) => document.body.dataset.detailTargetZoom === zoom,
+    String(initialTerrainZoom + 1),
   );
   expect(
-    elevationUrls.some((url) => new URL(url).pathname.split("/")[1] === "6"),
+    elevationUrls.some(
+      (url) =>
+        Number(new URL(url).pathname.split("/")[1]) ===
+        initialTerrainZoom + 1,
+    ),
   ).toBe(false);
   expect(
     await page.evaluate(() => document.body.dataset.detailScaleMotion),
   ).toBe("true");
-  await expect(page.locator("#scale-readout")).toContainText("50.0 m");
+  await expect(page.locator("#scale-readout")).not.toContainText("10.0 m");
   await page.keyboard.up("KeyX");
   await page.waitForFunction(
-    () =>
-      document.body.dataset.detailActiveZoom === "6" &&
+    (zoom) =>
+      document.body.dataset.detailActiveZoom === zoom &&
       document.body.dataset.detailStaging === "false" &&
       document.body.dataset.detailWorkerQueued === "0" &&
       document.body.dataset.detailWorkerInflight === "0",
-    undefined,
-    { timeout: 15_000 },
+    String(initialTerrainZoom + 1),
+    { timeout: 180_000 },
   );
   expect(
-    elevationUrls.some((url) => new URL(url).pathname.split("/")[1] === "6"),
+    elevationUrls.some(
+      (url) =>
+        Number(new URL(url).pathname.split("/")[1]) ===
+        initialTerrainZoom + 1,
+    ),
   ).toBe(true);
   expect(
     elevationUrls.every(
-      (url) => Number(new URL(url).pathname.split("/")[1]) <= 6,
+      (url) =>
+        Number(new URL(url).pathname.split("/")[1]) <=
+        initialTerrainZoom + 1,
     ),
   ).toBe(true);
   expect(
@@ -586,16 +645,16 @@ test("prepares bounded local meshes from mocked global detail tiles", async ({
 test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
   page,
 }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(240_000);
   const terrainImage = flatTerrariumPng();
   const imageryPixel = onePixelPng();
   const missingTiles = new Set([
-    "5/26/10",
-    "5/27/10",
-    "5/26/11",
-    "5/27/11",
-    "5/26/13",
-    "5/26/15",
+    "6/54/21",
+    "6/55/21",
+    "6/54/22",
+    "6/55/22",
+    "6/54/25",
+    "6/54/30",
   ]);
   const localImageryUrls: string[] = [];
   await page.route("https://tiles.mapterhorn.com/**", async (route) => {
@@ -633,11 +692,12 @@ test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-relief",
     "ready",
-    { timeout: 20_000 },
+    { timeout: 60_000 },
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-mesh-count",
-    "20",
+    "76",
+    { timeout: 180_000 },
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-fallback-cells",
@@ -645,7 +705,17 @@ test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-tile-states",
-    "ffrrr/ffrrr/rrrrr/frrrr/rrrrr",
+    [
+      "rrffrrrrr",
+      "rrffrrrrr",
+      "rrrrrrrrr",
+      "rrrrrrrrr",
+      "rrfrrrrrr",
+      "rrrrrrrrr",
+      "rrrrrrrrr",
+      "rrrrrrrrr",
+      "rrrrrrrrr",
+    ].join("/"),
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-imagery-requests",

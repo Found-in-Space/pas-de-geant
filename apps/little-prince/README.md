@@ -76,37 +76,41 @@ npm run prepare:relief --workspace @found-in-space/little-prince
 ```
 
 Around the current contact point, the renderer asynchronously requests a
-logical 5×5 window of Mapterhorn's global 512 px Terrarium tiles. Its source
+logical 9×9 window of Mapterhorn's global 512 px Terrarium tiles. Its source
 zoom is calculated rather than mapped to named scales: a fixed 2 m observer
 height gives the sea-level spherical horizon
 `acos(radius / (radius + 2 m))`, that cap is converted to clipped Web Mercator
 bounds, and zooms 12–0 are tested until the finest actual user-centred window
 contains the complete cap. This accounts for tile alignment, latitude
 distortion, unequal north/south extents, polar clipping, and antimeridian
-wrapping. At zooms 0–2 the logical window collapses to the unique valid
+wrapping. At zooms 0–3 the logical window collapses to the unique valid
 whole-world cells, without wrapped duplicates or polar halo requests. The
 underlying global source is Copernicus GLO-30; the checked-in GEBCO terrain
 remains the continuous globe beyond the local patch and across the distant
 horizon. Regional zoom 13–17 LiDAR is intentionally not requested.
 
 A worker decodes elevations and builds adaptive 513×513 RTIN meshes with
-`@mapbox/martini`. A full 5×5 active window contains 2560×2560 height samples
+`@mapbox/martini`. A full 9×9 active window contains 4608×4608 height samples
 before RTIN simplification. Its valid east/south halo keeps shared heights
 aligned, and forced full-resolution RTIN borders prevent cracks between
 simplification levels. The outer ring blends back to GEBCO; unavailable
 neighbours receive a shorter edge fade and only patch or fallback boundaries
 retain shallow skirts.
 
-At most four elevation requests run concurrently, and up to 64 decoded tiles
-are retained. Prepared local meshes write an exact stencil before the coarse
-globe renders, so missing, malformed, ocean-only, polar, and offline tiles
-remain continuous GEBCO terrain and bathymetry without approximate mask edges.
+At most four elevation requests run concurrently, and up to 128 decoded tiles
+are retained. Successful Mapterhorn responses are also written to the browser's
+named Cache API storage and checked there before the network; malformed images
+are evicted as soon as worker decoding rejects them. Browser storage quotas and
+eviction policy still apply. Prepared local meshes write an exact stencil
+before the coarse globe renders, so missing, malformed, ocean-only, polar, and
+offline tiles remain continuous GEBCO terrain and bathymetry without
+approximate mask edges.
 Overlapping meshes survive window movement. During a scale or radial-LOD
 change, obsolete detail fades to exact GEBCO and the renderer waits 250 ms for
 the control to settle before requesting only the final source window. One
 generation-tagged RTIN job runs at a time and completed GPU-ready meshes install
 one per frame. Each mesh is capped at 16,384 vertices and all active local
-geometry is capped at 32 MiB. The worker progressively relaxes RTIN error only
+geometry is capped at 96 MiB. The worker progressively relaxes RTIN error only
 when needed to keep a tile within its vertex ceiling, and the centre tile is
 queued first. A cell that still cannot meet those limits remains GEBCO. GEBCO
 always continues beyond the local patch. Its projected error target is 2 mm,

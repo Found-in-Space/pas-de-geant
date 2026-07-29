@@ -1,4 +1,9 @@
 import * as THREE from "three";
+import {
+  deleteCachedElevation,
+  loadCachedElevation,
+  type ElevationCacheStatus,
+} from "./elevation-cache.js";
 import { normalizedRadialOffsetForMetres } from "./planet-state.js";
 import type { ReliefDataset } from "./relief.js";
 import { terrainHorizonSourceDistanceKm } from "./terrain-horizon.js";
@@ -17,7 +22,6 @@ import {
   localDetailEnabled,
   localTerrainHorizonCoverage,
   localTerrainSourceSampleM,
-  mapterhornUrlForTile,
   mercatorHorizonBounds,
   mercatorCoordinatesForTilePoint,
   mercatorTileKey,
@@ -47,10 +51,12 @@ const LAND_DARK_LUMINANCE = 0.12;
 const LAND_BRIGHT_LUMINANCE = 0.5;
 const LAND_DARK_TONE_LIFT = 0.16;
 const LAND_LIT_TONE_FRACTION = 0.35;
+const LOCAL_IMAGERY_OVERLAY_LIMIT = 128;
 
 interface ElevationPayload {
   bytes: ArrayBuffer;
   contentType: string;
+  cacheStatus: ElevationCacheStatus;
 }
 
 class ElevationRequestError extends Error {
@@ -107,15 +113,6 @@ export interface LocalTerrainImageryPatch {
 
 type StreamingState = "steady" | "retiring" | "waiting" | "streaming";
 
-function abortError(message: string): Error {
-  if (typeof DOMException === "function") {
-    return new DOMException(message, "AbortError");
-  }
-  const error = new Error(message);
-  error.name = "AbortError";
-  return error;
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
@@ -124,25 +121,17 @@ async function loadElevation(
   address: MercatorTileAddress,
   signal: AbortSignal,
 ): Promise<ElevationPayload> {
-  const response = await fetch(mapterhornUrlForTile(address), {
-    cache: "default",
-    mode: "cors",
-    signal,
-  });
-  if (!response.ok) {
+  const payload = await loadCachedElevation(address, signal);
+  if (payload.status < 200 || payload.status >= 300) {
     throw new ElevationRequestError(
-      `Elevation tile request failed with ${response.status}.`,
-      response.status,
+      `Elevation tile request failed with ${payload.status}.`,
+      payload.status,
     );
   }
-  const bytes = await response.arrayBuffer();
-  if (signal.aborted) throw abortError("The elevation request was aborted.");
-  if (bytes.byteLength === 0) {
-    throw new ElevationRequestError("The elevation tile is empty.");
-  }
   return {
-    bytes,
-    contentType: response.headers.get("content-type") ?? "image/webp",
+    bytes: payload.bytes,
+    contentType: payload.contentType,
+    cacheStatus: payload.cacheStatus,
   };
 }
 
@@ -481,6 +470,10 @@ export class LocalTerrainRenderer {
   private elevationRequestTotal = 0;
   private elevationAbortTotal = 0;
   private elevationRetryTotal = 0;
+  private elevationPersistentCacheHits = 0;
+  private elevationPersistentCacheWrites = 0;
+  private elevationPersistentCacheErrors = 0;
+  private elevationPersistentCacheDeletes = 0;
   private desiredZoom: number | undefined;
   private calculatedZoom: number | undefined;
   private zoomOverride: number | undefined;
@@ -804,6 +797,13 @@ export class LocalTerrainRenderer {
     task: TileLoadTask,
     payload: ElevationPayload,
   ): void {
+    if (payload.cacheStatus === "hit") {
+      this.elevationPersistentCacheHits += 1;
+    } else if (payload.cacheStatus === "stored") {
+      this.elevationPersistentCacheWrites += 1;
+    } else if (payload.cacheStatus === "error") {
+      this.elevationPersistentCacheErrors += 1;
+    }
     const key = mercatorTileKey(task.address);
     const requestId = ++this.requestId;
     this.pendingDecodeKeys.set(key, requestId);
@@ -891,6 +891,14 @@ export class LocalTerrainRenderer {
       this.decoded.delete(key);
       this.scheduleElevation();
     } else if (pending.kind === "decode") {
+      void deleteCachedElevation(pending.address).then((status) => {
+        if (status === "deleted") {
+          this.elevationPersistentCacheDeletes += 1;
+        } else if (status === "error") {
+          this.elevationPersistentCacheErrors += 1;
+        }
+        this.updateDiagnostics();
+      });
       this.failedUntil.set(
         key,
         elevationFailureDecision("malformed", 1, Date.now()).retryAtMs,
@@ -1157,7 +1165,7 @@ export class LocalTerrainRenderer {
     }
     for (const [patchKey, patch] of intersecting) {
       if (tile.overlays.has(patchKey)) continue;
-      if (this.imageryOverlayCount >= 64) break;
+      if (this.imageryOverlayCount >= LOCAL_IMAGERY_OVERLAY_LIMIT) break;
       const material = localImageryMaterial(tile.mesh.material, patch);
       const overlay = new THREE.Mesh(tile.mesh.geometry, material);
       overlay.frustumCulled = false;
@@ -1401,6 +1409,18 @@ export class LocalTerrainRenderer {
     );
     document.body.dataset.detailElevationRetryTotal = String(
       this.elevationRetryTotal,
+    );
+    document.body.dataset.detailElevationPersistentCacheHits = String(
+      this.elevationPersistentCacheHits,
+    );
+    document.body.dataset.detailElevationPersistentCacheWrites = String(
+      this.elevationPersistentCacheWrites,
+    );
+    document.body.dataset.detailElevationPersistentCacheErrors = String(
+      this.elevationPersistentCacheErrors,
+    );
+    document.body.dataset.detailElevationPersistentCacheDeletes = String(
+      this.elevationPersistentCacheDeletes,
     );
     document.body.dataset.detailGeometryBytes = String(this.geometryBytes);
     document.body.dataset.detailVertices = String(

@@ -45,6 +45,12 @@ import {
   terrainHorizonRadians,
   terrainHorizonSourceDistanceKm,
 } from "../apps/little-prince/src/terrain-horizon.js";
+import {
+  MAPTERHORN_ELEVATION_CACHE_NAME,
+  deleteCachedElevation,
+  loadCachedElevation,
+  type ElevationCacheStorage,
+} from "../apps/little-prince/src/elevation-cache.js";
 
 describe("Little Planet local Mercator terrain", () => {
   it("addresses variable-zoom tiles globally and wraps the antimeridian", () => {
@@ -61,19 +67,19 @@ describe("Little Planet local Mercator terrain", () => {
     expect(mercatorAddressForCoordinates(90, 0, 5).y).toBe(0);
   });
 
-  it("selects a 5 × 5 window and only its valid east/south halo", () => {
+  it("selects a 9 × 9 window and only its valid east/south halo", () => {
     const window = selectLocalTileWindow(40, -104, 5);
     const activeKeys = new Set(window.active.map(mercatorTileKey));
     const requiredKeys = new Set(window.required.map(mercatorTileKey));
     expect(window.zoom).toBe(5);
-    expect([window.columns, window.rows]).toEqual([5, 5]);
-    expect(window.active).toHaveLength(25);
-    expect(window.required).toHaveLength(36);
-    expect(activeKeys.size).toBe(25);
-    expect(requiredKeys.size).toBe(36);
+    expect([window.columns, window.rows]).toEqual([9, 9]);
+    expect(window.active).toHaveLength(81);
+    expect(window.required).toHaveLength(100);
+    expect(activeKeys.size).toBe(81);
+    expect(requiredKeys.size).toBe(100);
     expect(
       heightLoadTasksForWindow(window).map((task) => task.priority),
-    ).toEqual(Array.from({ length: 36 }, (_, index) => index));
+    ).toEqual(Array.from({ length: 100 }, (_, index) => index));
     const minimumWindow = selectLocalTileWindow(0, 179.99, 0);
     expect(minimumWindow.zoom).toBe(LOCAL_TERRAIN_MIN_ZOOM);
     expect([minimumWindow.columns, minimumWindow.rows]).toEqual([1, 1]);
@@ -83,8 +89,8 @@ describe("Little Planet local Mercator terrain", () => {
     expect(selectLocalTileWindow(0, 0, 99).zoom).toBe(LOCAL_TERRAIN_MAX_ZOOM);
   });
 
-  it("collapses wrapped duplicates and polar halos at z0–2", () => {
-    for (const zoom of [0, 1, 2]) {
+  it("collapses wrapped duplicates and polar halos at z0–3", () => {
+    for (const zoom of [0, 1, 2, 3]) {
       for (const [latitude, longitude] of [
         [0, 0],
         [84, 179.99],
@@ -104,7 +110,7 @@ describe("Little Planet local Mercator terrain", () => {
     }
   });
 
-  it("loads only six newly exposed tiles after moving one tile east", () => {
+  it("loads only ten newly exposed tiles after moving one tile east", () => {
     const first = selectLocalTileWindow(0, 0, 5);
     const nextLongitude = (17.5 / 32) * 360 - 180;
     const second = selectLocalTileWindow(0, nextLongitude, 5);
@@ -112,7 +118,7 @@ describe("Little Planet local Mercator terrain", () => {
     const newKeys = second.required
       .map(mercatorTileKey)
       .filter((key) => !firstKeys.has(key));
-    expect(newKeys).toHaveLength(6);
+    expect(newKeys).toHaveLength(10);
   });
 
   it("requests the selected Mapterhorn pyramid level", () => {
@@ -123,9 +129,58 @@ describe("Little Planet local Mercator terrain", () => {
     expect(url.search).toBe("");
   });
 
+  it("persists successful Mapterhorn responses in the Cache API", async () => {
+    const stored = new Map<string, Response>();
+    let openedCacheName = "";
+    let fetchCalls = 0;
+    const cacheStorage: ElevationCacheStorage = {
+      async open(cacheName) {
+        openedCacheName = cacheName;
+        return {
+          async match(request) {
+            return stored.get(String(request))?.clone();
+          },
+          async put(request, response) {
+            stored.set(String(request), response.clone());
+          },
+          async delete(request) {
+            return stored.delete(String(request));
+          },
+        };
+      },
+    };
+    const fetcher = (async () => {
+      fetchCalls += 1;
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { "content-type": "image/webp" },
+      });
+    }) as typeof fetch;
+    const address = { z: 12, x: 2_031, y: 1_377 };
+
+    const first = await loadCachedElevation(
+      address,
+      new AbortController().signal,
+      { cacheStorage, fetcher },
+    );
+    const second = await loadCachedElevation(
+      address,
+      new AbortController().signal,
+      { cacheStorage, fetcher },
+    );
+
+    expect(openedCacheName).toBe(MAPTERHORN_ELEVATION_CACHE_NAME);
+    expect(first.cacheStatus).toBe("stored");
+    expect(second.cacheStatus).toBe("hit");
+    expect([...new Uint8Array(second.bytes)]).toEqual([1, 2, 3]);
+    expect(fetchCalls).toBe(1);
+    expect(await deleteCachedElevation(address, cacheStorage)).toBe("deleted");
+    expect(stored.size).toBe(0);
+  });
+
   it("keeps local geometry and scale transitions within hard budgets", () => {
     expect(LOCAL_MESH_VERTEX_LIMIT).toBe(16_384);
-    expect(LOCAL_GEOMETRY_BUDGET_BYTES).toBe(32 * 1_024 * 1_024);
+    expect(LOCAL_GEOMETRY_BUDGET_BYTES).toBe(96 * 1_024 * 1_024);
     expect(LOCAL_SCALE_SETTLE_MS).toBe(250);
   });
 
@@ -318,11 +373,11 @@ describe("Little Planet local Mercator terrain", () => {
   });
 
   it("refines source zoom by horizon scale while RTIN remains independent", () => {
-    expect(selectLocalTerrainZoom(40, -4, 1)).toBe(2);
-    expect(selectLocalTerrainZoom(40, -4, 31.855044)).toBe(4);
-    expect(selectLocalTerrainZoom(40, -4, 63.710088)).toBe(5);
-    expect(selectLocalTerrainZoom(40, -4, 318.55044)).toBe(6);
-    expect(selectLocalTerrainZoom(80, 0, 63.710088)).toBe(2);
+    expect(selectLocalTerrainZoom(40, -4, 1)).toBe(3);
+    expect(selectLocalTerrainZoom(40, -4, 31.855044)).toBe(5);
+    expect(selectLocalTerrainZoom(40, -4, 63.710088)).toBe(6);
+    expect(selectLocalTerrainZoom(40, -4, 318.55044)).toBe(7);
+    expect(selectLocalTerrainZoom(80, 0, 63.710088)).toBe(3);
     expect(rtinErrorBucket(318.55044, 20)).not.toBe(
       rtinErrorBucket(318.55044, 1),
     );
@@ -414,10 +469,10 @@ describe("Little Planet local terrain scheduling", () => {
     expect(failures).toEqual([]);
   });
 
-  it("evicts decoded tiles at the 64-tile LRU limit", () => {
+  it("evicts decoded tiles at the 128-tile LRU limit", () => {
     expect(
       lruEvictionKeys(
-        Array.from({ length: 66 }, (_, index) => ({
+        Array.from({ length: 130 }, (_, index) => ({
           key: `tile-${index}`,
           usedAt: index,
         })),
@@ -471,7 +526,7 @@ describe("Little Planet local terrain scheduling", () => {
     queue.dispose();
   });
 
-  it("never exceeds the active 5 × 5 mesh-address ceiling", () => {
+  it("never exceeds the active 9 × 9 mesh-address ceiling", () => {
     for (const zoom of [0, 1, 2, 5]) {
       for (const [latitude, longitude] of [
         [40, -104],
