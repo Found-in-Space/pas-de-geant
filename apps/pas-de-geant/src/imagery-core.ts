@@ -8,7 +8,11 @@ export const IMAGERY_INTERMEDIATE_MAX_ZOOM = 11;
 export const IMAGERY_TARGET_TEXEL_PIXELS = 1.25;
 export const IMAGERY_TEXEL_KEEP_MIN_PIXELS = 0.85;
 export const IMAGERY_TEXEL_KEEP_MAX_PIXELS = 1.7;
-export const IMAGERY_PAGE_TABLE_SIZE = 8;
+export const IMAGERY_PAGE_TABLE_SIZE = 16;
+export const IMAGERY_ONION_OUTER_TILES = 4;
+export const IMAGERY_ONION_HOLE_TILES = 2;
+export const IMAGERY_ONION_LEVELS = 3;
+export const IMAGERY_GPU_PAGE_SIZE = 256;
 export const IMAGERY_WINDOW_ANCHOR_STRIDE = 4;
 export const IMAGERY_WINDOW_INNER_MARGIN = 2;
 export const IMAGERY_MAX_ANCESTOR_DELTA = 8;
@@ -52,8 +56,26 @@ export interface ImageryPlanCell {
 
 export interface ImageryLoadTask {
   address: ImageryAddress;
-  kind: "parent" | "exact";
+  kind: "parent" | "exact" | "onion";
   priority: number;
+}
+
+export interface ImageryOnionCell {
+  address: ImageryAddress;
+  ring: number;
+  tableX: number;
+  tableY: number;
+  tableSpan: number;
+}
+
+export interface ImageryOnionPlan {
+  onion: SurfaceOnionPlan;
+  finestZoom: number;
+  tableOriginX: number;
+  tableOriginY: number;
+  cells: ImageryOnionCell[];
+  tasks: ImageryLoadTask[];
+  signature: string;
 }
 
 export interface ImageryPlan {
@@ -68,6 +90,47 @@ export interface EncodedPageEntry {
   ancestorDelta: number;
   childOffsetX: number;
   childOffsetY: number;
+}
+
+export class ImageryRequestTokenIndex {
+  private sequence = 0;
+  private readonly active = new Map<string, number>();
+
+  begin(key: string): number {
+    const token = ++this.sequence;
+    this.active.set(key, token);
+    return token;
+  }
+
+  cancel(key: string): void {
+    this.active.delete(key);
+  }
+
+  isCurrent(key: string, token: number): boolean {
+    return this.active.get(key) === token;
+  }
+
+  complete(key: string, token: number): boolean {
+    if (!this.isCurrent(key, token)) return false;
+    this.active.delete(key);
+    return true;
+  }
+}
+
+export function selectUnpinnedLruKey(
+  candidates: ReadonlyArray<{
+    key: string;
+    usedAt: number;
+    pinned: boolean;
+  }>,
+): string | undefined {
+  return candidates
+    .filter((candidate) => !candidate.pinned)
+    .sort(
+      (first, second) =>
+        first.usedAt - second.usedAt ||
+        first.key.localeCompare(second.key),
+    )[0]?.key;
 }
 
 export function imageryKey(address: ImageryAddress): string {
@@ -357,6 +420,59 @@ export function imageryPlanForWindow(
   };
 }
 
+export function imageryOnionPlanForContact(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+  finestZoom: number,
+): ImageryOnionPlan {
+  const onion = planSurfaceOnion({
+    latitudeDegrees,
+    longitudeDegrees,
+    finestZoom,
+    outerTiles: IMAGERY_ONION_OUTER_TILES,
+    holeTiles: IMAGERY_ONION_HOLE_TILES,
+    levels: IMAGERY_ONION_LEVELS,
+  });
+  const outermost = onion.origins[onion.origins.length - 1]!;
+  const outermostSpan = 2 ** (onion.levels - 1);
+  const tableOriginX = outermost.x * outermostSpan;
+  const tableOriginY = outermost.y * outermostSpan;
+  const cells: ImageryOnionCell[] = onion.cells.map((cell) => ({
+    address: { z: cell.z, x: cell.x, y: cell.y },
+    ring: cell.ring,
+    tableX: cell.finestX - tableOriginX,
+    tableY: cell.finestY - tableOriginY,
+    tableSpan: cell.finestSpan,
+  }));
+  const tasks = cells
+    .map((cell) => ({
+      address: cell.address,
+      kind: "onion" as const,
+      priority:
+        cell.ring * IMAGERY_ONION_OUTER_TILES +
+        Math.hypot(
+          cell.tableX + cell.tableSpan * 0.5 -
+            IMAGERY_PAGE_TABLE_SIZE * 0.5,
+          cell.tableY + cell.tableSpan * 0.5 -
+            IMAGERY_PAGE_TABLE_SIZE * 0.5,
+        ),
+    }))
+    .sort(
+      (first, second) =>
+        first.priority - second.priority ||
+        imageryKey(first.address).localeCompare(imageryKey(second.address)),
+    );
+  return {
+    onion,
+    finestZoom: onion.finestZoom,
+    tableOriginX,
+    tableOriginY,
+    cells,
+    tasks,
+    signature: `${onion.signature}:${tableOriginX}:${tableOriginY}`,
+  };
+}
+
 export function resolvedImagerySource(
   address: ImageryAddress,
   resident: ReadonlySet<string>,
@@ -428,3 +544,7 @@ export function decodePageEntry(
     offsetY: entry.childOffsetY,
   };
 }
+import {
+  planSurfaceOnion,
+  type SurfaceOnionPlan,
+} from "./surface-onion.js";

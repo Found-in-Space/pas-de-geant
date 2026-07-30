@@ -13,6 +13,7 @@ import {
   type TerrainEdge,
   type TerrainEdgeConstraints,
 } from "./local-terrain-core.js";
+import { planSurfaceOnion } from "./surface-onion.js";
 
 export const CONSTRUCT_LATITUDE_DEGREES = 45.9;
 export const CONSTRUCT_LONGITUDE_DEGREES = 9.25;
@@ -282,80 +283,44 @@ export function selectConstructTerrainPlan(options: {
       nativeZoom + Math.max(-3, Math.min(3, Math.round(options.lodBias ?? 0))),
     ),
   );
-  const point = mercatorPointForCoordinates(
-    options.latitudeDegrees,
-    options.longitudeDegrees,
-    zoom,
-  );
-  const width = 2 ** zoom;
-  const anchorStride = 2 ** (CONSTRUCT_RING_LEVELS - 1);
-  const anchorMargin = Math.round(
-    (CONSTRUCT_OUTER_TILES - anchorStride) * 0.5,
-  );
-  const originX =
-    Math.floor((Math.floor(point.x) - anchorMargin) / anchorStride) *
-    anchorStride;
-  const originY = Math.max(
-    0,
-    Math.min(
-      width - CONSTRUCT_OUTER_TILES,
-      Math.floor((Math.floor(point.y) - anchorMargin) / anchorStride) *
-        anchorStride,
-    ),
-  );
-  const underfootOriginX = Math.floor(point.x - 0.5);
-  const underfootOriginY = Math.max(
-    0,
-    Math.min(width - 2, Math.floor(point.y - 0.5)),
-  );
+  const onion = planSurfaceOnion({
+    latitudeDegrees: options.latitudeDegrees,
+    longitudeDegrees: options.longitudeDegrees,
+    finestZoom: zoom,
+    outerTiles: CONSTRUCT_OUTER_TILES,
+    holeTiles: CONSTRUCT_HOLE_TILES,
+    levels: CONSTRUCT_RING_LEVELS,
+  });
+  const originX = onion.finestOriginX;
+  const originY = onion.finestOriginY;
+  const underfootOriginX = onion.underfootOriginX;
+  const underfootOriginY = onion.underfootOriginY;
   const rendered: ConstructTerrainTile[] = [];
-  let ringOriginX = originX;
-  let ringOriginY = originY;
-  for (let ring = 0; ring < CONSTRUCT_RING_LEVELS; ring += 1) {
-    const ringZoom = zoom - ring;
-    for (let row = 0; row < CONSTRUCT_OUTER_TILES; row += 1) {
-      for (let column = 0; column < CONSTRUCT_OUTER_TILES; column += 1) {
-        if (
-          ring > 0 &&
-          row >= 2 &&
-          row < 2 + CONSTRUCT_HOLE_TILES &&
-          column >= 2 &&
-          column < 2 + CONSTRUCT_HOLE_TILES
-        ) {
-          continue;
-        }
-        const x = wrapMercatorX(ringOriginX + column, ringZoom);
-        const y = ringOriginY + row;
-        const underfoot =
-          ring === 0 &&
-          (x === wrapMercatorX(underfootOriginX, zoom) ||
-            x === wrapMercatorX(underfootOriginX + 1, zoom)) &&
-          (y === underfootOriginY || y === underfootOriginY + 1);
-        rendered.push({
-          z: ringZoom,
-          x,
-          y,
-          ring,
-          priority: underfoot
-            ? Math.hypot(column - 3.5, row - 3.5)
-            : 10 +
-              ring * 100 +
-              Math.hypot(column - 3.5, row - 3.5),
-          meshSegments: underfoot
-            ? CONSTRUCT_UNDERFOOT_SEGMENTS
-            : ring === 0
-              ? CONSTRUCT_FINE_SEGMENTS
-              : ring === 1
-                ? CONSTRUCT_PARENT_SEGMENTS
-                : CONSTRUCT_OUTER_SEGMENTS,
-          outerEdges: emptyConstructEdgeMask(),
-          skirtEdges: emptyConstructEdgeMask(),
-          edgeConstraints: {},
-        });
-      }
-    }
-    ringOriginX = Math.floor(ringOriginX / 2) - 2;
-    ringOriginY = Math.floor(ringOriginY / 2) - 2;
+  for (const cell of onion.cells) {
+    const underfoot =
+      cell.ring === 0 &&
+      (cell.x === wrapMercatorX(underfootOriginX, zoom) ||
+        cell.x === wrapMercatorX(underfootOriginX + 1, zoom)) &&
+      (cell.y === underfootOriginY || cell.y === underfootOriginY + 1);
+    rendered.push({
+      z: cell.z,
+      x: cell.x,
+      y: cell.y,
+      ring: cell.ring,
+      priority: underfoot
+        ? cell.priority
+        : 10 + cell.ring * 100 + cell.priority,
+      meshSegments: underfoot
+        ? CONSTRUCT_UNDERFOOT_SEGMENTS
+        : cell.ring === 0
+          ? CONSTRUCT_FINE_SEGMENTS
+          : cell.ring === 1
+            ? CONSTRUCT_PARENT_SEGMENTS
+            : CONSTRUCT_OUTER_SEGMENTS,
+      outerEdges: emptyConstructEdgeMask(),
+      skirtEdges: emptyConstructEdgeMask(),
+      edgeConstraints: {},
+    });
   }
   applyConstructEdgeStitching(
     rendered,
@@ -401,6 +366,6 @@ export function selectConstructTerrainPlan(options: {
     ),
     rendered,
     required,
-    signature: `${zoom}:${originX}:${originY}:${underfootOriginX}:${underfootOriginY}`,
+    signature: onion.signature,
   };
 }

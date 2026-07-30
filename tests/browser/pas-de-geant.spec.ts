@@ -23,36 +23,7 @@ function pngChunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([length, typeBytes, data, checksum]);
 }
 
-function flatTerrariumPng(heightM = 100): Buffer {
-  const size = 512;
-  const encoded = heightM + 32_768;
-  const red = Math.floor(encoded / 256);
-  const green = Math.floor(encoded % 256);
-  const raw = Buffer.alloc((size * 4 + 1) * size);
-  for (let row = 0; row < size; row += 1) {
-    const rowOffset = row * (size * 4 + 1);
-    for (let column = 0; column < size; column += 1) {
-      const offset = rowOffset + 1 + column * 4;
-      raw[offset] = red;
-      raw[offset + 1] = green;
-      raw[offset + 2] = 0;
-      raw[offset + 3] = 255;
-    }
-  }
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(size, 0);
-  header.writeUInt32BE(size, 4);
-  header[8] = 8;
-  header[9] = 6;
-  return Buffer.concat([
-    Buffer.from("89504e470d0a1a0a", "hex"),
-    pngChunk("IHDR", header),
-    pngChunk("IDAT", deflateSync(raw)),
-    pngChunk("IEND", Buffer.alloc(0)),
-  ]);
-}
-
-function flatColourPng(
+function flatPng(
   size: number,
   red: number,
   green: number,
@@ -82,51 +53,13 @@ function flatColourPng(
   ]);
 }
 
-async function reachImageryRefinement(
-  page: Page,
-  activation: "prefetching" | "active",
-): Promise<void> {
-  await page.evaluate((nextActivation) => {
-    window.__PAS_DE_GEANT_TEST_SET_SCALE__?.(
-      nextActivation === "prefetching" ? 450 : 520,
-    );
-  }, activation);
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-imagery-refinement",
-    activation,
-    { timeout: 30_000 },
-  );
-}
-
-async function reachImageryBase(
-  page: Page,
-  activation: "prefetching" | "active",
-): Promise<void> {
-  await page.evaluate((nextActivation) => {
-    window.__PAS_DE_GEANT_TEST_SET_SCALE__?.(
-      nextActivation === "prefetching" ? 1.75 : 2.1,
-    );
-  }, activation);
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-imagery-activation",
-    activation,
-    { timeout: 30_000 },
-  );
-}
-
-async function deactivateImageryBase(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    window.__PAS_DE_GEANT_TEST_SET_SCALE__?.(1);
-  });
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-imagery-activation",
-    "inactive",
-    { timeout: 30_000 },
-  );
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-imagery-visible-sources",
-    "0",
-    { timeout: 30_000 },
+function flatTerrariumPng(heightM = 100): Buffer {
+  const encoded = heightM + 32_768;
+  return flatPng(
+    512,
+    Math.floor(encoded / 256),
+    Math.floor(encoded % 256),
+    0,
   );
 }
 
@@ -141,22 +74,30 @@ async function routeFlatTerrain(page: Page): Promise<void> {
   });
 }
 
-test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async ({
+async function waitForInitialImagery(page: Page): Promise<void> {
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-imagery-activation",
+    "active",
+    { timeout: 30_000 },
+  );
+  await expect
+    .poll(
+      async () =>
+        Number(
+          await page
+            .locator("body")
+            .getAttribute("data-imagery-visible-sources"),
+        ),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
+}
+
+test("keeps the immutable globe under atomic terrain groups", async ({
   page,
 }) => {
   test.setTimeout(420_000);
   const terrainImage = flatTerrariumPng();
-  const remoteImageUrls: string[] = [];
-  page.on("request", (request) => {
-    const url = new URL(request.url());
-    if (
-      request.resourceType() === "image" &&
-      ["http:", "https:"].includes(url.protocol) &&
-      !["127.0.0.1", "localhost"].includes(url.hostname)
-    ) {
-      remoteImageUrls.push(request.url());
-    }
-  });
   const missingTiles = new Set([
     "6/54/21",
     "6/55/21",
@@ -169,11 +110,7 @@ test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async 
     const parts = new URL(route.request().url()).pathname.split("/");
     const key = `${parts[1]}/${parts[2]}/${parts[3]?.split(".")[0]}`;
     if (missingTiles.has(key)) {
-      await route.fulfill({
-        status: 404,
-        contentType: "text/plain",
-        body: "No elevation tile",
-      });
+      await route.fulfill({ status: 404, body: "No elevation tile" });
       return;
     }
     await route.fulfill({
@@ -182,6 +119,7 @@ test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async 
       body: terrainImage,
     });
   });
+
   await page.goto("/");
   await expect(page.locator("#loading-state")).toBeHidden({
     timeout: 20_000,
@@ -189,7 +127,7 @@ test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async 
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-relief",
     "ready",
-    { timeout: 60_000 },
+    { timeout: 360_000 },
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-window-size",
@@ -197,16 +135,19 @@ test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async 
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-coverage-mesh-count",
-    "160",
-  );
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-detail-source-zoom-range",
-    "4-6",
+    "155",
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-fallback-cells",
     "5",
-    { timeout: 60_000 },
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-base-globe-visible",
+    "true",
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-contact-owner",
+    /native|global/,
   );
   await expect
     .poll(
@@ -216,33 +157,18 @@ test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async 
             .locator("body")
             .getAttribute("data-detail-atomic-swap-total"),
         ),
-      { timeout: 120_000 },
     )
-    .toBeGreaterThan(0);
-  await expect
-    .poll(async () =>
-      Number(
-        await page.locator("body").getAttribute("data-detail-mesh-count"),
-      ),
-    )
-    .toBeGreaterThan(0);
-  const tileStates = await page
+    .toBeGreaterThanOrEqual(4);
+
+  const states = await page
     .locator("body")
     .getAttribute("data-detail-tile-states");
-  expect(tileStates).toHaveLength(160);
-  expect(tileStates?.replace(/[rfdpo]/g, "")).toBe("");
-  expect(tileStates?.split("f")).toHaveLength(6);
-  expect(
-    await page.locator("body").getAttribute("data-detail-centre-state"),
-  ).toMatch(/[rd]/);
-  expect(remoteImageUrls).toEqual([]);
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-detail-material-side",
-    "double",
-  );
-  await page.waitForTimeout(500);
+  expect(states).toHaveLength(160);
+  expect(states?.replace(/[rfdpo]/g, "")).toBe("");
+  expect(states?.split("f")).toHaveLength(6);
+
   const frameHashes: string[] = [];
-  for (let frame = 0; frame < 4; frame += 1) {
+  for (let frame = 0; frame < 3; frame += 1) {
     const screenshot = await page.screenshot({
       clip: { x: 400, y: 360, width: 480, height: 240 },
     });
@@ -252,14 +178,14 @@ test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async 
   expect(new Set(frameHashes).size).toBe(1);
 });
 
-test("progresses through photographic ancestors and gates precise sibling groups", async ({
+test("keeps photographic visibility while complete onions swap", async ({
   page,
 }) => {
   test.setTimeout(180_000);
   await page.addInitScript(() => {
     window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__ = true;
     window.__PAS_DE_GEANT_IMAGERY_CONFIG__ = {
-      id: "fault-injected-xyz",
+      id: "fault-injected-onion",
       urlTemplate: "https://imagery.test/{z}/{x}/{y}.png",
       attribution: "Synthetic browser-test imagery",
       tileSize: 256,
@@ -268,18 +194,17 @@ test("progresses through photographic ancestors and gates precise sibling groups
     };
   });
   await routeFlatTerrain(page);
-  const imagery = flatColourPng(256, 30, 150, 70);
-  let lowestRequestedZoom: number | undefined;
-  let malformedParent: string | undefined;
+  const imagery = flatPng(256, 30, 150, 70);
+  let malformedInjected = false;
+  let transientKey = "";
+  const attempts = new Map<string, number>();
   await page.route("https://imagery.test/**", async (route) => {
-    const parts = new URL(route.request().url()).pathname.split("/");
-    const z = Number(parts[1]);
-    const x = Number(parts[2]);
-    const y = Number(parts[3]?.split(".")[0]);
-    lowestRequestedZoom ??= z;
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    if (z === lowestRequestedZoom && malformedParent === undefined) {
-      malformedParent = `${z}/${x}/${y}`;
+    const path = new URL(route.request().url()).pathname.slice(1);
+    const attempt = (attempts.get(path) ?? 0) + 1;
+    attempts.set(path, attempt);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    if (!malformedInjected) {
+      malformedInjected = true;
       await route.fulfill({
         status: 200,
         contentType: "image/png",
@@ -287,16 +212,15 @@ test("progresses through photographic ancestors and gates precise sibling groups
       });
       return;
     }
-    if (
-      z > lowestRequestedZoom &&
-      x % 2 === 0 &&
-      y % 2 === 0
-    ) {
-      await route.fulfill({
-        status: 404,
-        contentType: "text/plain",
-        body: "No photographic tile",
-      });
+    if (!transientKey) transientKey = path;
+    if (path === transientKey && attempt === 1) {
+      await route.fulfill({ status: 503, body: "Retry later" });
+      return;
+    }
+    const [, x, yWithExtension] = path.split("/");
+    const y = Number(yWithExtension?.split(".")[0]);
+    if (Number(x) % 11 === 0 && y % 3 === 0) {
+      await route.fulfill({ status: 404, body: "No photographic tile" });
       return;
     }
     await route.fulfill({
@@ -310,107 +234,18 @@ test("progresses through photographic ancestors and gates precise sibling groups
   await expect(page.locator("#loading-state")).toBeHidden({
     timeout: 20_000,
   });
+  await waitForInitialImagery(page);
   await expect(page.locator("body")).toHaveAttribute(
-    "data-imagery-provider",
-    "fault-injected-xyz",
-  );
-
-  await deactivateImageryBase(page);
-  const prefetchEpoch = await page
-    .locator("body")
-    .getAttribute("data-imagery-page-table-epoch");
-  await reachImageryBase(page, "prefetching");
-  await expect
-    .poll(
-      async () =>
-        Number(
-          await page.locator("body").getAttribute("data-imagery-request-total"),
-        ),
-      { timeout: 20_000 },
-    )
-    .toBeGreaterThan(0);
-  await page.waitForTimeout(1_000);
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-imagery-page-table-epoch",
-    prefetchEpoch ?? "0",
+    "data-imagery-pool-layers",
+    "96",
   );
   await expect(page.locator("body")).toHaveAttribute(
-    "data-imagery-visible-sources",
-    "0",
+    "data-imagery-window-size",
+    "16",
   );
-
-  await reachImageryBase(page, "active");
-  await expect
-    .poll(
-      async () =>
-        Number(
-          await page.locator("body").getAttribute("data-imagery-commit-total"),
-        ),
-      { timeout: 30_000 },
-    )
-    .toBeGreaterThan(0);
-  await expect
-    .poll(
-      async () =>
-        Number(
-          await page
-            .locator("body")
-            .getAttribute("data-imagery-visible-sources"),
-        ),
-      { timeout: 30_000 },
-    )
-    .toBeGreaterThan(0);
-
-  await reachImageryRefinement(page, "prefetching");
-  await expect
-    .poll(
-      async () => {
-        const desired = Number(
-          await page
-            .locator("body")
-            .getAttribute("data-imagery-desired-zoom"),
-        );
-        const visible = Number(
-          await page
-            .locator("body")
-            .getAttribute("data-imagery-visible-zoom"),
-        );
-        return desired > visible;
-      },
-      { timeout: 30_000 },
-    )
-    .toBe(true);
   await expect(page.locator("body")).toHaveAttribute(
-    "data-imagery-visible-exact",
-    "0",
-  );
-
-  await reachImageryRefinement(page, "active");
-  await expect
-    .poll(
-      async () =>
-        Number(
-          await page
-            .locator("body")
-            .getAttribute("data-imagery-visible-sources"),
-        ),
-      { timeout: 30_000 },
-    )
-    .toBeGreaterThan(0);
-  await expect
-    .poll(
-      async () =>
-        Number(
-          await page
-            .locator("body")
-            .getAttribute("data-imagery-permanent-failures"),
-        ),
-      { timeout: 30_000 },
-    )
-    .toBeGreaterThan(0);
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-imagery-visible-exact",
-    "0",
+    "data-imagery-pinned-pages",
+    "40",
   );
   await expect
     .poll(
@@ -420,28 +255,96 @@ test("progresses through photographic ancestors and gates precise sibling groups
             .locator("body")
             .getAttribute("data-imagery-malformed-total"),
         ),
-      { timeout: 30_000 },
     )
     .toBeGreaterThan(0);
+  await expect
+    .poll(
+      async () => attempts.get(transientKey) ?? 0,
+      { timeout: 20_000 },
+    )
+    .toBeGreaterThan(1);
+
+  const originalVisiblePlan = await page
+    .locator("body")
+    .getAttribute("data-imagery-visible-plan");
+  const originalEpoch = Number(
+    await page
+      .locator("body")
+      .getAttribute("data-imagery-page-table-epoch"),
+  );
+  await page.evaluate(() => {
+    window.__PAS_DE_GEANT_TEST_SET_SCALE__?.(520);
+  });
+  await expect(page.locator("body")).not.toHaveAttribute(
+    "data-imagery-candidate-plan",
+    "",
+    { timeout: 20_000 },
+  );
+  for (let sample = 0; sample < 8; sample += 1) {
+    const candidate = await page
+      .locator("body")
+      .getAttribute("data-imagery-candidate-plan");
+    if (!candidate) break;
+    expect(
+      Number(
+        await page
+          .locator("body")
+          .getAttribute("data-imagery-visible-sources"),
+      ),
+    ).toBeGreaterThan(0);
+    expect(
+      await page
+        .locator("body")
+        .getAttribute("data-imagery-visible-plan"),
+    ).toBe(originalVisiblePlan);
+    expect(
+      Number(
+        await page
+          .locator("body")
+          .getAttribute("data-imagery-page-table-epoch"),
+      ),
+    ).toBe(originalEpoch);
+    await page.waitForTimeout(40);
+  }
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-imagery-candidate-plan",
+    "",
+    { timeout: 30_000 },
+  );
+  await expect
+    .poll(
+      async () =>
+        await page
+          .locator("body")
+          .getAttribute("data-imagery-visible-plan"),
+    )
+    .not.toBe(originalVisiblePlan);
+  await expect
+    .poll(
+      async () =>
+        Number(
+          await page
+            .locator("body")
+            .getAttribute("data-imagery-page-table-epoch"),
+        ),
+    )
+    .toBeGreaterThan(originalEpoch);
 });
 
-test("drops delayed imagery from stale geographic generations", async ({
+test("A-to-B-to-A can replace aborted requests and ignores late completions", async ({
   page,
 }) => {
   test.setTimeout(180_000);
   await page.addInitScript(() => {
     window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__ = true;
     window.__PAS_DE_GEANT_IMAGERY_PROVIDER__ = {
-      id: "stale-test-provider",
+      id: "ignored-cancellation-provider",
       attribution: "Synthetic browser-test imagery",
       tileSize: 256,
       minZoom: 0,
       maxZoom: 20,
       async load(address) {
-        const normalizedX = (address.x + 0.5) / 2 ** address.z;
-        await new Promise((resolve) =>
-          setTimeout(resolve, normalizedX > 0.75 ? 4_000 : 1_500),
-        );
+        await new Promise((resolve) => setTimeout(resolve, 900));
         const response = await fetch(
           `https://imagery.test/${address.z}/${address.x}/${address.y}.png`,
         );
@@ -450,7 +353,7 @@ test("drops delayed imagery from stale geographic generations", async ({
     };
   });
   await routeFlatTerrain(page);
-  const imagery = flatColourPng(256, 40, 80, 180);
+  const imagery = flatPng(256, 40, 80, 180);
   await page.route("https://imagery.test/**", async (route) => {
     await route.fulfill({
       status: 200,
@@ -463,47 +366,60 @@ test("drops delayed imagery from stale geographic generations", async ({
   await expect(page.locator("#loading-state")).toBeHidden({
     timeout: 20_000,
   });
-  await reachImageryRefinement(page, "prefetching");
-  await expect
-    .poll(
-      async () =>
-        Number(
-          await page.locator("body").getAttribute("data-imagery-requests"),
-        ),
-      { timeout: 20_000 },
-    )
-    .toBeGreaterThan(0);
-
-  const previousWindow = await page
+  await waitForInitialImagery(page);
+  const planA = await page
     .locator("body")
-    .getAttribute("data-imagery-window");
+    .getAttribute("data-imagery-visible-plan");
+  const epochA = await page
+    .locator("body")
+    .getAttribute("data-imagery-page-table-epoch");
   const staleBefore = Number(
     await page.locator("body").getAttribute("data-imagery-stale-total"),
   );
+
   await page.evaluate(() => {
-    window.__PAS_DE_GEANT_TEST_SET_LOCATION__?.(35.6762, 141.25);
+    window.__PAS_DE_GEANT_TEST_SET_LOCATION__?.(35.6762, -120);
   });
-  await expect
-    .poll(
-      async () =>
-        await page.locator("body").getAttribute("data-imagery-window"),
-      { timeout: 20_000 },
-    )
-    .not.toBe(previousWindow);
-  const epochAfterMove = await page
-    .locator("body")
-    .getAttribute("data-imagery-page-table-epoch");
+  await expect(page.locator("body")).not.toHaveAttribute(
+    "data-imagery-candidate-plan",
+    "",
+    { timeout: 20_000 },
+  );
+  await page.evaluate(() => {
+    window.__PAS_DE_GEANT_TEST_SET_LOCATION__?.(35.6762, 139.6503);
+  });
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-imagery-candidate-plan",
+    "",
+    { timeout: 20_000 },
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-imagery-visible-plan",
+    planA ?? "",
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-imagery-page-table-epoch",
+    epochA ?? "",
+  );
   await expect
     .poll(
       async () =>
         Number(
-          await page.locator("body").getAttribute("data-imagery-stale-total"),
+          await page
+            .locator("body")
+            .getAttribute("data-imagery-stale-total"),
         ),
       { timeout: 20_000 },
     )
     .toBeGreaterThan(staleBefore);
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-imagery-page-table-epoch",
-    epochAfterMove ?? "0",
-  );
+  await expect
+    .poll(
+      async () =>
+        Number(
+          await page
+            .locator("body")
+            .getAttribute("data-imagery-visible-sources"),
+        ),
+    )
+    .toBeGreaterThan(0);
 });

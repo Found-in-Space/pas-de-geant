@@ -1,21 +1,17 @@
 import * as THREE from "three";
 import {
-  IMAGERY_INTERMEDIATE_MAX_ZOOM,
+  IMAGERY_GPU_PAGE_SIZE,
   IMAGERY_PAGE_TABLE_SIZE,
+  ImageryRequestTokenIndex,
   WEB_MERCATOR_MAX_LATITUDE,
-  encodePageEntry,
-  imageryActivationForScale,
-  imageryBaseActivationForScale,
   imageryKey,
-  imageryPlanForWindow,
-  imageryWindowForContact,
+  imageryOnionPlanForContact,
   isValidImageryAddress,
-  resolvedImagerySource,
   selectImageryZoom,
-  type ImageryActivation,
+  selectUnpinnedLruKey,
   type ImageryAddress,
   type ImageryLoadTask,
-  type ImageryPlan,
+  type ImageryOnionPlan,
   type ImageryView,
 } from "./imagery-core.js";
 
@@ -157,7 +153,6 @@ interface ImageryRecord {
     | "evicted"
     | "failed"
     | "permanent";
-  generation: number;
   failedAttempts: number;
   retryAtMs: number;
   pixels?: Uint8Array;
@@ -167,7 +162,7 @@ interface ImageryRecord {
 
 interface ActiveRequest {
   controller: AbortController;
-  generation: number;
+  token: number;
 }
 
 interface ImageryDiagnostics {
@@ -303,17 +298,14 @@ export class ImageryVirtualTexture {
   private poolPixels: Uint8Array;
   private poolLayers = 1;
   private activePageTable = 0;
-  private baseActivation: ImageryActivation = "inactive";
-  private refinementActivation: ImageryActivation = "inactive";
-  private plan: ImageryPlan | undefined;
-  private generation = 0;
+  private visiblePlan: ImageryOnionPlan | undefined;
+  private candidatePlan: ImageryOnionPlan | undefined;
   private desiredZoom: number | undefined;
-  private visibleZoomCeiling: number | undefined;
   private mappingSignature = "";
   private pageTableEpoch = 0;
   private sequence = 0;
+  private readonly requestTokens = new ImageryRequestTokenIndex();
   private poolUnavailable = false;
-  private windowSize = IMAGERY_PAGE_TABLE_SIZE;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -355,18 +347,18 @@ export class ImageryVirtualTexture {
   ): void {
     const value = material.uniforms.imageryCoordOriginScale
       ?.value as THREE.Vector4 | undefined;
-    const window = this.plan?.window;
-    if (!value || !window) {
+    const plan = this.visiblePlan;
+    if (!value || !plan) {
       value?.set(0, 0, 0, 0);
       return;
     }
-    const worldWidth = 2 ** window.zoom;
+    const worldWidth = 2 ** plan.finestZoom;
     let west = bounds.west * worldWidth;
-    const reference = window.originX + window.size * 0.5;
+    const reference = plan.tableOriginX + IMAGERY_PAGE_TABLE_SIZE * 0.5;
     west += Math.round((reference - west) / worldWidth) * worldWidth;
     value.set(
-      west - window.originX,
-      bounds.north * worldWidth - window.originY,
+      west - plan.tableOriginX,
+      bounds.north * worldWidth - plan.tableOriginY,
       (bounds.east - bounds.west) * worldWidth,
       (bounds.south - bounds.north) * worldWidth,
     );
@@ -374,29 +366,19 @@ export class ImageryVirtualTexture {
 
   update(options: ImageryUpdateOptions): void {
     const nowMs = options.nowMs ?? Date.now();
-    const nextBaseActivation = this.provider
-      ? imageryBaseActivationForScale(
-          options.displayRadiusM,
-          this.baseActivation,
-        )
-      : "inactive";
-    if (nextBaseActivation !== this.baseActivation) {
-      this.baseActivation = nextBaseActivation;
-      if (nextBaseActivation === "inactive") {
-        this.clearPlan();
-      }
-    }
-    this.refinementActivation = this.provider
-      ? imageryActivationForScale(
-          options.displayRadiusM,
-          this.refinementActivation,
-        )
-      : "inactive";
     if (
       this.provider &&
-      this.baseActivation !== "inactive" &&
       Math.abs(options.latitudeDegrees) <= WEB_MERCATOR_MAX_LATITUDE
     ) {
+      const minimumFinestZoom = Math.max(
+        4,
+        this.provider.minZoom + 2,
+      );
+      if (this.provider.maxZoom < minimumFinestZoom) {
+        this.clearPlan();
+        this.updateDiagnostics();
+        return;
+      }
       this.ensurePool();
       if (this.poolUnavailable) {
         this.clearPlan();
@@ -406,49 +388,33 @@ export class ImageryVirtualTexture {
       const desiredZoom = selectImageryZoom({
         ...options,
         tileSize: this.provider.tileSize,
-        minZoom: this.provider.minZoom,
+        minZoom: minimumFinestZoom,
         maxZoom: this.provider.maxZoom,
         previousZoom: this.desiredZoom,
       });
-      const intermediateZoomCeiling = Math.max(
-        this.provider.minZoom,
-        Math.min(
-          this.provider.maxZoom,
-          IMAGERY_INTERMEDIATE_MAX_ZOOM,
-        ),
-      );
-      const planZoom =
-        this.refinementActivation === "inactive"
-          ? Math.min(desiredZoom, intermediateZoomCeiling)
-          : desiredZoom;
-      this.visibleZoomCeiling =
-        this.refinementActivation === "active"
-          ? planZoom
-          : Math.min(planZoom, intermediateZoomCeiling);
-      const window = imageryWindowForContact(
+      const nextPlan = imageryOnionPlanForContact(
         options.latitudeDegrees,
         options.longitudeDegrees,
-        planZoom,
-        this.plan?.window,
-        this.windowSize,
+        desiredZoom,
       );
-      const nextPlan = imageryPlanForWindow(
-        window,
-        this.provider.minZoom,
-      );
-      if (nextPlan.signature !== this.plan?.signature) {
+      if (
+        this.candidatePlan &&
+        nextPlan.signature === this.visiblePlan?.signature
+      ) {
+        this.cancelCandidate();
+      } else if (
+        nextPlan.signature !== this.candidatePlan?.signature &&
+        nextPlan.signature !== this.visiblePlan?.signature
+      ) {
         this.applyPlan(nextPlan);
       }
       this.desiredZoom = desiredZoom;
-    } else if (this.baseActivation !== "inactive" && this.plan) {
+    } else {
       this.clearPlan();
     }
     this.uploadDecodedTiles();
-    if (this.baseActivation === "active") {
-      this.commitResolvedMapping();
-    } else {
-      this.sharedUniforms.imageryEnabled!.value = 0;
-    }
+    this.commitCandidateIfReady();
+    if (!this.candidatePlan) this.refreshVisibleMapping();
     this.pumpRequests(nowMs);
     this.updateDiagnostics();
   }
@@ -523,7 +489,7 @@ export class ImageryVirtualTexture {
       return;
     }
     const paddedSize =
-      this.provider.tileSize + IMAGERY_GUTTER_PIXELS * 2;
+      IMAGERY_GPU_PAGE_SIZE + IMAGERY_GUTTER_PIXELS * 2;
     const layerBytes = paddedSize * paddedSize * 4;
     this.poolLayers = Math.max(
       1,
@@ -538,16 +504,6 @@ export class ImageryVirtualTexture {
       this.diagnostics.gpuFailureTotal += 1;
       return;
     }
-    const budgetedWindowSize = Math.floor(
-      Math.sqrt(this.poolLayers / 1.25),
-    );
-    this.windowSize = Math.max(
-      2,
-      Math.min(
-        IMAGERY_PAGE_TABLE_SIZE,
-        budgetedWindowSize - (budgetedWindowSize % 2),
-      ),
-    );
     this.poolPixels = new Uint8Array(
       layerBytes * this.poolLayers,
     );
@@ -572,7 +528,7 @@ export class ImageryVirtualTexture {
     (
       this.sharedUniforms.imageryPoolLayout!.value as THREE.Vector3
     ).set(
-      this.provider.tileSize,
+      IMAGERY_GPU_PAGE_SIZE,
       IMAGERY_GUTTER_PIXELS,
       paddedSize,
     );
@@ -583,54 +539,64 @@ export class ImageryVirtualTexture {
     }
   }
 
-  private applyPlan(plan: ImageryPlan): void {
-    this.plan = plan;
-    this.generation += 1;
-    this.wanted.clear();
-    for (const task of plan.tasks) {
-      this.wanted.set(imageryKey(task.address), task);
-    }
+  private applyPlan(plan: ImageryOnionPlan): void {
+    this.candidatePlan = plan;
+    this.syncWanted();
+    this.cancelUnwantedRequests();
+    this.discardUnwantedDecoded();
+  }
+
+  private cancelCandidate(): void {
+    this.candidatePlan = undefined;
+    this.syncWanted();
+    this.cancelUnwantedRequests();
+    this.discardUnwantedDecoded();
+  }
+
+  private cancelUnwantedRequests(): void {
     for (const [key, request] of this.activeRequests) {
-      if (
-        !this.wanted.has(key) ||
-        request.generation !== this.generation
-      ) {
-        request.controller.abort();
-      }
+      if (this.wanted.has(key)) continue;
+      this.activeRequests.delete(key);
+      this.requestTokens.cancel(key);
+      const record = this.records.get(key);
+      if (record?.status === "loading") record.status = "absent";
+      request.controller.abort();
     }
+  }
+
+  private discardUnwantedDecoded(): void {
     for (const [key, record] of this.records) {
       if (record.status === "evicted" && this.wanted.has(key)) {
         record.status = "absent";
       }
-      if (
-        record.status === "decoded" &&
-        (!this.wanted.has(key) || record.generation !== this.generation)
-      ) {
-        record.status = "absent";
-        record.pixels = undefined;
+      if (record.status === "decoded") {
+        if (!this.wanted.has(key)) {
+          record.status = "absent";
+          record.pixels = undefined;
+        }
       }
-    }
-    if (this.baseActivation === "active") {
-      this.commitResolvedMapping(true);
     }
   }
 
   private clearPlan(): void {
     if (
-      !this.plan &&
+      !this.visiblePlan &&
+      !this.candidatePlan &&
       this.wanted.size === 0 &&
       Number(this.sharedUniforms.imageryEnabled!.value) === 0
     ) {
       this.desiredZoom = undefined;
-      this.visibleZoomCeiling = undefined;
       return;
     }
-    this.plan = undefined;
+    this.visiblePlan = undefined;
+    this.candidatePlan = undefined;
     this.desiredZoom = undefined;
-    this.visibleZoomCeiling = undefined;
-    this.generation += 1;
     this.wanted.clear();
-    for (const request of this.activeRequests.values()) {
+    for (const [key, request] of this.activeRequests) {
+      this.activeRequests.delete(key);
+      this.requestTokens.cancel(key);
+      const record = this.records.get(key);
+      if (record?.status === "loading") record.status = "absent";
       request.controller.abort();
     }
     this.sharedUniforms.imageryEnabled!.value = 0;
@@ -638,11 +604,31 @@ export class ImageryVirtualTexture {
     this.mappingSignature = "";
   }
 
+  private syncWanted(): void {
+    this.wanted.clear();
+    for (const task of this.visiblePlan?.tasks ?? []) {
+      this.wanted.set(imageryKey(task.address), task);
+    }
+    for (const task of this.candidatePlan?.tasks ?? []) {
+      this.wanted.set(imageryKey(task.address), task);
+    }
+  }
+
+  private pinnedKeys(): Set<string> {
+    return new Set([
+      ...(this.visiblePlan?.tasks ?? []).map((task) =>
+        imageryKey(task.address)
+      ),
+      ...(this.candidatePlan?.tasks ?? []).map((task) =>
+        imageryKey(task.address)
+      ),
+    ]);
+  }
+
   private pumpRequests(nowMs = Date.now()): void {
     if (
       !this.provider ||
-      !this.plan ||
-      this.baseActivation === "inactive"
+      (!this.visiblePlan && !this.candidatePlan)
     ) {
       return;
     }
@@ -665,28 +651,29 @@ export class ImageryVirtualTexture {
       if (!next) return;
       const [key, task] = next;
       const controller = new AbortController();
-      const generation = this.generation;
+      const token = this.requestTokens.begin(key);
       const existing = this.records.get(key);
       const record: ImageryRecord = existing ?? {
         address: task.address,
         status: "absent",
-        generation,
         failedAttempts: 0,
         retryAtMs: 0,
         usedAt: 0,
       };
       record.status = "loading";
-      record.generation = generation;
       this.records.set(key, record);
-      this.activeRequests.set(key, { controller, generation });
+      this.activeRequests.set(key, { controller, token });
       this.diagnostics.requestTotal += 1;
-      void this.loadTile(task, controller.signal, generation)
+      void this.loadTile(task, controller.signal, token)
         .catch((error: unknown) =>
-          this.handleLoadFailure(key, record, error, generation),
+          this.handleLoadFailure(key, record, error, token),
         )
         .finally(() => {
           const active = this.activeRequests.get(key);
-          if (active?.generation === generation) {
+          if (
+            active?.token === token &&
+            this.requestTokens.complete(key, token)
+          ) {
             this.activeRequests.delete(key);
           }
           this.pumpRequests();
@@ -697,7 +684,7 @@ export class ImageryVirtualTexture {
   private async loadTile(
     task: ImageryLoadTask,
     signal: AbortSignal,
-    generation: number,
+    token: number,
   ): Promise<void> {
     if (!this.provider) return;
     const key = imageryKey(task.address);
@@ -705,21 +692,22 @@ export class ImageryVirtualTexture {
     const pixels = await decodeImageryTile(
       blob,
       this.provider.tileSize,
+      IMAGERY_GPU_PAGE_SIZE,
       IMAGERY_GUTTER_PIXELS,
       signal,
     );
     const active = this.activeRequests.get(key);
     if (
       signal.aborted ||
-      active?.generation !== generation ||
-      this.generation !== generation ||
+      active?.token !== token ||
+      !this.requestTokens.isCurrent(key, token) ||
       !this.wanted.has(key)
     ) {
       this.diagnostics.staleTotal += 1;
       return;
     }
     const record = this.records.get(key);
-    if (!record || record.generation !== generation) {
+    if (!record) {
       this.diagnostics.staleTotal += 1;
       return;
     }
@@ -733,23 +721,22 @@ export class ImageryVirtualTexture {
     key: string,
     record: ImageryRecord,
     error: unknown,
-    generation: number,
+    token: number,
   ): void {
+    const active = this.activeRequests.get(key);
+    const requestIsCurrent =
+      active?.token === token && this.requestTokens.isCurrent(key, token);
     if (isAbortError(error)) {
       this.diagnostics.abortTotal += 1;
-      if (record.generation !== generation || this.generation !== generation) {
+      if (!requestIsCurrent || !this.wanted.has(key)) {
         this.diagnostics.staleTotal += 1;
       }
-      if (record.generation === generation && record.status === "loading") {
+      if (requestIsCurrent && record.status === "loading") {
         record.status = "absent";
       }
       return;
     }
-    if (
-      record.generation !== generation ||
-      this.generation !== generation ||
-      !this.wanted.has(key)
-    ) {
+    if (!requestIsCurrent || !this.wanted.has(key)) {
       this.diagnostics.staleTotal += 1;
       return;
     }
@@ -789,7 +776,6 @@ export class ImageryVirtualTexture {
       .filter(
         ([key, record]) =>
           record.status === "decoded" &&
-          record.generation === this.generation &&
           this.wanted.has(key) &&
           record.pixels,
       )
@@ -809,7 +795,7 @@ export class ImageryVirtualTexture {
       slot: number;
     }> = [];
     const layerBytes =
-      (this.provider.tileSize + IMAGERY_GUTTER_PIXELS * 2) ** 2 * 4;
+      (IMAGERY_GPU_PAGE_SIZE + IMAGERY_GUTTER_PIXELS * 2) ** 2 * 4;
     for (const [, record] of decoded) {
       const slot = this.allocateSlot();
       if (slot === undefined || !record.pixels) break;
@@ -846,67 +832,95 @@ export class ImageryVirtualTexture {
   private allocateSlot(): number | undefined {
     const free = this.freeSlots.pop();
     if (free !== undefined) return free;
-    const candidate = [...this.records.entries()]
-      .filter(
-        ([key, record]) =>
-          record.status === "resident" &&
-          record.slot !== undefined &&
-          !this.visibleKeys.has(key) &&
-          (!this.wanted.has(key) ||
-            record.address.z < (this.plan?.window.zoom ?? 0)),
-      )
-      .sort(
-        (first, second) =>
-          first[1].usedAt - second[1].usedAt ||
-          first[0].localeCompare(second[0]),
-      )[0];
-    if (!candidate) return undefined;
-    const [, record] = candidate;
+    const pinned = this.pinnedKeys();
+    const candidateKey = selectUnpinnedLruKey(
+      [...this.records.entries()]
+        .filter(
+          ([, record]) =>
+            record.status === "resident" && record.slot !== undefined,
+        )
+        .map(([key, record]) => ({
+          key,
+          usedAt: record.usedAt,
+          pinned: pinned.has(key),
+        })),
+    );
+    if (!candidateKey) return undefined;
+    const record = this.records.get(candidateKey)!;
     const slot = record.slot;
     record.slot = undefined;
     record.status = "evicted";
     return slot;
   }
 
-  private commitResolvedMapping(force = false): void {
-    if (!this.plan || this.baseActivation !== "active") return;
-    const resident = new Set(
-      [...this.records]
-        .filter(([, record]) => record.status === "resident")
-        .map(([key]) => key),
+  private candidateReady(): boolean {
+    return Boolean(
+      this.candidatePlan?.tasks.every((task) => {
+        const status = this.records.get(imageryKey(task.address))?.status;
+        return (
+          status === "resident" ||
+          status === "permanent" ||
+          status === "failed"
+        );
+      }),
     );
+  }
+
+  private commitCandidateIfReady(): void {
+    if (!this.candidatePlan || !this.candidateReady()) return;
+    if (!this.commitMapping(this.candidatePlan, true)) return;
+    this.visiblePlan = this.candidatePlan;
+    this.candidatePlan = undefined;
+    this.syncWanted();
+  }
+
+  private refreshVisibleMapping(): void {
+    if (!this.visiblePlan) return;
+    this.commitMapping(this.visiblePlan, false);
+  }
+
+  private commitMapping(
+    plan: ImageryOnionPlan,
+    force: boolean,
+  ): boolean {
     const bytes = new Uint8Array(
       IMAGERY_PAGE_TABLE_SIZE * IMAGERY_PAGE_TABLE_SIZE * 4,
     );
     const nextVisibleKeys = new Set<string>();
     let visibleEntries = 0;
-    for (const cell of this.plan.cells) {
-      const source = resolvedImagerySource(
-        cell.address,
-        resident,
-        this.provider?.minZoom ?? 0,
-        this.visibleZoomCeiling ?? cell.address.z,
-      );
-      if (!source) continue;
-      const record = this.records.get(imageryKey(source));
+    for (const cell of plan.cells) {
+      const record = this.records.get(imageryKey(cell.address));
       if (record?.status !== "resident" || record.slot === undefined) continue;
-      const entry = encodePageEntry(cell.address, source, record.slot);
-      const index =
-        (cell.tableY * IMAGERY_PAGE_TABLE_SIZE + cell.tableX) * 4;
-      bytes[index] = entry.layerByte;
-      bytes[index + 1] = entry.ancestorDelta;
-      bytes[index + 2] = entry.childOffsetX;
-      bytes[index + 3] = entry.childOffsetY;
+      for (let childY = 0; childY < cell.tableSpan; childY += 1) {
+        for (let childX = 0; childX < cell.tableSpan; childX += 1) {
+          const tableX = cell.tableX + childX;
+          const tableY = cell.tableY + childY;
+          if (
+            tableX < 0 ||
+            tableY < 0 ||
+            tableX >= IMAGERY_PAGE_TABLE_SIZE ||
+            tableY >= IMAGERY_PAGE_TABLE_SIZE
+          ) {
+            continue;
+          }
+          const index =
+            (tableY * IMAGERY_PAGE_TABLE_SIZE + tableX) * 4;
+          bytes[index] = record.slot + 1;
+          bytes[index + 1] = cell.ring;
+          bytes[index + 2] = childX;
+          bytes[index + 3] = childY;
+          visibleEntries += 1;
+        }
+      }
       record.usedAt = ++this.sequence;
-      nextVisibleKeys.add(imageryKey(source));
-      visibleEntries += 1;
+      nextVisibleKeys.add(imageryKey(cell.address));
     }
-    const signature = `${this.plan.signature}:${visibleEntries}:${Array.from(
+    const signature = `${plan.signature}:${visibleEntries}:${Array.from(
       bytes,
     ).join(",")}`;
     if (!force && signature === this.mappingSignature) {
       this.sharedUniforms.imageryEnabled!.value = 1;
-      return;
+      return true;
     }
     const stagingIndex = this.activePageTable === 0 ? 1 : 0;
     const staging = this.pageTables[stagingIndex];
@@ -918,7 +932,7 @@ export class ImageryVirtualTexture {
     this.renderer.initTexture(staging);
     if (context.getError() !== context.NO_ERROR) {
       this.diagnostics.gpuFailureTotal += 1;
-      return;
+      return false;
     }
     this.activePageTable = stagingIndex;
     this.sharedUniforms.imageryPageTable!.value = staging;
@@ -928,6 +942,7 @@ export class ImageryVirtualTexture {
     this.mappingSignature = signature;
     this.pageTableEpoch += 1;
     this.diagnostics.commitTotal += 1;
+    return true;
   }
 
   private updateDiagnostics(): void {
@@ -942,16 +957,28 @@ export class ImageryVirtualTexture {
       (record) => record.status === "permanent",
     ).length;
     document.body.dataset.imageryProvider = this.provider?.id ?? "none";
-    document.body.dataset.imageryActivation = this.baseActivation;
-    document.body.dataset.imageryRefinement =
-      this.refinementActivation;
+    document.body.dataset.imageryActivation = !this.provider
+      ? "inactive"
+      : this.visiblePlan
+        ? "active"
+        : "prefetching";
+    document.body.dataset.imageryRefinement = this.candidatePlan
+      ? "prefetching"
+      : this.visiblePlan
+        ? "active"
+        : "inactive";
     document.body.dataset.imageryDesiredZoom =
       this.desiredZoom === undefined ? "" : String(this.desiredZoom);
     document.body.dataset.imageryVisibleZoom =
-      this.visibleZoomCeiling === undefined
+      this.visiblePlan === undefined
         ? ""
-        : String(this.visibleZoomCeiling);
-    document.body.dataset.imageryWindow = this.plan?.signature ?? "";
+        : String(this.visiblePlan.finestZoom);
+    document.body.dataset.imageryWindow =
+      this.visiblePlan?.signature ?? "";
+    document.body.dataset.imageryVisiblePlan =
+      this.visiblePlan?.signature ?? "";
+    document.body.dataset.imageryCandidatePlan =
+      this.candidatePlan?.signature ?? "";
     document.body.dataset.imageryRequests = String(
       this.activeRequests.size,
     );
@@ -979,7 +1006,7 @@ export class ImageryVirtualTexture {
     document.body.dataset.imageryVisibleExact = String(
       [...this.visibleKeys].filter((key) => {
         const record = this.records.get(key);
-        return record?.address.z === this.plan?.window.zoom;
+        return record?.address.z === this.visiblePlan?.finestZoom;
       }).length,
     );
     document.body.dataset.imageryUploadTotal = String(
@@ -993,13 +1020,22 @@ export class ImageryVirtualTexture {
     );
     document.body.dataset.imageryPageTableEpoch = String(this.pageTableEpoch);
     document.body.dataset.imageryPoolLayers = String(this.poolLayers);
-    document.body.dataset.imageryWindowSize = String(this.windowSize);
+    document.body.dataset.imageryWindowSize = String(
+      IMAGERY_PAGE_TABLE_SIZE,
+    );
+    document.body.dataset.imageryPinnedPages = String(
+      this.pinnedKeys().size,
+    );
+    document.body.dataset.imageryTransitionCount = String(
+      this.diagnostics.commitTotal,
+    );
   }
 }
 
 async function decodeImageryTile(
   blob: Blob,
-  tileSize: number,
+  sourceTileSize: number,
+  gpuPageSize: number,
   gutter: number,
   signal: AbortSignal,
 ): Promise<Uint8Array> {
@@ -1016,13 +1052,16 @@ async function decodeImageryTile(
     if (signal.aborted) {
       throw new DOMException("The imagery request was aborted.", "AbortError");
     }
-    if (bitmap.width !== tileSize || bitmap.height !== tileSize) {
+    if (
+      bitmap.width !== sourceTileSize ||
+      bitmap.height !== sourceTileSize
+    ) {
       throw new ImageryRequestError(
-        `The imagery tile must be ${tileSize} × ${tileSize} pixels.`,
+        `The imagery tile must be ${sourceTileSize} × ${sourceTileSize} pixels.`,
         "malformed",
       );
     }
-    const paddedSize = tileSize + gutter * 2;
+    const paddedSize = gpuPageSize + gutter * 2;
     const canvas = document.createElement("canvas");
     canvas.width = paddedSize;
     canvas.height = paddedSize;
@@ -1036,61 +1075,72 @@ async function decodeImageryTile(
         "malformed",
       );
     }
-    context.imageSmoothingEnabled = false;
-    context.drawImage(bitmap, gutter, gutter);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
     context.drawImage(
       bitmap,
       0,
       0,
-      tileSize,
-      1,
+      sourceTileSize,
+      sourceTileSize,
       gutter,
-      0,
-      tileSize,
       gutter,
-    );
-    context.drawImage(
-      bitmap,
-      0,
-      tileSize - 1,
-      tileSize,
-      1,
-      gutter,
-      gutter + tileSize,
-      tileSize,
-      gutter,
+      gpuPageSize,
+      gpuPageSize,
     );
     context.drawImage(
       bitmap,
       0,
       0,
+      sourceTileSize,
       1,
-      tileSize,
+      gutter,
       0,
+      gpuPageSize,
       gutter,
-      gutter,
-      tileSize,
     );
     context.drawImage(
       bitmap,
-      tileSize - 1,
+      0,
+      sourceTileSize - 1,
+      sourceTileSize,
+      1,
+      gutter,
+      gutter + gpuPageSize,
+      gpuPageSize,
+      gutter,
+    );
+    context.drawImage(
+      bitmap,
+      0,
       0,
       1,
-      tileSize,
-      gutter + tileSize,
+      sourceTileSize,
+      0,
       gutter,
       gutter,
-      tileSize,
+      gpuPageSize,
+    );
+    context.drawImage(
+      bitmap,
+      sourceTileSize - 1,
+      0,
+      1,
+      sourceTileSize,
+      gutter + gpuPageSize,
+      gutter,
+      gutter,
+      gpuPageSize,
     );
     for (const [sourceX, sourceY, targetX, targetY] of [
       [0, 0, 0, 0],
-      [tileSize - 1, 0, gutter + tileSize, 0],
-      [0, tileSize - 1, 0, gutter + tileSize],
+      [sourceTileSize - 1, 0, gutter + gpuPageSize, 0],
+      [0, sourceTileSize - 1, 0, gutter + gpuPageSize],
       [
-        tileSize - 1,
-        tileSize - 1,
-        gutter + tileSize,
-        gutter + tileSize,
+        sourceTileSize - 1,
+        sourceTileSize - 1,
+        gutter + gpuPageSize,
+        gutter + gpuPageSize,
       ],
     ]) {
       context.drawImage(

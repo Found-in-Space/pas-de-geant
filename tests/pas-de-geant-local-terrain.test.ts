@@ -84,6 +84,8 @@ describe("Pas de Géant native terrain rings", () => {
       ),
     ).toHaveLength(4);
     expect(new Set(plan.active.map(mercatorTileKey)).size).toBe(160);
+    expect(plan.required).toHaveLength(225);
+    expect(new Set(plan.required.map(mercatorTileKey)).size).toBe(225);
 
     for (const tile of plan.active) {
       for (const other of plan.active) {
@@ -125,8 +127,35 @@ describe("Pas de Géant native terrain rings", () => {
     ).toBe(nativeTerrainPlanAnchorKey(0, 0, first.finestZoom));
   });
 
-  it("uses all available world tiles before an 8x8 ring can exist", () => {
-    for (const zoom of [0, 1, 2]) {
+  it("changes the geometry signature when an overlapping boundary cell becomes interior", () => {
+    const radius =
+      LOCAL_TILE_TARGET_WIDTH_M * 2 ** 8 / (2 * Math.PI);
+    const first = selectNativeTerrainPlan({
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+      displayRadiusM: radius,
+    });
+    const shifted = selectNativeTerrainPlan({
+      latitudeDegrees: 0,
+      longitudeDegrees: 6,
+      displayRadiusM: radius,
+      previousBaseZoom: first.baseZoom,
+    });
+    const firstByKey = new Map(
+      first.active.map((tile) => [mercatorTileKey(tile), tile]),
+    );
+    const changedOverlap = shifted.active.find((tile) => {
+      const previous = firstByKey.get(mercatorTileKey(tile));
+      return (
+        previous !== undefined &&
+        previous.geometrySignature !== tile.geometrySignature
+      );
+    });
+    expect(changedOverlap).toBeDefined();
+  });
+
+  it("leaves low source zooms to the immutable globe", () => {
+    for (const zoom of [0, 1, 2, 3, 4]) {
       const radius =
         LOCAL_TILE_TARGET_WIDTH_M * 2 ** zoom / (2 * Math.PI);
       const plan = selectNativeTerrainPlan({
@@ -135,10 +164,8 @@ describe("Pas de Géant native terrain rings", () => {
         displayRadiusM: radius,
       });
       expect(plan.finestZoom).toBe(zoom);
-      expect(plan.active).toHaveLength((2 ** zoom) ** 2);
-      expect(new Set(plan.active.map(mercatorTileKey)).size).toBe(
-        plan.active.length,
-      );
+      expect(plan.active).toHaveLength(0);
+      expect(plan.required).toHaveLength(0);
     }
   });
 
@@ -161,8 +188,9 @@ describe("Pas de Géant native terrain rings", () => {
     expect(underfoot).toHaveLength(4);
     for (const tile of underfoot) {
       expect(
-        Object.values(tile.outerEdges).filter((edge) => edge > 0),
+        Object.values(tile.skirtEdges).filter((edge) => edge > 0),
       ).toHaveLength(2);
+      expect(Object.keys(tile.edgeConstraints)).toHaveLength(2);
     }
   });
 

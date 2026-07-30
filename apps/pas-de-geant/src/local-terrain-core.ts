@@ -1,3 +1,8 @@
+import {
+  planSurfaceOnion,
+  type SurfaceOnionPlan,
+} from "./surface-onion.js";
+
 export const LOCAL_TERRAIN_MIN_ZOOM = 0;
 export const LOCAL_TERRAIN_MAX_ZOOM = 12;
 export const LOCAL_TILE_SIZE = 512;
@@ -50,9 +55,12 @@ export interface NativeTerrainTile extends MercatorTileAddress {
   meshSegments: number;
   outerEdges: LocalEdgeMask;
   skirtEdges: LocalEdgeMask;
+  edgeConstraints: TerrainEdgeConstraints;
+  geometrySignature: string;
 }
 
 export interface NativeTerrainPlan {
+  onion: SurfaceOnionPlan | undefined;
   active: NativeTerrainTile[];
   required: MercatorTileAddress[];
   baseZoom: number;
@@ -351,166 +359,150 @@ function emptyEdgeMask(): LocalEdgeMask {
   return { north: 0, east: 0, south: 0, west: 0 };
 }
 
-function parentAddress(
-  address: MercatorTileAddress,
-): MercatorTileAddress | undefined {
-  if (address.z <= LOCAL_TERRAIN_MIN_ZOOM) return undefined;
-  return {
-    z: address.z - 1,
-    x: Math.floor(address.x / 2),
-    y: Math.floor(address.y / 2),
-  };
+interface TerrainTileFootprint {
+  tile: NativeTerrainTile;
+  west: number;
+  east: number;
+  north: number;
+  south: number;
+  density: number;
 }
 
-function tileHasCoverage(
-  address: MercatorTileAddress,
-  exactKeys: ReadonlySet<string>,
-  descendantCoverageKeys: ReadonlySet<string>,
-): "same" | "mixed" | "none" {
-  if (exactKeys.has(mercatorTileKey(address))) return "same";
-  let ancestor = parentAddress(address);
-  while (ancestor) {
-    if (exactKeys.has(mercatorTileKey(ancestor))) return "mixed";
-    ancestor = parentAddress(ancestor);
-  }
-  return descendantCoverageKeys.has(mercatorTileKey(address))
-    ? "mixed"
-    : "none";
-}
+const TERRAIN_EDGES = [
+  "north",
+  "east",
+  "south",
+  "west",
+] as const satisfies readonly TerrainEdge[];
 
-function applyPlanEdgeMasks(active: NativeTerrainTile[]): void {
-  const exactKeys = new Set(active.map(mercatorTileKey));
-  const exactTiles = new Map(active.map((tile) => [mercatorTileKey(tile), tile]));
-  const descendantCoverageKeys = new Set<string>();
-  for (const tile of active) {
-    let parent = parentAddress(tile);
-    while (parent) {
-      descendantCoverageKeys.add(mercatorTileKey(parent));
-      parent = parentAddress(parent);
-    }
-  }
-  const directions = [
-    ["north", 0, -1],
-    ["east", 1, 0],
-    ["south", 0, 1],
-    ["west", -1, 0],
-  ] as const;
-  for (const tile of active) {
-    for (const [edge, deltaX, deltaY] of directions) {
-      const neighbour = {
-        z: tile.z,
-        x: wrapMercatorX(tile.x + deltaX, tile.z),
-        y: tile.y + deltaY,
-      };
-      if (!isValidMercatorAddress(neighbour)) {
-        tile.outerEdges[edge] = 1;
-        tile.skirtEdges[edge] = 1;
-        continue;
-      }
-      const exactNeighbour = exactTiles.get(mercatorTileKey(neighbour));
-      if (
-        exactNeighbour &&
-        exactNeighbour.meshSegments !== tile.meshSegments
-      ) {
-        tile.outerEdges[edge] = 1;
-        tile.skirtEdges[edge] = 1;
-        continue;
-      }
-      const coverage = tileHasCoverage(
-        neighbour,
-        exactKeys,
-        descendantCoverageKeys,
-      );
-      if (coverage === "none") {
-        tile.outerEdges[edge] = 1;
-        tile.skirtEdges[edge] = 1;
-      } else if (coverage === "mixed") {
-        tile.outerEdges[edge] = 1;
-        tile.skirtEdges[edge] = 1;
-      }
-    }
-  }
-}
+const OPPOSITE_EDGE: Record<TerrainEdge, TerrainEdge> = {
+  north: "south",
+  east: "west",
+  south: "north",
+  west: "east",
+};
 
-function allWorldTiles(zoom: number): NativeTerrainTile[] {
-  const width = 2 ** zoom;
-  const active: NativeTerrainTile[] = [];
-  const centre = (width - 1) * 0.5;
-  for (let y = 0; y < width; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      active.push({
-        z: zoom,
-        x,
-        y,
-        ring: 0,
-        priority: Math.hypot(x - centre, y - centre),
-        meshSegments: meshSegmentsForRing(0),
-        outerEdges: emptyEdgeMask(),
-        skirtEdges: emptyEdgeMask(),
-      });
-    }
-  }
-  return active;
-}
-
-function fixedRingLayout(
-  latitudeDegrees: number,
-  longitudeDegrees: number,
+function terrainTileFootprints(
+  tiles: readonly NativeTerrainTile[],
   finestZoom: number,
-  requestedRingLevels: number,
-): {
-  ringLevels: number;
-  origins: Array<{ x: number; y: number }>;
-  underfootOrigin: { x: number; y: number };
-} {
-  const ringLevels = Math.max(
-    1,
-    Math.min(
-      Math.floor(requestedRingLevels),
-      LOCAL_RING_LEVELS,
-      finestZoom - 2,
-    ),
-  );
-  const finestCentre = mercatorAddressForCoordinates(
-    latitudeDegrees,
-    longitudeDegrees,
-    finestZoom,
-  );
-  const finestPoint = mercatorPointForCoordinates(
-    latitudeDegrees,
-    longitudeDegrees,
-    finestZoom,
-  );
-  const finestWidth = 2 ** finestZoom;
-  const anchorStride = 2 ** (ringLevels - 1);
-  const anchorMargin = Math.round(
-    (LOCAL_RING_OUTER_TILES - anchorStride) * 0.5,
-  );
-  let originX =
-    Math.floor((finestCentre.x - anchorMargin) / anchorStride) * anchorStride;
-  let originY =
-    Math.floor((finestCentre.y - anchorMargin) / anchorStride) * anchorStride;
-  originY = Math.max(
-    0,
-    Math.min(finestWidth - LOCAL_RING_OUTER_TILES, originY),
-  );
-  const origins: Array<{ x: number; y: number }> = [{ x: originX, y: originY }];
-  for (let ring = 1; ring < ringLevels; ring += 1) {
-    originX = Math.floor(originX / 2) - 2;
-    originY = Math.floor(originY / 2) - 2;
-    origins.push({ x: originX, y: originY });
+  referenceX: number,
+): TerrainTileFootprint[] {
+  const worldWidth = 2 ** finestZoom;
+  return tiles.map((tile) => {
+    const width = 2 ** (finestZoom - tile.z);
+    const wrappedWest = tile.x * width;
+    const west =
+      wrappedWest +
+      Math.round((referenceX - (wrappedWest + width * 0.5)) / worldWidth) *
+        worldWidth;
+    return {
+      tile,
+      west,
+      east: west + width,
+      north: tile.y * width,
+      south: (tile.y + 1) * width,
+      density: tile.meshSegments / width,
+    };
+  });
+}
+
+function footprintsShareEdge(
+  tile: TerrainTileFootprint,
+  neighbour: TerrainTileFootprint,
+  edge: TerrainEdge,
+): boolean {
+  if (edge === "north" || edge === "south") {
+    const touching =
+      edge === "north"
+        ? tile.north === neighbour.south
+        : tile.south === neighbour.north;
+    return (
+      touching &&
+      Math.min(tile.east, neighbour.east) >
+        Math.max(tile.west, neighbour.west)
+    );
   }
-  return {
-    ringLevels,
-    origins,
-    underfootOrigin: {
-      x: Math.floor(finestPoint.x - 0.5),
-      y: Math.max(
-        0,
-        Math.min(finestWidth - 2, Math.floor(finestPoint.y - 0.5)),
-      ),
+  const touching =
+    edge === "east"
+      ? tile.east === neighbour.west
+      : tile.west === neighbour.east;
+  return (
+    touching &&
+    Math.min(tile.south, neighbour.south) >
+      Math.max(tile.north, neighbour.north)
+  );
+}
+
+function applyPlanEdgeStitching(
+  tiles: NativeTerrainTile[],
+  finestZoom: number,
+  referenceX: number,
+): void {
+  const footprints = terrainTileFootprints(tiles, finestZoom, referenceX);
+  for (const footprint of footprints) {
+    for (const edge of TERRAIN_EDGES) {
+      const neighbours = footprints.filter(
+        (candidate) =>
+          candidate !== footprint &&
+          footprintsShareEdge(footprint, candidate, edge),
+      );
+      if (neighbours.length === 0) {
+        footprint.tile.outerEdges[edge] = 1;
+        footprint.tile.skirtEdges[edge] = 1;
+        continue;
+      }
+      const coarsestNeighbour = neighbours.reduce((coarsest, candidate) =>
+        candidate.density < coarsest.density ? candidate : coarsest
+      );
+      if (coarsestNeighbour.density >= footprint.density) continue;
+      footprint.tile.skirtEdges[edge] = 1;
+      footprint.tile.edgeConstraints[edge] = {
+        address: {
+          z: coarsestNeighbour.tile.z,
+          x: coarsestNeighbour.tile.x,
+          y: coarsestNeighbour.tile.y,
+        },
+        edge: OPPOSITE_EDGE[edge],
+        segments: coarsestNeighbour.tile.meshSegments,
+      };
+    }
+  }
+}
+
+function edgeMaskSignature(mask: LocalEdgeMask): string {
+  return `${mask.north}${mask.east}${mask.south}${mask.west}`;
+}
+
+export function terrainCellGeometrySignature(
+  tile: Omit<NativeTerrainTile, "geometrySignature">,
+): string {
+  const constraints = TERRAIN_EDGES.map((edge) => {
+    const constraint = tile.edgeConstraints[edge];
+    return constraint
+      ? `${edge}:${mercatorTileKey(constraint.address)}:${constraint.edge}:${constraint.segments}`
+      : `${edge}:-`;
+  }).join(",");
+  const neighbours = [
+    tile,
+    { z: tile.z, x: wrapMercatorX(tile.x + 1, tile.z), y: tile.y },
+    { z: tile.z, x: tile.x, y: tile.y + 1 },
+    {
+      z: tile.z,
+      x: wrapMercatorX(tile.x + 1, tile.z),
+      y: tile.y + 1,
     },
-  };
+  ]
+    .filter(isValidMercatorAddress)
+    .map(mercatorTileKey)
+    .join(",");
+  return [
+    mercatorTileKey(tile),
+    `segments=${tile.meshSegments}`,
+    `outer=${edgeMaskSignature(tile.outerEdges)}`,
+    `skirts=${edgeMaskSignature(tile.skirtEdges)}`,
+    `constraints=${constraints}`,
+    `neighbours=${neighbours}`,
+  ].join("|");
 }
 
 export function nativeTerrainPlanAnchorKey(
@@ -519,20 +511,15 @@ export function nativeTerrainPlanAnchorKey(
   finestZoom: number,
   requestedRingLevels = LOCAL_RING_LEVELS,
 ): string {
-  if (finestZoom < 3) return `${finestZoom}:world`;
-  const layout = fixedRingLayout(
+  if (finestZoom < 5) return `${finestZoom}:globe`;
+  return planSurfaceOnion({
     latitudeDegrees,
     longitudeDegrees,
     finestZoom,
-    requestedRingLevels,
-  );
-  return [
-    finestZoom,
-    layout.ringLevels,
-    layout.underfootOrigin.x,
-    layout.underfootOrigin.y,
-    ...layout.origins.flatMap((origin) => [origin.x, origin.y]),
-  ].join(":");
+    outerTiles: LOCAL_RING_OUTER_TILES,
+    holeTiles: LOCAL_RING_HOLE_TILES,
+    levels: requestedRingLevels,
+  }).signature;
 }
 
 function fixedRingTiles(
@@ -540,57 +527,48 @@ function fixedRingTiles(
   longitudeDegrees: number,
   finestZoom: number,
   requestedRingLevels: number,
-): NativeTerrainTile[] {
-  if (finestZoom < 3) return allWorldTiles(finestZoom);
-
-  const { ringLevels, origins, underfootOrigin } = fixedRingLayout(
+): { onion: SurfaceOnionPlan | undefined; active: NativeTerrainTile[] } {
+  if (finestZoom < 5) return { onion: undefined, active: [] };
+  const onion = planSurfaceOnion({
     latitudeDegrees,
     longitudeDegrees,
     finestZoom,
-    requestedRingLevels,
-  );
+    outerTiles: LOCAL_RING_OUTER_TILES,
+    holeTiles: LOCAL_RING_HOLE_TILES,
+    levels: requestedRingLevels,
+  });
   const active: NativeTerrainTile[] = [];
-  for (let ring = 0; ring < ringLevels; ring += 1) {
-    const zoom = finestZoom - ring;
-    const origin = origins[ring]!;
-    for (let row = 0; row < LOCAL_RING_OUTER_TILES; row += 1) {
-      for (let column = 0; column < LOCAL_RING_OUTER_TILES; column += 1) {
-        if (
-          ring > 0 &&
-          row >= 2 &&
-          row < 2 + LOCAL_RING_HOLE_TILES &&
-          column >= 2 &&
-          column < 2 + LOCAL_RING_HOLE_TILES
-        ) {
-          continue;
-        }
-        const address = {
-          z: zoom,
-          x: wrapMercatorX(origin.x + column, zoom),
-          y: origin.y + row,
-        };
-        if (!isValidMercatorAddress(address)) continue;
-        active.push({
-          ...address,
-          ring,
-          priority: ring * LOCAL_RING_OUTER_TILES +
-            Math.hypot(column - 3.5, row - 3.5),
-          meshSegments:
-            ring === 0 &&
-              (address.x === wrapMercatorX(underfootOrigin.x, finestZoom) ||
-                address.x ===
-                  wrapMercatorX(underfootOrigin.x + 1, finestZoom)) &&
-              (address.y === underfootOrigin.y ||
-                address.y === underfootOrigin.y + 1)
-              ? LOCAL_UNDERFOOT_MESH_SEGMENTS
-              : meshSegmentsForRing(ring),
-          outerEdges: emptyEdgeMask(),
-          skirtEdges: emptyEdgeMask(),
-        });
-      }
-    }
+  for (const cell of onion.cells) {
+    const underfoot =
+      cell.ring === 0 &&
+      (cell.x === wrapMercatorX(onion.underfootOriginX, finestZoom) ||
+        cell.x === wrapMercatorX(onion.underfootOriginX + 1, finestZoom)) &&
+      (cell.y === onion.underfootOriginY ||
+        cell.y === onion.underfootOriginY + 1);
+    active.push({
+      z: cell.z,
+      x: cell.x,
+      y: cell.y,
+      ring: cell.ring,
+      priority: underfoot ? cell.priority : 10 + cell.priority,
+      meshSegments: underfoot
+        ? LOCAL_UNDERFOOT_MESH_SEGMENTS
+        : meshSegmentsForRing(cell.ring),
+      outerEdges: emptyEdgeMask(),
+      skirtEdges: emptyEdgeMask(),
+      edgeConstraints: {},
+      geometrySignature: "",
+    });
   }
-  return active;
+  applyPlanEdgeStitching(
+    active,
+    finestZoom,
+    onion.finestOriginX + LOCAL_RING_OUTER_TILES * 0.5,
+  );
+  for (const tile of active) {
+    tile.geometrySignature = terrainCellGeometrySignature(tile);
+  }
+  return { onion, active };
 }
 
 export function selectNativeTerrainPlan(
@@ -608,13 +586,12 @@ export function selectNativeTerrainPlan(
       baseZoom + Math.max(-3, Math.min(3, Math.round(options.lodBias ?? 0))),
     ),
   );
-  const active = fixedRingTiles(
+  const { onion, active } = fixedRingTiles(
     options.latitudeDegrees,
     options.longitudeDegrees,
     finestZoom,
     options.ringLevels ?? LOCAL_RING_LEVELS,
   );
-  applyPlanEdgeMasks(active);
   active.sort(
     (first, second) =>
       first.priority - second.priority ||
@@ -626,16 +603,35 @@ export function selectNativeTerrainPlan(
     active.length > 0
       ? Math.min(...active.map((tile) => tile.z))
       : finestZoom;
-  const signature = active
-    .map(
-      (tile) =>
-        `${mercatorTileKey(tile)}@${tile.ring}:${tile.meshSegments}`,
-    )
-    .sort()
-    .join("|");
+  const required: MercatorTileAddress[] = [];
+  const requiredKeys = new Set<string>();
+  for (const tile of active) {
+    for (const [deltaX, deltaY] of [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ] as const) {
+      const address = {
+        z: tile.z,
+        x: wrapMercatorX(tile.x + deltaX, tile.z),
+        y: tile.y + deltaY,
+      };
+      if (!isValidMercatorAddress(address)) continue;
+      const key = mercatorTileKey(address);
+      if (requiredKeys.has(key)) continue;
+      requiredKeys.add(key);
+      required.push(address);
+    }
+  }
+  const signature = [
+    onion?.signature ?? `${finestZoom}:globe`,
+    ...active.map((tile) => tile.geometrySignature).sort(),
+  ].join("|");
   return {
+    onion,
     active,
-    required: active,
+    required,
     baseZoom,
     finestZoom,
     minZoom,

@@ -13,22 +13,16 @@ import {
 } from "./imagery.js";
 import { LocalTerrainRenderer } from "./local-terrain.js";
 import type { ReliefDataset } from "./relief.js";
-import { terrainHorizonDegrees } from "./terrain-horizon.js";
 
 export { terrainHorizonDegrees } from "./terrain-horizon.js";
 
-const GLOBAL_TILE_ROOT_SPAN_DEGREES = 288;
-const GLOBAL_TILE_REFERENCE_TEXELS = 512;
-const GLOBAL_TILE_PROJECTED_TEXEL_TARGET_M = 0.01;
-const TILE_SEGMENTS = 24;
+const GLOBAL_LONGITUDE_SEGMENTS = 256;
+const GLOBAL_LATITUDE_SEGMENTS = 128;
 const SKIRT_DEPTH_WORLD_M = 0.02;
 const OCCLUDER_SEGMENTS = 96;
 const OCCLUDER_MARGIN_SOURCE_M = 500;
 const OCCLUDER_MARGIN_WORLD_M = 0.002;
 const FALLBACK_MAX_ELEVATION_M = 8_849;
-export const MIN_GLOBAL_TERRAIN_LEVEL = 0;
-export const MAX_GLOBAL_TERRAIN_LEVEL = 7;
-const FINE_REFINEMENT_RADIUS_DEGREES = 8;
 const LAND_AMBIENT_LIGHT = 0.46;
 const LAND_DIRECT_LIGHT = 0.72;
 const LAND_DARK_SHADOW_LIFT = 0.18;
@@ -37,110 +31,12 @@ const LAND_BRIGHT_LUMINANCE = 0.5;
 const LAND_DARK_TONE_LIFT = 0.16;
 const LAND_LIT_TONE_FRACTION = 0.35;
 
-export interface TileAddress {
-  z: number;
-  x: number;
-  y: number;
-}
-
-export interface TileBounds {
-  west: number;
-  east: number;
-  north: number;
-  south: number;
-}
-
-interface RenderedTile {
-  mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
-  lastUsedAt: number;
-  baseBoundingRadius: number;
-  address: TileAddress;
-}
-
-export function tileKey(address: TileAddress): string {
-  return `${address.z}/${address.x}/${address.y}`;
-}
-
-export function terrainMaximumLevel(
-  displayRadiusM: number,
-  latitudeDegrees = 0,
-): number {
-  const latitudeRadians =
-    (Math.max(-90, Math.min(90, latitudeDegrees)) * Math.PI) / 180;
-  for (
-    let level = MIN_GLOBAL_TERRAIN_LEVEL;
-    level <= MAX_GLOBAL_TERRAIN_LEVEL;
-    level += 1
-  ) {
-    const tileSpanRadians =
-      ((GLOBAL_TILE_ROOT_SPAN_DEGREES / 2 ** level) * Math.PI) / 180;
-    const projectedTexelM =
-      (Math.max(0.001, displayRadiusM) *
-        Math.max(0, Math.cos(latitudeRadians)) *
-        tileSpanRadians) /
-      GLOBAL_TILE_REFERENCE_TEXELS;
-    if (projectedTexelM <= GLOBAL_TILE_PROJECTED_TEXEL_TARGET_M) {
-      return level;
-    }
-  }
-  return MAX_GLOBAL_TERRAIN_LEVEL;
-}
-
-export function tileMatrixDimensions(level: number): {
-  columns: number;
-  rows: number;
-} {
-  const span = GLOBAL_TILE_ROOT_SPAN_DEGREES / 2 ** level;
-  return {
-    columns: Math.ceil(360 / span),
-    rows: Math.ceil(180 / span),
-  };
-}
-
-function isValidTileAddress(address: TileAddress): boolean {
-  const dimensions = tileMatrixDimensions(address.z);
-  return (
-    address.z >= 0 &&
-    address.x >= 0 &&
-    address.y >= 0 &&
-    address.x < dimensions.columns &&
-    address.y < dimensions.rows
-  );
-}
-
-export function rawBoundsForTile(address: TileAddress): TileBounds {
-  const span = GLOBAL_TILE_ROOT_SPAN_DEGREES / 2 ** address.z;
-  const west = -180 + address.x * span;
-  const north = 90 - address.y * span;
-  return {
-    west,
-    east: west + span,
-    north,
-    south: north - span,
-  };
-}
-
-export function boundsForTile(address: TileAddress): TileBounds {
-  const raw = rawBoundsForTile(address);
-  return {
-    west: Math.max(-180, raw.west),
-    east: Math.min(180, raw.east),
-    north: Math.min(90, raw.north),
-    south: Math.max(-90, raw.south),
-  };
-}
-
-export function childrenForTile(address: TileAddress): TileAddress[] {
-  const nextZ = address.z + 1;
-  const children: TileAddress[] = [];
-  for (const y of [address.y * 2, address.y * 2 + 1]) {
-    for (const x of [address.x * 2, address.x * 2 + 1]) {
-      const child = { z: nextZ, x, y };
-      if (isValidTileAddress(child)) children.push(child);
-    }
-  }
-  return children;
-}
+const GLOBAL_GLOBE_BOUNDS = {
+  west: -180,
+  east: 180,
+  north: 90,
+  south: -90,
+};
 
 export function adaptiveLandLight(
   luminance: number,
@@ -179,85 +75,6 @@ function darkSurfaceFactor(luminance: number): number {
   );
   const smoothFraction = fraction * fraction * (3 - 2 * fraction);
   return 1 - smoothFraction;
-}
-
-function angularDistanceDegrees(
-  latitudeA: number,
-  longitudeA: number,
-  latitudeB: number,
-  longitudeB: number,
-): number {
-  const latA = THREE.MathUtils.degToRad(latitudeA);
-  const latB = THREE.MathUtils.degToRad(latitudeB);
-  const deltaLongitude = THREE.MathUtils.degToRad(longitudeB - longitudeA);
-  return THREE.MathUtils.radToDeg(
-    Math.acos(
-      Math.max(
-        -1,
-        Math.min(
-          1,
-          Math.sin(latA) * Math.sin(latB) +
-            Math.cos(latA) * Math.cos(latB) * Math.cos(deltaLongitude),
-        ),
-      ),
-    ),
-  );
-}
-
-function tileAngularRadius(bounds: TileBounds): number {
-  return Math.hypot(
-    (bounds.east - bounds.west) * 0.5,
-    (bounds.north - bounds.south) * 0.5,
-  );
-}
-
-export function selectTerrainTiles(
-  latitudeDegrees: number,
-  longitudeDegrees: number,
-  displayRadiusM: number,
-): TileAddress[] {
-  const result: TileAddress[] = [];
-  const horizonDegrees = terrainHorizonDegrees(displayRadiusM);
-  const maximumLevel = terrainMaximumLevel(displayRadiusM, latitudeDegrees);
-  const targetEdgeM = displayRadiusM < 4 ? 0.045 : 0.14;
-  const visit = (address: TileAddress): void => {
-    if (!isValidTileAddress(address)) return;
-    const bounds = boundsForTile(address);
-    const centreLatitude = (bounds.north + bounds.south) * 0.5;
-    const centreLongitude = (bounds.west + bounds.east) * 0.5;
-    const distance = angularDistanceDegrees(
-      latitudeDegrees,
-      longitudeDegrees,
-      centreLatitude,
-      centreLongitude,
-    );
-    const angularRadius = tileAngularRadius(bounds);
-    const nearVisibleCap =
-      distance <= Math.min(180, horizonDegrees + angularRadius * 1.05 + 1);
-    const edgeLengthM =
-      (THREE.MathUtils.degToRad(bounds.east - bounds.west) * displayRadiusM) /
-      TILE_SEGMENTS;
-    const withinFineRefinementCap =
-      address.z + 1 < maximumLevel ||
-      distance <= FINE_REFINEMENT_RADIUS_DEGREES + angularRadius;
-    if (
-      nearVisibleCap &&
-      address.z < maximumLevel &&
-      edgeLengthM > targetEdgeM &&
-      withinFineRefinementCap
-    ) {
-      for (const child of childrenForTile(address)) visit(child);
-      return;
-    }
-    result.push(address);
-  };
-  const rootDimensions = tileMatrixDimensions(0);
-  for (let y = 0; y < rootDimensions.rows; y += 1) {
-    for (let x = 0; x < rootDimensions.columns; x += 1) {
-      visit({ z: 0, x, y });
-    }
-  }
-  return result;
 }
 
 export function terrainBoundingExpansion(
@@ -307,55 +124,31 @@ function geodeticVertex(
   };
 }
 
-function geometryForTile(address: TileAddress): THREE.BufferGeometry {
-  const bounds = boundsForTile(address);
+export function geometryForGlobalGlobe(): THREE.BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
   const heightUvs: number[] = [];
   const imageryUvs: number[] = [];
   const skirts: number[] = [];
   const indices: number[] = [];
-  const rowLength = TILE_SEGMENTS + 1;
-  const addVertex = (
-    latitude: number,
-    longitude: number,
-    imageryU: number,
-    imageryV: number,
-    skirt: number,
-  ): number => {
-    const vertex = geodeticVertex(latitude, longitude);
-    positions.push(vertex.position.x, vertex.position.y, vertex.position.z);
-    normals.push(vertex.normal.x, vertex.normal.y, vertex.normal.z);
-    heightUvs.push(vertex.heightUv.x, vertex.heightUv.y);
-    imageryUvs.push(imageryU, imageryV);
-    skirts.push(skirt);
-    return skirts.length - 1;
-  };
-  const imageryNorth = normalizedMercatorYForLatitude(bounds.north);
-  const imagerySouth = normalizedMercatorYForLatitude(bounds.south);
-  const imageryHeight = Math.max(1e-9, imagerySouth - imageryNorth);
-  for (let row = 0; row <= TILE_SEGMENTS; row += 1) {
-    const fractionV = row / TILE_SEGMENTS;
-    const latitude = THREE.MathUtils.lerp(
-      bounds.north,
-      bounds.south,
-      fractionV,
-    );
-    for (let column = 0; column <= TILE_SEGMENTS; column += 1) {
-      const fractionU = column / TILE_SEGMENTS;
-      const longitude = THREE.MathUtils.lerp(
-        bounds.west,
-        bounds.east,
-        fractionU,
-      );
-      const imageryV =
-        (normalizedMercatorYForLatitude(latitude) - imageryNorth) /
-        imageryHeight;
-      addVertex(latitude, longitude, fractionU, imageryV, 0);
+  const rowLength = GLOBAL_LONGITUDE_SEGMENTS + 1;
+  for (let row = 0; row <= GLOBAL_LATITUDE_SEGMENTS; row += 1) {
+    const v = row / GLOBAL_LATITUDE_SEGMENTS;
+    const latitude = THREE.MathUtils.lerp(90, -90, v);
+    const imageryV = normalizedMercatorYForLatitude(latitude);
+    for (let column = 0; column <= GLOBAL_LONGITUDE_SEGMENTS; column += 1) {
+      const u = column / GLOBAL_LONGITUDE_SEGMENTS;
+      const longitude = THREE.MathUtils.lerp(-180, 180, u);
+      const vertex = geodeticVertex(latitude, longitude);
+      positions.push(vertex.position.x, vertex.position.y, vertex.position.z);
+      normals.push(vertex.normal.x, vertex.normal.y, vertex.normal.z);
+      heightUvs.push(vertex.heightUv.x, vertex.heightUv.y);
+      imageryUvs.push(u, imageryV);
+      skirts.push(0);
     }
   }
-  for (let row = 0; row < TILE_SEGMENTS; row += 1) {
-    for (let column = 0; column < TILE_SEGMENTS; column += 1) {
+  for (let row = 0; row < GLOBAL_LATITUDE_SEGMENTS; row += 1) {
+    for (let column = 0; column < GLOBAL_LONGITUDE_SEGMENTS; column += 1) {
       const northWest = row * rowLength + column;
       const southWest = northWest + rowLength;
       indices.push(
@@ -368,58 +161,15 @@ function geometryForTile(address: TileAddress): THREE.BufferGeometry {
       );
     }
   }
-  const edges: number[][] = [
-    Array.from({ length: rowLength }, (_, index) => index),
-    Array.from(
-      { length: rowLength },
-      (_, index) => index * rowLength + TILE_SEGMENTS,
-    ),
-    Array.from(
-      { length: rowLength },
-      (_, index) => TILE_SEGMENTS * rowLength + TILE_SEGMENTS - index,
-    ),
-    Array.from(
-      { length: rowLength },
-      (_, index) => (TILE_SEGMENTS - index) * rowLength,
-    ),
-  ];
-  for (const edge of edges) {
-    const duplicates: number[] = [];
-    for (const original of edge) {
-      const positionOffset = original * 3;
-      const uvOffset = original * 2;
-      positions.push(
-        positions[positionOffset]!,
-        positions[positionOffset + 1]!,
-        positions[positionOffset + 2]!,
-      );
-      normals.push(
-        normals[positionOffset]!,
-        normals[positionOffset + 1]!,
-        normals[positionOffset + 2]!,
-      );
-      heightUvs.push(heightUvs[uvOffset]!, heightUvs[uvOffset + 1]!);
-      imageryUvs.push(imageryUvs[uvOffset]!, imageryUvs[uvOffset + 1]!);
-      skirts.push(1);
-      duplicates.push(skirts.length - 1);
-    }
-    for (let index = 0; index < edge.length - 1; index += 1) {
-      indices.push(
-        edge[index]!,
-        duplicates[index]!,
-        edge[index + 1]!,
-        edge[index + 1]!,
-        duplicates[index]!,
-        duplicates[index + 1]!,
-      );
-    }
-  }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
     new THREE.Float32BufferAttribute(positions, 3),
   );
-  geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute(
+    "normal",
+    new THREE.Float32BufferAttribute(normals, 3),
+  );
   geometry.setAttribute(
     "heightUv",
     new THREE.Float32BufferAttribute(heightUvs, 2),
@@ -428,7 +178,10 @@ function geometryForTile(address: TileAddress): THREE.BufferGeometry {
     "imageryUv",
     new THREE.Float32BufferAttribute(imageryUvs, 2),
   );
-  geometry.setAttribute("skirt", new THREE.Float32BufferAttribute(skirts, 1));
+  geometry.setAttribute(
+    "skirt",
+    new THREE.Float32BufferAttribute(skirts, 1),
+  );
   geometry.setIndex(indices);
   geometry.computeBoundingSphere();
   return geometry;
@@ -577,9 +330,11 @@ export class TerrainTileRenderer {
   private readonly relief: ReliefDataset;
   private readonly occluder = terrainOccluder();
   private readonly localTerrain: LocalTerrainRenderer;
-  private readonly rendered = new Map<string, RenderedTile>();
-  private selectionGeneration = 0;
-  private lastSelectionSignature = "";
+  private readonly globalTerrain: THREE.Mesh<
+    THREE.BufferGeometry,
+    THREE.ShaderMaterial
+  >;
+  private readonly globalBaseBoundingRadius: number;
 
   constructor(
     relief: ReliefDataset,
@@ -592,7 +347,17 @@ export class TerrainTileRenderer {
       imagery,
       stencilAvailable,
     );
+    const geometry = geometryForGlobalGlobe();
+    this.globalBaseBoundingRadius = geometry.boundingSphere?.radius ?? 0;
+    this.globalTerrain = new THREE.Mesh(
+      geometry,
+      terrainMaterial(relief, imagery, stencilAvailable),
+    );
+    this.globalTerrain.name = "immutable-global-surface";
+    this.globalTerrain.frustumCulled = false;
+    this.globalTerrain.renderOrder = 0;
     this.group.add(this.occluder);
+    this.group.add(this.globalTerrain);
     this.group.add(this.localTerrain.group);
   }
 
@@ -634,77 +399,17 @@ export class TerrainTileRenderer {
     this.occluder.scale.setScalar(
       terrainOccluderRadius(displayRadiusM, maximumDepthM, radialMultiplier),
     );
-    const signature = [
-      latitudeDegrees.toFixed(1),
-      longitudeDegrees.toFixed(1),
-      Math.log2(displayRadiusM).toFixed(2),
-    ].join(":");
-    for (const tile of this.rendered.values()) {
-      tile.mesh.material.uniforms.normalizedRadialMetres!.value =
-        normalizedRadialMetres;
-      tile.mesh.material.uniforms.normalizedSkirtDepth!.value =
-        normalizedSkirtDepth;
-      this.imagery.configureMaterial(
-        tile.mesh.material,
-        imageryBoundsForGeographicBounds(boundsForTile(tile.address)),
-      );
-      if (tile.mesh.geometry.boundingSphere) {
-        tile.mesh.geometry.boundingSphere.radius =
-          tile.baseBoundingRadius + maximumNormalizedDisplacement;
-      }
-    }
-    if (signature !== this.lastSelectionSignature) {
-      this.lastSelectionSignature = signature;
-      this.selectionGeneration += 1;
-      const now = this.selectionGeneration;
-      const selected = selectTerrainTiles(
-        latitudeDegrees,
-        longitudeDegrees,
-        displayRadiusM,
-      );
-      for (const address of selected) {
-        const key = tileKey(address);
-        let tile = this.rendered.get(key);
-        if (!tile) {
-          const material = terrainMaterial(
-            this.relief,
-            this.imagery,
-            this.stencilAvailable,
-          );
-          material.uniforms.normalizedRadialMetres!.value =
-            normalizedRadialMetres;
-          material.uniforms.normalizedSkirtDepth!.value = normalizedSkirtDepth;
-          const geometry = geometryForTile(address);
-          const baseBoundingRadius = geometry.boundingSphere?.radius ?? 0;
-          if (geometry.boundingSphere) {
-            geometry.boundingSphere.radius =
-              baseBoundingRadius + maximumNormalizedDisplacement;
-          }
-          const mesh = new THREE.Mesh(geometry, material);
-          mesh.frustumCulled = true;
-          tile = {
-            mesh,
-            address,
-            lastUsedAt: now,
-            baseBoundingRadius,
-          };
-          this.imagery.configureMaterial(
-            material,
-            imageryBoundsForGeographicBounds(boundsForTile(address)),
-          );
-          this.rendered.set(key, tile);
-          this.group.add(mesh);
-        }
-        tile.lastUsedAt = now;
-        tile.mesh.visible = true;
-      }
-      for (const [key, tile] of this.rendered) {
-        if (tile.lastUsedAt === now) continue;
-        this.group.remove(tile.mesh);
-        tile.mesh.geometry.dispose();
-        tile.mesh.material.dispose();
-        this.rendered.delete(key);
-      }
+    const globalMaterial = this.globalTerrain.material;
+    globalMaterial.uniforms.normalizedRadialMetres!.value =
+      normalizedRadialMetres;
+    globalMaterial.uniforms.normalizedSkirtDepth!.value = normalizedSkirtDepth;
+    this.imagery.configureMaterial(
+      globalMaterial,
+      imageryBoundsForGeographicBounds(GLOBAL_GLOBE_BOUNDS),
+    );
+    if (this.globalTerrain.geometry.boundingSphere) {
+      this.globalTerrain.geometry.boundingSphere.radius =
+        this.globalBaseBoundingRadius + maximumNormalizedDisplacement;
     }
     this.localTerrain.update(
       latitudeDegrees,
@@ -729,11 +434,8 @@ export class TerrainTileRenderer {
   dispose(): void {
     this.localTerrain.dispose();
     this.imagery.dispose();
-    for (const tile of this.rendered.values()) {
-      tile.mesh.geometry.dispose();
-      tile.mesh.material.dispose();
-    }
-    this.rendered.clear();
+    this.globalTerrain.geometry.dispose();
+    this.globalTerrain.material.dispose();
     this.occluder.geometry.dispose();
     this.occluder.material.dispose();
   }

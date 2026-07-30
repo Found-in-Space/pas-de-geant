@@ -1,18 +1,15 @@
 import { describe, expect, it } from "vitest";
-import {
-  selectTerrainTiles,
-  terrainMaximumLevel,
-} from "../apps/pas-de-geant/src/terrain-tiles.js";
+import { geometryForGlobalGlobe } from "../apps/pas-de-geant/src/terrain-tiles.js";
 
-describe("Pas de Géant terrain regressions", () => {
-  it("keeps Quest-scale tile selection bounded while refining the apex", () => {
-    for (const radius of [1, 63.71, 318.55]) {
-      const tiles = selectTerrainTiles(40, -104, radius);
-      expect(tiles.length).toBeGreaterThanOrEqual(2);
-      expect(tiles.length).toBeLessThan(180);
-      expect(Math.max(...tiles.map((tile) => tile.z))).toBe(
-        terrainMaximumLevel(radius, 40),
-      );
-    }
+describe("Pas de Géant immutable global surface", () => {
+  it("uses one fixed 256x128 WGS84 shell", () => {
+    const geometry = geometryForGlobalGlobe();
+    expect(geometry.getAttribute("position").count).toBe(257 * 129);
+    expect(geometry.getAttribute("normal").count).toBe(257 * 129);
+    expect(geometry.getAttribute("heightUv").count).toBe(257 * 129);
+    expect(geometry.getAttribute("imageryUv").count).toBe(257 * 129);
+    expect(geometry.getIndex()?.count).toBe(256 * 128 * 6);
+    expect(geometry.boundingSphere?.radius).toBeGreaterThan(0.99);
+    geometry.dispose();
   });
 });

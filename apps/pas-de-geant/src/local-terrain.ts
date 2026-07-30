@@ -5,9 +5,6 @@ import {
   type ElevationCacheStatus,
 } from "./elevation-cache.js";
 import {
-  EARTH_MEAN_RADIUS_KM,
-  WGS84_A_KM,
-  WGS84_B_KM,
   normalizedRadialOffsetForMetres,
 } from "./planet-state.js";
 import type { ReliefDataset } from "./relief.js";
@@ -21,7 +18,6 @@ import {
   heightLoadTasksForWindow,
   isValidMercatorAddress,
   localDetailEnabled,
-  mercatorCoordinatesForTilePoint,
   mercatorTileKey,
   nativeTerrainPlanAnchorKey,
   selectNativeTerrainPlan,
@@ -42,9 +38,6 @@ import {
 
 const HEIGHT_RETRY_DELAY_MS = 30_000;
 const LOCAL_MIN_SKIRT_DEPTH_WORLD_M = 0.0005;
-const GEBCO_FALLBACK_MESH_SEGMENTS = 16;
-const WGS84_ECCENTRICITY_SQUARED =
-  1 - (WGS84_B_KM * WGS84_B_KM) / (WGS84_A_KM * WGS84_A_KM);
 
 interface ElevationPayload {
   bytes: ArrayBuffer;
@@ -65,7 +58,7 @@ interface RenderedLocalTile {
   requestedSegments: number;
   actualSegments: number;
   geometryBytes: number;
-  fallback: boolean;
+  geometrySignature: string;
 }
 
 interface StagedLocalTile {
@@ -74,20 +67,21 @@ interface StagedLocalTile {
   requestedSegments: number;
   actualSegments: number;
   geometryBytes: number;
+  geometrySignature: string;
 }
 
 interface PendingWorkerRequest {
   address: MercatorTileAddress;
   kind: "decode" | "mesh";
-  generation: number;
   segments?: number;
+  geometrySignature?: string;
   finishDecode?: () => void;
 }
 
 interface QueuedMeshRequest {
   address: NativeTerrainTile;
-  generation: number;
   segments: number;
+  geometrySignature: string;
 }
 
 type PreparedLocalTile = Extract<LocalTerrainWorkerResult, { type: "mesh" }>;
@@ -232,122 +226,6 @@ function geometryForLocalTile(result: PreparedLocalTile): THREE.BufferGeometry {
   return geometry;
 }
 
-function gebcoFallbackGeometry(
-  address: MercatorTileAddress,
-): { geometry: THREE.BufferGeometry; geometryBytes: number } {
-  const segments = GEBCO_FALLBACK_MESH_SEGMENTS;
-  const side = segments + 1;
-  const vertexCount = side * side;
-  const positions = new Float32Array(vertexCount * 3);
-  const normals = new Float32Array(vertexCount * 3);
-  const uvs = new Float32Array(vertexCount * 2);
-  const heightUvs = new Float32Array(vertexCount * 2);
-  const detailHeightsM = new Float32Array(vertexCount);
-  const skirtEdges = new Float32Array(vertexCount);
-  const indices = new Uint32Array(segments * segments * 6);
-
-  let vertex = 0;
-  for (let row = 0; row <= segments; row += 1) {
-    for (let column = 0; column <= segments; column += 1) {
-      const u = column / segments;
-      const v = row / segments;
-      const coordinates = mercatorCoordinatesForTilePoint(
-        address,
-        u * LOCAL_TILE_SIZE,
-        v * LOCAL_TILE_SIZE,
-      );
-      const latitude = coordinates.latitudeDegrees * Math.PI / 180;
-      const longitude = coordinates.longitudeDegrees * Math.PI / 180;
-      const sineLatitude = Math.sin(latitude);
-      const cosineLatitude = Math.cos(latitude);
-      const sineLongitude = Math.sin(longitude);
-      const cosineLongitude = Math.cos(longitude);
-      const primeVerticalRadius =
-        WGS84_A_KM /
-        Math.sqrt(
-          1 -
-            WGS84_ECCENTRICITY_SQUARED *
-              sineLatitude *
-              sineLatitude,
-        );
-      const positionOffset = vertex * 3;
-      positions[positionOffset] =
-        primeVerticalRadius *
-        cosineLatitude *
-        cosineLongitude /
-        EARTH_MEAN_RADIUS_KM;
-      positions[positionOffset + 1] =
-        primeVerticalRadius *
-        (1 - WGS84_ECCENTRICITY_SQUARED) *
-        sineLatitude /
-        EARTH_MEAN_RADIUS_KM;
-      positions[positionOffset + 2] =
-        -primeVerticalRadius *
-        cosineLatitude *
-        sineLongitude /
-        EARTH_MEAN_RADIUS_KM;
-      normals[positionOffset] = cosineLatitude * cosineLongitude;
-      normals[positionOffset + 1] = sineLatitude;
-      normals[positionOffset + 2] = -cosineLatitude * sineLongitude;
-      const uvOffset = vertex * 2;
-      uvs[uvOffset] = u;
-      uvs[uvOffset + 1] = v;
-      heightUvs[uvOffset] = (coordinates.longitudeDegrees + 180) / 360;
-      heightUvs[uvOffset + 1] = (90 - coordinates.latitudeDegrees) / 180;
-      vertex += 1;
-    }
-  }
-
-  let index = 0;
-  for (let row = 0; row < segments; row += 1) {
-    for (let column = 0; column < segments; column += 1) {
-      const northWest = row * side + column;
-      const northEast = northWest + 1;
-      const southWest = northWest + side;
-      const southEast = southWest + 1;
-      indices[index++] = northWest;
-      indices[index++] = northEast;
-      indices[index++] = southWest;
-      indices[index++] = northEast;
-      indices[index++] = southEast;
-      indices[index++] = southWest;
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(positions, 3),
-  );
-  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
-  geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
-  geometry.setAttribute(
-    "heightUv",
-    new THREE.BufferAttribute(heightUvs, 2),
-  );
-  geometry.setAttribute(
-    "detailHeightM",
-    new THREE.BufferAttribute(detailHeightsM, 1),
-  );
-  geometry.setAttribute(
-    "skirtEdge",
-    new THREE.BufferAttribute(skirtEdges, 1),
-  );
-  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  geometry.computeBoundingSphere();
-  return {
-    geometry,
-    geometryBytes:
-      positions.byteLength +
-      normals.byteLength +
-      uvs.byteLength +
-      heightUvs.byteLength +
-      detailHeightsM.byteLength +
-      skirtEdges.byteLength +
-      indices.byteLength,
-  };
-}
-
 export class LocalTerrainRenderer {
   readonly group = new THREE.Group();
   private readonly worker: Worker;
@@ -364,9 +242,9 @@ export class LocalTerrainRenderer {
   private readonly pendingWorker = new Map<number, PendingWorkerRequest>();
   private readonly meshQueue = new Map<string, QueuedMeshRequest>();
   private readonly loadQueue: TileRequestQueue<ElevationPayload>;
-  private plan: NativeTerrainPlan | undefined;
-  private active = new Map<string, NativeTerrainTile>();
-  private generation = 0;
+  private visiblePlan: NativeTerrainPlan | undefined;
+  private candidatePlan: NativeTerrainPlan | undefined;
+  private candidateGroupsCommitted = new Set<string>();
   private requestId = 0;
   private baseZoom: number | undefined;
   private planAnchor = "";
@@ -423,9 +301,10 @@ export class LocalTerrainRenderer {
     bias: number;
     budgetLimited: boolean;
   } {
+    const plan = this.candidatePlan ?? this.visiblePlan;
     return {
-      minZoom: this.plan?.minZoom ?? 0,
-      maxZoom: this.plan?.maxZoom ?? 0,
+      minZoom: plan?.minZoom ?? 0,
+      maxZoom: plan?.maxZoom ?? 0,
       bias: this.lodBias,
       budgetLimited: false,
     };
@@ -466,7 +345,7 @@ export class LocalTerrainRenderer {
       LOCAL_RING_LEVELS,
     );
     if (
-      !this.plan ||
+      !(this.candidatePlan ?? this.visiblePlan) ||
       nextBaseZoom !== this.baseZoom ||
       nextAnchor !== this.planAnchor
     ) {
@@ -499,35 +378,54 @@ export class LocalTerrainRenderer {
   }
 
   private applyPlan(plan: NativeTerrainPlan): void {
-    this.plan = plan;
-    this.generation += 1;
-    this.clearStaged();
-    this.active = new Map(
-      plan.active.map((address) => [mercatorTileKey(address), address]),
-    );
-    this.meshQueue.clear();
-    for (const address of plan.active) {
-      const key = mercatorTileKey(address);
-      if (!this.rendered.has(key)) this.installGebcoFallback(address);
+    if (this.visiblePlan?.signature === plan.signature) {
+      this.candidatePlan = undefined;
+      this.candidateGroupsCommitted.clear();
+      const visibleSignatures = new Set(
+        this.visiblePlan.active.map(
+          (address) => address.geometrySignature,
+        ),
+      );
+      for (const [signature, staged] of this.staged) {
+        if (visibleSignatures.has(signature)) continue;
+        staged.geometry.dispose();
+        this.staged.delete(signature);
+      }
+      this.meshQueue.clear();
+      this.diagnosticsDirty = true;
+      return;
     }
-    for (const [key, tile] of this.rendered) {
-      const activeAddress = this.active.get(key);
-      if (!activeAddress) {
-        this.removeRenderedTile(key);
-      } else {
-        tile.address = activeAddress;
+    this.candidatePlan = plan;
+    this.candidateGroupsCommitted.clear();
+    const referencedSignatures = new Set([
+      ...(this.visiblePlan?.active ?? []).map(
+        (address) => address.geometrySignature,
+      ),
+      ...plan.active.map((address) => address.geometrySignature),
+    ]);
+    for (const [signature, tile] of this.staged) {
+      if (!referencedSignatures.has(signature)) {
+        tile.geometry.dispose();
+        this.staged.delete(signature);
       }
     }
+    this.meshQueue.clear();
     this.commitReadyGroups();
     this.refreshEdgeTargets();
     this.diagnosticsDirty = true;
   }
 
   private clearPlan(): void {
-    if (!this.plan && this.rendered.size === 0) return;
-    this.generation += 1;
-    this.plan = undefined;
-    this.active.clear();
+    if (
+      !this.visiblePlan &&
+      !this.candidatePlan &&
+      this.rendered.size === 0
+    ) {
+      return;
+    }
+    this.visiblePlan = undefined;
+    this.candidatePlan = undefined;
+    this.candidateGroupsCommitted.clear();
     this.planAnchor = "";
     this.meshQueue.clear();
     this.loadQueue.sync([]);
@@ -554,13 +452,14 @@ export class LocalTerrainRenderer {
   }
 
   private scheduleElevation(): void {
-    if (!this.plan) {
+    const plan = this.candidatePlan ?? this.visiblePlan;
+    if (!plan) {
       this.loadQueue.sync([]);
       return;
     }
     const now = Date.now();
     const tasks: TileLoadTask[] = [];
-    for (const task of heightLoadTasksForWindow(this.plan)) {
+    for (const task of heightLoadTasksForWindow(plan)) {
       const key = mercatorTileKey(task.address);
       if (this.decoded.get(key) || this.pendingDecodeKeys.has(key)) continue;
       if (this.permanentFailures.has(key)) continue;
@@ -591,16 +490,16 @@ export class LocalTerrainRenderer {
       this.pendingWorker.set(requestId, {
         address: task.address,
         kind: "decode",
-        generation: this.generation,
         finishDecode: resolve,
       });
       const request: LocalTerrainWorkerRequest = {
         type: "decode",
         requestId,
-        generation: this.generation,
+        generation: requestId,
         address: task.address,
         bytes: payload.bytes,
         contentType: payload.contentType,
+        retainOcean: true,
       };
       this.worker.postMessage(request, [payload.bytes]);
       this.diagnosticsDirty = true;
@@ -647,18 +546,22 @@ export class LocalTerrainRenderer {
       this.retryCounts.delete(key);
       this.failedMeshUntil.delete(key);
     } else if (result.type === "mesh") {
+      const address = pending.geometrySignature
+        ? this.tileForSignature(pending.geometrySignature)
+        : undefined;
       if (
-        result.generation === this.generation &&
-        this.active.has(key) &&
-        this.segmentsForAddress(this.active.get(key)!) ===
-          result.requestedSegments
+        address &&
+        pending.segments === result.requestedSegments &&
+        pending.geometrySignature === address.geometrySignature
       ) {
-        this.stageMesh(result);
+        this.stageMesh(result, address);
       } else {
         this.staleWorkerResults += 1;
       }
     } else if (result.missing && pending.kind === "mesh") {
-      this.decoded.delete(key);
+      this.decoded.delete(
+        mercatorTileKey(result.missingAddress ?? pending.address),
+      );
     } else if (pending.kind === "decode") {
       void deleteCachedElevation(pending.address).then((status) => {
         if (status === "deleted") {
@@ -673,7 +576,10 @@ export class LocalTerrainRenderer {
         elevationFailureDecision("malformed", 1, Date.now()).retryAtMs,
       );
     } else {
-      this.failedMeshUntil.set(key, Date.now() + HEIGHT_RETRY_DELAY_MS);
+      this.failedMeshUntil.set(
+        pending.geometrySignature ?? key,
+        Date.now() + HEIGHT_RETRY_DELAY_MS,
+      );
     }
 
     pending.finishDecode?.();
@@ -700,41 +606,74 @@ export class LocalTerrainRenderer {
     return address.meshSegments;
   }
 
+  private planningPlan(): NativeTerrainPlan | undefined {
+    return this.candidatePlan ?? this.visiblePlan;
+  }
+
+  private tileForSignature(signature: string): NativeTerrainTile | undefined {
+    return [
+      ...(this.candidatePlan?.active ?? []),
+      ...(this.visiblePlan?.active ?? []),
+    ].find((address) => address.geometrySignature === signature);
+  }
+
   private queueBuildableMeshes(): void {
-    if (!this.plan) return;
-    for (const address of this.plan.active) {
+    const plan = this.planningPlan();
+    if (!plan) return;
+    for (const address of plan.active) {
       const key = mercatorTileKey(address);
       const segments = this.segmentsForAddress(address);
-      if (this.rendered.get(key)?.requestedSegments === segments) continue;
-      if (this.staged.get(key)?.requestedSegments === segments) continue;
-      if (this.meshQueue.get(key)?.segments === segments) continue;
+      const geometrySignature = address.geometrySignature;
+      if (this.rendered.get(key)?.geometrySignature === geometrySignature) {
+        continue;
+      }
+      if (this.staged.has(geometrySignature)) continue;
+      if (this.meshQueue.has(geometrySignature)) continue;
       if (
         [...this.pendingWorker.values()].some(
           (pending) =>
             pending.kind === "mesh" &&
-            mercatorTileKey(pending.address) === key &&
-            pending.generation === this.generation &&
-            pending.segments === segments,
+            pending.geometrySignature === geometrySignature,
         )
       ) {
         continue;
       }
-      if ((this.failedMeshUntil.get(key) ?? 0) > Date.now()) continue;
+      if (
+        (this.failedMeshUntil.get(geometrySignature) ?? 0) > Date.now()
+      ) {
+        continue;
+      }
       if (this.prerequisiteState(address) !== "decoded") continue;
       const neighbours = this.meshPrerequisites(address);
       if (
         neighbours.some(
-          (neighbour) =>
-            this.active.has(mercatorTileKey(neighbour)) &&
-            this.prerequisiteState(neighbour) === "pending",
+          (neighbour) => this.prerequisiteState(neighbour) === "pending",
         )
       ) {
         continue;
       }
-      this.meshQueue.set(key, {
+      if (
+        neighbours.some(
+          (neighbour) => {
+            if (this.prerequisiteState(neighbour) !== "failed") return false;
+            return !this.permanentFailures.has(mercatorTileKey(neighbour));
+          },
+        )
+      ) {
+        continue;
+      }
+      if (
+        Object.values(address.edgeConstraints).some((constraint) => {
+          const state = this.prerequisiteState(constraint.address);
+          return state === "failed";
+        })
+      ) {
+        continue;
+      }
+      this.meshQueue.set(geometrySignature, {
         address,
-        generation: this.generation,
         segments,
+        geometrySignature,
       });
     }
   }
@@ -751,9 +690,9 @@ export class LocalTerrainRenderer {
       | [string, QueuedMeshRequest]
       | undefined;
     if (!next) return;
-    const [key, task] = next;
-    this.meshQueue.delete(key);
-    if (task.generation !== this.generation) {
+    const [signature, task] = next;
+    this.meshQueue.delete(signature);
+    if (!this.tileForSignature(task.geometrySignature)) {
       this.dispatchNextMesh();
       return;
     }
@@ -761,55 +700,75 @@ export class LocalTerrainRenderer {
     this.pendingWorker.set(requestId, {
       address: task.address,
       kind: "mesh",
-      generation: task.generation,
       segments: task.segments,
+      geometrySignature: task.geometrySignature,
     });
     this.worker.postMessage({
       type: "mesh",
       requestId,
-      generation: task.generation,
+      generation: requestId,
       address: task.address,
       segments: task.segments,
+      skirtEdges: task.address.skirtEdges,
+      edgeConstraints: task.address.edgeConstraints,
     } satisfies LocalTerrainWorkerRequest);
     this.diagnosticsDirty = true;
   }
 
   private meshPrerequisites(
-    address: MercatorTileAddress,
+    address: NativeTerrainTile,
   ): MercatorTileAddress[] {
-    return [
-      {
-        z: address.z,
-        x: wrapMercatorX(address.x + 1, address.z),
-        y: address.y,
-      },
-      { z: address.z, x: address.x, y: address.y + 1 },
-      {
-        z: address.z,
-        x: wrapMercatorX(address.x + 1, address.z),
-        y: address.y + 1,
-      },
+    const sources = [
+      address,
+      ...Object.values(address.edgeConstraints).map(
+        (constraint) => constraint.address,
+      ),
     ];
+    const prerequisites: MercatorTileAddress[] = [];
+    const keys = new Set<string>();
+    for (const source of sources) {
+      for (const [deltaX, deltaY] of [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ] as const) {
+        const dependency = {
+          z: source.z,
+          x: wrapMercatorX(source.x + deltaX, source.z),
+          y: source.y + deltaY,
+        };
+        if (!isValidMercatorAddress(dependency)) continue;
+        const key = mercatorTileKey(dependency);
+        if (keys.has(key)) continue;
+        keys.add(key);
+        prerequisites.push(dependency);
+      }
+    }
+    return prerequisites;
   }
 
-  private stageMesh(result: PreparedLocalTile): void {
-    const key = mercatorTileKey(result.address);
-    const address = this.active.get(key);
-    if (!address) return;
+  private stageMesh(
+    result: PreparedLocalTile,
+    address: NativeTerrainTile,
+  ): void {
     const geometry = geometryForLocalTile(result);
-    const previous = this.staged.get(key);
+    const signature = address.geometrySignature;
+    const previous = this.staged.get(signature);
     previous?.geometry.dispose();
-    this.staged.set(key, {
+    this.staged.set(signature, {
       geometry,
       address,
       requestedSegments: result.requestedSegments,
       actualSegments: result.actualSegments,
       geometryBytes: result.geometryBytes,
+      geometrySignature: signature,
     });
     this.commitReadyGroups();
   }
 
-  private commitStagedTile(key: string, staged: StagedLocalTile): void {
+  private commitStagedTile(staged: StagedLocalTile): void {
+    const key = mercatorTileKey(staged.address);
     const existing = this.rendered.get(key);
     if (existing) {
       this.geometryBytes -= existing.geometryBytes;
@@ -819,7 +778,7 @@ export class LocalTerrainRenderer {
       existing.requestedSegments = staged.requestedSegments;
       existing.actualSegments = staged.actualSegments;
       existing.geometryBytes = staged.geometryBytes;
-      existing.fallback = false;
+      existing.geometrySignature = staged.geometrySignature;
       existing.mesh.material.uniforms.detailAvailable!.value = 1;
       this.geometryBytes += staged.geometryBytes;
     } else {
@@ -840,73 +799,62 @@ export class LocalTerrainRenderer {
         requestedSegments: staged.requestedSegments,
         actualSegments: staged.actualSegments,
         geometryBytes: staged.geometryBytes,
-        fallback: false,
+        geometrySignature: staged.geometrySignature,
       };
       material.uniforms.detailAvailable!.value = 1;
       this.rendered.set(key, tile);
       this.group.add(mesh);
       this.geometryBytes += staged.geometryBytes;
     }
-    this.staged.delete(key);
-  }
-
-  private installGebcoFallback(address: NativeTerrainTile): void {
-    const key = mercatorTileKey(address);
-    if (this.rendered.has(key)) return;
-    const { geometry, geometryBytes } = gebcoFallbackGeometry(address);
-    const material = localTerrainMaterial(
-      this.relief,
-      this.imagery,
-    );
-    this.imagery.configureMaterial(
-      material,
-      imageryBoundsForMercatorAddress(address),
-    );
-    material.uniforms.detailAvailable!.value = 0;
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.frustumCulled = false;
-    mesh.renderOrder = -1;
-    const tile: RenderedLocalTile = {
-      mesh,
-      address,
-      requestedSegments: 0,
-      actualSegments: GEBCO_FALLBACK_MESH_SEGMENTS,
-      geometryBytes,
-      fallback: true,
-    };
-    this.rendered.set(key, tile);
-    this.group.add(mesh);
-    this.geometryBytes += geometryBytes;
+    this.staged.delete(staged.geometrySignature);
   }
 
   private coherentGroupKey(address: NativeTerrainTile): string {
-    return `${address.ring}:${address.meshSegments}`;
+    if (address.ring === 0 && address.meshSegments >= 512) {
+      return "underfoot";
+    }
+    return address.ring === 0 ? "finest" : `ring-${address.ring}`;
   }
 
   private nativeReady(address: NativeTerrainTile): boolean {
     const rendered = this.rendered.get(mercatorTileKey(address));
     return Boolean(
       rendered &&
-        !rendered.fallback &&
-        rendered.requestedSegments === this.segmentsForAddress(address),
+        rendered.geometrySignature === address.geometrySignature,
     );
   }
 
   private fallbackEligible(address: NativeTerrainTile): boolean {
-    const key = mercatorTileKey(address);
-    const now = Date.now();
-    return (
-      this.decoded.peek(key) === "ocean" ||
-      this.permanentFailures.has(key) ||
-      (this.failedUntil.get(key) ?? 0) > now ||
-      (this.failedMeshUntil.get(key) ?? 0) > now
-    );
+    const centreState = this.prerequisiteState(address);
+    if (centreState === "ocean" || centreState === "failed") return true;
+    if (
+      (this.failedMeshUntil.get(address.geometrySignature) ?? 0) > Date.now()
+    ) {
+      return true;
+    }
+    if (
+      Object.values(address.edgeConstraints).some((constraint) => {
+        const state = this.prerequisiteState(constraint.address);
+        return state === "failed";
+      })
+    ) {
+      return true;
+    }
+    return this.meshPrerequisites(address).some((dependency) => {
+      const state = this.prerequisiteState(dependency);
+      return (
+        state === "failed" &&
+        !this.permanentFailures.has(mercatorTileKey(dependency))
+      );
+    });
   }
 
   private commitReadyGroups(): void {
-    if (!this.plan || this.staged.size === 0) return;
+    const plan = this.candidatePlan ?? this.visiblePlan;
+    if (!plan) return;
+    if (!this.candidatePlan && this.staged.size === 0) return;
     const groups = new Map<string, NativeTerrainTile[]>();
-    for (const address of this.plan.active) {
+    for (const address of plan.active) {
       const key = this.coherentGroupKey(address);
       const group = groups.get(key) ?? [];
       group.push(address);
@@ -914,26 +862,82 @@ export class LocalTerrainRenderer {
     }
     let committed = false;
     for (const group of groups.values()) {
+      const groupKey = this.coherentGroupKey(group[0]!);
+      if (
+        this.candidatePlan &&
+        this.candidateGroupsCommitted.has(groupKey) &&
+        !group.some((address) =>
+          this.staged.has(address.geometrySignature)
+        )
+      ) {
+        continue;
+      }
       const ready = group.every((address) => {
         if (this.nativeReady(address) || this.fallbackEligible(address)) {
           return true;
         }
-        const staged = this.staged.get(mercatorTileKey(address));
-        return staged?.requestedSegments ===
-          this.segmentsForAddress(address);
+        return this.staged.has(address.geometrySignature);
       });
       if (!ready) continue;
-      let committedGroup = false;
+
+      const groupSignatures = new Set(
+        group.map((address) => address.geometrySignature),
+      );
+      const uncommittedTargetKeys = new Set(
+        plan.active
+          .filter(
+            (address) =>
+              this.coherentGroupKey(address) !== groupKey &&
+              !this.candidateGroupsCommitted.has(
+                this.coherentGroupKey(address),
+              ),
+          )
+          .map(mercatorTileKey),
+      );
+      for (const [key, rendered] of this.rendered) {
+        if (this.coherentGroupKey(rendered.address) !== groupKey) continue;
+        if (groupSignatures.has(rendered.geometrySignature)) continue;
+        if (uncommittedTargetKeys.has(key)) continue;
+        this.removeRenderedTile(key);
+      }
+
+      let committedGroup = this.candidatePlan !== undefined;
       for (const address of group) {
-        const key = mercatorTileKey(address);
-        const staged = this.staged.get(key);
+        const staged = this.staged.get(address.geometrySignature);
         if (!staged) continue;
-        this.commitStagedTile(key, staged);
+        this.commitStagedTile(staged);
         committedGroup = true;
       }
       if (committedGroup) {
+        this.candidateGroupsCommitted.add(groupKey);
         this.atomicSwapTotal += 1;
         committed = true;
+      }
+    }
+    if (this.candidatePlan) {
+      const candidateGroupKeys = new Set(
+        this.candidatePlan.active.map((address) =>
+          this.coherentGroupKey(address)
+        ),
+      );
+      if (
+        [...candidateGroupKeys].every((key) =>
+          this.candidateGroupsCommitted.has(key)
+        )
+      ) {
+        const targetSignatures = new Set(
+          this.candidatePlan.active.map(
+            (address) => address.geometrySignature,
+          ),
+        );
+        for (const [key, rendered] of this.rendered) {
+          if (!targetSignatures.has(rendered.geometrySignature)) {
+            this.removeRenderedTile(key);
+          }
+        }
+        this.visiblePlan = this.candidatePlan;
+        this.candidatePlan = undefined;
+        this.candidateGroupsCommitted.clear();
       }
     }
     if (committed) {
@@ -944,7 +948,7 @@ export class LocalTerrainRenderer {
   }
 
   private refreshEdgeTargets(): void {
-    if (!this.plan) return;
+    if (!this.visiblePlan && !this.candidatePlan) return;
     for (const tile of this.rendered.values()) {
       const skirts = [
         tile.address.skirtEdges.north,
@@ -977,16 +981,18 @@ export class LocalTerrainRenderer {
   }
 
   private diagnosticStatus(): string {
-    if (!this.stencilAvailable || !this.plan) return "disabled";
+    const plan = this.visiblePlan ?? this.candidatePlan;
+    if (!this.stencilAvailable || !plan) return "disabled";
+    if (this.visiblePlan && !this.candidatePlan) {
+      return this.rendered.size > 0 ? "ready" : "fallback";
+    }
     if (
-      this.plan.active.every((address) =>
-        this.rendered.has(mercatorTileKey(address)),
-      )
+      plan.active.every((address) => this.nativeReady(address))
     ) {
       return "ready";
     }
     const now = Date.now();
-    const allUnavailable = this.plan.active.every((address) => {
+    const allUnavailable = plan.active.every((address) => {
       const key = mercatorTileKey(address);
       return (
         this.decoded.peek(key) === "ocean" ||
@@ -1000,7 +1006,8 @@ export class LocalTerrainRenderer {
 
   private updateDiagnostics(): void {
     if (typeof document === "undefined") return;
-    const plan = this.plan;
+    const plan = this.candidatePlan ?? this.visiblePlan;
+    const visiblePlan = this.visiblePlan;
     const states: string[] = [];
     let fallbackCells = 0;
     let readyCells = 0;
@@ -1010,9 +1017,7 @@ export class LocalTerrainRenderer {
       const rendered = this.rendered.get(key);
       let state = "p";
       if (
-        rendered &&
-        !rendered.fallback &&
-        rendered.requestedSegments === this.segmentsForAddress(address)
+        rendered?.geometrySignature === address.geometrySignature
       ) {
         state = "r";
         readyCells += 1;
@@ -1106,6 +1111,38 @@ export class LocalTerrainRenderer {
     document.body.dataset.detailAtomicSwapTotal = String(
       this.atomicSwapTotal,
     );
+    document.body.dataset.detailVisiblePlan =
+      visiblePlan?.signature ?? "";
+    document.body.dataset.detailCandidatePlan =
+      this.candidatePlan?.signature ?? "";
+    document.body.dataset.detailTransitionCount = String(
+      this.atomicSwapTotal,
+    );
+    const underfoot = (plan?.active ?? []).filter(
+      (address) => this.coherentGroupKey(address) === "underfoot",
+    );
+    document.body.dataset.detailContactOwner =
+      underfoot.length > 0 &&
+      underfoot.every((address) => this.nativeReady(address))
+        ? "native"
+        : "global";
+    document.body.dataset.detailBaseGlobeVisible = "true";
+    const ringStates = new Map<string, string>();
+    for (const address of plan?.active ?? []) {
+      const group = this.coherentGroupKey(address);
+      const current = ringStates.get(group);
+      if (current === "loading") continue;
+      if (this.nativeReady(address)) {
+        ringStates.set(group, current ?? "ready");
+      } else if (this.fallbackEligible(address)) {
+        ringStates.set(group, current === "ready" ? "fallback" : "fallback");
+      } else {
+        ringStates.set(group, "loading");
+      }
+    }
+    document.body.dataset.detailRingStates = [...ringStates]
+      .map(([group, state]) => `${group}:${state}`)
+      .join(",");
     document.body.dataset.detailReadyCells = String(readyCells);
     document.body.dataset.detailFallbackCells = String(fallbackCells);
     document.body.dataset.detailOverbudgetCells = "0";
