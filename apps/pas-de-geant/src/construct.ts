@@ -114,6 +114,7 @@ let state = initialPlanetState(
 state.displayRadiusM = constructDisplayRadiusM(initialScaleFactor);
 let lodBias = 0;
 let oceanSurface = true;
+let tileOverlayVisible = false;
 
 const headsetFloorPosition = new THREE.Vector2();
 const xrHeadPosition = new THREE.Vector3();
@@ -145,6 +146,13 @@ function setScalePreset(scaleFactor: number): void {
   const url = new URL(window.location.href);
   url.searchParams.set("scale", String(scaleFactor));
   window.history.replaceState(null, "", url);
+}
+
+function resetGroundLevel(): void {
+  const status = terrain.status();
+  if (!status.contactHeightAvailable) return;
+  smoothedContactHeightM = status.contactHeightM;
+  contactHeightInitialized = true;
 }
 
 function updatePhysicalWalking(): void {
@@ -196,8 +204,13 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
     -3,
     Math.min(3, lodBias + intent.terrainLodBiasDelta),
   );
+  if (intent.toggleTileOverlay) {
+    tileOverlayVisible = !tileOverlayVisible;
+    terrain.setTileOverlayVisible(tileOverlayVisible);
+  }
   if (intent.toggleOcean) oceanSurface = !oceanSurface;
   if (intent.reset) resetConstruct(initialScaleFactor);
+  if (intent.resetGroundLevel) resetGroundLevel();
 }
 
 function updateDesktopControls(deltaSeconds: number): void {
@@ -339,6 +352,8 @@ function updatePresentation(deltaSeconds = 0): void {
   document.body.dataset.constructTopographySource = "mapterhorn";
   document.body.dataset.constructTextureSource = "blue-marble";
   document.body.dataset.constructLodBias = String(lodBias);
+  document.body.dataset.constructTileOverlay =
+    String(tileOverlayVisible);
   document.body.dataset.constructXrFoveation = String(xrFoveation);
 }
 

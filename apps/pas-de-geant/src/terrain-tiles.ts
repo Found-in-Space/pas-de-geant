@@ -12,7 +12,7 @@ import {
   normalizedMercatorYForLatitude,
 } from "./imagery.js";
 import { LocalTerrainRenderer } from "./local-terrain.js";
-import type { ReliefDataset } from "./relief.js";
+import { sampleRelief, type ReliefDataset } from "./relief.js";
 
 export { terrainHorizonDegrees } from "./terrain-horizon.js";
 
@@ -429,6 +429,29 @@ export class TerrainTileRenderer {
     budgetLimited: boolean;
   } {
     return this.localTerrain.getLodStatus();
+  }
+
+  setTileOverlayVisible(visible: boolean): void {
+    this.localTerrain.setTileOverlayVisible(visible);
+  }
+
+  sampleSurfaceHeight(
+    latitudeDegrees: number,
+    longitudeDegrees: number,
+  ): number {
+    return (
+      this.localTerrain.sampleSurfaceHeight(
+        latitudeDegrees,
+        longitudeDegrees,
+      ) ??
+      sampleRelief(
+        this.relief.samples,
+        longitudeDegrees,
+        latitudeDegrees,
+        this.relief.metadata.width,
+        this.relief.metadata.height,
+      )
+    );
   }
 
   dispose(): void {

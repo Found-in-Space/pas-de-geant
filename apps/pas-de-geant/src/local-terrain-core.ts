@@ -726,6 +726,42 @@ export function buildHeightGrid513(
   return grid;
 }
 
+export function sampleRegularHeightGrid(
+  heights: ArrayLike<number>,
+  segments: number,
+  u: number,
+  v: number,
+): number | undefined {
+  const selectedSegments = Math.max(1, Math.round(segments));
+  const side = selectedSegments + 1;
+  if (heights.length < side * side) return undefined;
+  const gridX = Math.max(0, Math.min(1, u)) * selectedSegments;
+  const gridY = Math.max(0, Math.min(1, v)) * selectedSegments;
+  const west = Math.floor(gridX);
+  const east = Math.min(selectedSegments, west + 1);
+  const north = Math.floor(gridY);
+  const south = Math.min(selectedSegments, north + 1);
+  const fractionX = gridX - west;
+  const fractionY = gridY - north;
+  const northWest = heights[north * side + west];
+  const northEast = heights[north * side + east];
+  const southWest = heights[south * side + west];
+  const southEast = heights[south * side + east];
+  if (
+    northWest === undefined ||
+    northEast === undefined ||
+    southWest === undefined ||
+    southEast === undefined
+  ) {
+    return undefined;
+  }
+  const northHeight =
+    northWest + (northEast - northWest) * fractionX;
+  const southHeight =
+    southWest + (southEast - southWest) * fractionX;
+  return northHeight + (southHeight - northHeight) * fractionY;
+}
+
 export function terrainEdgeInterpolation(
   segments: number,
   pixelAlongEdge: number,

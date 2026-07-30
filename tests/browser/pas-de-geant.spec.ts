@@ -93,6 +93,36 @@ async function waitForInitialImagery(page: Page): Promise<void> {
     .toBeGreaterThan(0);
 }
 
+test("toggles the native tile-surface overlay", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.addInitScript(() => {
+    window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__ = true;
+  });
+  await routeFlatTerrain(page);
+  await page.goto("/");
+  await expect(page.locator("#loading-state")).toBeHidden({
+    timeout: 20_000,
+  });
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-tile-overlay",
+    "false",
+  );
+  await page.evaluate(() => {
+    window.__PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__?.(true);
+  });
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-tile-overlay",
+    "true",
+  );
+  await page.evaluate(() => {
+    window.__PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__?.(false);
+  });
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-tile-overlay",
+    "false",
+  );
+});
+
 test("keeps the immutable globe under atomic terrain groups", async ({
   page,
 }) => {

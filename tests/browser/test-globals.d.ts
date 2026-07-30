@@ -9,6 +9,7 @@ declare global {
     __PAS_DE_GEANT_IMAGERY_CONFIG__?: XyzImageryConfiguration;
     __PAS_DE_GEANT_IMAGERY_PROVIDER__?: ImageryProvider;
     __PAS_DE_GEANT_TEST_SET_SCALE__?: (displayRadiusM: number) => void;
+    __PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__?: (visible: boolean) => void;
     __PAS_DE_GEANT_TEST_SET_LOCATION__?: (
       latitudeDegrees: number,
       longitudeDegrees: number,

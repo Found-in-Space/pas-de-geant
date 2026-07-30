@@ -2,9 +2,10 @@
 
 _Walk around worlds, one small step at a time._
 
-Pas de Géant is a room-scale WebXR relief globe. Mean sea level stays at the
-physical-floor apex beneath the headset while walking or controller travel
-rolls the planet through that contact point.
+Pas de Géant is a room-scale WebXR relief globe. Mean sea level starts at the
+physical-floor apex beneath the headset, and the floor datum can be reset to
+the current terrain elevation. Walking or controller travel rolls the planet
+through that contact point.
 
 ## Run locally
 
@@ -64,25 +65,29 @@ build should be served over HTTPS.
 
 - Left stick: head-relative travel
 - Left trigger: faster travel
-- X / Y: bias the native Mapterhorn level coarser / finer
+- X: toggle tinted native-tile surfaces and boundary outlines
+- Y: bias the native Mapterhorn level finer
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: radial multiplier
 - Hold B: reset to the detected starting location and initial scale
-- Right-stick press: toggle the left-hand Earth map panel
+- Right-stick press: set the current terrain underfoot to physical floor level
 
 The hand panel uses touch-os and the bundled NASA Blue Marble image to show the
 current underfoot position on a whole-Earth map. It remains available offline;
 the latitude and longitude appear directly beneath the map, followed by the
 planet-root global scale factor, radial multiplier, and selected topography
 zoom range. The terrain readout says `AUTO` at zero bias. Each Y press halves
-the native tile width and increases fixed mesh density, while each X press
-doubles the tile width and reduces mesh density. Hold B to reset the planet
-and return to zero bias. The map readout is throttled and hosted under an
-isolated scene node so it does not traverse or invalidate the terrain scene.
+the native tile width and increases fixed mesh density. Each X press toggles
+alternating tile-surface tints and high-contrast boundary outlines. Hold B
+resets the planet and returns to zero bias. The map readout is throttled and
+hosted under an isolated scene node so it does not traverse or invalidate the
+terrain scene.
 
 The camera and XR reference space are never moved to simulate travel. The
-planet root is rolled and translated so the selected mean-sea-level contact
-point remains beneath the headset.
+planet root is rolled and translated so the selected contact point remains
+beneath the headset. A right-stick press captures the native underfoot
+elevation (or global relief while native detail is unavailable) as the floor
+datum.
 
 At startup, the app asks the browser for the device location. If that is
 unavailable or denied, it uses an approximate IP location from GeoJS; if both
@@ -95,7 +100,8 @@ It has a 1 m rendered-radius lower bound and no application-imposed upper
 bound.
 The separate radial multiplier applies after that conversion to terrain,
 aircraft altitude, and the 100 km atmosphere. The mean-sea-level WGS84
-ellipsoid remains the floor contact even when radial features are exaggerated.
+ellipsoid is the default floor contact; a right-stick press replaces that
+datum with the current underfoot terrain elevation.
 There is currently no synthetic sea surface: negative source elevations
 remain negative terrain and are not interpreted as water.
 

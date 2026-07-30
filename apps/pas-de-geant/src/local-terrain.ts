@@ -18,8 +18,10 @@ import {
   heightLoadTasksForWindow,
   isValidMercatorAddress,
   localDetailEnabled,
+  mercatorPointForCoordinates,
   mercatorTileKey,
   nativeTerrainPlanAnchorKey,
+  sampleRegularHeightGrid,
   selectNativeTerrainPlan,
   selectNativeTerrainZoom,
   wrapMercatorX,
@@ -38,6 +40,12 @@ import {
 
 const HEIGHT_RETRY_DELAY_MS = 30_000;
 const LOCAL_MIN_SKIRT_DEPTH_WORLD_M = 0.0005;
+const LOCAL_TILE_DEBUG_COLOURS = [
+  0x00d7ff,
+  0xffbd3f,
+  0xff5ea8,
+  0x7dff78,
+] as const;
 
 interface ElevationPayload {
   bytes: ArrayBuffer;
@@ -111,7 +119,13 @@ async function loadElevation(
 function localTerrainMaterial(
   relief: ReliefDataset,
   imagery: ImageryVirtualTexture,
+  address: MercatorTileAddress,
+  tileOverlayVisible: boolean,
 ): THREE.ShaderMaterial {
+  const debugColour =
+    LOCAL_TILE_DEBUG_COLOURS[
+      Math.abs(address.x + address.y) % LOCAL_TILE_DEBUG_COLOURS.length
+    ]!;
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     side: THREE.DoubleSide,
@@ -132,6 +146,8 @@ function localTerrainMaterial(
       normalizedSkirtDepth: { value: 0 },
       detailAvailable: { value: 0 },
       skirtEdges: { value: new THREE.Vector4() },
+      tileOverlayVisible: { value: tileOverlayVisible ? 1 : 0 },
+      tileOverlayColour: { value: new THREE.Color(debugColour) },
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
     },
     vertexShader: `
@@ -183,6 +199,8 @@ function localTerrainMaterial(
     fragmentShader: `
       ${IMAGERY_FRAGMENT_DECLARATIONS}
       uniform vec3 sunlight;
+      uniform float tileOverlayVisible;
+      uniform vec3 tileOverlayColour;
       in vec3 vBaseNormal;
       out vec4 terrainColour;
       void main() {
@@ -192,6 +210,18 @@ function localTerrainMaterial(
         float light = 0.46 + direct * 0.72;
         vec3 colour = albedo * light;
         colour += vec3(0.025, 0.045, 0.065) * (1.0 - direct);
+        float tileEdgeDistance = min(
+          min(vImageryUv.x, 1.0 - vImageryUv.x),
+          min(vImageryUv.y, 1.0 - vImageryUv.y)
+        );
+        float tileEdge = 1.0 - smoothstep(
+          0.0,
+          max(0.0005, fwidth(tileEdgeDistance) * 2.5),
+          tileEdgeDistance
+        );
+        float overlayStrength =
+          tileOverlayVisible * mix(0.18, 0.92, tileEdge);
+        colour = mix(colour, tileOverlayColour, overlayStrength);
         terrainColour = vec4(colour, 1.0);
       }
     `,
@@ -251,6 +281,7 @@ export class LocalTerrainRenderer {
   private lodBias = 0;
   private displayRadiusM = 1;
   private radialMultiplier = 1;
+  private tileOverlayVisible = false;
   private geometryBytes = 0;
   private diagnosticsDirty = true;
   private elevationRequestTotal = 0;
@@ -308,6 +339,52 @@ export class LocalTerrainRenderer {
       bias: this.lodBias,
       budgetLimited: false,
     };
+  }
+
+  setTileOverlayVisible(visible: boolean): void {
+    this.tileOverlayVisible = visible;
+    for (const tile of this.rendered.values()) {
+      tile.mesh.material.uniforms.tileOverlayVisible!.value =
+        visible ? 1 : 0;
+    }
+    this.diagnosticsDirty = true;
+    this.updateDiagnostics();
+  }
+
+  sampleSurfaceHeight(
+    latitudeDegrees: number,
+    longitudeDegrees: number,
+  ): number | undefined {
+    let sampledHeight: number | undefined;
+    let sampledZoom = -1;
+    for (const tile of this.rendered.values()) {
+      if (tile.address.z <= sampledZoom) continue;
+      const point = mercatorPointForCoordinates(
+        latitudeDegrees,
+        longitudeDegrees,
+        tile.address.z,
+      );
+      const tileX = Math.floor(point.x);
+      const tileY = Math.floor(point.y);
+      if (
+        wrapMercatorX(tileX, tile.address.z) !== tile.address.x ||
+        tileY !== tile.address.y
+      ) {
+        continue;
+      }
+      const heights = tile.mesh.geometry.getAttribute("detailHeightM");
+      if (!heights) continue;
+      const height = sampleRegularHeightGrid(
+        heights.array,
+        tile.actualSegments,
+        point.x - tileX,
+        point.y - tileY,
+      );
+      if (height === undefined) continue;
+      sampledHeight = height;
+      sampledZoom = tile.address.z;
+    }
+    return sampledHeight;
   }
 
   update(
@@ -785,6 +862,8 @@ export class LocalTerrainRenderer {
       const material = localTerrainMaterial(
         this.relief,
         this.imagery,
+        staged.address,
+        this.tileOverlayVisible,
       );
       this.imagery.configureMaterial(
         material,
@@ -1079,6 +1158,8 @@ export class LocalTerrainRenderer {
       ? `${plan.minZoom}-${plan.maxZoom}`
       : "";
     document.body.dataset.detailLodBias = String(this.lodBias);
+    document.body.dataset.detailTileOverlay =
+      String(this.tileOverlayVisible);
     document.body.dataset.detailSourceSampleMetres = plan
       ? (plan.finestTileWidthM / LOCAL_TILE_SIZE).toFixed(4)
       : "";

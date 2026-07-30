@@ -21,6 +21,7 @@ import {
   nativeTerrainPlanAnchorKey,
   renderedMercatorTileWidthM,
   resolveLocalElevation,
+  sampleRegularHeightGrid,
   selectNativeTerrainPlan,
   selectNativeTerrainZoom,
   terrainEdgeInterpolation,
@@ -33,6 +34,17 @@ import {
 } from "../apps/pas-de-geant/src/elevation-cache.js";
 
 describe("Pas de Géant native terrain rings", () => {
+  it("samples the rendered height grid continuously underfoot", () => {
+    const heights = new Float32Array([
+      0, 10,
+      20, 30,
+    ]);
+    expect(sampleRegularHeightGrid(heights, 1, 0.25, 0.75)).toBeCloseTo(
+      17.5,
+    );
+    expect(sampleRegularHeightGrid(heights, 1, 1, 1)).toBe(30);
+  });
+
   it("keeps enough decoded tiles for the complete three-level stencil", () => {
     const completeStencilTiles =
       LOCAL_RING_OUTER_TILES ** 2 +

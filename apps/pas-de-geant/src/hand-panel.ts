@@ -235,7 +235,7 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
         value: `${ctx.props.radialMultiplier.toFixed(1)}×`,
       },
       {
-        label: "LOD  X−  Y+",
+        label: "LOD Y+ · X TILES",
         value:
           `${ctx.props.terrainLodBias === 0
             ? "AUTO"

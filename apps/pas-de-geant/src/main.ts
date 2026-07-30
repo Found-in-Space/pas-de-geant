@@ -58,6 +58,7 @@ declare global {
   interface Window {
     __PAS_DE_GEANT_ENABLE_TEST_HOOKS__?: boolean;
     __PAS_DE_GEANT_TEST_SET_SCALE__?: (displayRadiusM: number) => void;
+    __PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__?: (visible: boolean) => void;
     __PAS_DE_GEANT_TEST_SET_LOCATION__?: (
       latitudeDegrees: number,
       longitudeDegrees: number,
@@ -211,6 +212,8 @@ let state = initialPlanetState(
   initialLocation.latitudeDegrees,
   initialLocation.longitudeDegrees,
 );
+let groundLevelElevationM = 0;
+let tileOverlayVisible = false;
 if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
   window.__PAS_DE_GEANT_TEST_SET_SCALE__ = (displayRadiusM): void => {
     state.displayRadiusM = Math.max(1, displayRadiusM);
@@ -226,6 +229,7 @@ if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
     ).contact;
     updatePresentation();
   };
+  window.__PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__ = setTileOverlayVisible;
 }
 let terrainLodBias = 0;
 const initialCoordinates = coordinatesForFrame(state.contact);
@@ -294,7 +298,7 @@ const xrViewQuaternion = new THREE.Quaternion();
 const desktopTravel = new THREE.Vector2();
 const keys = new Set<string>();
 const buttonLatch = freshButtonLatch();
-let handPanelVisible = true;
+const handPanelVisible = true;
 let handPanelNorthDirection: HandPanelDirection = { x: 0, y: -1 };
 let pointerActive = false;
 let pointerX = 0;
@@ -312,9 +316,23 @@ function resetPlanet(): void {
     initialLocation.latitudeDegrees,
     initialLocation.longitudeDegrees,
   );
+  groundLevelElevationM = 0;
   terrainLodBias = 0;
   previousXrHead = null;
   updatePresentation();
+}
+
+function resetGroundLevel(): void {
+  const coordinates = coordinatesForFrame(state.contact);
+  groundLevelElevationM = terrain.sampleSurfaceHeight(
+    coordinates.latitudeDegrees,
+    coordinates.longitudeDegrees,
+  );
+}
+
+function setTileOverlayVisible(visible: boolean): void {
+  tileOverlayVisible = visible;
+  terrain.setTileOverlayVisible(visible);
 }
 
 const terrainEyeWorldPosition = new THREE.Vector3();
@@ -329,8 +347,8 @@ function terrainViewMetrics(): {
     : camera;
   viewCamera.updateWorldMatrix(true, false);
   viewCamera.getWorldPosition(terrainEyeWorldPosition);
-  // The local-floor reference space and planet pose keep mean sea level at
-  // world y=0 directly beneath the headset.
+  // The local-floor reference space keeps the physical floor at world y=0,
+  // independently of the calibrated planet-root elevation.
   const eyeHeightWorldM = Math.max(0.001, terrainEyeWorldPosition.y);
   let focalLengthPixels = 1;
   if (renderer.xr.isPresenting && viewCamera instanceof THREE.ArrayCamera) {
@@ -363,8 +381,15 @@ function updatePresentation(): void {
   planetRoot.quaternion.copy(pose.earthToWorld);
   planetRoot.position.copy(pose.centre);
   planetRoot.scale.setScalar(state.displayRadiusM);
+  planetRoot.position.y -= radialWorldMetresForKilometres(
+    groundLevelElevationM / 1_000,
+    state.displayRadiusM,
+    state.radialMultiplier,
+  );
   const view = terrainViewMetrics();
   document.body.dataset.displayScale = state.displayRadiusM.toFixed(2);
+  document.body.dataset.groundLevelElevation =
+    groundLevelElevationM.toFixed(1);
   terrain.update(
     coordinates.latitudeDegrees,
     coordinates.longitudeDegrees,
@@ -630,10 +655,11 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
     deltaSeconds,
   );
   stepTerrainLodBias(intent.terrainLodBiasDelta);
-  if (intent.reset) resetPlanet();
-  if (intent.togglePanel) {
-    handPanelVisible = !handPanelVisible;
+  if (intent.toggleTileOverlay) {
+    setTileOverlayVisible(!tileOverlayVisible);
   }
+  if (intent.reset) resetPlanet();
+  if (intent.resetGroundLevel) resetGroundLevel();
 }
 
 function updateDesktopControls(deltaSeconds: number): void {

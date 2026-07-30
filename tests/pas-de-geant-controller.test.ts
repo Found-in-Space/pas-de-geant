@@ -19,7 +19,7 @@ describe("Pas de Géant controller regressions", () => {
     expect(travel.y).toBeCloseTo(0);
   });
 
-  it("emits the hand-panel toggle only once per press", () => {
+  it("emits the ground-level reset only once per right-stick press", () => {
     const stickButton = { pressed: true, value: 1 };
     const session = {
       inputSources: [
@@ -41,17 +41,17 @@ describe("Pas de Géant controller regressions", () => {
     } as unknown as XRSession;
     const latch = freshButtonLatch();
 
-    expect(controllerIntent(session, 0, latch).togglePanel).toBe(true);
-    expect(controllerIntent(session, 16, latch).togglePanel).toBe(false);
+    expect(controllerIntent(session, 0, latch).resetGroundLevel).toBe(true);
+    expect(controllerIntent(session, 16, latch).resetGroundLevel).toBe(false);
     stickButton.pressed = false;
     stickButton.value = 0;
-    expect(controllerIntent(session, 32, latch).togglePanel).toBe(false);
+    expect(controllerIntent(session, 32, latch).resetGroundLevel).toBe(false);
     stickButton.pressed = true;
     stickButton.value = 1;
-    expect(controllerIntent(session, 48, latch).togglePanel).toBe(true);
+    expect(controllerIntent(session, 48, latch).resetGroundLevel).toBe(true);
   });
 
-  it("emits one terrain LOD-bias step per X or Y press", () => {
+  it("toggles tile boundaries with X and steps finer LOD with Y", () => {
     const xButton = { pressed: false, value: 0 };
     const yButton = { pressed: false, value: 0 };
     const session = {
@@ -76,15 +76,19 @@ describe("Pas de Géant controller regressions", () => {
 
     xButton.pressed = true;
     xButton.value = 1;
-    expect(controllerIntent(session, 0, latch).terrainLodBiasDelta).toBe(-1);
-    expect(controllerIntent(session, 16, latch).terrainLodBiasDelta).toBe(0);
+    const xPress = controllerIntent(session, 0, latch);
+    expect(xPress.toggleTileOverlay).toBe(true);
+    expect(xPress.terrainLodBiasDelta).toBe(0);
+    expect(controllerIntent(session, 16, latch).toggleTileOverlay).toBe(false);
     xButton.pressed = false;
     xButton.value = 0;
     controllerIntent(session, 32, latch);
 
     yButton.pressed = true;
     yButton.value = 1;
-    expect(controllerIntent(session, 48, latch).terrainLodBiasDelta).toBe(1);
+    const yPress = controllerIntent(session, 48, latch);
+    expect(yPress.toggleTileOverlay).toBe(false);
+    expect(yPress.terrainLodBiasDelta).toBe(1);
     expect(controllerIntent(session, 64, latch).terrainLodBiasDelta).toBe(0);
   });
 });

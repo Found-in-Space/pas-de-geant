@@ -6,9 +6,10 @@ export interface ControllerIntent {
   radialAxis: number;
   boost: boolean;
   terrainLodBiasDelta: number;
+  toggleTileOverlay: boolean;
   toggleOcean: boolean;
   reset: boolean;
-  togglePanel: boolean;
+  resetGroundLevel: boolean;
 }
 
 export interface ButtonLatch {
@@ -59,9 +60,9 @@ export function controllerIntent(
   const xPressed = leftButtons[4]?.pressed ?? false;
   const yPressed = leftButtons[5]?.pressed ?? false;
   const toggleOcean = aPressed && !latch.a;
-  const togglePanel = stickPressed && !latch.stick;
-  const terrainLodBiasDelta =
-    Number(yPressed && !latch.y) - Number(xPressed && !latch.x);
+  const resetGroundLevel = stickPressed && !latch.stick;
+  const toggleTileOverlay = xPressed && !latch.x;
+  const terrainLodBiasDelta = Number(yPressed && !latch.y);
   latch.a = aPressed;
   latch.stick = stickPressed;
   latch.x = xPressed;
@@ -80,9 +81,10 @@ export function controllerIntent(
       (leftButtons[0]?.value ?? 0) > 0.55 ||
       (leftButtons[1]?.value ?? 0) > 0.55,
     terrainLodBiasDelta,
+    toggleTileOverlay,
     toggleOcean,
     reset,
-    togglePanel,
+    resetGroundLevel,
   };
 }
 

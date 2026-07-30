@@ -41,13 +41,14 @@ Then open `http://localhost:4197` in the headset.
 - Left trigger: faster travel
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: terrain and altitude exaggeration
-- X / Y: use one coarser / finer topography source level
+- X: toggle tinted native-tile surfaces and boundary outlines
+- Y: use one finer topography source level
 - Hold B: reset location, scale, and automatic terrain selection
-- Right-stick press: toggle the left-hand Earth map panel
+- Right-stick press: set the current terrain underfoot to physical floor level
 
 ## What is modelled
 
-- A WGS 84 Earth whose mean-sea-level contact stays at the physical floor
+- A WGS 84 Earth with a user-resettable underfoot floor datum
 - Global GEBCO 2026 relief and bathymetry with local Copernicus GLO-30 detail
 - Embedded NASA Blue Marble imagery with optional atomic XYZ refinement
 - A Gaia DR3 / Hipparcos celestial sphere through Found in Space SkyKit

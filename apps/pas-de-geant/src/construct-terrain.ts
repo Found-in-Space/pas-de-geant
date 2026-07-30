@@ -93,6 +93,7 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
       normalizedSeamSkirtDepth: { value: 0 },
       normalizedOuterSkirtDepth: { value: 0 },
       oceanSurface: { value: 1 },
+      tileOverlayVisible: { value: 0 },
       sunlight: {
         value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize(),
       },
@@ -107,6 +108,7 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
       uniform float normalizedOuterSkirtDepth;
       uniform float oceanSurface;
       varying vec2 vImageUv;
+      varying vec2 vTileUv;
       varying vec3 vBaseNormal;
       void main() {
         vec3 displayedDetailOffsetM = mix(
@@ -125,6 +127,7 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
           normal * skirtDepth;
         vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
         vImageUv = heightUv;
+        vTileUv = uv;
         vBaseNormal = normalize(mat3(modelMatrix) * normal);
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
@@ -132,7 +135,9 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
     fragmentShader: `
       uniform sampler2D imageMap;
       uniform vec3 sunlight;
+      uniform float tileOverlayVisible;
       varying vec2 vImageUv;
+      varying vec2 vTileUv;
       varying vec3 vBaseNormal;
       void main() {
         vec3 albedo = pow(texture2D(imageMap, vImageUv).rgb, vec3(0.72));
@@ -141,7 +146,20 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
           dot(normalize(vBaseNormal), normalize(sunlight))
         );
         float ambient = 0.62 + 0.12 * max(0.0, vBaseNormal.y);
-        gl_FragColor = vec4(albedo * (ambient + direct * 0.58), 1.0);
+        vec3 colour = albedo * (ambient + direct * 0.58);
+        float tileEdgeDistance = min(
+          min(vTileUv.x, 1.0 - vTileUv.x),
+          min(vTileUv.y, 1.0 - vTileUv.y)
+        );
+        float tileEdge = 1.0 - smoothstep(
+          0.0,
+          max(0.0005, fwidth(tileEdgeDistance) * 2.5),
+          tileEdgeDistance
+        );
+        float overlayStrength =
+          tileOverlayVisible * mix(0.18, 0.92, tileEdge);
+        colour = mix(colour, vec3(0.0, 0.84, 1.0), overlayStrength);
+        gl_FragColor = vec4(colour, 1.0);
       }
     `,
   });
@@ -320,6 +338,10 @@ export class ConstructTerrainRenderer {
       skirtDepths.normalizedOuterSkirtDepth;
     this.material.uniforms.oceanSurface!.value =
       options.oceanSurface ? 1 : 0;
+  }
+
+  setTileOverlayVisible(visible: boolean): void {
+    this.material.uniforms.tileOverlayVisible!.value = visible ? 1 : 0;
   }
 
   status(): ConstructTerrainStatus {
