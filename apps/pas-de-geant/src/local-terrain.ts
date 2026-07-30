@@ -278,7 +278,6 @@ export class LocalTerrainRenderer {
   private requestId = 0;
   private baseZoom: number | undefined;
   private planAnchor = "";
-  private lodBias = 0;
   private displayRadiusM = 1;
   private radialMultiplier = 1;
   private tileOverlayVisible = false;
@@ -329,14 +328,12 @@ export class LocalTerrainRenderer {
   getLodStatus(): {
     minZoom: number;
     maxZoom: number;
-    bias: number;
     budgetLimited: boolean;
   } {
     const plan = this.candidatePlan ?? this.visiblePlan;
     return {
       minZoom: plan?.minZoom ?? 0,
       maxZoom: plan?.maxZoom ?? 0,
-      bias: this.lodBias,
       budgetLimited: false,
     };
   }
@@ -392,13 +389,11 @@ export class LocalTerrainRenderer {
     longitudeDegrees: number,
     displayRadiusM: number,
     radialMultiplier: number,
-    lodBias = 0,
     _eyeHeightWorldM = 1.65,
     _focalLengthPixels = 1_000,
   ): void {
     this.displayRadiusM = Math.max(0.001, displayRadiusM);
     this.radialMultiplier = radialMultiplier;
-    this.lodBias = Math.max(-3, Math.min(3, Math.round(lodBias)));
 
     if (!this.stencilAvailable || !localDetailEnabled(latitudeDegrees)) {
       this.clearPlan();
@@ -411,10 +406,7 @@ export class LocalTerrainRenderer {
       this.displayRadiusM,
       this.baseZoom,
     );
-    const finestZoom = Math.max(
-      0,
-      Math.min(12, nextBaseZoom + this.lodBias),
-    );
+    const finestZoom = nextBaseZoom;
     const nextAnchor = nativeTerrainPlanAnchorKey(
       latitudeDegrees,
       longitudeDegrees,
@@ -434,7 +426,6 @@ export class LocalTerrainRenderer {
           longitudeDegrees,
           displayRadiusM: this.displayRadiusM,
           previousBaseZoom: nextBaseZoom,
-          lodBias: this.lodBias,
         }),
       );
     }
@@ -1153,11 +1144,9 @@ export class LocalTerrainRenderer {
     document.body.dataset.detailCalculatedZoom = plan
       ? String(plan.baseZoom)
       : "";
-    document.body.dataset.detailZoomOverride = String(this.lodBias);
     document.body.dataset.detailSourceZoomRange = plan
       ? `${plan.minZoom}-${plan.maxZoom}`
       : "";
-    document.body.dataset.detailLodBias = String(this.lodBias);
     document.body.dataset.detailTileOverlay =
       String(this.tileOverlayVisible);
     document.body.dataset.detailSourceSampleMetres = plan

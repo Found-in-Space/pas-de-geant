@@ -231,7 +231,6 @@ if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
   };
   window.__PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__ = setTileOverlayVisible;
 }
-let terrainLodBias = 0;
 const initialCoordinates = coordinatesForFrame(state.contact);
 const initialHandPanelStatus = handPanelStatus(
   initialCoordinates.latitudeDegrees,
@@ -317,7 +316,6 @@ function resetPlanet(): void {
     initialLocation.longitudeDegrees,
   );
   groundLevelElevationM = 0;
-  terrainLodBias = 0;
   previousXrHead = null;
   updatePresentation();
 }
@@ -395,7 +393,6 @@ function updatePresentation(): void {
     coordinates.longitudeDegrees,
     state.displayRadiusM,
     state.radialMultiplier,
-    terrainLodBias,
     view.eyeHeightWorldM,
     view.focalLengthPixels,
   );
@@ -439,7 +436,6 @@ function handPanelStatus(
   return {
     globalScaleFactor: state.displayRadiusM,
     radialMultiplier: state.radialMultiplier,
-    terrainLodBias: lod.bias,
     minimumTerrainZoom: lod.minZoom,
     maximumTerrainZoom: lod.maxZoom,
     terrainBudgetLimited: lod.budgetLimited,
@@ -459,19 +455,10 @@ function handPanelStateSignature(
     northAngle.toFixed(2),
     status.globalScaleFactor.toFixed(2),
     status.radialMultiplier.toFixed(1),
-    status.terrainLodBias,
     status.minimumTerrainZoom,
     status.maximumTerrainZoom,
     status.terrainBudgetLimited ? "capped" : "screen",
   ].join(":");
-}
-
-function stepTerrainLodBias(delta: number): void {
-  if (delta === 0) return;
-  terrainLodBias = Math.max(
-    -3,
-    Math.min(3, terrainLodBias + Math.sign(delta)),
-  );
 }
 
 function syncHandPanelState(
@@ -654,7 +641,6 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
     intent.radialAxis,
     deltaSeconds,
   );
-  stepTerrainLodBias(intent.terrainLodBiasDelta);
   if (intent.toggleTileOverlay) {
     setTileOverlayVisible(!tileOverlayVisible);
   }

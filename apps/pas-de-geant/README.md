@@ -66,7 +66,6 @@ build should be served over HTTPS.
 - Left stick: head-relative travel
 - Left trigger: faster travel
 - X: toggle tinted native-tile surfaces and boundary outlines
-- Y: bias the native Mapterhorn level finer
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: radial multiplier
 - Hold B: reset to the detected starting location and initial scale
@@ -76,12 +75,10 @@ The hand panel uses touch-os and the bundled NASA Blue Marble image to show the
 current underfoot position on a whole-Earth map. It remains available offline;
 the latitude and longitude appear directly beneath the map, followed by the
 planet-root global scale factor, radial multiplier, and selected topography
-zoom range. The terrain readout says `AUTO` at zero bias. Each Y press halves
-the native tile width and increases fixed mesh density. Each X press toggles
+zoom range. Terrain LOD is selected automatically. Each X press toggles
 alternating tile-surface tints and high-contrast boundary outlines. Hold B
-resets the planet and returns to zero bias. The map readout is throttled and
-hosted under an isolated scene node so it does not traverse or invalidate the
-terrain scene.
+resets the planet. The map readout is throttled and hosted under an isolated
+scene node so it does not traverse or invalidate the terrain scene.
 
 The camera and XR reference space are never moved to simulate travel. The
 planet root is rolled and translated so the selected contact point remains

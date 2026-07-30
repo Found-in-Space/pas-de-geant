@@ -304,17 +304,15 @@ export class ConstructTerrainRenderer {
     displayRadiusM: number;
     radialMultiplier: number;
     oceanSurface: boolean;
-    lodBias: number;
   }): void {
     const next = selectConstructTerrainPlan({
       latitudeDegrees: options.latitudeDegrees,
       longitudeDegrees: options.longitudeDegrees,
       displayRadiusM: options.displayRadiusM,
       previousZoom: this.previousZoom,
-      lodBias: options.lodBias,
     });
     if (!this.plan || next.signature !== this.plan.signature) {
-      this.previousZoom = next.zoom - options.lodBias;
+      this.previousZoom = next.zoom;
       this.applyPlan(next);
     }
     const sampledHeightM = this.sampleContactHeight(

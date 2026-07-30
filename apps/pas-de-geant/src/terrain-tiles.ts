@@ -366,7 +366,6 @@ export class TerrainTileRenderer {
     longitudeDegrees: number,
     displayRadiusM: number,
     radialMultiplier: number,
-    localTerrainLodBias = 0,
     eyeHeightWorldM = 1.65,
     focalLengthPixels = 1_000,
   ): void {
@@ -416,7 +415,6 @@ export class TerrainTileRenderer {
       longitudeDegrees,
       displayRadiusM,
       radialMultiplier,
-      localTerrainLodBias,
       eyeHeightWorldM,
       focalLengthPixels,
     );
@@ -425,7 +423,6 @@ export class TerrainTileRenderer {
   getLodStatus(): {
     minZoom: number;
     maxZoom: number;
-    bias: number;
     budgetLimited: boolean;
   } {
     return this.localTerrain.getLodStatus();

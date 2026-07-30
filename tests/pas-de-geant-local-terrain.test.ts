@@ -185,7 +185,6 @@ describe("Pas de Géant native terrain rings", () => {
     expect(meshSegmentsForRing(0)).toBe(128);
     expect(meshSegmentsForRing(1)).toBe(64);
     expect(meshSegmentsForRing(2)).toBe(32);
-    expect(meshSegmentsForRing(1, 1)).toBe(128);
 
     const radiusForZoomSix =
       LOCAL_TILE_TARGET_WIDTH_M * 2 ** 6 / (2 * Math.PI);

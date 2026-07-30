@@ -42,8 +42,7 @@ Then open `http://localhost:4197` in the headset.
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: terrain and altitude exaggeration
 - X: toggle tinted native-tile surfaces and boundary outlines
-- Y: use one finer topography source level
-- Hold B: reset location, scale, and automatic terrain selection
+- Hold B: reset location and scale
 - Right-stick press: set the current terrain underfoot to physical floor level
 
 ## What is modelled

@@ -269,20 +269,13 @@ export function selectConstructTerrainPlan(options: {
   longitudeDegrees: number;
   displayRadiusM: number;
   previousZoom?: number;
-  lodBias?: number;
 }): ConstructTerrainPlan {
   const nativeZoom = selectConstructZoom(
     options.latitudeDegrees,
     options.displayRadiusM,
     options.previousZoom,
   );
-  const zoom = Math.max(
-    0,
-    Math.min(
-      CONSTRUCT_MAX_ZOOM,
-      nativeZoom + Math.max(-3, Math.min(3, Math.round(options.lodBias ?? 0))),
-    ),
-  );
+  const zoom = nativeZoom;
   const onion = planSurfaceOnion({
     latitudeDegrees: options.latitudeDegrees,
     longitudeDegrees: options.longitudeDegrees,

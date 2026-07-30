@@ -53,7 +53,6 @@ export interface HandPanelDirection {
 export interface HandPanelStatus {
   globalScaleFactor: number;
   radialMultiplier: number;
-  terrainLodBias: number;
   minimumTerrainZoom: number;
   maximumTerrainZoom: number;
   terrainBudgetLimited: boolean;
@@ -74,7 +73,6 @@ const EARTH_MAP_BORDER_WIDTH = 12;
 const DEFAULT_HAND_PANEL_STATUS: HandPanelStatus = {
   globalScaleFactor: 1,
   radialMultiplier: 1,
-  terrainLodBias: 0,
   minimumTerrainZoom: 0,
   maximumTerrainZoom: 0,
   terrainBudgetLimited: false,
@@ -235,11 +233,8 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
         value: `${ctx.props.radialMultiplier.toFixed(1)}×`,
       },
       {
-        label: "LOD Y+ · X TILES",
+        label: "AUTO LOD · X TILES",
         value:
-          `${ctx.props.terrainLodBias === 0
-            ? "AUTO"
-            : `BIAS ${ctx.props.terrainLodBias > 0 ? "+" : ""}${ctx.props.terrainLodBias}`} · ` +
           `z${ctx.props.minimumTerrainZoom}–${ctx.props.maximumTerrainZoom}` +
           (ctx.props.terrainBudgetLimited ? " · CAP" : ""),
       },

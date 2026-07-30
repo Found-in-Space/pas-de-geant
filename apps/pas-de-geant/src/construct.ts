@@ -112,7 +112,6 @@ let state = initialPlanetState(
   CONSTRUCT_LONGITUDE_DEGREES,
 );
 state.displayRadiusM = constructDisplayRadiusM(initialScaleFactor);
-let lodBias = 0;
 let oceanSurface = true;
 let tileOverlayVisible = false;
 
@@ -136,7 +135,6 @@ function resetConstruct(scaleFactor = initialScaleFactor): void {
     CONSTRUCT_LONGITUDE_DEGREES,
   );
   state.displayRadiusM = constructDisplayRadiusM(scaleFactor);
-  lodBias = 0;
   oceanSurface = true;
   contactHeightInitialized = false;
 }
@@ -199,10 +197,6 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
     state.radialMultiplier,
     intent.radialAxis,
     deltaSeconds,
-  );
-  lodBias = Math.max(
-    -3,
-    Math.min(3, lodBias + intent.terrainLodBiasDelta),
   );
   if (intent.toggleTileOverlay) {
     tileOverlayVisible = !tileOverlayVisible;
@@ -268,7 +262,6 @@ function updatePresentation(deltaSeconds = 0): void {
     displayRadiusM: state.displayRadiusM,
     radialMultiplier: state.radialMultiplier,
     oceanSurface,
-    lodBias,
   });
   const status = terrain.status();
   if (status.contactHeightAvailable) {
@@ -351,7 +344,6 @@ function updatePresentation(deltaSeconds = 0): void {
     status.contactHeightM.toFixed(1);
   document.body.dataset.constructTopographySource = "mapterhorn";
   document.body.dataset.constructTextureSource = "blue-marble";
-  document.body.dataset.constructLodBias = String(lodBias);
   document.body.dataset.constructTileOverlay =
     String(tileOverlayVisible);
   document.body.dataset.constructXrFoveation = String(xrFoveation);

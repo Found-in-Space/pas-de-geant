@@ -76,7 +76,6 @@ export interface NativeTerrainPlanOptions {
   longitudeDegrees: number;
   displayRadiusM: number;
   previousBaseZoom?: number;
-  lodBias?: number;
   ringLevels?: number;
 }
 
@@ -579,13 +578,7 @@ export function selectNativeTerrainPlan(
     options.displayRadiusM,
     options.previousBaseZoom,
   );
-  const finestZoom = Math.max(
-    LOCAL_TERRAIN_MIN_ZOOM,
-    Math.min(
-      LOCAL_TERRAIN_MAX_ZOOM,
-      baseZoom + Math.max(-3, Math.min(3, Math.round(options.lodBias ?? 0))),
-    ),
-  );
+  const finestZoom = baseZoom;
   const { onion, active } = fixedRingTiles(
     options.latitudeDegrees,
     options.longitudeDegrees,
@@ -825,12 +818,12 @@ export function interpolateOceanSurfaceOffsetM(
   );
 }
 
-export function meshSegmentsForRing(ring: number, lodBias = 0): number {
+export function meshSegmentsForRing(ring: number): number {
   const index = Math.max(
     0,
     Math.min(
       LOCAL_RING_MESH_SEGMENTS.length - 1,
-      Math.round(ring) - Math.round(lodBias),
+      Math.round(ring),
     ),
   );
   return LOCAL_RING_MESH_SEGMENTS[index]!;
