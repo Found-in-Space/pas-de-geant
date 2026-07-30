@@ -87,23 +87,6 @@ interface QueuedMeshRequest {
 
 type PreparedLocalTile = Extract<LocalTerrainWorkerResult, { type: "mesh" }>;
 
-export interface LocalTerrainImageryPatch {
-  key: string;
-  texture: THREE.Texture;
-  targetBounds: {
-    west: number;
-    east: number;
-    north: number;
-    south: number;
-  };
-  sourceBounds: {
-    west: number;
-    east: number;
-    north: number;
-    south: number;
-  };
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
@@ -128,7 +111,7 @@ async function loadElevation(
 
 function localTerrainMaterial(
   relief: ReliefDataset,
-  fallbackTexture: THREE.Texture,
+  blueMarbleTexture: THREE.Texture,
 ): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
@@ -144,14 +127,10 @@ function localTerrainMaterial(
       heightMap: { value: relief.texture },
       heightOffsetM: { value: relief.metadata.offsetMetres },
       heightScaleM: { value: relief.metadata.scaleMetres },
-      fallbackMap: { value: fallbackTexture },
-      detailImageMap: { value: fallbackTexture },
-      imageScale: { value: new THREE.Vector2(1, 1) },
-      imageOffset: { value: new THREE.Vector2(0, 0) },
+      blueMarbleMap: { value: blueMarbleTexture },
       normalizedRadialMetres: { value: 0 },
       normalizedSkirtDepth: { value: 0 },
       detailAvailable: { value: 0 },
-      imageryMix: { value: 0 },
       skirtEdges: { value: new THREE.Vector4() },
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
     },
@@ -166,7 +145,6 @@ function localTerrainMaterial(
       uniform float normalizedSkirtDepth;
       uniform float detailAvailable;
       uniform vec4 skirtEdges;
-      varying vec2 vImageUv;
       varying vec2 vHeightUv;
       varying vec3 vBaseNormal;
       void main() {
@@ -196,32 +174,17 @@ function localTerrainMaterial(
           normal * normalizedSkirtDepth * skirtEnabled;
         vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
         vBaseNormal = normalize(mat3(modelMatrix) * normal);
-        vImageUv = uv;
         vHeightUv = heightUv;
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
     `,
     fragmentShader: `
-      uniform sampler2D fallbackMap;
-      uniform sampler2D detailImageMap;
-      uniform vec2 imageScale;
-      uniform vec2 imageOffset;
-      uniform float imageryMix;
+      uniform sampler2D blueMarbleMap;
       uniform vec3 sunlight;
-      varying vec2 vImageUv;
       varying vec2 vHeightUv;
       varying vec3 vBaseNormal;
       void main() {
-        vec3 fallbackAlbedo = texture2D(fallbackMap, vHeightUv).rgb;
-        vec3 detailAlbedo = texture2D(
-          detailImageMap,
-          imageOffset + vImageUv * imageScale
-        ).rgb;
-        vec3 albedo = mix(
-          fallbackAlbedo,
-          detailAlbedo,
-          imageryMix
-        );
+        vec3 albedo = texture2D(blueMarbleMap, vHeightUv).rgb;
         vec3 reliefNormal = normalize(vBaseNormal);
         float direct = max(0.0, dot(reliefNormal, normalize(sunlight)));
         float light = 0.46 + direct * 0.72;
@@ -377,68 +340,6 @@ function gebcoFallbackGeometry(
   };
 }
 
-function tileBounds(address: MercatorTileAddress): {
-  west: number;
-  east: number;
-  north: number;
-  south: number;
-} {
-  const northWest = mercatorCoordinatesForTilePoint(address, 0, 0);
-  const southEast = mercatorCoordinatesForTilePoint(
-    address,
-    LOCAL_TILE_SIZE,
-    LOCAL_TILE_SIZE,
-  );
-  return {
-    west: northWest.longitudeDegrees,
-    east: southEast.longitudeDegrees,
-    north: northWest.latitudeDegrees,
-    south: southEast.latitudeDegrees,
-  };
-}
-
-function patchForTile(
-  address: MercatorTileAddress,
-  patches: readonly LocalTerrainImageryPatch[],
-): LocalTerrainImageryPatch | undefined {
-  const bounds = tileBounds(address);
-  const longitude = (bounds.west + bounds.east) * 0.5;
-  const latitude = (bounds.north + bounds.south) * 0.5;
-  return patches
-    .filter(
-      (patch) =>
-        longitude >= patch.targetBounds.west &&
-        longitude <= patch.targetBounds.east &&
-        latitude <= patch.targetBounds.north &&
-        latitude >= patch.targetBounds.south,
-    )
-    .sort((first, second) => {
-      const firstArea =
-        (first.targetBounds.east - first.targetBounds.west) *
-        (first.targetBounds.north - first.targetBounds.south);
-      const secondArea =
-        (second.targetBounds.east - second.targetBounds.west) *
-        (second.targetBounds.north - second.targetBounds.south);
-      return firstArea - secondArea;
-    })[0];
-}
-
-function imageryTransform(
-  address: MercatorTileAddress,
-  patch: LocalTerrainImageryPatch,
-): { scaleX: number; scaleY: number; offsetX: number; offsetY: number } {
-  const target = tileBounds(address);
-  const source = patch.sourceBounds;
-  const sourceWidth = Math.max(1e-9, source.east - source.west);
-  const sourceHeight = Math.max(1e-9, source.north - source.south);
-  return {
-    scaleX: (target.east - target.west) / sourceWidth,
-    scaleY: (target.north - target.south) / sourceHeight,
-    offsetX: (target.west - source.west) / sourceWidth,
-    offsetY: (source.north - target.north) / sourceHeight,
-  };
-}
-
 export class LocalTerrainRenderer {
   readonly group = new THREE.Group();
   private readonly worker: Worker;
@@ -464,8 +365,6 @@ export class LocalTerrainRenderer {
   private lodBias = 0;
   private displayRadiusM = 1;
   private radialMultiplier = 1;
-  private imageryPatches: LocalTerrainImageryPatch[] = [];
-  private imageryPatchSignature = "";
   private geometryBytes = 0;
   private diagnosticsDirty = true;
   private elevationRequestTotal = 0;
@@ -480,7 +379,7 @@ export class LocalTerrainRenderer {
 
   constructor(
     private readonly relief: ReliefDataset,
-    private readonly fallbackTexture: THREE.Texture,
+    private readonly blueMarbleTexture: THREE.Texture,
     private readonly stencilAvailable = true,
   ) {
     this.group.name = "local-terrain";
@@ -510,17 +409,6 @@ export class LocalTerrainRenderer {
     );
   }
 
-  setImageryPatches(patches: LocalTerrainImageryPatch[]): void {
-    const signature = patches
-      .map((patch) => `${patch.key}:${patch.texture.uuid}`)
-      .join("|");
-    if (signature === this.imageryPatchSignature) return;
-    this.imageryPatchSignature = signature;
-    this.imageryPatches = patches.slice(0, 32);
-    for (const tile of this.rendered.values()) this.applyImagery(tile);
-    this.diagnosticsDirty = true;
-  }
-
   getLodStatus(): {
     minZoom: number;
     maxZoom: number;
@@ -533,18 +421,6 @@ export class LocalTerrainRenderer {
       bias: this.lodBias,
       budgetLimited: false,
     };
-  }
-
-  getImageryTextureUuidsInUse(): Set<string> {
-    const textureUuids = new Set<string>();
-    for (const tile of this.rendered.values()) {
-      const texture = tile.mesh.material.uniforms.detailImageMap
-        ?.value as THREE.Texture | undefined;
-      if (texture && texture !== this.fallbackTexture) {
-        textureUuids.add(texture.uuid);
-      }
-    }
-    return textureUuids;
   }
 
   update(
@@ -934,9 +810,11 @@ export class LocalTerrainRenderer {
       existing.fallback = false;
       existing.mesh.material.uniforms.detailAvailable!.value = 1;
       this.geometryBytes += staged.geometryBytes;
-      this.applyImagery(existing);
     } else {
-      const material = localTerrainMaterial(this.relief, this.fallbackTexture);
+      const material = localTerrainMaterial(
+        this.relief,
+        this.blueMarbleTexture,
+      );
       const mesh = new THREE.Mesh(staged.geometry, material);
       mesh.frustumCulled = false;
       mesh.renderOrder = -1;
@@ -952,7 +830,6 @@ export class LocalTerrainRenderer {
       this.rendered.set(key, tile);
       this.group.add(mesh);
       this.geometryBytes += staged.geometryBytes;
-      this.applyImagery(tile);
     }
     this.staged.delete(key);
   }
@@ -961,7 +838,10 @@ export class LocalTerrainRenderer {
     const key = mercatorTileKey(address);
     if (this.rendered.has(key)) return;
     const { geometry, geometryBytes } = gebcoFallbackGeometry(address);
-    const material = localTerrainMaterial(this.relief, this.fallbackTexture);
+    const material = localTerrainMaterial(
+      this.relief,
+      this.blueMarbleTexture,
+    );
     material.uniforms.detailAvailable!.value = 0;
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
@@ -977,7 +857,6 @@ export class LocalTerrainRenderer {
     this.rendered.set(key, tile);
     this.group.add(mesh);
     this.geometryBytes += geometryBytes;
-    this.applyImagery(tile);
   }
 
   private coherentGroupKey(address: NativeTerrainTile): string {
@@ -1042,27 +921,6 @@ export class LocalTerrainRenderer {
       this.refreshEdgeTargets();
       this.diagnosticsDirty = true;
     }
-  }
-
-  private applyImagery(tile: RenderedLocalTile): void {
-    const material = tile.mesh.material;
-    const patch = patchForTile(tile.address, this.imageryPatches);
-    if (!patch) {
-      material.uniforms.detailImageMap!.value = this.fallbackTexture;
-      material.uniforms.imageryMix!.value = 0;
-      return;
-    }
-    const transform = imageryTransform(tile.address, patch);
-    material.uniforms.detailImageMap!.value = patch.texture;
-    material.uniforms.imageScale!.value.set(
-      transform.scaleX,
-      transform.scaleY,
-    );
-    material.uniforms.imageOffset!.value.set(
-      transform.offsetX,
-      transform.offsetY,
-    );
-    material.uniforms.imageryMix!.value = 1;
   }
 
   private refreshEdgeTargets(): void {
@@ -1233,16 +1091,6 @@ export class LocalTerrainRenderer {
     document.body.dataset.detailOverbudgetCells = "0";
     document.body.dataset.detailCentreState = states[0] ?? "p";
     document.body.dataset.detailTileStates = states.join("");
-    document.body.dataset.detailImageryCache = "0";
-    document.body.dataset.detailImageryRequests = "0";
-    document.body.dataset.detailImageryPatches = String(
-      this.imageryPatches.length,
-    );
-    document.body.dataset.detailImageryDraws = String(
-      [...this.rendered.values()].filter(
-        (tile) => tile.mesh.material.uniforms.imageryMix!.value === 1,
-      ).length,
-    );
     document.body.dataset.detailWorkerQueued = String(this.meshQueue.size);
     document.body.dataset.detailWorkerInflight = String(
       Number(

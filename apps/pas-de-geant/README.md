@@ -23,8 +23,7 @@ Backspace to reset.
 Open `http://127.0.0.1:4197/construct/` for the isolated terrain test over the
 Alps–Po valley transition at 45.90° N, 9.25° E. It renders a fixed two-level
 Mapterhorn stencil with one bundled NASA Blue Marble texture. It does not
-instantiate the GEBCO globe, GIBS imagery, stars, aircraft, or another terrain
-fallback.
+instantiate the GEBCO globe, stars, aircraft, or another terrain fallback.
 
 The finest level is an 8×8 block. Its four underfoot pages retain the complete
 512×512 grid while the other 60 use 64×64 cells. Two clean, two-tile-wide
@@ -164,11 +163,11 @@ commits once. Missing cells remain GEBCO during that commit. This preserves the
 construct's generation-and-commit principle without delaying the first Earth
 render.
 
-The checked-in 2048×1024 Blue Marble image is currently the only production
-terrain texture and is available immediately offline. The progressive NASA
-GIBS loader remains in the codebase for a future ownership-aware imagery
-upgrade, but the current renderer issues no GIBS requests. This deliberately
-keeps texture loading out of the GEBCO–Mapterhorn elevation transition.
+The checked-in 2048×1024 Blue Marble image is the only production terrain
+texture and is available immediately offline. There is currently no network
+imagery loader, cache, patch lease, or progressive texture path; a future
+photographic virtual-texture system can therefore start from a clean embedded
+base instead of inheriting the previous transition model.
 Source, license, datum, DOI, and checksum details live beside the relief asset
 and in `public/THIRD_PARTY_LICENSES.txt`.
 

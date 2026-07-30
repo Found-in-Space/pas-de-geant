@@ -120,13 +120,13 @@ void celestialSphere.load().then((result) => {
   }
 });
 
-const fallbackTexture = await new THREE.TextureLoader().loadAsync(
+const blueMarbleTexture = await new THREE.TextureLoader().loadAsync(
   `${import.meta.env.BASE_URL}bluemarble-2048.png`,
 );
-fallbackTexture.colorSpace = THREE.SRGBColorSpace;
-fallbackTexture.flipY = false;
-fallbackTexture.needsUpdate = true;
-fallbackTexture.anisotropy = Math.min(
+blueMarbleTexture.colorSpace = THREE.SRGBColorSpace;
+blueMarbleTexture.flipY = false;
+blueMarbleTexture.needsUpdate = true;
+blueMarbleTexture.anisotropy = Math.min(
   4,
   renderer.capabilities.getMaxAnisotropy(),
 );
@@ -138,7 +138,7 @@ const detailStencilAvailable =
   renderingContext.getParameter(renderingContext.STENCIL_BITS) > 0;
 const terrain = new TerrainTileRenderer(
   relief,
-  fallbackTexture,
+  blueMarbleTexture,
   detailStencilAvailable,
 );
 planetRoot.add(terrain.group);
@@ -162,7 +162,7 @@ const initialHandPanelStatus = handPanelStatus(
 );
 const earthMapBitmap: BitmapHandle = {
   kind: "bitmap",
-  image: fallbackTexture.image,
+  image: blueMarbleTexture.image,
   width: 2_048,
   height: 1_024,
   revision: 1,

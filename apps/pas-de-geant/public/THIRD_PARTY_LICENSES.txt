@@ -1,11 +1,7 @@
 NASA BLUE MARBLE IMAGERY
 
-The bundled fallback texture is derived from NASA's Blue Marble data:
+The bundled texture is derived from NASA's Blue Marble data:
 https://svs.gsfc.nasa.gov/2915/
-
-Higher-resolution runtime imagery is requested from NASA's Global Imagery
-Browse Services (GIBS):
-https://www.earthdata.nasa.gov/about/esdis/eosdis/gibs
 
 NASA content is generally not subject to copyright in the United States.
 NASA imagery must not be used to imply NASA endorsement. NASA identifiers and

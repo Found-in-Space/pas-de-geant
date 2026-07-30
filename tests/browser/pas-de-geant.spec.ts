@@ -51,20 +51,22 @@ function flatTerrariumPng(heightM = 100): Buffer {
   ]);
 }
 
-function onePixelPng(): Buffer {
-  return Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4" +
-      "2mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-    "base64",
-  );
-}
-
 test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async ({
   page,
 }) => {
   test.setTimeout(420_000);
   const terrainImage = flatTerrariumPng();
-  const imageryPixel = onePixelPng();
+  const remoteImageUrls: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      request.resourceType() === "image" &&
+      ["http:", "https:"].includes(url.protocol) &&
+      !["127.0.0.1", "localhost"].includes(url.hostname)
+    ) {
+      remoteImageUrls.push(request.url());
+    }
+  });
   const missingTiles = new Set([
     "6/54/21",
     "6/55/21",
@@ -73,7 +75,6 @@ test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async 
     "6/54/25",
     "6/54/30",
   ]);
-  const localImageryUrls: string[] = [];
   await page.route("https://tiles.mapterhorn.com/**", async (route) => {
     const parts = new URL(route.request().url()).pathname.split("/");
     const key = `${parts[1]}/${parts[2]}/${parts[3]?.split(".")[0]}`;
@@ -91,17 +92,6 @@ test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async 
       body: terrainImage,
     });
   });
-  await page.route("https://gibs.earthdata.nasa.gov/**", async (route) => {
-    if (route.request().url().includes("/wmts/epsg3857/")) {
-      localImageryUrls.push(route.request().url());
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "image/png",
-      body: imageryPixel,
-    });
-  });
-
   await page.goto("/");
   await expect(page.locator("#loading-state")).toBeHidden({
     timeout: 20_000,
@@ -152,23 +142,14 @@ test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async 
   expect(tileStates).toHaveLength(160);
   expect(tileStates?.replace(/[rfdpo]/g, "")).toBe("");
   expect(tileStates?.split("f")).toHaveLength(6);
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-detail-imagery-requests",
-    "0",
-  );
   expect(
     await page.locator("body").getAttribute("data-detail-centre-state"),
   ).toMatch(/[rd]/);
+  expect(remoteImageUrls).toEqual([]);
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-material-side",
     "double",
   );
-  expect(localImageryUrls).toEqual([]);
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-detail-imagery-patches",
-    "0",
-  );
-
   await page.waitForTimeout(500);
   const frameHashes: string[] = [];
   for (let frame = 0; frame < 4; frame += 1) {
