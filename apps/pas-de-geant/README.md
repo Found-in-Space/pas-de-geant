@@ -172,7 +172,13 @@ by the provider. A texture array holds at most 96 decoded pages and is reduced
 automatically to stay within a 64 MiB pixel budget and the device's array-layer
 limit.
 
-Photographic pages prefetch at 400×, may commit at 500×, and release below
+Low-resolution photographic ancestors prefetch at 1.5×, may commit at 2×,
+and release below 1.25×. The planner requests a coarse-to-fine ancestor ladder
+so scaling progresses from Blue Marble through resident photographic parents
+instead of jumping directly to local imagery. Below the local-detail gate,
+visible photographic pages are capped at z11.
+
+Precise local pages prefetch at 400×, may commit at 500×, and release below
 375×. The visible page table always resolves each page to a complete exact
 sibling group, a resident photographic ancestor, or Blue Marble. Downloads,
 decodes and GPU uploads only populate staging. Two page-table textures swap

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  IMAGERY_BASE_COMMIT_SCALE,
+  IMAGERY_BASE_PREFETCH_SCALE,
+  IMAGERY_BASE_RELEASE_SCALE,
   IMAGERY_COMMIT_SCALE,
+  IMAGERY_INTERMEDIATE_MAX_ZOOM,
   IMAGERY_PAGE_TABLE_SIZE,
   IMAGERY_PREFETCH_SCALE,
   IMAGERY_RELEASE_SCALE,
@@ -8,6 +12,7 @@ import {
   decodePageEntry,
   encodePageEntry,
   imageryActivationForScale,
+  imageryBaseActivationForScale,
   imageryKey,
   imageryPlanForWindow,
   imageryWindowForContact,
@@ -18,7 +23,40 @@ import {
 } from "../apps/pas-de-geant/src/imagery-core.js";
 
 describe("photographic imagery planning", () => {
-  it("uses distinct prefetch, commit, and release thresholds", () => {
+  it("activates the photographic base before local refinement", () => {
+    expect(
+      imageryBaseActivationForScale(
+        IMAGERY_BASE_PREFETCH_SCALE - 0.01,
+        "inactive",
+      ),
+    ).toBe("inactive");
+    expect(
+      imageryBaseActivationForScale(
+        IMAGERY_BASE_PREFETCH_SCALE,
+        "inactive",
+      ),
+    ).toBe("prefetching");
+    expect(
+      imageryBaseActivationForScale(
+        IMAGERY_BASE_COMMIT_SCALE,
+        "prefetching",
+      ),
+    ).toBe("active");
+    expect(
+      imageryBaseActivationForScale(
+        IMAGERY_BASE_RELEASE_SCALE,
+        "active",
+      ),
+    ).toBe("active");
+    expect(
+      imageryBaseActivationForScale(
+        IMAGERY_BASE_RELEASE_SCALE - 0.01,
+        "active",
+      ),
+    ).toBe("inactive");
+  });
+
+  it("uses distinct local-refinement thresholds", () => {
     expect(
       imageryActivationForScale(IMAGERY_PREFETCH_SCALE - 1, "inactive"),
     ).toBe("inactive");
@@ -103,6 +141,38 @@ describe("photographic imagery planning", () => {
     for (const sibling of siblingGroup(target)) {
       resident.add(imageryKey(sibling));
     }
+    expect(resolvedImagerySource(target, resident)).toEqual(target);
+  });
+
+  it("loads a coarse-to-fine photographic ancestor ladder", () => {
+    const window = imageryWindowForContact(45, 9, 14, undefined, 4);
+    const plan = imageryPlanForWindow(window);
+    const requestedZooms = [
+      ...new Set(plan.tasks.map((task) => task.address.z)),
+    ];
+    expect(requestedZooms).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    expect(plan.tasks[0]?.kind).toBe("parent");
+    expect(plan.tasks.at(-1)?.kind).toBe("exact");
+  });
+
+  it("holds precise pages behind the intermediate zoom ceiling", () => {
+    const target = { z: IMAGERY_INTERMEDIATE_MAX_ZOOM + 1, x: 2_100, y: 1_400 };
+    const parent = ancestorAtZoom(
+      target,
+      IMAGERY_INTERMEDIATE_MAX_ZOOM,
+    );
+    const resident = new Set([imageryKey(parent)]);
+    for (const sibling of siblingGroup(target)) {
+      resident.add(imageryKey(sibling));
+    }
+    expect(
+      resolvedImagerySource(
+        target,
+        resident,
+        0,
+        IMAGERY_INTERMEDIATE_MAX_ZOOM,
+      ),
+    ).toEqual(parent);
     expect(resolvedImagerySource(target, resident)).toEqual(target);
   });
 

@@ -1,6 +1,10 @@
+export const IMAGERY_BASE_PREFETCH_SCALE = 1.5;
+export const IMAGERY_BASE_COMMIT_SCALE = 2;
+export const IMAGERY_BASE_RELEASE_SCALE = 1.25;
 export const IMAGERY_PREFETCH_SCALE = 400;
 export const IMAGERY_COMMIT_SCALE = 500;
 export const IMAGERY_RELEASE_SCALE = 375;
+export const IMAGERY_INTERMEDIATE_MAX_ZOOM = 11;
 export const IMAGERY_TARGET_TEXEL_PIXELS = 1.25;
 export const IMAGERY_TEXEL_KEEP_MIN_PIXELS = 0.85;
 export const IMAGERY_TEXEL_KEEP_MAX_PIXELS = 1.7;
@@ -98,6 +102,20 @@ export function imageryActivationForScale(
   }
   if (displayRadiusM >= IMAGERY_COMMIT_SCALE) return "active";
   if (displayRadiusM >= IMAGERY_PREFETCH_SCALE) return "prefetching";
+  return "inactive";
+}
+
+export function imageryBaseActivationForScale(
+  displayRadiusM: number,
+  previous: ImageryActivation,
+): ImageryActivation {
+  if (previous === "active") {
+    return displayRadiusM < IMAGERY_BASE_RELEASE_SCALE
+      ? "inactive"
+      : "active";
+  }
+  if (displayRadiusM >= IMAGERY_BASE_COMMIT_SCALE) return "active";
+  if (displayRadiusM >= IMAGERY_BASE_PREFETCH_SCALE) return "prefetching";
   return "inactive";
 }
 
@@ -269,12 +287,19 @@ export function siblingGroupKey(address: ImageryAddress): string {
   );
 }
 
-export function imageryPlanForWindow(window: ImageryWindow): ImageryPlan {
+export function imageryPlanForWindow(
+  window: ImageryWindow,
+  minimumZoom = 0,
+): ImageryPlan {
   const cells: ImageryPlanCell[] = [];
-  const parents = new Map<string, ImageryLoadTask>();
+  const ancestors = new Map<string, ImageryLoadTask>();
   const exact: ImageryLoadTask[] = [];
   const width = 2 ** window.zoom;
   const centre = (window.size - 1) * 0.5;
+  const lowestAncestorZoom = Math.max(
+    Math.max(0, Math.floor(minimumZoom)),
+    window.zoom - IMAGERY_MAX_ANCESTOR_DELTA,
+  );
   for (let tableY = 0; tableY < window.size; tableY += 1) {
     const y = window.originY + tableY;
     if (y < 0 || y >= width) continue;
@@ -286,23 +311,34 @@ export function imageryPlanForWindow(window: ImageryWindow): ImageryPlan {
       };
       const priority = Math.hypot(tableX - centre, tableY - centre);
       cells.push({ tableX, tableY, address });
-      exact.push({ address, kind: "exact", priority: 1_000 + priority });
-      if (window.zoom > 0) {
-        const parent = ancestorAtZoom(address, window.zoom - 1);
-        const key = imageryKey(parent);
-        const existing = parents.get(key);
-        if (!existing || priority < existing.priority) {
-          parents.set(key, {
-            address: parent,
+      exact.push({
+        address,
+        kind: "exact",
+        priority:
+          (window.zoom - lowestAncestorZoom) * 1_000 + priority,
+      });
+      for (
+        let ancestorZoom = lowestAncestorZoom;
+        ancestorZoom < window.zoom;
+        ancestorZoom += 1
+      ) {
+        const ancestor = ancestorAtZoom(address, ancestorZoom);
+        const key = imageryKey(ancestor);
+        const ancestorPriority =
+          (ancestorZoom - lowestAncestorZoom) * 1_000 + priority;
+        const existing = ancestors.get(key);
+        if (!existing || ancestorPriority < existing.priority) {
+          ancestors.set(key, {
+            address: ancestor,
             kind: "parent",
-            priority,
+            priority: ancestorPriority,
           });
         }
       }
     }
   }
   const tasks = [
-    ...[...parents.values()].sort(
+    ...[...ancestors.values()].sort(
       (first, second) =>
         first.priority - second.priority ||
         imageryKey(first.address).localeCompare(imageryKey(second.address)),
@@ -325,16 +361,27 @@ export function resolvedImagerySource(
   address: ImageryAddress,
   resident: ReadonlySet<string>,
   minimumZoom = 0,
+  maximumSourceZoom = address.z,
 ): ImageryAddress | undefined {
-  const exactReady = siblingGroup(address).every((sibling) =>
-    resident.has(imageryKey(sibling)),
+  const maximumZoom = Math.min(
+    address.z,
+    Math.max(minimumZoom, Math.floor(maximumSourceZoom)),
   );
+  const exactReady =
+    maximumZoom >= address.z &&
+    siblingGroup(address).every((sibling) =>
+      resident.has(imageryKey(sibling)),
+    );
   if (exactReady) return address;
   const lowestZoom = Math.max(
     minimumZoom,
     address.z - IMAGERY_MAX_ANCESTOR_DELTA,
   );
-  for (let zoom = address.z - 1; zoom >= lowestZoom; zoom -= 1) {
+  for (
+    let zoom = Math.min(address.z - 1, maximumZoom);
+    zoom >= lowestZoom;
+    zoom -= 1
+  ) {
     const ancestor = ancestorAtZoom(address, zoom);
     if (resident.has(imageryKey(ancestor))) return ancestor;
   }

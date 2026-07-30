@@ -1,9 +1,11 @@
 import * as THREE from "three";
 import {
+  IMAGERY_INTERMEDIATE_MAX_ZOOM,
   IMAGERY_PAGE_TABLE_SIZE,
   WEB_MERCATOR_MAX_LATITUDE,
   encodePageEntry,
   imageryActivationForScale,
+  imageryBaseActivationForScale,
   imageryKey,
   imageryPlanForWindow,
   imageryWindowForContact,
@@ -301,10 +303,12 @@ export class ImageryVirtualTexture {
   private poolPixels: Uint8Array;
   private poolLayers = 1;
   private activePageTable = 0;
-  private activation: ImageryActivation = "inactive";
+  private baseActivation: ImageryActivation = "inactive";
+  private refinementActivation: ImageryActivation = "inactive";
   private plan: ImageryPlan | undefined;
   private generation = 0;
   private desiredZoom: number | undefined;
+  private visibleZoomCeiling: number | undefined;
   private mappingSignature = "";
   private pageTableEpoch = 0;
   private sequence = 0;
@@ -370,18 +374,27 @@ export class ImageryVirtualTexture {
 
   update(options: ImageryUpdateOptions): void {
     const nowMs = options.nowMs ?? Date.now();
-    const nextActivation = this.provider
-      ? imageryActivationForScale(options.displayRadiusM, this.activation)
+    const nextBaseActivation = this.provider
+      ? imageryBaseActivationForScale(
+          options.displayRadiusM,
+          this.baseActivation,
+        )
       : "inactive";
-    if (nextActivation !== this.activation) {
-      this.activation = nextActivation;
-      if (nextActivation === "inactive") {
+    if (nextBaseActivation !== this.baseActivation) {
+      this.baseActivation = nextBaseActivation;
+      if (nextBaseActivation === "inactive") {
         this.clearPlan();
       }
     }
+    this.refinementActivation = this.provider
+      ? imageryActivationForScale(
+          options.displayRadiusM,
+          this.refinementActivation,
+        )
+      : "inactive";
     if (
       this.provider &&
-      this.activation !== "inactive" &&
+      this.baseActivation !== "inactive" &&
       Math.abs(options.latitudeDegrees) <= WEB_MERCATOR_MAX_LATITUDE
     ) {
       this.ensurePool();
@@ -390,30 +403,48 @@ export class ImageryVirtualTexture {
         this.updateDiagnostics();
         return;
       }
-      const zoom = selectImageryZoom({
+      const desiredZoom = selectImageryZoom({
         ...options,
         tileSize: this.provider.tileSize,
         minZoom: this.provider.minZoom,
         maxZoom: this.provider.maxZoom,
         previousZoom: this.desiredZoom,
       });
+      const intermediateZoomCeiling = Math.max(
+        this.provider.minZoom,
+        Math.min(
+          this.provider.maxZoom,
+          IMAGERY_INTERMEDIATE_MAX_ZOOM,
+        ),
+      );
+      const planZoom =
+        this.refinementActivation === "inactive"
+          ? Math.min(desiredZoom, intermediateZoomCeiling)
+          : desiredZoom;
+      this.visibleZoomCeiling =
+        this.refinementActivation === "active"
+          ? planZoom
+          : Math.min(planZoom, intermediateZoomCeiling);
       const window = imageryWindowForContact(
         options.latitudeDegrees,
         options.longitudeDegrees,
-        zoom,
+        planZoom,
         this.plan?.window,
         this.windowSize,
       );
-      const nextPlan = imageryPlanForWindow(window);
+      const nextPlan = imageryPlanForWindow(
+        window,
+        this.provider.minZoom,
+      );
       if (nextPlan.signature !== this.plan?.signature) {
         this.applyPlan(nextPlan);
       }
-      this.desiredZoom = zoom;
-    } else if (this.activation !== "inactive" && this.plan) {
+      this.desiredZoom = desiredZoom;
+    } else if (this.baseActivation !== "inactive" && this.plan) {
       this.clearPlan();
     }
     this.uploadDecodedTiles();
-    if (this.activation === "active") {
+    if (this.baseActivation === "active") {
       this.commitResolvedMapping();
     } else {
       this.sharedUniforms.imageryEnabled!.value = 0;
@@ -579,7 +610,9 @@ export class ImageryVirtualTexture {
         record.pixels = undefined;
       }
     }
-    if (this.activation === "active") this.commitResolvedMapping(true);
+    if (this.baseActivation === "active") {
+      this.commitResolvedMapping(true);
+    }
   }
 
   private clearPlan(): void {
@@ -589,10 +622,12 @@ export class ImageryVirtualTexture {
       Number(this.sharedUniforms.imageryEnabled!.value) === 0
     ) {
       this.desiredZoom = undefined;
+      this.visibleZoomCeiling = undefined;
       return;
     }
     this.plan = undefined;
     this.desiredZoom = undefined;
+    this.visibleZoomCeiling = undefined;
     this.generation += 1;
     this.wanted.clear();
     for (const request of this.activeRequests.values()) {
@@ -604,7 +639,13 @@ export class ImageryVirtualTexture {
   }
 
   private pumpRequests(nowMs = Date.now()): void {
-    if (!this.provider || !this.plan || this.activation === "inactive") return;
+    if (
+      !this.provider ||
+      !this.plan ||
+      this.baseActivation === "inactive"
+    ) {
+      return;
+    }
     while (this.activeRequests.size < MAX_CONCURRENT_IMAGERY_REQUESTS) {
       const next = [...this.wanted.entries()]
         .filter(([key]) => {
@@ -828,7 +869,7 @@ export class ImageryVirtualTexture {
   }
 
   private commitResolvedMapping(force = false): void {
-    if (!this.plan || this.activation !== "active") return;
+    if (!this.plan || this.baseActivation !== "active") return;
     const resident = new Set(
       [...this.records]
         .filter(([, record]) => record.status === "resident")
@@ -844,6 +885,7 @@ export class ImageryVirtualTexture {
         cell.address,
         resident,
         this.provider?.minZoom ?? 0,
+        this.visibleZoomCeiling ?? cell.address.z,
       );
       if (!source) continue;
       const record = this.records.get(imageryKey(source));
@@ -900,9 +942,15 @@ export class ImageryVirtualTexture {
       (record) => record.status === "permanent",
     ).length;
     document.body.dataset.imageryProvider = this.provider?.id ?? "none";
-    document.body.dataset.imageryActivation = this.activation;
+    document.body.dataset.imageryActivation = this.baseActivation;
+    document.body.dataset.imageryRefinement =
+      this.refinementActivation;
     document.body.dataset.imageryDesiredZoom =
       this.desiredZoom === undefined ? "" : String(this.desiredZoom);
+    document.body.dataset.imageryVisibleZoom =
+      this.visibleZoomCeiling === undefined
+        ? ""
+        : String(this.visibleZoomCeiling);
     document.body.dataset.imageryWindow = this.plan?.signature ?? "";
     document.body.dataset.imageryRequests = String(
       this.activeRequests.size,
@@ -931,7 +979,7 @@ export class ImageryVirtualTexture {
     document.body.dataset.imageryVisibleExact = String(
       [...this.visibleKeys].filter((key) => {
         const record = this.records.get(key);
-        return record?.address.z === this.desiredZoom;
+        return record?.address.z === this.plan?.window.zoom;
       }).length,
     );
     document.body.dataset.imageryUploadTotal = String(
