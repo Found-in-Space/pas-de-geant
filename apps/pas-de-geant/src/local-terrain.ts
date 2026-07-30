@@ -34,6 +34,11 @@ import {
   type NativeTerrainTile,
   type TileLoadTask,
 } from "./local-terrain-core.js";
+import {
+  IMAGERY_FRAGMENT_DECLARATIONS,
+  ImageryVirtualTexture,
+  imageryBoundsForMercatorAddress,
+} from "./imagery.js";
 
 const HEIGHT_RETRY_DELAY_MS = 30_000;
 const LOCAL_MIN_SKIRT_DEPTH_WORLD_M = 0.0005;
@@ -111,9 +116,10 @@ async function loadElevation(
 
 function localTerrainMaterial(
   relief: ReliefDataset,
-  blueMarbleTexture: THREE.Texture,
+  imagery: ImageryVirtualTexture,
 ): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
     side: THREE.DoubleSide,
     depthTest: true,
     depthWrite: true,
@@ -127,7 +133,7 @@ function localTerrainMaterial(
       heightMap: { value: relief.texture },
       heightOffsetM: { value: relief.metadata.offsetMetres },
       heightScaleM: { value: relief.metadata.scaleMetres },
-      blueMarbleMap: { value: blueMarbleTexture },
+      ...imagery.materialUniforms(),
       normalizedRadialMetres: { value: 0 },
       normalizedSkirtDepth: { value: 0 },
       detailAvailable: { value: 0 },
@@ -135,9 +141,9 @@ function localTerrainMaterial(
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
     },
     vertexShader: `
-      attribute vec2 heightUv;
-      attribute float detailHeightM;
-      attribute float skirtEdge;
+      in vec2 heightUv;
+      in float detailHeightM;
+      in float skirtEdge;
       uniform sampler2D heightMap;
       uniform float heightOffsetM;
       uniform float heightScaleM;
@@ -145,10 +151,11 @@ function localTerrainMaterial(
       uniform float normalizedSkirtDepth;
       uniform float detailAvailable;
       uniform vec4 skirtEdges;
-      varying vec2 vHeightUv;
-      varying vec3 vBaseNormal;
+      out vec2 vBlueMarbleUv;
+      out vec2 vImageryUv;
+      out vec3 vBaseNormal;
       void main() {
-        vec2 packedHeight = texture2D(heightMap, heightUv).rg;
+        vec2 packedHeight = texture(heightMap, heightUv).rg;
         float encodedHeight =
           packedHeight.r * 255.0 + packedHeight.g * 65280.0;
         float globalHeightM =
@@ -174,23 +181,24 @@ function localTerrainMaterial(
           normal * normalizedSkirtDepth * skirtEnabled;
         vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
         vBaseNormal = normalize(mat3(modelMatrix) * normal);
-        vHeightUv = heightUv;
+        vBlueMarbleUv = heightUv;
+        vImageryUv = uv;
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
     `,
     fragmentShader: `
-      uniform sampler2D blueMarbleMap;
+      ${IMAGERY_FRAGMENT_DECLARATIONS}
       uniform vec3 sunlight;
-      varying vec2 vHeightUv;
-      varying vec3 vBaseNormal;
+      in vec3 vBaseNormal;
+      out vec4 terrainColour;
       void main() {
-        vec3 albedo = texture2D(blueMarbleMap, vHeightUv).rgb;
+        vec3 albedo = resolvedImageryAlbedo();
         vec3 reliefNormal = normalize(vBaseNormal);
         float direct = max(0.0, dot(reliefNormal, normalize(sunlight)));
         float light = 0.46 + direct * 0.72;
         vec3 colour = albedo * light;
         colour += vec3(0.025, 0.045, 0.065) * (1.0 - direct);
-        gl_FragColor = vec4(colour, 1.0);
+        terrainColour = vec4(colour, 1.0);
       }
     `,
   });
@@ -379,7 +387,7 @@ export class LocalTerrainRenderer {
 
   constructor(
     private readonly relief: ReliefDataset,
-    private readonly blueMarbleTexture: THREE.Texture,
+    private readonly imagery: ImageryVirtualTexture,
     private readonly stencilAvailable = true,
   ) {
     this.group.name = "local-terrain";
@@ -538,6 +546,10 @@ export class LocalTerrainRenderer {
       uniforms.normalizedRadialMetres!.value = normalizedRadialMetres;
       uniforms.normalizedSkirtDepth!.value =
         LOCAL_MIN_SKIRT_DEPTH_WORLD_M / this.displayRadiusM;
+      this.imagery.configureMaterial(
+        tile.mesh.material,
+        imageryBoundsForMercatorAddress(tile.address),
+      );
     }
   }
 
@@ -813,7 +825,11 @@ export class LocalTerrainRenderer {
     } else {
       const material = localTerrainMaterial(
         this.relief,
-        this.blueMarbleTexture,
+        this.imagery,
+      );
+      this.imagery.configureMaterial(
+        material,
+        imageryBoundsForMercatorAddress(staged.address),
       );
       const mesh = new THREE.Mesh(staged.geometry, material);
       mesh.frustumCulled = false;
@@ -840,7 +856,11 @@ export class LocalTerrainRenderer {
     const { geometry, geometryBytes } = gebcoFallbackGeometry(address);
     const material = localTerrainMaterial(
       this.relief,
-      this.blueMarbleTexture,
+      this.imagery,
+    );
+    this.imagery.configureMaterial(
+      material,
+      imageryBoundsForMercatorAddress(address),
     );
     material.uniforms.detailAvailable!.value = 0;
     const mesh = new THREE.Mesh(geometry, material);

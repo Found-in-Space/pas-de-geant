@@ -5,6 +5,12 @@ import {
   WGS84_B_KM,
   normalizedRadialOffsetForMetres,
 } from "./planet-state.js";
+import {
+  IMAGERY_FRAGMENT_DECLARATIONS,
+  ImageryVirtualTexture,
+  imageryBoundsForGeographicBounds,
+  normalizedMercatorYForLatitude,
+} from "./imagery.js";
 import { LocalTerrainRenderer } from "./local-terrain.js";
 import type { ReliefDataset } from "./relief.js";
 import { terrainHorizonDegrees } from "./terrain-horizon.js";
@@ -48,6 +54,7 @@ interface RenderedTile {
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   lastUsedAt: number;
   baseBoundingRadius: number;
+  address: TileAddress;
 }
 
 export function tileKey(address: TileAddress): string {
@@ -305,21 +312,28 @@ function geometryForTile(address: TileAddress): THREE.BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
   const heightUvs: number[] = [];
+  const imageryUvs: number[] = [];
   const skirts: number[] = [];
   const indices: number[] = [];
   const rowLength = TILE_SEGMENTS + 1;
   const addVertex = (
     latitude: number,
     longitude: number,
+    imageryU: number,
+    imageryV: number,
     skirt: number,
   ): number => {
     const vertex = geodeticVertex(latitude, longitude);
     positions.push(vertex.position.x, vertex.position.y, vertex.position.z);
     normals.push(vertex.normal.x, vertex.normal.y, vertex.normal.z);
     heightUvs.push(vertex.heightUv.x, vertex.heightUv.y);
+    imageryUvs.push(imageryU, imageryV);
     skirts.push(skirt);
     return skirts.length - 1;
   };
+  const imageryNorth = normalizedMercatorYForLatitude(bounds.north);
+  const imagerySouth = normalizedMercatorYForLatitude(bounds.south);
+  const imageryHeight = Math.max(1e-9, imagerySouth - imageryNorth);
   for (let row = 0; row <= TILE_SEGMENTS; row += 1) {
     const fractionV = row / TILE_SEGMENTS;
     const latitude = THREE.MathUtils.lerp(
@@ -334,7 +348,10 @@ function geometryForTile(address: TileAddress): THREE.BufferGeometry {
         bounds.east,
         fractionU,
       );
-      addVertex(latitude, longitude, 0);
+      const imageryV =
+        (normalizedMercatorYForLatitude(latitude) - imageryNorth) /
+        imageryHeight;
+      addVertex(latitude, longitude, fractionU, imageryV, 0);
     }
   }
   for (let row = 0; row < TILE_SEGMENTS; row += 1) {
@@ -382,6 +399,7 @@ function geometryForTile(address: TileAddress): THREE.BufferGeometry {
         normals[positionOffset + 2]!,
       );
       heightUvs.push(heightUvs[uvOffset]!, heightUvs[uvOffset + 1]!);
+      imageryUvs.push(imageryUvs[uvOffset]!, imageryUvs[uvOffset + 1]!);
       skirts.push(1);
       duplicates.push(skirts.length - 1);
     }
@@ -406,6 +424,10 @@ function geometryForTile(address: TileAddress): THREE.BufferGeometry {
     "heightUv",
     new THREE.Float32BufferAttribute(heightUvs, 2),
   );
+  geometry.setAttribute(
+    "imageryUv",
+    new THREE.Float32BufferAttribute(imageryUvs, 2),
+  );
   geometry.setAttribute("skirt", new THREE.Float32BufferAttribute(skirts, 1));
   geometry.setIndex(indices);
   geometry.computeBoundingSphere();
@@ -414,10 +436,11 @@ function geometryForTile(address: TileAddress): THREE.BufferGeometry {
 
 function terrainMaterial(
   relief: ReliefDataset,
-  blueMarbleTexture: THREE.Texture,
+  imagery: ImageryVirtualTexture,
   stencilAvailable: boolean,
 ): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
     side: THREE.FrontSide,
     depthTest: true,
     depthWrite: true,
@@ -431,7 +454,7 @@ function terrainMaterial(
     stencilZPass: THREE.KeepStencilOp,
     uniforms: {
       heightMap: { value: relief.texture },
-      blueMarbleMap: { value: blueMarbleTexture },
+      ...imagery.materialUniforms(),
       normalizedRadialMetres: { value: 0 },
       heightOffsetM: { value: relief.metadata.offsetMetres },
       heightScaleM: { value: relief.metadata.scaleMetres },
@@ -439,18 +462,20 @@ function terrainMaterial(
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
     },
     vertexShader: `
-      attribute vec2 heightUv;
-      attribute float skirt;
+      in vec2 heightUv;
+      in vec2 imageryUv;
+      in float skirt;
       uniform sampler2D heightMap;
       uniform float normalizedRadialMetres;
       uniform float heightOffsetM;
       uniform float heightScaleM;
       uniform float normalizedSkirtDepth;
-      varying vec2 vBlueMarbleUv;
-      varying vec3 vWorldPosition;
-      varying vec3 vBaseNormal;
+      out vec2 vBlueMarbleUv;
+      out vec2 vImageryUv;
+      out vec3 vWorldPosition;
+      out vec3 vBaseNormal;
       void main() {
-        vec2 packedHeight = texture2D(heightMap, heightUv).rg;
+        vec2 packedHeight = texture(heightMap, heightUv).rg;
         float encodedHeight =
           packedHeight.r * 255.0 + packedHeight.g * 65280.0;
         float heightM = encodedHeight * heightScaleM + heightOffsetM;
@@ -462,17 +487,18 @@ function terrainMaterial(
         vWorldPosition = worldPosition.xyz;
         vBaseNormal = normalize(mat3(modelMatrix) * normal);
         vBlueMarbleUv = heightUv;
+        vImageryUv = imageryUv;
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
     `,
     fragmentShader: `
-      uniform sampler2D blueMarbleMap;
+      ${IMAGERY_FRAGMENT_DECLARATIONS}
       uniform vec3 sunlight;
-      varying vec2 vBlueMarbleUv;
-      varying vec3 vWorldPosition;
-      varying vec3 vBaseNormal;
+      in vec3 vWorldPosition;
+      in vec3 vBaseNormal;
+      out vec4 terrainColour;
       void main() {
-        vec3 albedo = texture2D(blueMarbleMap, vBlueMarbleUv).rgb;
+        vec3 albedo = resolvedImageryAlbedo();
         vec3 reliefNormal = normalize(cross(dFdx(vWorldPosition), dFdy(vWorldPosition)));
         if (dot(reliefNormal, vBaseNormal) < 0.0) reliefNormal *= -1.0;
         float direct = max(0.0, dot(reliefNormal, normalize(sunlight)));
@@ -501,7 +527,7 @@ function terrainMaterial(
           direct * (${LAND_DIRECT_LIGHT.toFixed(2)} - shadowLift);
         vec3 colour = balancedAlbedo * light;
         colour += vec3(0.025, 0.045, 0.065) * (1.0 - direct);
-        gl_FragColor = vec4(colour, 1.0);
+        terrainColour = vec4(colour, 1.0);
       }
     `,
   });
@@ -557,13 +583,13 @@ export class TerrainTileRenderer {
 
   constructor(
     relief: ReliefDataset,
-    private readonly blueMarbleTexture: THREE.Texture,
+    private readonly imagery: ImageryVirtualTexture,
     private readonly stencilAvailable = true,
   ) {
     this.relief = relief;
     this.localTerrain = new LocalTerrainRenderer(
       relief,
-      blueMarbleTexture,
+      imagery,
       stencilAvailable,
     );
     this.group.add(this.occluder);
@@ -579,6 +605,13 @@ export class TerrainTileRenderer {
     eyeHeightWorldM = 1.65,
     focalLengthPixels = 1_000,
   ): void {
+    this.imagery.update({
+      latitudeDegrees,
+      longitudeDegrees,
+      displayRadiusM,
+      eyeHeightWorldM,
+      focalLengthPixels,
+    });
     const normalizedRadialMetres = normalizedRadialOffsetForMetres(
       1,
       radialMultiplier,
@@ -611,6 +644,10 @@ export class TerrainTileRenderer {
         normalizedRadialMetres;
       tile.mesh.material.uniforms.normalizedSkirtDepth!.value =
         normalizedSkirtDepth;
+      this.imagery.configureMaterial(
+        tile.mesh.material,
+        imageryBoundsForGeographicBounds(boundsForTile(tile.address)),
+      );
       if (tile.mesh.geometry.boundingSphere) {
         tile.mesh.geometry.boundingSphere.radius =
           tile.baseBoundingRadius + maximumNormalizedDisplacement;
@@ -631,7 +668,7 @@ export class TerrainTileRenderer {
         if (!tile) {
           const material = terrainMaterial(
             this.relief,
-            this.blueMarbleTexture,
+            this.imagery,
             this.stencilAvailable,
           );
           material.uniforms.normalizedRadialMetres!.value =
@@ -647,9 +684,14 @@ export class TerrainTileRenderer {
           mesh.frustumCulled = true;
           tile = {
             mesh,
+            address,
             lastUsedAt: now,
             baseBoundingRadius,
           };
+          this.imagery.configureMaterial(
+            material,
+            imageryBoundsForGeographicBounds(boundsForTile(address)),
+          );
           this.rendered.set(key, tile);
           this.group.add(mesh);
         }
@@ -686,6 +728,7 @@ export class TerrainTileRenderer {
 
   dispose(): void {
     this.localTerrain.dispose();
+    this.imagery.dispose();
     for (const tile of this.rendered.values()) {
       tile.mesh.geometry.dispose();
       tile.mesh.material.dispose();

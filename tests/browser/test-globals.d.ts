@@ -1,0 +1,19 @@
+import type {
+  ImageryProvider,
+  XyzImageryConfiguration,
+} from "../../apps/pas-de-geant/src/imagery.js";
+
+declare global {
+  interface Window {
+    __PAS_DE_GEANT_ENABLE_TEST_HOOKS__?: boolean;
+    __PAS_DE_GEANT_IMAGERY_CONFIG__?: XyzImageryConfiguration;
+    __PAS_DE_GEANT_IMAGERY_PROVIDER__?: ImageryProvider;
+    __PAS_DE_GEANT_TEST_SET_SCALE__?: (displayRadiusM: number) => void;
+    __PAS_DE_GEANT_TEST_SET_LOCATION__?: (
+      latitudeDegrees: number,
+      longitudeDegrees: number,
+    ) => void;
+  }
+}
+
+export {};

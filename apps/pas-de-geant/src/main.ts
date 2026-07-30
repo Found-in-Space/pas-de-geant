@@ -34,6 +34,11 @@ import {
 } from "./hand-panel.js";
 import { directionOnHandPanel } from "./hand-panel-orientation.js";
 import {
+  ImageryVirtualTexture,
+  configuredXyzImageryProvider,
+  type XyzImageryConfiguration,
+} from "./imagery.js";
+import {
   applyLogarithmicScale,
   applyRadialMultiplierRate,
   coordinatesForFrame,
@@ -48,6 +53,17 @@ import {
 import { resolveInitialLocation } from "./initial-location.js";
 import { loadReliefDataset } from "./relief.js";
 import { TerrainTileRenderer } from "./terrain-tiles.js";
+
+declare global {
+  interface Window {
+    __PAS_DE_GEANT_ENABLE_TEST_HOOKS__?: boolean;
+    __PAS_DE_GEANT_TEST_SET_SCALE__?: (displayRadiusM: number) => void;
+    __PAS_DE_GEANT_TEST_SET_LOCATION__?: (
+      latitudeDegrees: number,
+      longitudeDegrees: number,
+    ) => void;
+  }
+}
 
 const element = <T extends HTMLElement>(id: string): T => {
   const value = document.getElementById(id);
@@ -66,7 +82,37 @@ const radialReadout = element<HTMLElement>("radial-readout");
 const aircraftReadout = element<HTMLElement>("aircraft-readout");
 const resetButton = element<HTMLButtonElement>("reset-button");
 const aircraftToggle = element<HTMLInputElement>("aircraft-toggle");
+const imageryAttribution = element<HTMLElement>("imagery-attribution");
 const initialLocationPromise = resolveInitialLocation();
+
+function optionalNumber(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function imageryConfiguration(): XyzImageryConfiguration | undefined {
+  if (window.__PAS_DE_GEANT_IMAGERY_CONFIG__) {
+    return window.__PAS_DE_GEANT_IMAGERY_CONFIG__;
+  }
+  const urlTemplate = import.meta.env.VITE_IMAGERY_XYZ_TEMPLATE;
+  if (!urlTemplate) return undefined;
+  const attribution = import.meta.env.VITE_IMAGERY_ATTRIBUTION;
+  if (!attribution) {
+    console.warn(
+      "VITE_IMAGERY_ATTRIBUTION is required when photographic imagery is configured.",
+    );
+    return undefined;
+  }
+  return {
+    id: import.meta.env.VITE_IMAGERY_PROVIDER_ID,
+    urlTemplate,
+    attribution,
+    tileSize: optionalNumber(import.meta.env.VITE_IMAGERY_TILE_SIZE),
+    minZoom: optionalNumber(import.meta.env.VITE_IMAGERY_MIN_ZOOM),
+    maxZoom: optionalNumber(import.meta.env.VITE_IMAGERY_MAX_ZOOM),
+  };
+}
 
 let renderer: THREE.WebGLRenderer;
 try {
@@ -133,12 +179,23 @@ blueMarbleTexture.anisotropy = Math.min(
 
 const relief = await loadReliefDataset();
 document.body.dataset.reliefFallback = String(relief.fallback);
+const photographicImageryProvider =
+  window.__PAS_DE_GEANT_IMAGERY_PROVIDER__ ??
+  configuredXyzImageryProvider(imageryConfiguration());
+imageryAttribution.textContent = photographicImageryProvider
+  ? ` + ${photographicImageryProvider.attribution}`
+  : "";
+const imagery = new ImageryVirtualTexture(
+  renderer,
+  blueMarbleTexture,
+  photographicImageryProvider,
+);
 const renderingContext = renderer.getContext();
 const detailStencilAvailable =
   renderingContext.getParameter(renderingContext.STENCIL_BITS) > 0;
 const terrain = new TerrainTileRenderer(
   relief,
-  blueMarbleTexture,
+  imagery,
   detailStencilAvailable,
 );
 planetRoot.add(terrain.group);
@@ -154,6 +211,22 @@ let state = initialPlanetState(
   initialLocation.latitudeDegrees,
   initialLocation.longitudeDegrees,
 );
+if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
+  window.__PAS_DE_GEANT_TEST_SET_SCALE__ = (displayRadiusM): void => {
+    state.displayRadiusM = Math.max(1, displayRadiusM);
+    updatePresentation();
+  };
+  window.__PAS_DE_GEANT_TEST_SET_LOCATION__ = (
+    latitudeDegrees,
+    longitudeDegrees,
+  ): void => {
+    state.contact = initialPlanetState(
+      latitudeDegrees,
+      longitudeDegrees,
+    ).contact;
+    updatePresentation();
+  };
+}
 let terrainLodBias = 0;
 const initialCoordinates = coordinatesForFrame(state.contact);
 const initialHandPanelStatus = handPanelStatus(
@@ -291,6 +364,7 @@ function updatePresentation(): void {
   planetRoot.position.copy(pose.centre);
   planetRoot.scale.setScalar(state.displayRadiusM);
   const view = terrainViewMetrics();
+  document.body.dataset.displayScale = state.displayRadiusM.toFixed(2);
   terrain.update(
     coordinates.latitudeDegrees,
     coordinates.longitudeDegrees,

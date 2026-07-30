@@ -163,11 +163,36 @@ commits once. Missing cells remain GEBCO during that commit. This preserves the
 construct's generation-and-commit principle without delaying the first Earth
 render.
 
-The checked-in 2048×1024 Blue Marble image is the only production terrain
-texture and is available immediately offline. There is currently no network
-imagery loader, cache, patch lease, or progressive texture path; a future
-photographic virtual-texture system can therefore start from a clean embedded
-base instead of inheriting the previous transition model.
+The checked-in 2048×1024 Blue Marble image is the immutable complete terrain
+texture and is available immediately offline. An optional photographic XYZ
+provider refines it through an imagery quadtree that is independent from the
+terrain stencil. The virtual window is at most 8×8 and is snapped in four-page
+strides; its requested zoom comes from projected texel size and is capped only
+by the provider. A texture array holds at most 96 decoded pages and is reduced
+automatically to stay within a 64 MiB pixel budget and the device's array-layer
+limit.
+
+Photographic pages prefetch at 400×, may commit at 500×, and release below
+375×. The visible page table always resolves each page to a complete exact
+sibling group, a resident photographic ancestor, or Blue Marble. Downloads,
+decodes and GPU uploads only populate staging. Two page-table textures swap
+after successful uploads, so missing, malformed, aborted, stale, or GPU-failed
+pages cannot alter the visible mapping. Web Mercator requests stop at
+±85.05112878° while Blue Marble continues across both poles.
+
+No network imagery provider is hard-coded. Configure one at build time with:
+
+```sh
+VITE_IMAGERY_XYZ_TEMPLATE='https://example.test/{z}/{x}/{y}.jpg'
+VITE_IMAGERY_ATTRIBUTION='Required provider attribution'
+VITE_IMAGERY_PROVIDER_ID='provider-id'
+VITE_IMAGERY_TILE_SIZE=256
+VITE_IMAGERY_MIN_ZOOM=0
+VITE_IMAGERY_MAX_ZOOM=20
+```
+
+The URL and attribution variables are required together. Without them,
+startup and rendering remain exactly the complete embedded Blue Marble path.
 Source, license, datum, DOI, and checksum details live beside the relief asset
 and in `public/THIRD_PARTY_LICENSES.txt`.
 
