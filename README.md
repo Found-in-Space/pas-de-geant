@@ -4,7 +4,7 @@ _Walk around worlds, one small step at a time._
 
 Pas de Géant is a room-scale WebXR experience that puts a relief globe beneath
 your feet. Walk through the room or use a controller to roll the world through
-the floor contact point, changing planetary scale while the terrain, ocean,
+the floor contact point, changing planetary scale while the terrain,
 atmosphere, sky, and optional live aircraft move with it.
 
 The current world is Earth. Its architecture is intended to support the Moon,
@@ -23,8 +23,8 @@ npm run dev -- --port 4197
 ```
 
 Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel, Z/X to
-change planet scale, C/V to change the radial multiplier, O to reveal the
-seabed, and Backspace to reset.
+change planet scale, C/V to change the radial multiplier, and Backspace to
+reset.
 
 WebXR requires a secure context. A USB-connected Quest can use an Android
 reverse tunnel so its browser sees the local server as device-local:
@@ -42,7 +42,6 @@ Then open `http://localhost:4197` in the headset.
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: terrain and altitude exaggeration
 - X / Y: use one coarser / finer topography source level
-- A: toggle the sea surface and bathymetry
 - Hold B: reset location, scale, and automatic terrain selection
 - Right-stick press: toggle the left-hand Earth map panel
 
@@ -50,7 +49,7 @@ Then open `http://localhost:4197` in the headset.
 
 - A WGS 84 Earth whose mean-sea-level contact stays at the physical floor
 - Global GEBCO 2026 relief and bathymetry with local Copernicus GLO-30 detail
-- NASA Blue Marble fallback imagery and progressive NASA GIBS imagery
+- Embedded NASA Blue Marble imagery
 - A Gaia DR3 / Hipparcos celestial sphere through Found in Space SkyKit
 - Optional Airplanes.live traffic during an active immersive session
 - Browser geolocation with an approximate network fallback

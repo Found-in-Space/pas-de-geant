@@ -15,8 +15,8 @@ npm run dev -- --port 4197
 ```
 
 Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel,
-Z/X to change planet scale, C/V to change the radial multiplier, O to reveal
-the seabed, and Backspace to reset.
+Z/X to change planet scale, C/V to change the radial multiplier, and
+Backspace to reset.
 
 ### The Construct
 
@@ -68,7 +68,6 @@ build should be served over HTTPS.
 - X / Y: bias the native Mapterhorn level coarser / finer
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: radial multiplier
-- A: toggle sea surface / bathymetry
 - Hold B: reset to the detected starting location and initial scale
 - Right-stick press: toggle the left-hand Earth map panel
 
@@ -96,9 +95,10 @@ Planet scale uniformly converts geographic kilometres into room metres.
 It has a 1 m rendered-radius lower bound and no application-imposed upper
 bound.
 The separate radial multiplier applies after that conversion to terrain,
-aircraft altitude, bathymetry, and the 100 km atmosphere. The mean-sea-level
-WGS84 ellipsoid remains the floor contact even when radial features are
-exaggerated.
+aircraft altitude, and the 100 km atmosphere. The mean-sea-level WGS84
+ellipsoid remains the floor contact even when radial features are exaggerated.
+There is currently no synthetic sea surface: negative source elevations
+remain negative terrain and are not interpreted as water.
 
 ## Terrain and imagery
 
@@ -127,13 +127,13 @@ refinement stops at z12, and regional z13–17 LiDAR is intentionally not
 requested. At z0–2 the renderer simply uses every available world tile because
 an 8×8 footprint cannot yet exist.
 
-All tile offsets, ring membership, edge fades, skirts, priorities, and mesh
-density are fixed. Four tiles around the contact point retain the complete
+All tile offsets, ring membership, skirts, priorities, and mesh density are
+fixed. Four tiles around the contact point retain the complete
 512×512 source grid. The rest of the finest level uses 128×128 cells, and the
 two parent rings use 64×64 and 32×32 cells. Same-zoom neighbours share decoded
-boundary samples; changes in mesh density and source zoom blend both sides to
-the same coarse surface before a shallow skirt closes the join. There is no
-terrain-planning worker, RTIN simplification, per-tile screen-space
+boundary samples; a shallow skirt closes changes in mesh density and source
+zoom without blending Mapterhorn and GEBCO at the same surface point. There is
+no terrain-planning worker, RTIN simplification, per-tile screen-space
 calculation, budget collapse, or per-frame neighbour search. Movement inside
 the snapped quadtree anchor does not alter the ring addresses; the four
 full-resolution tiles move only when the contact point crosses their stable
@@ -147,30 +147,28 @@ evicted as soon as worker decoding rejects them. The worker retains up to 192
 decoded pages, which covers the full 160-tile stencil plus overlap while the
 anchor moves. Browser storage quotas and eviction policy still apply.
 
-Prepared local meshes write an exact stencil before the coarse globe renders,
-so missing, malformed, ocean-only, polar, and offline tiles remain continuous
-GEBCO terrain and bathymetry. The outer ring blends back to GEBCO, unavailable
-neighbours receive a shorter edge fade, and a depth-only shell below the
-deepest exaggerated seabed prevents distant terrain and ocean faces from
-showing through transient seams.
+Before any network request completes, every active Mapterhorn address gets a
+coarse virtual tile whose vertex shader samples the embedded GEBCO raster.
+That tile writes the same stencil and owns the same footprint as the eventual
+native mesh. A completed Mapterhorn mesh replaces its GEBCO geometry in place;
+there are never two elevation providers drawing the same point. Missing,
+malformed, zero-only, polar, and offline pages simply keep their GEBCO tile.
+Any rasterization crack falls through to the complete geographic GEBCO globe
+beneath it, which uses the same elevation and texture rather than an unrelated
+sea-level plane.
 
-NASA GIBS supplies up to 32 nearby 512 px Blue Marble images from its native
-500 m geographic WMTS pyramid. Shared two-level-coarser previews load before
-the nearest full-detail tiles, with no more than six image fetches and decodes
-active at once. Levels 0–7 are selected from their projected texel size at the
-current planet scale and latitude, capped at the native 500 m level. Failed
-imagery requests retry after 1, 5, and then 30 seconds while the tile remains
-relevant. GIBS marks these pre-generated tiles as browser-cacheable, so repeat
-headset visits can reuse them without bundling a global imagery archive. Local
-terrain meshes reuse the highest available cached preview or exact geographic
-image selection and texture lease. The bundled Blue Marble texture remains
-the common fallback. There is no separate EPSG:3857 imagery requester or local
-imagery cache, so local relief cannot conceal the global layer with a coarser
-or competing image pyramid.
+Native geometry is staged in coherent groups: the four underfoot cells, the
+rest of the finest ring, and each of the two parent rings. A group remains
+entirely on GEBCO until all of its available Mapterhorn meshes are ready, then
+commits once. Missing cells remain GEBCO during that commit. This preserves the
+construct's generation-and-commit principle without delaying the first Earth
+render.
 
-The checked-in 2048×1024 Blue Marble image is displayed immediately beneath
-the progressive tiles and remains usable when offline. Detailed global imagery
-still requires a network connection the first time a location is viewed.
+The checked-in 2048×1024 Blue Marble image is currently the only production
+terrain texture and is available immediately offline. The progressive NASA
+GIBS loader remains in the codebase for a future ownership-aware imagery
+upgrade, but the current renderer issues no GIBS requests. This deliberately
+keeps texture loading out of the GEBCO–Mapterhorn elevation transition.
 Source, license, datum, DOI, and checksum details live beside the relief asset
 and in `public/THIRD_PARTY_LICENSES.txt`.
 

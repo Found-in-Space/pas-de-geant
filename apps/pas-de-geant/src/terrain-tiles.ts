@@ -20,6 +20,7 @@ const GIBS_WMTS =
 const GIBS_ROOT_TILE_SPAN_DEGREES = 288;
 const GIBS_TILE_SIZE = 512;
 const GIBS_PROJECTED_TEXEL_TARGET_M = 0.01;
+const PROGRESSIVE_GIBS_IMAGERY_ENABLED = false;
 const TILE_SEGMENTS = 24;
 const SKIRT_DEPTH_WORLD_M = 0.02;
 const OCCLUDER_SEGMENTS = 96;
@@ -612,7 +613,6 @@ function terrainMaterial(
         ),
       },
       normalizedRadialMetres: { value: 0 },
-      oceanSurface: { value: 1 },
       heightOffsetM: { value: relief.metadata.offsetMetres },
       heightScaleM: { value: relief.metadata.scaleMetres },
       normalizedSkirtDepth: { value: 0 },
@@ -623,30 +623,25 @@ function terrainMaterial(
       attribute float skirt;
       uniform sampler2D heightMap;
       uniform float normalizedRadialMetres;
-      uniform float oceanSurface;
       uniform float heightOffsetM;
       uniform float heightScaleM;
       uniform float normalizedSkirtDepth;
       varying vec2 vImageUv;
       varying vec3 vWorldPosition;
       varying vec3 vBaseNormal;
-      varying float vHeightM;
       void main() {
         vec2 packedHeight = texture2D(heightMap, heightUv).rg;
         float encodedHeight =
           packedHeight.r * 255.0 + packedHeight.g * 65280.0;
         float heightM = encodedHeight * heightScaleM + heightOffsetM;
-        float displayedHeightM = heightM;
-        if (oceanSurface > 0.5 && heightM < 0.0) displayedHeightM = 0.0;
         vec3 displaced =
           position +
-          normal * displayedHeightM * normalizedRadialMetres -
+          normal * heightM * normalizedRadialMetres -
           normal * normalizedSkirtDepth * skirt;
         vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
         vWorldPosition = worldPosition.xyz;
         vBaseNormal = normalize(mat3(modelMatrix) * normal);
         vImageUv = uv;
-        vHeightM = heightM;
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
     `,
@@ -655,11 +650,9 @@ function terrainMaterial(
       uniform vec2 imageScale;
       uniform vec2 imageOffset;
       uniform vec3 sunlight;
-      uniform float oceanSurface;
       varying vec2 vImageUv;
       varying vec3 vWorldPosition;
       varying vec3 vBaseNormal;
-      varying float vHeightM;
       void main() {
         vec2 imageUv = imageOffset + vImageUv * imageScale;
         vec3 albedo = texture2D(imageMap, imageUv).rgb;
@@ -690,15 +683,6 @@ function terrainMaterial(
           shadowLift +
           direct * (${LAND_DIRECT_LIGHT.toFixed(2)} - shadowLift);
         vec3 colour = balancedAlbedo * light;
-        if (oceanSurface > 0.5 && vHeightM < 0.0) {
-          float depthTint = clamp(-vHeightM / 7000.0, 0.0, 1.0);
-          vec3 water = mix(
-            vec3(0.025, 0.22, 0.34),
-            vec3(0.012, 0.075, 0.15),
-            depthTint
-          );
-          colour = mix(water, albedo * 0.42, 0.18) * (0.72 + direct * 0.28);
-        }
         colour += vec3(0.025, 0.045, 0.065) * (1.0 - direct);
         gl_FragColor = vec4(colour, 1.0);
       }
@@ -969,7 +953,6 @@ export class TerrainTileRenderer {
     longitudeDegrees: number,
     displayRadiusM: number,
     radialMultiplier: number,
-    oceanSurface: boolean,
     localTerrainLodBias = 0,
     eyeHeightWorldM = 1.65,
     focalLengthPixels = 1_000,
@@ -1004,7 +987,6 @@ export class TerrainTileRenderer {
     for (const tile of this.rendered.values()) {
       tile.mesh.material.uniforms.normalizedRadialMetres!.value =
         normalizedRadialMetres;
-      tile.mesh.material.uniforms.oceanSurface!.value = oceanSurface ? 1 : 0;
       tile.mesh.material.uniforms.normalizedSkirtDepth!.value =
         normalizedSkirtDepth;
       if (tile.mesh.geometry.boundingSphere) {
@@ -1022,11 +1004,13 @@ export class TerrainTileRenderer {
         longitudeDegrees,
         displayRadiusM,
       );
-      const imageryAddresses = prioritizeTerrainTiles(
-        selected,
-        latitudeDegrees,
-        longitudeDegrees,
-      ).slice(0, DETAIL_TILE_LIMIT);
+      const imageryAddresses = PROGRESSIVE_GIBS_IMAGERY_ENABLED
+        ? prioritizeTerrainTiles(
+            selected,
+            latitudeDegrees,
+            longitudeDegrees,
+          ).slice(0, DETAIL_TILE_LIMIT)
+        : [];
       this.imageryTargets.clear();
       for (const address of imageryAddresses) {
         this.imageryTargets.set(tileKey(address), address);
@@ -1046,7 +1030,6 @@ export class TerrainTileRenderer {
           );
           material.uniforms.normalizedRadialMetres!.value =
             normalizedRadialMetres;
-          material.uniforms.oceanSurface!.value = oceanSurface ? 1 : 0;
           material.uniforms.normalizedSkirtDepth!.value = normalizedSkirtDepth;
           const geometry = geometryForTile(address);
           const baseBoundingRadius = geometry.boundingSphere?.radius ?? 0;
@@ -1089,7 +1072,6 @@ export class TerrainTileRenderer {
       longitudeDegrees,
       displayRadiusM,
       radialMultiplier,
-      oceanSurface,
       localTerrainLodBias,
       eyeHeightWorldM,
       focalLengthPixels,

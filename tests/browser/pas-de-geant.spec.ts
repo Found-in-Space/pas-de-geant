@@ -59,7 +59,7 @@ function onePixelPng(): Buffer {
   );
 }
 
-test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
+test("keeps complete GEBCO coverage while Mapterhorn commits atomically", async ({
   page,
 }) => {
   test.setTimeout(420_000);
@@ -116,48 +116,58 @@ test("feathers partial Mapterhorn coverage into stable GEBCO fallback", async ({
     "160",
   );
   await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-coverage-mesh-count",
+    "160",
+  );
+  await expect(page.locator("body")).toHaveAttribute(
     "data-detail-source-zoom-range",
     "4-6",
   );
   await expect(page.locator("body")).toHaveAttribute(
-    "data-detail-streaming-state",
-    "steady",
-    { timeout: 360_000 },
-  );
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-detail-mesh-count",
-    "155",
-  );
-  await expect(page.locator("body")).toHaveAttribute(
     "data-detail-fallback-cells",
     "5",
+    { timeout: 60_000 },
   );
+  await expect
+    .poll(
+      async () =>
+        Number(
+          await page
+            .locator("body")
+            .getAttribute("data-detail-atomic-swap-total"),
+        ),
+      { timeout: 120_000 },
+    )
+    .toBeGreaterThan(0);
+  await expect
+    .poll(async () =>
+      Number(
+        await page.locator("body").getAttribute("data-detail-mesh-count"),
+      ),
+    )
+    .toBeGreaterThan(0);
   const tileStates = await page
     .locator("body")
     .getAttribute("data-detail-tile-states");
   expect(tileStates).toHaveLength(160);
-  expect(tileStates?.replaceAll("r", "").replaceAll("f", "")).toBe("");
+  expect(tileStates?.replace(/[rfdpo]/g, "")).toBe("");
   expect(tileStates?.split("f")).toHaveLength(6);
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-imagery-requests",
     "0",
   );
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-detail-centre-state",
-    "r",
-  );
+  expect(
+    await page.locator("body").getAttribute("data-detail-centre-state"),
+  ).toMatch(/[rd]/);
   await expect(page.locator("body")).toHaveAttribute(
     "data-detail-material-side",
     "double",
   );
   expect(localImageryUrls).toEqual([]);
-  await expect
-    .poll(async () =>
-      Number(
-        await page.locator("body").getAttribute("data-detail-imagery-patches"),
-      ),
-    )
-    .toBeGreaterThan(0);
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-detail-imagery-patches",
+    "0",
+  );
 
   await page.waitForTimeout(500);
   const frameHashes: string[] = [];

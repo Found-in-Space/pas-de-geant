@@ -25,13 +25,10 @@ export interface ContactFrame {
   northEcef: Vector3;
 }
 
-export type OceanMode = "surface" | "revealed";
-
 export interface PlanetState {
   contact: ContactFrame;
   displayRadiusM: number;
   radialMultiplier: number;
-  oceanMode: OceanMode;
 }
 
 export interface PlanetPose {
@@ -72,7 +69,6 @@ export function initialPlanetState(
     contact: contactFrame(latitudeDegrees, longitudeDegrees),
     displayRadiusM: INITIAL_DISPLAY_RADIUS_M,
     radialMultiplier: 1,
-    oceanMode: "surface",
   };
 }
 

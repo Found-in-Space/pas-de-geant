@@ -4,7 +4,12 @@ import {
   loadCachedElevation,
   type ElevationCacheStatus,
 } from "./elevation-cache.js";
-import { normalizedRadialOffsetForMetres } from "./planet-state.js";
+import {
+  EARTH_MEAN_RADIUS_KM,
+  WGS84_A_KM,
+  WGS84_B_KM,
+  normalizedRadialOffsetForMetres,
+} from "./planet-state.js";
 import type { ReliefDataset } from "./relief.js";
 import {
   LOCAL_HEIGHT_CACHE_LIMIT,
@@ -32,6 +37,9 @@ import {
 
 const HEIGHT_RETRY_DELAY_MS = 30_000;
 const LOCAL_MIN_SKIRT_DEPTH_WORLD_M = 0.0005;
+const GEBCO_FALLBACK_MESH_SEGMENTS = 16;
+const WGS84_ECCENTRICITY_SQUARED =
+  1 - (WGS84_B_KM * WGS84_B_KM) / (WGS84_A_KM * WGS84_A_KM);
 
 interface ElevationPayload {
   bytes: ArrayBuffer;
@@ -48,6 +56,15 @@ class ElevationRequestError extends Error {
 
 interface RenderedLocalTile {
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  address: NativeTerrainTile;
+  requestedSegments: number;
+  actualSegments: number;
+  geometryBytes: number;
+  fallback: boolean;
+}
+
+interface StagedLocalTile {
+  geometry: THREE.BufferGeometry;
   address: NativeTerrainTile;
   requestedSegments: number;
   actualSegments: number;
@@ -133,10 +150,8 @@ function localTerrainMaterial(
       imageOffset: { value: new THREE.Vector2(0, 0) },
       normalizedRadialMetres: { value: 0 },
       normalizedSkirtDepth: { value: 0 },
-      oceanSurface: { value: 1 },
+      detailAvailable: { value: 0 },
       imageryMix: { value: 0 },
-      outerEdges: { value: new THREE.Vector4() },
-      unavailableEdges: { value: new THREE.Vector4() },
       skirtEdges: { value: new THREE.Vector4() },
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
     },
@@ -149,51 +164,22 @@ function localTerrainMaterial(
       uniform float heightScaleM;
       uniform float normalizedRadialMetres;
       uniform float normalizedSkirtDepth;
-      uniform float oceanSurface;
-      uniform vec4 outerEdges;
-      uniform vec4 unavailableEdges;
+      uniform float detailAvailable;
       uniform vec4 skirtEdges;
       varying vec2 vImageUv;
       varying vec2 vHeightUv;
       varying vec3 vBaseNormal;
-      varying float vHeightM;
-      varying float vDetailWeight;
-      float fadeEdge(float distance, float outerEdge, float unavailableEdge) {
-        float outerWeight = mix(
-          1.0,
-          smoothstep(0.0, 1.0, distance),
-          clamp(outerEdge, 0.0, 1.0)
-        );
-        float unavailableWeight = mix(
-          1.0,
-          smoothstep(0.0, 0.25, distance),
-          clamp(unavailableEdge, 0.0, 1.0)
-        );
-        return min(outerWeight, unavailableWeight);
-      }
       void main() {
         vec2 packedHeight = texture2D(heightMap, heightUv).rg;
         float encodedHeight =
           packedHeight.r * 255.0 + packedHeight.g * 65280.0;
         float globalHeightM =
           encodedHeight * heightScaleM + heightOffsetM;
-        float detailWeight = min(
-          min(
-            fadeEdge(uv.y, outerEdges.x, unavailableEdges.x),
-            fadeEdge(1.0 - uv.x, outerEdges.y, unavailableEdges.y)
-          ),
-          min(
-            fadeEdge(1.0 - uv.y, outerEdges.z, unavailableEdges.z),
-            fadeEdge(uv.x, outerEdges.w, unavailableEdges.w)
-          )
-        );
         float resolvedDetailM = detailHeightM;
         if (abs(detailHeightM) < 0.5 && globalHeightM < 0.0) {
           resolvedDetailM = globalHeightM;
         }
-        float heightM = mix(globalHeightM, resolvedDetailM, detailWeight);
-        float displayedHeightM = heightM;
-        if (oceanSurface > 0.5 && heightM < 0.0) displayedHeightM = 0.0;
+        float heightM = mix(globalHeightM, resolvedDetailM, detailAvailable);
         float skirtEnabled = 0.0;
         if (skirtEdge > 0.5 && skirtEdge < 1.5) {
           skirtEnabled = skirtEdges.x;
@@ -206,14 +192,12 @@ function localTerrainMaterial(
         }
         vec3 displaced =
           position +
-          normal * displayedHeightM * normalizedRadialMetres -
+          normal * heightM * normalizedRadialMetres -
           normal * normalizedSkirtDepth * skirtEnabled;
         vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
         vBaseNormal = normalize(mat3(modelMatrix) * normal);
         vImageUv = uv;
         vHeightUv = heightUv;
-        vHeightM = heightM;
-        vDetailWeight = detailWeight;
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
     `,
@@ -224,12 +208,9 @@ function localTerrainMaterial(
       uniform vec2 imageOffset;
       uniform float imageryMix;
       uniform vec3 sunlight;
-      uniform float oceanSurface;
       varying vec2 vImageUv;
       varying vec2 vHeightUv;
       varying vec3 vBaseNormal;
-      varying float vHeightM;
-      varying float vDetailWeight;
       void main() {
         vec3 fallbackAlbedo = texture2D(fallbackMap, vHeightUv).rgb;
         vec3 detailAlbedo = texture2D(
@@ -239,21 +220,12 @@ function localTerrainMaterial(
         vec3 albedo = mix(
           fallbackAlbedo,
           detailAlbedo,
-          vDetailWeight * imageryMix
+          imageryMix
         );
         vec3 reliefNormal = normalize(vBaseNormal);
         float direct = max(0.0, dot(reliefNormal, normalize(sunlight)));
         float light = 0.46 + direct * 0.72;
         vec3 colour = albedo * light;
-        if (oceanSurface > 0.5 && vHeightM < 0.0) {
-          float depthTint = clamp(-vHeightM / 7000.0, 0.0, 1.0);
-          vec3 water = mix(
-            vec3(0.025, 0.22, 0.34),
-            vec3(0.012, 0.075, 0.15),
-            depthTint
-          );
-          colour = mix(water, albedo * 0.42, 0.18) * (0.72 + direct * 0.28);
-        }
         colour += vec3(0.025, 0.045, 0.065) * (1.0 - direct);
         gl_FragColor = vec4(colour, 1.0);
       }
@@ -287,6 +259,122 @@ function geometryForLocalTile(result: PreparedLocalTile): THREE.BufferGeometry {
     result.boundingRadius,
   );
   return geometry;
+}
+
+function gebcoFallbackGeometry(
+  address: MercatorTileAddress,
+): { geometry: THREE.BufferGeometry; geometryBytes: number } {
+  const segments = GEBCO_FALLBACK_MESH_SEGMENTS;
+  const side = segments + 1;
+  const vertexCount = side * side;
+  const positions = new Float32Array(vertexCount * 3);
+  const normals = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
+  const heightUvs = new Float32Array(vertexCount * 2);
+  const detailHeightsM = new Float32Array(vertexCount);
+  const skirtEdges = new Float32Array(vertexCount);
+  const indices = new Uint32Array(segments * segments * 6);
+
+  let vertex = 0;
+  for (let row = 0; row <= segments; row += 1) {
+    for (let column = 0; column <= segments; column += 1) {
+      const u = column / segments;
+      const v = row / segments;
+      const coordinates = mercatorCoordinatesForTilePoint(
+        address,
+        u * LOCAL_TILE_SIZE,
+        v * LOCAL_TILE_SIZE,
+      );
+      const latitude = coordinates.latitudeDegrees * Math.PI / 180;
+      const longitude = coordinates.longitudeDegrees * Math.PI / 180;
+      const sineLatitude = Math.sin(latitude);
+      const cosineLatitude = Math.cos(latitude);
+      const sineLongitude = Math.sin(longitude);
+      const cosineLongitude = Math.cos(longitude);
+      const primeVerticalRadius =
+        WGS84_A_KM /
+        Math.sqrt(
+          1 -
+            WGS84_ECCENTRICITY_SQUARED *
+              sineLatitude *
+              sineLatitude,
+        );
+      const positionOffset = vertex * 3;
+      positions[positionOffset] =
+        primeVerticalRadius *
+        cosineLatitude *
+        cosineLongitude /
+        EARTH_MEAN_RADIUS_KM;
+      positions[positionOffset + 1] =
+        primeVerticalRadius *
+        (1 - WGS84_ECCENTRICITY_SQUARED) *
+        sineLatitude /
+        EARTH_MEAN_RADIUS_KM;
+      positions[positionOffset + 2] =
+        -primeVerticalRadius *
+        cosineLatitude *
+        sineLongitude /
+        EARTH_MEAN_RADIUS_KM;
+      normals[positionOffset] = cosineLatitude * cosineLongitude;
+      normals[positionOffset + 1] = sineLatitude;
+      normals[positionOffset + 2] = -cosineLatitude * sineLongitude;
+      const uvOffset = vertex * 2;
+      uvs[uvOffset] = u;
+      uvs[uvOffset + 1] = v;
+      heightUvs[uvOffset] = (coordinates.longitudeDegrees + 180) / 360;
+      heightUvs[uvOffset + 1] = (90 - coordinates.latitudeDegrees) / 180;
+      vertex += 1;
+    }
+  }
+
+  let index = 0;
+  for (let row = 0; row < segments; row += 1) {
+    for (let column = 0; column < segments; column += 1) {
+      const northWest = row * side + column;
+      const northEast = northWest + 1;
+      const southWest = northWest + side;
+      const southEast = southWest + 1;
+      indices[index++] = northWest;
+      indices[index++] = northEast;
+      indices[index++] = southWest;
+      indices[index++] = northEast;
+      indices[index++] = southEast;
+      indices[index++] = southWest;
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(positions, 3),
+  );
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute(
+    "heightUv",
+    new THREE.BufferAttribute(heightUvs, 2),
+  );
+  geometry.setAttribute(
+    "detailHeightM",
+    new THREE.BufferAttribute(detailHeightsM, 1),
+  );
+  geometry.setAttribute(
+    "skirtEdge",
+    new THREE.BufferAttribute(skirtEdges, 1),
+  );
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeBoundingSphere();
+  return {
+    geometry,
+    geometryBytes:
+      positions.byteLength +
+      normals.byteLength +
+      uvs.byteLength +
+      heightUvs.byteLength +
+      detailHeightsM.byteLength +
+      skirtEdges.byteLength +
+      indices.byteLength,
+  };
 }
 
 function tileBounds(address: MercatorTileAddress): {
@@ -351,52 +439,11 @@ function imageryTransform(
   };
 }
 
-function parentAddress(
-  address: MercatorTileAddress,
-): MercatorTileAddress | undefined {
-  if (address.z <= 0) return undefined;
-  return {
-    z: address.z - 1,
-    x: Math.floor(address.x / 2),
-    y: Math.floor(address.y / 2),
-  };
-}
-
-function coverageSets(
-  addresses: readonly MercatorTileAddress[],
-): {
-  exact: Set<string>;
-  descendantAncestors: Set<string>;
-} {
-  const exact = new Set(addresses.map(mercatorTileKey));
-  const descendantAncestors = new Set<string>();
-  for (const address of addresses) {
-    let parent = parentAddress(address);
-    while (parent) {
-      descendantAncestors.add(mercatorTileKey(parent));
-      parent = parentAddress(parent);
-    }
-  }
-  return { exact, descendantAncestors };
-}
-
-function hasCoverage(
-  address: MercatorTileAddress,
-  sets: ReturnType<typeof coverageSets>,
-): boolean {
-  if (sets.exact.has(mercatorTileKey(address))) return true;
-  let parent = parentAddress(address);
-  while (parent) {
-    if (sets.exact.has(mercatorTileKey(parent))) return true;
-    parent = parentAddress(parent);
-  }
-  return sets.descendantAncestors.has(mercatorTileKey(address));
-}
-
 export class LocalTerrainRenderer {
   readonly group = new THREE.Group();
   private readonly worker: Worker;
   private readonly rendered = new Map<string, RenderedLocalTile>();
+  private readonly staged = new Map<string, StagedLocalTile>();
   private readonly decoded = new LruCache<"decoded" | "ocean">(
     LOCAL_HEIGHT_CACHE_LIMIT,
   );
@@ -417,7 +464,6 @@ export class LocalTerrainRenderer {
   private lodBias = 0;
   private displayRadiusM = 1;
   private radialMultiplier = 1;
-  private oceanSurface = true;
   private imageryPatches: LocalTerrainImageryPatch[] = [];
   private imageryPatchSignature = "";
   private geometryBytes = 0;
@@ -430,6 +476,7 @@ export class LocalTerrainRenderer {
   private elevationPersistentCacheErrors = 0;
   private elevationPersistentCacheDeletes = 0;
   private staleWorkerResults = 0;
+  private atomicSwapTotal = 0;
 
   constructor(
     private readonly relief: ReliefDataset,
@@ -505,14 +552,12 @@ export class LocalTerrainRenderer {
     longitudeDegrees: number,
     displayRadiusM: number,
     radialMultiplier: number,
-    oceanSurface: boolean,
     lodBias = 0,
     _eyeHeightWorldM = 1.65,
     _focalLengthPixels = 1_000,
   ): void {
     this.displayRadiusM = Math.max(0.001, displayRadiusM);
     this.radialMultiplier = radialMultiplier;
-    this.oceanSurface = oceanSurface;
     this.lodBias = Math.max(-3, Math.min(3, Math.round(lodBias)));
 
     if (!this.stencilAvailable || !localDetailEnabled(latitudeDegrees)) {
@@ -565,16 +610,22 @@ export class LocalTerrainRenderer {
     this.loadQueue.dispose();
     this.worker.postMessage({ type: "dispose" } satisfies LocalTerrainWorkerRequest);
     this.worker.terminate();
+    this.clearStaged();
     this.clearRendered();
   }
 
   private applyPlan(plan: NativeTerrainPlan): void {
     this.plan = plan;
     this.generation += 1;
+    this.clearStaged();
     this.active = new Map(
       plan.active.map((address) => [mercatorTileKey(address), address]),
     );
     this.meshQueue.clear();
+    for (const address of plan.active) {
+      const key = mercatorTileKey(address);
+      if (!this.rendered.has(key)) this.installGebcoFallback(address);
+    }
     for (const [key, tile] of this.rendered) {
       const activeAddress = this.active.get(key);
       if (!activeAddress) {
@@ -583,6 +634,7 @@ export class LocalTerrainRenderer {
         tile.address = activeAddress;
       }
     }
+    this.commitReadyGroups();
     this.refreshEdgeTargets();
     this.diagnosticsDirty = true;
   }
@@ -595,6 +647,7 @@ export class LocalTerrainRenderer {
     this.planAnchor = "";
     this.meshQueue.clear();
     this.loadQueue.sync([]);
+    this.clearStaged();
     this.clearRendered();
     this.diagnosticsDirty = true;
   }
@@ -609,7 +662,6 @@ export class LocalTerrainRenderer {
       uniforms.normalizedRadialMetres!.value = normalizedRadialMetres;
       uniforms.normalizedSkirtDepth!.value =
         LOCAL_MIN_SKIRT_DEPTH_WORLD_M / this.displayRadiusM;
-      uniforms.oceanSurface!.value = this.oceanSurface ? 1 : 0;
     }
   }
 
@@ -684,6 +736,7 @@ export class LocalTerrainRenderer {
       if (decision.retryScheduled) this.elevationRetryTotal += 1;
       this.failedUntil.set(key, decision.retryAtMs);
     }
+    this.commitReadyGroups();
     this.refreshEdgeTargets();
     this.diagnosticsDirty = true;
   }
@@ -712,7 +765,7 @@ export class LocalTerrainRenderer {
         this.segmentsForAddress(this.active.get(key)!) ===
           result.requestedSegments
       ) {
-        this.installMesh(result);
+        this.stageMesh(result);
       } else {
         this.staleWorkerResults += 1;
       }
@@ -738,6 +791,7 @@ export class LocalTerrainRenderer {
     pending.finishDecode?.();
     this.queueBuildableMeshes();
     this.dispatchNextMesh();
+    this.commitReadyGroups();
     this.refreshEdgeTargets();
     this.diagnosticsDirty = true;
   }
@@ -764,6 +818,7 @@ export class LocalTerrainRenderer {
       const key = mercatorTileKey(address);
       const segments = this.segmentsForAddress(address);
       if (this.rendered.get(key)?.requestedSegments === segments) continue;
+      if (this.staged.get(key)?.requestedSegments === segments) continue;
       if (this.meshQueue.get(key)?.segments === segments) continue;
       if (
         [...this.pendingWorker.values()].some(
@@ -849,40 +904,144 @@ export class LocalTerrainRenderer {
     ];
   }
 
-  private installMesh(result: PreparedLocalTile): void {
+  private stageMesh(result: PreparedLocalTile): void {
     const key = mercatorTileKey(result.address);
     const address = this.active.get(key);
     if (!address) return;
     const geometry = geometryForLocalTile(result);
+    const previous = this.staged.get(key);
+    previous?.geometry.dispose();
+    this.staged.set(key, {
+      geometry,
+      address,
+      requestedSegments: result.requestedSegments,
+      actualSegments: result.actualSegments,
+      geometryBytes: result.geometryBytes,
+    });
+    this.commitReadyGroups();
+  }
+
+  private commitStagedTile(key: string, staged: StagedLocalTile): void {
     const existing = this.rendered.get(key);
     if (existing) {
       this.geometryBytes -= existing.geometryBytes;
       existing.mesh.geometry.dispose();
-      existing.mesh.geometry = geometry;
-      existing.address = address;
-      existing.requestedSegments = result.requestedSegments;
-      existing.actualSegments = result.actualSegments;
-      existing.geometryBytes = result.geometryBytes;
-      this.geometryBytes += result.geometryBytes;
+      existing.mesh.geometry = staged.geometry;
+      existing.address = staged.address;
+      existing.requestedSegments = staged.requestedSegments;
+      existing.actualSegments = staged.actualSegments;
+      existing.geometryBytes = staged.geometryBytes;
+      existing.fallback = false;
+      existing.mesh.material.uniforms.detailAvailable!.value = 1;
+      this.geometryBytes += staged.geometryBytes;
       this.applyImagery(existing);
     } else {
       const material = localTerrainMaterial(this.relief, this.fallbackTexture);
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = new THREE.Mesh(staged.geometry, material);
       mesh.frustumCulled = false;
       mesh.renderOrder = -1;
       const tile: RenderedLocalTile = {
         mesh,
-        address,
-        requestedSegments: result.requestedSegments,
-        actualSegments: result.actualSegments,
-        geometryBytes: result.geometryBytes,
+        address: staged.address,
+        requestedSegments: staged.requestedSegments,
+        actualSegments: staged.actualSegments,
+        geometryBytes: staged.geometryBytes,
+        fallback: false,
       };
+      material.uniforms.detailAvailable!.value = 1;
       this.rendered.set(key, tile);
       this.group.add(mesh);
-      this.geometryBytes += result.geometryBytes;
+      this.geometryBytes += staged.geometryBytes;
       this.applyImagery(tile);
     }
-    this.updateMaterialUniforms();
+    this.staged.delete(key);
+  }
+
+  private installGebcoFallback(address: NativeTerrainTile): void {
+    const key = mercatorTileKey(address);
+    if (this.rendered.has(key)) return;
+    const { geometry, geometryBytes } = gebcoFallbackGeometry(address);
+    const material = localTerrainMaterial(this.relief, this.fallbackTexture);
+    material.uniforms.detailAvailable!.value = 0;
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = -1;
+    const tile: RenderedLocalTile = {
+      mesh,
+      address,
+      requestedSegments: 0,
+      actualSegments: GEBCO_FALLBACK_MESH_SEGMENTS,
+      geometryBytes,
+      fallback: true,
+    };
+    this.rendered.set(key, tile);
+    this.group.add(mesh);
+    this.geometryBytes += geometryBytes;
+    this.applyImagery(tile);
+  }
+
+  private coherentGroupKey(address: NativeTerrainTile): string {
+    return `${address.ring}:${address.meshSegments}`;
+  }
+
+  private nativeReady(address: NativeTerrainTile): boolean {
+    const rendered = this.rendered.get(mercatorTileKey(address));
+    return Boolean(
+      rendered &&
+        !rendered.fallback &&
+        rendered.requestedSegments === this.segmentsForAddress(address),
+    );
+  }
+
+  private fallbackEligible(address: NativeTerrainTile): boolean {
+    const key = mercatorTileKey(address);
+    const now = Date.now();
+    return (
+      this.decoded.peek(key) === "ocean" ||
+      this.permanentFailures.has(key) ||
+      (this.failedUntil.get(key) ?? 0) > now ||
+      (this.failedMeshUntil.get(key) ?? 0) > now
+    );
+  }
+
+  private commitReadyGroups(): void {
+    if (!this.plan || this.staged.size === 0) return;
+    const groups = new Map<string, NativeTerrainTile[]>();
+    for (const address of this.plan.active) {
+      const key = this.coherentGroupKey(address);
+      const group = groups.get(key) ?? [];
+      group.push(address);
+      groups.set(key, group);
+    }
+    let committed = false;
+    for (const group of groups.values()) {
+      const ready = group.every((address) => {
+        if (this.nativeReady(address) || this.fallbackEligible(address)) {
+          return true;
+        }
+        const staged = this.staged.get(mercatorTileKey(address));
+        return staged?.requestedSegments ===
+          this.segmentsForAddress(address);
+      });
+      if (!ready) continue;
+      let committedGroup = false;
+      for (const address of group) {
+        const key = mercatorTileKey(address);
+        const staged = this.staged.get(key);
+        if (!staged) continue;
+        this.commitStagedTile(key, staged);
+        committedGroup = true;
+      }
+      if (committedGroup) {
+        this.atomicSwapTotal += 1;
+        committed = true;
+      }
+    }
+    if (committed) {
+      this.updateMaterialUniforms();
+      this.refreshEdgeTargets();
+      this.diagnosticsDirty = true;
+    }
   }
 
   private applyImagery(tile: RenderedLocalTile): void {
@@ -908,41 +1067,14 @@ export class LocalTerrainRenderer {
 
   private refreshEdgeTargets(): void {
     if (!this.plan) return;
-    const renderedSets = coverageSets(
-      [...this.rendered.values()].map((tile) => tile.address),
-    );
-    const directions = [
-      ["north", 0, -1, 0],
-      ["east", 1, 0, 1],
-      ["south", 0, 1, 2],
-      ["west", -1, 0, 3],
-    ] as const;
     for (const tile of this.rendered.values()) {
-      const outer = [
-        tile.address.outerEdges.north,
-        tile.address.outerEdges.east,
-        tile.address.outerEdges.south,
-        tile.address.outerEdges.west,
-      ];
       const skirts = [
         tile.address.skirtEdges.north,
         tile.address.skirtEdges.east,
         tile.address.skirtEdges.south,
         tile.address.skirtEdges.west,
       ];
-      const unavailable = [0, 0, 0, 0];
-      for (const [edge, deltaX, deltaY, index] of directions) {
-        if (tile.address.outerEdges[edge] > 0) continue;
-        const neighbour = {
-          z: tile.address.z,
-          x: wrapMercatorX(tile.address.x + deltaX, tile.address.z),
-          y: tile.address.y + deltaY,
-        };
-        if (!hasCoverage(neighbour, renderedSets)) unavailable[index] = 1;
-      }
       const uniforms = tile.mesh.material.uniforms;
-      (uniforms.outerEdges!.value as THREE.Vector4).fromArray(outer);
-      (uniforms.unavailableEdges!.value as THREE.Vector4).fromArray(unavailable);
       (uniforms.skirtEdges!.value as THREE.Vector4).fromArray(skirts);
     }
   }
@@ -961,9 +1093,20 @@ export class LocalTerrainRenderer {
     for (const key of [...this.rendered.keys()]) this.removeRenderedTile(key);
   }
 
+  private clearStaged(): void {
+    for (const tile of this.staged.values()) tile.geometry.dispose();
+    this.staged.clear();
+  }
+
   private diagnosticStatus(): string {
     if (!this.stencilAvailable || !this.plan) return "disabled";
-    if (this.rendered.size > 0) return "ready";
+    if (
+      this.plan.active.every((address) =>
+        this.rendered.has(mercatorTileKey(address)),
+      )
+    ) {
+      return "ready";
+    }
     const now = Date.now();
     const allUnavailable = this.plan.active.every((address) => {
       const key = mercatorTileKey(address);
@@ -982,12 +1125,19 @@ export class LocalTerrainRenderer {
     const plan = this.plan;
     const states: string[] = [];
     let fallbackCells = 0;
+    let readyCells = 0;
     const now = Date.now();
     for (const address of plan?.active ?? []) {
       const key = mercatorTileKey(address);
+      const rendered = this.rendered.get(key);
       let state = "p";
-      if (this.rendered.has(key)) {
+      if (
+        rendered &&
+        !rendered.fallback &&
+        rendered.requestedSegments === this.segmentsForAddress(address)
+      ) {
         state = "r";
+        readyCells += 1;
       } else if (this.decoded.peek(key) === "ocean") {
         state = "o";
         fallbackCells += 1;
@@ -1014,7 +1164,10 @@ export class LocalTerrainRenderer {
       ),
     ].sort((first, second) => first - second);
     document.body.dataset.detailRelief = this.diagnosticStatus();
-    document.body.dataset.detailMeshCount = String(this.rendered.size);
+    document.body.dataset.detailMeshCount = String(readyCells);
+    document.body.dataset.detailCoverageMeshCount = String(
+      this.rendered.size,
+    );
     document.body.dataset.detailHeightCache = String(this.decoded.size);
     document.body.dataset.detailHeightRequests = String(
       this.loadQueue.activeCount,
@@ -1061,19 +1214,21 @@ export class LocalTerrainRenderer {
       ? String(plan.active.length)
       : "0";
     document.body.dataset.detailStaging = String(
-      this.rendered.size + fallbackCells < (plan?.active.length ?? 0),
+      readyCells + fallbackCells < (plan?.active.length ?? 0),
     );
     document.body.dataset.detailStreamingState =
-      this.rendered.size + fallbackCells >= (plan?.active.length ?? 0)
+      readyCells + fallbackCells >= (plan?.active.length ?? 0)
         ? "steady"
         : "streaming";
     document.body.dataset.detailScaleMotion = "false";
     document.body.dataset.detailLodHeadDeadzoneMetres = "";
     document.body.dataset.detailLodHeadMovementMetres = "";
     document.body.dataset.detailPlanSelectionTotal = plan ? "1" : "0";
-    document.body.dataset.detailStagedMeshes = "0";
-    document.body.dataset.detailAtomicSwapTotal = "0";
-    document.body.dataset.detailReadyCells = String(this.rendered.size);
+    document.body.dataset.detailStagedMeshes = String(this.staged.size);
+    document.body.dataset.detailAtomicSwapTotal = String(
+      this.atomicSwapTotal,
+    );
+    document.body.dataset.detailReadyCells = String(readyCells);
     document.body.dataset.detailFallbackCells = String(fallbackCells);
     document.body.dataset.detailOverbudgetCells = "0";
     document.body.dataset.detailCentreState = states[0] ?? "p";

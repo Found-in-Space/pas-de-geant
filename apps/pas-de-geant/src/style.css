@@ -184,19 +184,15 @@ input {
   outline: none;
 }
 
-.ocean-button {
-  left: 28px;
-}
-
 .reset-button {
-  left: 158px;
+  left: 28px;
 }
 
 .aircraft-option {
   position: fixed;
   z-index: 9;
   bottom: 28px;
-  left: 285px;
+  left: 155px;
   display: flex;
   min-height: 41px;
   align-items: center;
@@ -313,12 +309,8 @@ footer {
     bottom: 18px;
   }
 
-  .ocean-button {
-    left: 18px;
-  }
-
   .reset-button {
-    left: 148px;
+    left: 18px;
   }
 
   .aircraft-option {

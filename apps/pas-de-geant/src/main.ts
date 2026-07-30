@@ -63,9 +63,7 @@ const errorMessage = element<HTMLParagraphElement>("error-message");
 const coordinatesReadout = element<HTMLElement>("coordinates");
 const scaleReadout = element<HTMLElement>("scale-readout");
 const radialReadout = element<HTMLElement>("radial-readout");
-const oceanReadout = element<HTMLElement>("ocean-readout");
 const aircraftReadout = element<HTMLElement>("aircraft-readout");
-const oceanButton = element<HTMLButtonElement>("ocean-button");
 const resetButton = element<HTMLButtonElement>("reset-button");
 const aircraftToggle = element<HTMLInputElement>("aircraft-toggle");
 const initialLocationPromise = resolveInitialLocation();
@@ -246,12 +244,6 @@ function resetPlanet(): void {
   updatePresentation();
 }
 
-function toggleOcean(): void {
-  state.oceanMode =
-    state.oceanMode === "surface" ? "revealed" : "surface";
-  updatePresentation();
-}
-
 const terrainEyeWorldPosition = new THREE.Vector3();
 const terrainDrawingBufferSize = new THREE.Vector2();
 
@@ -304,16 +296,11 @@ function updatePresentation(): void {
     coordinates.longitudeDegrees,
     state.displayRadiusM,
     state.radialMultiplier,
-    state.oceanMode === "surface",
     terrainLodBias,
     view.eyeHeightWorldM,
     view.focalLengthPixels,
   );
   atmosphere.update(state.radialMultiplier);
-  oceanReadout.textContent =
-    state.oceanMode === "surface" ? "Surface" : "Seabed revealed";
-  oceanButton.textContent =
-    state.oceanMode === "surface" ? "Reveal seabed" : "Restore ocean";
   coordinatesReadout.textContent = formatCoordinates(
     coordinates.latitudeDegrees,
     coordinates.longitudeDegrees,
@@ -569,7 +556,6 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
     deltaSeconds,
   );
   stepTerrainLodBias(intent.terrainLodBiasDelta);
-  if (intent.toggleOcean) toggleOcean();
   if (intent.reset) resetPlanet();
   if (intent.togglePanel) {
     handPanelVisible = !handPanelVisible;
@@ -634,8 +620,7 @@ renderer.domElement.addEventListener("pointerup", (event) => {
 });
 
 window.addEventListener("keydown", (event) => {
-  if (event.repeat && ["KeyO", "Backspace"].includes(event.code)) return;
-  if (event.code === "KeyO") toggleOcean();
+  if (event.repeat && event.code === "Backspace") return;
   if (event.code === "Backspace") resetPlanet();
   if (
     [
@@ -649,7 +634,6 @@ window.addEventListener("keydown", (event) => {
       "KeyV",
       "ShiftLeft",
       "ShiftRight",
-      "KeyO",
       "Backspace",
     ].includes(event.code)
   ) {
@@ -662,7 +646,6 @@ window.addEventListener("keyup", (event) => {
 });
 window.addEventListener("blur", () => keys.clear());
 
-oceanButton.addEventListener("click", toggleOcean);
 resetButton.addEventListener("click", resetPlanet);
 
 function stopAircraftPolling(): void {
