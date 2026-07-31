@@ -1,9 +1,25 @@
 import { defineConfig, loadEnv } from "vite";
 import { fileURLToPath } from "node:url";
+import { createRealtimeTokenMiddleware } from "./src/realtime-token-server.js";
 
 export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, ".", "PAS_DE_GEANT_");
+  const serverEnvironment = loadEnv(mode, ".", "");
+  const realtimeTokenMiddleware = createRealtimeTokenMiddleware(
+    process.env.OPENAI_API_KEY || serverEnvironment.OPENAI_API_KEY,
+  );
   return {
+    plugins: [
+      {
+        name: "pas-de-geant-realtime-token",
+        configureServer(server) {
+          server.middlewares.use(realtimeTokenMiddleware);
+        },
+        configurePreviewServer(server) {
+          server.middlewares.use(realtimeTokenMiddleware);
+        },
+      },
+    ],
     base: environment.PAS_DE_GEANT_BASE || "./",
     server: {
       allowedHosts: ["geant.dev.k-si.com"],

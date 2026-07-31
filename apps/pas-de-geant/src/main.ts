@@ -52,6 +52,11 @@ import {
 } from "./planet-state.js";
 import { resolveInitialLocation } from "./initial-location.js";
 import { loadReliefDataset } from "./relief.js";
+import {
+  parseLocationToolArguments,
+  RealtimeVoiceAgent,
+  type RealtimeAgentStatus,
+} from "./realtime-agent.js";
 import { TerrainTileRenderer } from "./terrain-tiles.js";
 
 declare global {
@@ -154,6 +159,31 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(0, 1.65, 0);
 camera.rotation.order = "YXZ";
 camera.rotation.x = -0.55;
+const realtimeAudioListener = new THREE.AudioListener();
+camera.add(realtimeAudioListener);
+let realtimeAudioSource: MediaStreamAudioSourceNode | null = null;
+let realtimeAudioPanner: PannerNode | null = null;
+
+function setRealtimeAudioStream(stream: MediaStream | null): void {
+  realtimeAudioSource?.disconnect();
+  realtimeAudioPanner?.disconnect();
+  realtimeAudioSource = null;
+  realtimeAudioPanner = null;
+  if (!stream) return;
+  const context = realtimeAudioListener.context;
+  void context.resume();
+  const source = context.createMediaStreamSource(stream);
+  const panner = context.createPanner();
+  panner.panningModel = "HRTF";
+  panner.distanceModel = "inverse";
+  panner.refDistance = 0.2;
+  panner.maxDistance = 20;
+  panner.rolloffFactor = 1;
+  source.connect(panner);
+  panner.connect(realtimeAudioListener.getInput());
+  realtimeAudioSource = source;
+  realtimeAudioPanner = panner;
+}
 
 const planetRoot = new THREE.Group();
 scene.add(planetRoot);
@@ -218,6 +248,11 @@ let state = initialPlanetState(
 let groundLevelElevationM = 0;
 let tileOverlayVisible = false;
 let textureTileOverlayVisible = false;
+let realtimeAgentStatus: RealtimeAgentStatus = {
+  state: "off",
+  detail: "Press A to wake",
+};
+document.body.dataset.agentStatus = realtimeAgentStatus.state;
 if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
   window.__PAS_DE_GEANT_TEST_SET_SCALE__ = (displayRadiusM): void => {
     state.displayRadiusM = Math.max(1, displayRadiusM);
@@ -227,11 +262,7 @@ if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
     latitudeDegrees,
     longitudeDegrees,
   ): void => {
-    state.contact = initialPlanetState(
-      latitudeDegrees,
-      longitudeDegrees,
-    ).contact;
-    updatePresentation();
+    setUserLocation(latitudeDegrees, longitudeDegrees);
   };
   window.__PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__ = setTileOverlayVisible;
   window.__PAS_DE_GEANT_TEST_SET_TEXTURE_TILE_OVERLAY__ =
@@ -332,6 +363,20 @@ function resetGroundLevel(): void {
     coordinates.latitudeDegrees,
     coordinates.longitudeDegrees,
   );
+}
+
+function setUserLocation(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+): { latitudeDegrees: number; longitudeDegrees: number } {
+  state.contact = initialPlanetState(
+    latitudeDegrees,
+    longitudeDegrees,
+  ).contact;
+  groundLevelElevationM = 0;
+  previousXrHead = null;
+  updatePresentation();
+  return coordinatesForFrame(state.contact);
 }
 
 function setTileOverlayVisible(visible: boolean): void {
@@ -450,6 +495,7 @@ function handPanelStatus(
     minimumTerrainZoom: lod.minZoom,
     maximumTerrainZoom: lod.maxZoom,
     terrainBudgetLimited: lod.budgetLimited,
+    agentState: realtimeAgentStatus.state,
   };
 }
 
@@ -469,6 +515,7 @@ function handPanelStateSignature(
     status.minimumTerrainZoom,
     status.maximumTerrainZoom,
     status.terrainBudgetLimited ? "capped" : "screen",
+    status.agentState,
   ].join(":");
 }
 
@@ -502,6 +549,37 @@ function syncHandPanelState(
   document.body.dataset.handPanelRedrawCount =
     String(handPanelRedrawCount);
 }
+
+const voiceAgent = new RealtimeVoiceAgent({
+  onStatus(status) {
+    realtimeAgentStatus = status;
+    document.body.dataset.agentStatus = status.state;
+    document.body.dataset.agentDetail = status.detail;
+    handPanelLocationSignature = "";
+  },
+  onRemoteStream: setRealtimeAudioStream,
+  tools: {
+    get_user_location() {
+      const coordinates = coordinatesForFrame(state.contact);
+      return {
+        latitude_degrees: coordinates.latitudeDegrees,
+        longitude_degrees: coordinates.longitudeDegrees,
+      };
+    },
+    set_user_location(argumentsValue) {
+      const location = parseLocationToolArguments(argumentsValue);
+      const coordinates = setUserLocation(
+        location.latitudeDegrees,
+        location.longitudeDegrees,
+      );
+      return {
+        ok: true,
+        latitude_degrees: coordinates.latitudeDegrees,
+        longitude_degrees: coordinates.longitudeDegrees,
+      };
+    },
+  },
+});
 
 const handPanelAnchorPosition = new THREE.Vector3();
 const handPanelAnchorQuaternion = new THREE.Quaternion();
@@ -572,6 +650,11 @@ function updateHandPanel(nowMs: number): void {
     return;
   }
   handPanel.enabled = true;
+  if (realtimeAudioPanner) {
+    realtimeAudioPanner.positionX.value = anchorPose.position.x;
+    realtimeAudioPanner.positionY.value = anchorPose.position.y;
+    realtimeAudioPanner.positionZ.value = anchorPose.position.z;
+  }
   handPanelWorldQuaternion
     .set(
       anchorPose.orientation.x,
@@ -657,6 +740,10 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
   }
   if (intent.toggleTextureTileOverlay) {
     setTextureTileOverlayVisible(!textureTileOverlayVisible);
+  }
+  if (intent.toggleAgent) {
+    void realtimeAudioListener.context.resume();
+    void voiceAgent.toggle();
   }
   if (intent.reset) resetPlanet();
   if (intent.resetGroundLevel) resetGroundLevel();
@@ -852,6 +939,7 @@ renderer.xr.addEventListener("sessionstart", () => {
 });
 renderer.xr.addEventListener("sessionend", () => {
   vrSessionActive = false;
+  voiceAgent.disable();
   handPanel.enabled = false;
   stopAircraftPolling();
   aircraftLayer.visible = false;

@@ -19,6 +19,22 @@ Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel,
 Z/X to change planet scale, C/V to change the radial multiplier, and
 Backspace to reset.
 
+To enable the Realtime voice guide, copy `.env.example` to `.env.local`, add
+an OpenAI API key, and restart the development server. The key stays in the
+local Vite server. The browser receives only a short-lived Realtime client
+secret from `POST /api/realtime/token`.
+
+```sh
+cp apps/pas-de-geant/.env.example apps/pas-de-geant/.env.local
+```
+
+The voice guide uses normal voice-activity detection rather than
+push-to-talk. In VR, press A once to connect and leave the microphone open;
+press A again to disconnect. Its voice is spatialized at the left-hand touch
+panel. The agent can read the exact underfoot coordinates and move the globe
+to coordinates through its `get_user_location` and `set_user_location` app
+tools.
+
 ### The Construct
 
 Open `http://127.0.0.1:4197/construct/` for the isolated terrain test over the
@@ -66,6 +82,7 @@ build should be served over HTTPS.
 - Left stick: head-relative travel
 - Left trigger: faster travel
 - X: toggle tinted native-tile surfaces and boundary outlines
+- A: toggle the Realtime voice guide on or off
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: radial multiplier
 - Hold B: reset to the detected starting location and initial scale
@@ -75,7 +92,9 @@ The hand panel uses touch-os and the bundled NASA Blue Marble image to show the
 current underfoot position on a whole-Earth map. It remains available offline;
 the latitude and longitude appear directly beneath the map, followed by the
 planet-root global scale factor, radial multiplier, and selected topography
-zoom range. Terrain LOD is selected automatically. Each X press toggles
+zoom range. The fourth status cell shows whether the voice agent is off,
+connecting, listening, thinking, speaking, or in an error state. Terrain LOD
+is selected automatically. Each X press toggles
 alternating tile-surface tints and high-contrast boundary outlines. Hold B
 resets the planet. The map readout is throttled and hosted under an isolated
 scene node so it does not traverse or invalidate the terrain scene.

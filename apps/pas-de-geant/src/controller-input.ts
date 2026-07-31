@@ -7,6 +7,7 @@ export interface ControllerIntent {
   boost: boolean;
   toggleTileOverlay: boolean;
   toggleTextureTileOverlay: boolean;
+  toggleAgent: boolean;
   toggleOcean: boolean;
   reset: boolean;
   resetGroundLevel: boolean;
@@ -59,7 +60,7 @@ export function controllerIntent(
   const stickPressed = rightButtons[3]?.pressed ?? false;
   const xPressed = leftButtons[4]?.pressed ?? false;
   const yPressed = leftButtons[5]?.pressed ?? false;
-  const toggleOcean = aPressed && !latch.a;
+  const toggleAgent = aPressed && !latch.a;
   const resetGroundLevel = stickPressed && !latch.stick;
   const toggleTileOverlay = xPressed && !latch.x;
   const toggleTextureTileOverlay = yPressed && !latch.y;
@@ -82,7 +83,8 @@ export function controllerIntent(
       (leftButtons[1]?.value ?? 0) > 0.55,
     toggleTileOverlay,
     toggleTextureTileOverlay,
-    toggleOcean,
+    toggleAgent,
+    toggleOcean: toggleAgent,
     reset,
     resetGroundLevel,
   };

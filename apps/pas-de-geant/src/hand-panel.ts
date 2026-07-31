@@ -10,6 +10,7 @@ import {
   type SurfaceMetrics,
   type ThemeTokens,
 } from "@found-in-space/touch-os";
+import type { RealtimeAgentState } from "./realtime-agent.js";
 
 export const HAND_PANEL_SURFACE: Partial<SurfaceMetrics> = {
   width: 640,
@@ -56,6 +57,7 @@ export interface HandPanelStatus {
   minimumTerrainZoom: number;
   maximumTerrainZoom: number;
   terrainBudgetLimited: boolean;
+  agentState: RealtimeAgentState;
 }
 
 interface EarthLocationMapProps extends HandPanelLocation {
@@ -76,6 +78,7 @@ const DEFAULT_HAND_PANEL_STATUS: HandPanelStatus = {
   minimumTerrainZoom: 0,
   maximumTerrainZoom: 0,
   terrainBudgetLimited: false,
+  agentState: "off",
 };
 
 const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
@@ -223,7 +226,11 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
   },
   render(ctx) {
     const theme = ctx.services.theme.getTokens();
-    const fields = [
+    const fields: Array<{
+      label: string;
+      value: string;
+      valueColor?: string;
+    }> = [
       {
         label: "GLOBAL SCALE",
         value: `${ctx.props.globalScaleFactor.toFixed(2)}×`,
@@ -237,6 +244,16 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
         value:
           `z${ctx.props.minimumTerrainZoom}–${ctx.props.maximumTerrainZoom}` +
           (ctx.props.terrainBudgetLimited ? " · CAP" : ""),
+      },
+      {
+        label: "VOICE AGENT · A",
+        value: ctx.props.agentState.toUpperCase(),
+        valueColor:
+          ctx.props.agentState === "error"
+            ? theme.focusColor
+            : ctx.props.agentState === "off"
+              ? theme.mutedTextColor
+              : theme.accentColor,
       },
     ];
     const commands: DrawCommand[] = [];
@@ -295,7 +312,7 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
           role: "planet-status-value",
           rect: valueRect,
           text: field.value,
-          color: theme.textColor,
+          color: field.valueColor ?? theme.textColor,
           align: "center",
           verticalAlign: "middle",
           fontSize: 16,
