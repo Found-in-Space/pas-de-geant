@@ -159,30 +159,29 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(0, 1.65, 0);
 camera.rotation.order = "YXZ";
 camera.rotation.x = -0.55;
-const realtimeAudioListener = new THREE.AudioListener();
-camera.add(realtimeAudioListener);
-let realtimeAudioSource: MediaStreamAudioSourceNode | null = null;
-let realtimeAudioPanner: PannerNode | null = null;
+const realtimeAudioElement = document.createElement("audio");
+realtimeAudioElement.autoplay = true;
+realtimeAudioElement.setAttribute("playsinline", "");
+realtimeAudioElement.hidden = true;
+document.body.append(realtimeAudioElement);
 
 function setRealtimeAudioStream(stream: MediaStream | null): void {
-  realtimeAudioSource?.disconnect();
-  realtimeAudioPanner?.disconnect();
-  realtimeAudioSource = null;
-  realtimeAudioPanner = null;
-  if (!stream) return;
-  const context = realtimeAudioListener.context;
-  void context.resume();
-  const source = context.createMediaStreamSource(stream);
-  const panner = context.createPanner();
-  panner.panningModel = "HRTF";
-  panner.distanceModel = "inverse";
-  panner.refDistance = 0.2;
-  panner.maxDistance = 20;
-  panner.rolloffFactor = 1;
-  source.connect(panner);
-  panner.connect(realtimeAudioListener.getInput());
-  realtimeAudioSource = source;
-  realtimeAudioPanner = panner;
+  realtimeAudioElement.srcObject = stream;
+  if (!stream) {
+    realtimeAudioElement.pause();
+    document.body.dataset.agentAudio = "off";
+    return;
+  }
+  document.body.dataset.agentAudio = "starting";
+  void realtimeAudioElement.play().then(
+    () => {
+      document.body.dataset.agentAudio = "playing";
+    },
+    (error: unknown) => {
+      document.body.dataset.agentAudio = "blocked";
+      console.warn("Realtime audio playback was blocked:", error);
+    },
+  );
 }
 
 const planetRoot = new THREE.Group();
@@ -650,11 +649,6 @@ function updateHandPanel(nowMs: number): void {
     return;
   }
   handPanel.enabled = true;
-  if (realtimeAudioPanner) {
-    realtimeAudioPanner.positionX.value = anchorPose.position.x;
-    realtimeAudioPanner.positionY.value = anchorPose.position.y;
-    realtimeAudioPanner.positionZ.value = anchorPose.position.z;
-  }
   handPanelWorldQuaternion
     .set(
       anchorPose.orientation.x,
@@ -742,7 +736,6 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
     setTextureTileOverlayVisible(!textureTileOverlayVisible);
   }
   if (intent.toggleAgent) {
-    void realtimeAudioListener.context.resume();
     void voiceAgent.toggle();
   }
   if (intent.reset) resetPlanet();

@@ -30,8 +30,8 @@ cp apps/pas-de-geant/.env.example apps/pas-de-geant/.env.local
 
 The voice guide uses normal voice-activity detection rather than
 push-to-talk. In VR, press A once to connect and leave the microphone open;
-press A again to disconnect. Its voice is spatialized at the left-hand touch
-panel. The agent can read the exact underfoot coordinates and move the globe
+press A again to disconnect. Its voice plays through the headset. The agent
+can read the exact underfoot coordinates and move the globe
 to coordinates through its `get_user_location` and `set_user_location` app
 tools.
 

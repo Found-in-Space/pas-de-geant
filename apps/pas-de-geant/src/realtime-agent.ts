@@ -125,8 +125,10 @@ export class RealtimeVoiceAgent {
     const peerConnection = new RTCPeerConnection();
     this.peerConnection = peerConnection;
     peerConnection.addEventListener("track", (event) => {
-      const remoteStream = event.streams[0];
-      if (remoteStream) this.onRemoteStream(remoteStream);
+      // Some WebRTC implementations omit `streams` for a remote track even
+      // though the track itself is valid. Always expose a playable stream.
+      const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
+      this.onRemoteStream(remoteStream);
     });
     peerConnection.addEventListener("connectionstatechange", () => {
       if (peerConnection !== this.peerConnection) return;
