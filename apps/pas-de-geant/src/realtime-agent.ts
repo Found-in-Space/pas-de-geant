@@ -60,6 +60,9 @@ export class RealtimeVoiceAgent {
   private microphoneStream: MediaStream | null = null;
   private starting = false;
   private speaking = false;
+  private greetingStarted = false;
+  private greetingInProgress = false;
+  private greetingAudioStarted = false;
 
   constructor(options: RealtimeAgentOptions) {
     this.tokenEndpoint = options.tokenEndpoint ?? "/api/realtime/token";
@@ -153,14 +156,16 @@ export class RealtimeVoiceAgent {
       }
     });
     for (const track of stream.getAudioTracks()) {
+      // The guide owns the first turn. Keep VAD silent until its greeting has
+      // finished so microphone noise cannot interrupt the initial response.
+      track.enabled = false;
       peerConnection.addTrack(track, stream);
     }
 
     const dataChannel = peerConnection.createDataChannel("oai-events");
     this.dataChannel = dataChannel;
     dataChannel.addEventListener("open", () => {
-      this.setStatus("listening", "Listening");
-      this.send(realtimeGreetingEvent());
+      this.setStatus("connecting", "Preparing voice guide…");
     });
     dataChannel.addEventListener("message", (event) => {
       void this.handleServerEvent(event.data);
@@ -199,6 +204,9 @@ export class RealtimeVoiceAgent {
       return;
     }
     switch (event.type) {
+      case "session.created":
+        this.startGreeting();
+        break;
       case "input_audio_buffer.speech_started":
         this.setStatus("listening", "Hearing you…");
         break;
@@ -209,16 +217,26 @@ export class RealtimeVoiceAgent {
       case "output_audio_buffer.started":
       case "response.output_audio.delta":
         this.speaking = true;
+        if (this.greetingInProgress) this.greetingAudioStarted = true;
         this.setStatus("speaking", "Speaking");
         break;
       case "output_audio_buffer.stopped":
         this.speaking = false;
-        this.setStatus("listening", "Listening");
+        if (this.greetingInProgress) {
+          this.finishGreeting();
+        } else {
+          this.setStatus("listening", "Listening");
+        }
         break;
       case "response.done":
         await this.handleResponseDone(event);
+        if (this.greetingInProgress && !this.greetingAudioStarted) {
+          this.finishGreeting();
+        }
         break;
       case "error":
+        this.setMicrophoneEnabled(true);
+        this.greetingInProgress = false;
         this.setStatus("error", event.error?.message ?? "Realtime API error.");
         break;
     }
@@ -270,6 +288,27 @@ export class RealtimeVoiceAgent {
     this.dataChannel.send(JSON.stringify(event));
   }
 
+  private startGreeting(): void {
+    if (this.greetingStarted) return;
+    this.greetingStarted = true;
+    this.greetingInProgress = true;
+    this.greetingAudioStarted = false;
+    this.setStatus("thinking", "Greeting…");
+    this.send(realtimeGreetingEvent());
+  }
+
+  private finishGreeting(): void {
+    this.greetingInProgress = false;
+    this.setMicrophoneEnabled(true);
+    this.setStatus("listening", "Listening");
+  }
+
+  private setMicrophoneEnabled(enabled: boolean): void {
+    for (const track of this.microphoneStream?.getAudioTracks() ?? []) {
+      track.enabled = enabled;
+    }
+  }
+
   private setStatus(state: RealtimeAgentState, detail: string): void {
     this.onStatus({ state, detail });
   }
@@ -283,6 +322,9 @@ export class RealtimeVoiceAgent {
     for (const track of this.microphoneStream?.getTracks() ?? []) track.stop();
     this.microphoneStream = null;
     this.speaking = false;
+    this.greetingStarted = false;
+    this.greetingInProgress = false;
+    this.greetingAudioStarted = false;
   }
 }
 
