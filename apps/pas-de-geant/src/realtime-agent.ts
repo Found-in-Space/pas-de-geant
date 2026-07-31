@@ -50,6 +50,8 @@ interface RealtimeTokenResponse {
   error?: string;
 }
 
+const MICROPHONE_ECHO_SETTLE_MS = 400;
+
 export class RealtimeVoiceAgent {
   private readonly tokenEndpoint: string;
   private readonly onStatus: RealtimeAgentOptions["onStatus"];
@@ -62,7 +64,8 @@ export class RealtimeVoiceAgent {
   private speaking = false;
   private greetingStarted = false;
   private greetingInProgress = false;
-  private greetingAudioStarted = false;
+  private microphoneEnabled = false;
+  private microphoneResumeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: RealtimeAgentOptions) {
     this.tokenEndpoint = options.tokenEndpoint ?? "/api/realtime/token";
@@ -208,16 +211,22 @@ export class RealtimeVoiceAgent {
         this.startGreeting();
         break;
       case "input_audio_buffer.speech_started":
+        if (!this.microphoneEnabled) break;
         this.setStatus("listening", "Hearing you…");
         break;
       case "input_audio_buffer.speech_stopped":
+        this.setStatus("thinking", "Thinking…");
+        break;
       case "response.created":
+        this.cancelMicrophoneResume();
+        this.setMicrophoneEnabled(false);
         this.setStatus("thinking", "Thinking…");
         break;
       case "output_audio_buffer.started":
       case "response.output_audio.delta":
+        this.cancelMicrophoneResume();
+        this.setMicrophoneEnabled(false);
         this.speaking = true;
-        if (this.greetingInProgress) this.greetingAudioStarted = true;
         this.setStatus("speaking", "Speaking");
         break;
       case "output_audio_buffer.stopped":
@@ -225,16 +234,14 @@ export class RealtimeVoiceAgent {
         if (this.greetingInProgress) {
           this.finishGreeting();
         } else {
-          this.setStatus("listening", "Listening");
+          this.scheduleMicrophoneResume();
         }
         break;
       case "response.done":
         await this.handleResponseDone(event);
-        if (this.greetingInProgress && !this.greetingAudioStarted) {
-          this.finishGreeting();
-        }
         break;
       case "error":
+        this.cancelMicrophoneResume();
         this.setMicrophoneEnabled(true);
         this.greetingInProgress = false;
         this.setStatus("error", event.error?.message ?? "Realtime API error.");
@@ -251,7 +258,9 @@ export class RealtimeVoiceAgent {
         typeof item.call_id === "string",
     );
     if (calls.length === 0) {
-      if (!this.speaking) this.setStatus("listening", "Listening");
+      if (!this.speaking && this.microphoneEnabled) {
+        this.setStatus("listening", "Listening");
+      }
       return;
     }
 
@@ -292,18 +301,34 @@ export class RealtimeVoiceAgent {
     if (this.greetingStarted) return;
     this.greetingStarted = true;
     this.greetingInProgress = true;
-    this.greetingAudioStarted = false;
     this.setStatus("thinking", "Greeting…");
     this.send(realtimeGreetingEvent());
   }
 
   private finishGreeting(): void {
     this.greetingInProgress = false;
-    this.setMicrophoneEnabled(true);
-    this.setStatus("listening", "Listening");
+    this.scheduleMicrophoneResume();
+  }
+
+  private scheduleMicrophoneResume(): void {
+    this.cancelMicrophoneResume();
+    this.setStatus("speaking", "Finishing…");
+    this.microphoneResumeTimer = setTimeout(() => {
+      this.microphoneResumeTimer = null;
+      if (!this.peerConnection) return;
+      this.setMicrophoneEnabled(true);
+      this.setStatus("listening", "Listening");
+    }, MICROPHONE_ECHO_SETTLE_MS);
+  }
+
+  private cancelMicrophoneResume(): void {
+    if (this.microphoneResumeTimer === null) return;
+    clearTimeout(this.microphoneResumeTimer);
+    this.microphoneResumeTimer = null;
   }
 
   private setMicrophoneEnabled(enabled: boolean): void {
+    this.microphoneEnabled = enabled;
     for (const track of this.microphoneStream?.getAudioTracks() ?? []) {
       track.enabled = enabled;
     }
@@ -314,6 +339,7 @@ export class RealtimeVoiceAgent {
   }
 
   private cleanup(): void {
+    this.cancelMicrophoneResume();
     this.onRemoteStream(null);
     this.dataChannel?.close();
     this.dataChannel = null;
@@ -324,7 +350,7 @@ export class RealtimeVoiceAgent {
     this.speaking = false;
     this.greetingStarted = false;
     this.greetingInProgress = false;
-    this.greetingAudioStarted = false;
+    this.microphoneEnabled = false;
   }
 }
 

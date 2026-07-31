@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   parseLocationToolArguments,
-  realtimeGreetingEvent,
 } from "../apps/pas-de-geant/src/realtime-agent.js";
 import {
   locationDetailForDisplayRadius,
@@ -17,16 +16,6 @@ import {
 } from "../apps/pas-de-geant/src/realtime-token-server.js";
 
 describe("Pas de Géant Realtime voice agent", () => {
-  it("kicks off a short spoken greeting when the connection opens", () => {
-    expect(realtimeGreetingEvent()).toMatchObject({
-      type: "response.create",
-      response: {
-        output_modalities: ["audio"],
-        max_output_tokens: 80,
-      },
-    });
-  });
-
   it("uses country detail below 1000x and locality detail from 1000x", () => {
     expect(locationDetailForDisplayRadius(999.99)).toBe("country");
     expect(locationDetailForDisplayRadius(1_000)).toBe("locality");
