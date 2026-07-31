@@ -169,25 +169,34 @@ render.
 The checked-in 2048×1024 Blue Marble image is the immutable complete terrain
 texture and is available immediately offline. An optional photographic XYZ
 provider refines it through an imagery quadtree that is independent from the
-terrain stencil. The virtual window is at most 8×8 and is snapped in four-page
-strides; its requested zoom comes from projected texel size and is capped only
-by the provider. A texture array holds at most 96 decoded pages and is reduced
-automatically to stay within a 64 MiB pixel budget and the device's array-layer
-limit.
+terrain stencil. Imagery LOD is selected in render space: each 256-pixel GPU
+page targets a rendered width of 2.56 m, or about one centimetre per texture
+pixel. The selected XYZ z-level changes with the displayed world radius, using
+1.75 m and 3.75 m page-width boundaries to avoid oscillating at a transition.
+It does not depend on physical Earth distance, eye height, or camera focal
+length.
 
-Low-resolution photographic ancestors prefetch at 1.5×, may commit at 2×,
-and release below 1.25×. The planner requests a coarse-to-fine ancestor ladder
-so scaling progresses from Blue Marble through resident photographic parents
-instead of jumping directly to local imagery. Below the local-detail gate,
-visible photographic pages are capped at z11.
+The normal render-space onion is a precomputed 4×4 fine cap, a
+4×4-minus-2×2 parent ring, and a second parent ring of the same shape. At the
+target resolution their outer radii are about 5.12 m, 10.24 m, and 20.48 m.
+Only the Web Mercator address anchor is resolved at runtime; the relative
+geometry and page-table footprints are fixed. The central cap loads and
+commits first, followed by the middle and outer rings at progressively lower
+request priority. A 16×16 page table covers the complete onion.
 
-Precise local pages prefetch at 400×, may commit at 500×, and release below
-375×. The visible page table always resolves each page to a complete exact
-sibling group, a resident photographic ancestor, or Blue Marble. Downloads,
-decodes and GPU uploads only populate staging. Two page-table textures swap
-after successful uploads, so missing, malformed, aborted, stale, or GPU-failed
-pages cannot alter the visible mapping. Web Mercator requests stop at
-±85.05112878° while Blue Marble continues across both poles.
+At the smallest displayed world sizes, z0 through z2 load as complete-world
+photographic layers, coarse to fine. At z3 that world ladder is supplemented
+by a local 4×4 cap. This keeps a configured photographic provider visible
+between Blue Marble and the standard local onion instead of imposing a
+scale gate or a fixed mid-resolution ceiling.
+
+A texture array holds at most 96 decoded pages and is reduced automatically
+to stay within a 64 MiB pixel budget and the device's array-layer limit.
+Downloads, decodes, and GPU uploads only populate staging. Two page-table
+textures swap after the central group or a later complete ring is ready, so
+missing, malformed, aborted, stale, or GPU-failed pages cannot partially
+change a committed group. Web Mercator requests stop at ±85.05112878° while
+Blue Marble continues across both poles.
 
 No network imagery provider is hard-coded. Configure one at build time with:
 

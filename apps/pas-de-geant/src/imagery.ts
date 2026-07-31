@@ -7,6 +7,7 @@ import {
   imageryKey,
   imageryOnionPlanForContact,
   isValidImageryAddress,
+  renderedImageryTileWidthM,
   selectImageryZoom,
   selectUnpinnedLruKey,
   type ImageryAddress,
@@ -301,6 +302,9 @@ export class ImageryVirtualTexture {
   private visiblePlan: ImageryOnionPlan | undefined;
   private candidatePlan: ImageryOnionPlan | undefined;
   private desiredZoom: number | undefined;
+  private visibleGroup = -1;
+  private renderedTileWidthM = 0;
+  private mappedCellCount = 0;
   private mappingSignature = "";
   private pageTableEpoch = 0;
   private sequence = 0;
@@ -354,7 +358,7 @@ export class ImageryVirtualTexture {
     }
     const worldWidth = 2 ** plan.finestZoom;
     let west = bounds.west * worldWidth;
-    const reference = plan.tableOriginX + IMAGERY_PAGE_TABLE_SIZE * 0.5;
+    const reference = plan.tableOriginX + plan.tableSpan * 0.5;
     west += Math.round((reference - west) / worldWidth) * worldWidth;
     value.set(
       west - plan.tableOriginX,
@@ -370,15 +374,6 @@ export class ImageryVirtualTexture {
       this.provider &&
       Math.abs(options.latitudeDegrees) <= WEB_MERCATOR_MAX_LATITUDE
     ) {
-      const minimumFinestZoom = Math.max(
-        4,
-        this.provider.minZoom + 2,
-      );
-      if (this.provider.maxZoom < minimumFinestZoom) {
-        this.clearPlan();
-        this.updateDiagnostics();
-        return;
-      }
       this.ensurePool();
       if (this.poolUnavailable) {
         this.clearPlan();
@@ -386,16 +381,22 @@ export class ImageryVirtualTexture {
         return;
       }
       const desiredZoom = selectImageryZoom({
-        ...options,
-        tileSize: this.provider.tileSize,
-        minZoom: minimumFinestZoom,
+        displayRadiusM: options.displayRadiusM,
+        latitudeDegrees: options.latitudeDegrees,
+        minZoom: this.provider.minZoom,
         maxZoom: this.provider.maxZoom,
         previousZoom: this.desiredZoom,
       });
+      this.renderedTileWidthM = renderedImageryTileWidthM(
+        options.latitudeDegrees,
+        options.displayRadiusM,
+        desiredZoom,
+      );
       const nextPlan = imageryOnionPlanForContact(
         options.latitudeDegrees,
         options.longitudeDegrees,
         desiredZoom,
+        this.provider.minZoom,
       );
       if (
         this.candidatePlan &&
@@ -414,7 +415,10 @@ export class ImageryVirtualTexture {
     }
     this.uploadDecodedTiles();
     this.commitCandidateIfReady();
-    if (!this.candidatePlan) this.refreshVisibleMapping();
+    if (!this.candidatePlan) {
+      this.advanceVisibleGroups();
+      this.refreshVisibleMapping();
+    }
     this.pumpRequests(nowMs);
     this.updateDiagnostics();
   }
@@ -591,6 +595,9 @@ export class ImageryVirtualTexture {
     this.visiblePlan = undefined;
     this.candidatePlan = undefined;
     this.desiredZoom = undefined;
+    this.visibleGroup = -1;
+    this.renderedTileWidthM = 0;
+    this.mappedCellCount = 0;
     this.wanted.clear();
     for (const [key, request] of this.activeRequests) {
       this.activeRequests.delete(key);
@@ -853,42 +860,65 @@ export class ImageryVirtualTexture {
     return slot;
   }
 
+  private taskTerminal(task: ImageryLoadTask): boolean {
+    const status = this.records.get(imageryKey(task.address))?.status;
+    return (
+      status === "resident" ||
+      status === "permanent" ||
+      status === "failed"
+    );
+  }
+
+  private groupReady(plan: ImageryOnionPlan, group: number): boolean {
+    const tasks = plan.tasks.filter((task) => task.group === group);
+    return tasks.length === 0 || tasks.every((task) => this.taskTerminal(task));
+  }
+
   private candidateReady(): boolean {
     return Boolean(
-      this.candidatePlan?.tasks.every((task) => {
-        const status = this.records.get(imageryKey(task.address))?.status;
-        return (
-          status === "resident" ||
-          status === "permanent" ||
-          status === "failed"
-        );
-      }),
+      this.candidatePlan && this.groupReady(this.candidatePlan, 0),
     );
   }
 
   private commitCandidateIfReady(): void {
     if (!this.candidatePlan || !this.candidateReady()) return;
-    if (!this.commitMapping(this.candidatePlan, true)) return;
+    if (!this.commitMapping(this.candidatePlan, 0, true)) return;
     this.visiblePlan = this.candidatePlan;
+    this.visibleGroup = 0;
     this.candidatePlan = undefined;
     this.syncWanted();
+    this.cancelUnwantedRequests();
+    this.discardUnwantedDecoded();
+  }
+
+  private advanceVisibleGroups(): void {
+    if (!this.visiblePlan) return;
+    while (
+      this.visibleGroup + 1 < this.visiblePlan.groupCount &&
+      this.groupReady(this.visiblePlan, this.visibleGroup + 1)
+    ) {
+      const nextGroup = this.visibleGroup + 1;
+      if (!this.commitMapping(this.visiblePlan, nextGroup, true)) return;
+      this.visibleGroup = nextGroup;
+    }
   }
 
   private refreshVisibleMapping(): void {
     if (!this.visiblePlan) return;
-    this.commitMapping(this.visiblePlan, false);
+    this.commitMapping(this.visiblePlan, this.visibleGroup, false);
   }
 
   private commitMapping(
     plan: ImageryOnionPlan,
+    maximumGroup: number,
     force: boolean,
   ): boolean {
     const bytes = new Uint8Array(
       IMAGERY_PAGE_TABLE_SIZE * IMAGERY_PAGE_TABLE_SIZE * 4,
     );
     const nextVisibleKeys = new Set<string>();
-    let visibleEntries = 0;
     for (const cell of plan.cells) {
+      if (cell.group > maximumGroup) continue;
       const record = this.records.get(imageryKey(cell.address));
       if (record?.status !== "resident" || record.slot === undefined) continue;
       for (let childY = 0; childY < cell.tableSpan; childY += 1) {
@@ -906,16 +936,20 @@ export class ImageryVirtualTexture {
           const index =
             (tableY * IMAGERY_PAGE_TABLE_SIZE + tableX) * 4;
           bytes[index] = record.slot + 1;
-          bytes[index + 1] = cell.ring;
+          bytes[index + 1] = plan.finestZoom - cell.address.z;
           bytes[index + 2] = childX;
           bytes[index + 3] = childY;
-          visibleEntries += 1;
         }
       }
       record.usedAt = ++this.sequence;
       nextVisibleKeys.add(imageryKey(cell.address));
     }
-    const signature = `${plan.signature}:${visibleEntries}:${Array.from(
+    const visibleEntries = bytes.reduce(
+      (count, value, index) =>
+        index % 4 === 0 && value > 0 ? count + 1 : count,
+      0,
+    );
+    const signature = `${plan.signature}:${maximumGroup}:${visibleEntries}:${Array.from(
       bytes,
     ).join(",")}`;
     if (!force && signature === this.mappingSignature) {
@@ -940,6 +974,7 @@ export class ImageryVirtualTexture {
     this.visibleKeys.clear();
     for (const key of nextVisibleKeys) this.visibleKeys.add(key);
     this.mappingSignature = signature;
+    this.mappedCellCount = visibleEntries;
     this.pageTableEpoch += 1;
     this.diagnostics.commitTotal += 1;
     return true;
@@ -973,6 +1008,25 @@ export class ImageryVirtualTexture {
       this.visiblePlan === undefined
         ? ""
         : String(this.visiblePlan.finestZoom);
+    document.body.dataset.imageryRenderedTileWidth =
+      this.desiredZoom === undefined
+        ? ""
+        : this.renderedTileWidthM.toFixed(3);
+    document.body.dataset.imageryCentimetresPerTexel =
+      this.desiredZoom === undefined
+        ? ""
+        : (this.renderedTileWidthM / IMAGERY_GPU_PAGE_SIZE * 100).toFixed(3);
+    document.body.dataset.imageryVisibleGroup =
+      this.visiblePlan === undefined ? "" : String(this.visibleGroup);
+    document.body.dataset.imageryPlanMode =
+      this.visiblePlan?.mode ?? "";
+    document.body.dataset.imageryMappedCells = String(this.mappedCellCount);
+    document.body.dataset.imageryFallbackCells = String(
+      Math.max(
+        0,
+        (this.visiblePlan?.tableSpan ?? 0) ** 2 - this.mappedCellCount,
+      ),
+    );
     document.body.dataset.imageryWindow =
       this.visiblePlan?.signature ?? "";
     document.body.dataset.imageryVisiblePlan =
