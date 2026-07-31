@@ -23,13 +23,17 @@ const OCCLUDER_SEGMENTS = 96;
 const OCCLUDER_MARGIN_SOURCE_M = 500;
 const OCCLUDER_MARGIN_WORLD_M = 0.002;
 const FALLBACK_MAX_ELEVATION_M = 8_849;
-const LAND_AMBIENT_LIGHT = 0.46;
-const LAND_DIRECT_LIGHT = 0.72;
+// Keep peak daylight unchanged while lifting terrain that faces away from the sun.
+const LAND_AMBIENT_LIGHT = 0.58;
+const LAND_DIRECT_LIGHT = 0.6;
 const LAND_DARK_SHADOW_LIFT = 0.18;
 const LAND_DARK_LUMINANCE = 0.12;
 const LAND_BRIGHT_LUMINANCE = 0.5;
 const LAND_DARK_TONE_LIFT = 0.16;
 const LAND_LIT_TONE_FRACTION = 0.35;
+// Lift the satellite imagery itself, not only its lighting, so ground detail
+// remains legible even where the source texture is naturally dark.
+const LAND_ALBEDO_LIFT = 0.24;
 
 const GLOBAL_GLOBE_BOUNDS = {
   west: -180,
@@ -275,6 +279,11 @@ function terrainMaterial(
         );
         vec3 balancedAlbedo =
           albedo * (liftedLuminance / max(luminance, 0.001));
+        balancedAlbedo = mix(
+          balancedAlbedo,
+          sqrt(max(balancedAlbedo, vec3(0.0))),
+          ${LAND_ALBEDO_LIFT.toFixed(2)}
+        );
         float shadowLift =
           ${LAND_DARK_SHADOW_LIFT.toFixed(2)} * darkSurface;
         float light =

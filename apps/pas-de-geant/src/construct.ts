@@ -64,7 +64,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.04;
+renderer.toneMappingExposure = 1.35;
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType("local-floor");
 renderer.xr.setFramebufferScaleFactor(1);

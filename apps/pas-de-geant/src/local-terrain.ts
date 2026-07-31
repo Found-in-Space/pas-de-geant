@@ -207,9 +207,12 @@ function localTerrainMaterial(
       out vec4 terrainColour;
       void main() {
         vec3 albedo = resolvedImageryAlbedo();
+        // Match the globe material's texture lift so terrain does not darken
+        // when the detailed local tiles replace it near the viewer.
+        albedo = mix(albedo, sqrt(max(albedo, vec3(0.0))), 0.24);
         vec3 reliefNormal = normalize(vBaseNormal);
         float direct = max(0.0, dot(reliefNormal, normalize(sunlight)));
-        float light = 0.46 + direct * 0.72;
+        float light = 0.58 + direct * 0.60;
         vec3 colour = albedo * light;
         colour += vec3(0.025, 0.045, 0.065) * (1.0 - direct);
         float tileEdgeDistance = min(
