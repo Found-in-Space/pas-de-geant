@@ -4,16 +4,21 @@ export const IMAGERY_TARGET_TILE_WIDTH_M =
   IMAGERY_GPU_PAGE_SIZE * IMAGERY_TARGET_METRES_PER_TEXEL;
 export const IMAGERY_COARSEN_TILE_WIDTH_M = 1.75;
 export const IMAGERY_REFINE_TILE_WIDTH_M = 3.75;
-export const IMAGERY_PAGE_TABLE_SIZE = 32;
+export const IMAGERY_PAGE_TABLE_SIZE = 64;
 export const IMAGERY_ONION_OUTER_TILES = 8;
 export const IMAGERY_ONION_HOLE_TILES = 4;
-export const IMAGERY_ONION_LEVELS = 3;
+export const IMAGERY_ONION_CORE_LEVELS = 3;
+export const IMAGERY_ONION_LEVELS = 4;
 export const IMAGERY_ONION_ANCHOR_STRIDE = 4;
 export const IMAGERY_ONION_TARGET_RADIUS_M =
   IMAGERY_TARGET_TILE_WIDTH_M *
   IMAGERY_ONION_OUTER_TILES *
   2 ** (IMAGERY_ONION_LEVELS - 2);
 export const IMAGERY_MAX_ANCESTOR_DELTA = 8;
+const IMAGERY_PAGE_ANCESTOR_RADIX = 16;
+const IMAGERY_PAGE_LAYER_RADIX = 256;
+const IMAGERY_MAX_PAGE_LAYER =
+  IMAGERY_PAGE_ANCESTOR_RADIX * IMAGERY_PAGE_LAYER_RADIX - 2;
 export const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 
 export interface ImageryAddress {
@@ -57,6 +62,7 @@ export interface ImageryOnionPlan {
   minimumZoom: number;
   tableOriginX: number;
   tableOriginY: number;
+  tableReferenceX: number;
   tableSpan: number;
   groupCount: number;
   cells: ImageryOnionCell[];
@@ -65,13 +71,13 @@ export interface ImageryOnionPlan {
 }
 
 export interface EncodedPageEntry {
-  layerByte: number;
-  ancestorDelta: number;
+  layerLowByte: number;
+  metadataByte: number;
   childOffsetX: number;
   childOffsetY: number;
 }
 
-interface StandardTemplateCell {
+export interface StandardTemplateCell {
   ring: number;
   row: number;
   column: number;
@@ -80,16 +86,35 @@ interface StandardTemplateCell {
   tableSpan: number;
 }
 
-function createStandardTemplate(): readonly StandardTemplateCell[] {
+export interface StandardImageryTemplate {
+  coreOffsetX: number;
+  coreOffsetY: number;
+  cells: readonly StandardTemplateCell[];
+}
+
+const IMAGERY_CORE_PAGE_TABLE_SIZE =
+  IMAGERY_ONION_OUTER_TILES * 2 ** (IMAGERY_ONION_CORE_LEVELS - 1);
+const IMAGERY_OUTER_TABLE_SPAN = 2 ** (IMAGERY_ONION_LEVELS - 1);
+
+function createStandardTemplate(
+  coreOffsetX: number,
+  coreOffsetY: number,
+): StandardImageryTemplate {
   const cells: StandardTemplateCell[] = [];
   const holeOffset =
     (IMAGERY_ONION_OUTER_TILES - IMAGERY_ONION_HOLE_TILES) / 2;
-  for (let ring = 0; ring < IMAGERY_ONION_LEVELS; ring += 1) {
+  for (let ring = 0; ring < IMAGERY_ONION_CORE_LEVELS; ring += 1) {
     const tableSpan = 2 ** ring;
-    const tableOffset =
-      (IMAGERY_PAGE_TABLE_SIZE -
+    const tableOffsetX =
+      coreOffsetX +
+      (IMAGERY_CORE_PAGE_TABLE_SIZE -
         IMAGERY_ONION_OUTER_TILES * tableSpan) /
-      2;
+        2;
+    const tableOffsetY =
+      coreOffsetY +
+      (IMAGERY_CORE_PAGE_TABLE_SIZE -
+        IMAGERY_ONION_OUTER_TILES * tableSpan) /
+        2;
     for (let row = 0; row < IMAGERY_ONION_OUTER_TILES; row += 1) {
       for (let column = 0; column < IMAGERY_ONION_OUTER_TILES; column += 1) {
         if (
@@ -105,23 +130,60 @@ function createStandardTemplate(): readonly StandardTemplateCell[] {
           ring,
           row,
           column,
-          tableX: tableOffset + column * tableSpan,
-          tableY: tableOffset + row * tableSpan,
+          tableX: tableOffsetX + column * tableSpan,
+          tableY: tableOffsetY + row * tableSpan,
           tableSpan,
         });
       }
     }
   }
-  return cells;
+
+  const ring = IMAGERY_ONION_LEVELS - 1;
+  for (let row = 0; row < IMAGERY_ONION_OUTER_TILES; row += 1) {
+    for (let column = 0; column < IMAGERY_ONION_OUTER_TILES; column += 1) {
+      const tableX = column * IMAGERY_OUTER_TABLE_SPAN;
+      const tableY = row * IMAGERY_OUTER_TABLE_SPAN;
+      const coveredByCore =
+        tableX >= coreOffsetX &&
+        tableY >= coreOffsetY &&
+        tableX + IMAGERY_OUTER_TABLE_SPAN <=
+          coreOffsetX + IMAGERY_CORE_PAGE_TABLE_SIZE &&
+        tableY + IMAGERY_OUTER_TABLE_SPAN <=
+          coreOffsetY + IMAGERY_CORE_PAGE_TABLE_SIZE;
+      if (coveredByCore) continue;
+      cells.push({
+        ring,
+        row,
+        column,
+        tableX,
+        tableY,
+        tableSpan: IMAGERY_OUTER_TABLE_SPAN,
+      });
+    }
+  }
+  return {
+    coreOffsetX,
+    coreOffsetY,
+    cells: Object.freeze(cells),
+  };
 }
 
 /**
- * The standard imagery geometry is fixed: an 8×8 cap and two 8×8-minus-4×4
- * rings. Runtime planning only translates these precomputed relative cells to
- * the current snapped Web Mercator anchor.
+ * The existing 32×32 imagery onion can begin either two or two-and-a-half
+ * z−3 tiles into its new outer layer while retaining its four-tile anchor
+ * cadence. These four fixed variants add complete lower-z coverage without
+ * changing how the inner onion repositions.
  */
-export const STANDARD_IMAGERY_TEMPLATE = Object.freeze(
-  createStandardTemplate(),
+export const STANDARD_IMAGERY_TEMPLATES = Object.freeze(
+  [16, 20].flatMap((coreOffsetY) =>
+    [16, 20].map((coreOffsetX) =>
+      Object.freeze(createStandardTemplate(coreOffsetX, coreOffsetY))
+    )
+  ),
+);
+
+export const IMAGERY_MAX_STANDARD_CELLS = Math.max(
+  ...STANDARD_IMAGERY_TEMPLATES.map((template) => template.cells.length),
 );
 
 interface WorldTemplateCell {
@@ -167,7 +229,7 @@ export const WORLD_IMAGERY_TEMPLATES = Object.freeze(
 );
 
 const LOCAL_CAP_OFFSETS = Object.freeze(
-  STANDARD_IMAGERY_TEMPLATE
+  STANDARD_IMAGERY_TEMPLATES[0]!.cells
     .filter((cell) => cell.ring === 0)
     .map((cell) => Object.freeze({ x: cell.column, y: cell.row })),
 );
@@ -220,6 +282,16 @@ export function imageryKey(address: ImageryAddress): string {
 export function wrapImageryX(x: number, zoom: number): number {
   const width = 2 ** zoom;
   return ((x % width) + width) % width;
+}
+
+export function wrapImageryPageX(
+  pageX: number,
+  referenceX: number,
+  worldWidth: number,
+): number {
+  return (
+    pageX + Math.round((referenceX - pageX) / worldWidth) * worldWidth
+  );
 }
 
 export function isValidImageryAddress(address: ImageryAddress): boolean {
@@ -374,7 +446,7 @@ function standardImageryPlan(
   const anchorMargin =
     (IMAGERY_ONION_OUTER_TILES - anchorStride) / 2;
   const anchorOffset =
-    (holeOffset * (2 ** IMAGERY_ONION_LEVELS - 2)) % anchorStride;
+    (holeOffset * (2 ** IMAGERY_ONION_CORE_LEVELS - 2)) % anchorStride;
   let originX =
     Math.floor(
       (Math.floor(point.x) - anchorMargin - anchorOffset) / anchorStride,
@@ -397,8 +469,20 @@ function standardImageryPlan(
   const outermostSpan = 2 ** (IMAGERY_ONION_LEVELS - 1);
   const tableOriginX = outermost.x * outermostSpan;
   const tableOriginY = outermost.y * outermostSpan;
+  const coreOutermost = origins[IMAGERY_ONION_CORE_LEVELS - 1]!;
+  const coreOutermostSpan = 2 ** (IMAGERY_ONION_CORE_LEVELS - 1);
+  const coreOffsetX = coreOutermost.x * coreOutermostSpan - tableOriginX;
+  const coreOffsetY = coreOutermost.y * coreOutermostSpan - tableOriginY;
+  const standardTemplate = STANDARD_IMAGERY_TEMPLATES.find(
+    (template) =>
+      template.coreOffsetX === coreOffsetX &&
+      template.coreOffsetY === coreOffsetY,
+  );
+  if (!standardTemplate) {
+    throw new Error("The imagery onion has an unsupported outer alignment.");
+  }
   const cells: ImageryOnionCell[] = [];
-  for (const template of STANDARD_IMAGERY_TEMPLATE) {
+  for (const template of standardTemplate.cells) {
     const zoom = finestZoom - template.ring;
     if (zoom < minimumZoom) continue;
     const ringOrigin = origins[template.ring]!;
@@ -427,9 +511,9 @@ function standardImageryPlan(
         cell.group * 1_000 +
         Math.hypot(
           cell.tableX + cell.tableSpan * 0.5 -
-            IMAGERY_PAGE_TABLE_SIZE * 0.5,
+            (coreOffsetX + IMAGERY_CORE_PAGE_TABLE_SIZE * 0.5),
           cell.tableY + cell.tableSpan * 0.5 -
-            IMAGERY_PAGE_TABLE_SIZE * 0.5,
+            (coreOffsetY + IMAGERY_CORE_PAGE_TABLE_SIZE * 0.5),
         ),
     }))
     .sort(
@@ -443,6 +527,8 @@ function standardImageryPlan(
     minimumZoom,
     tableOriginX,
     tableOriginY,
+    tableReferenceX:
+      tableOriginX + coreOffsetX + IMAGERY_CORE_PAGE_TABLE_SIZE * 0.5,
     tableSpan: IMAGERY_PAGE_TABLE_SIZE,
     groupCount: IMAGERY_ONION_LEVELS,
     cells,
@@ -537,6 +623,7 @@ function worldImageryPlan(
     minimumZoom,
     tableOriginX: 0,
     tableOriginY: 0,
+    tableReferenceX: 2 ** finestZoom * 0.5,
     tableSpan: 2 ** finestZoom,
     groupCount: highestGroup + 1,
     cells,
@@ -595,23 +682,45 @@ export function encodePageEntry(
   ) {
     throw new Error("The imagery source does not contain its target.");
   }
-  if (layer < 0 || layer > 253) {
-    throw new Error("The imagery layer must fit in one non-zero byte.");
-  }
+  const encodedLayer = encodePageLayer(layer, delta);
   return {
-    layerByte: layer + 1,
-    ancestorDelta: delta,
+    ...encodedLayer,
     childOffsetX: target.x - source.x * divisor,
     childOffsetY: target.y - source.y * divisor,
+  };
+}
+
+export function encodePageLayer(
+  layer: number,
+  ancestorDelta: number,
+): Pick<EncodedPageEntry, "layerLowByte" | "metadataByte"> {
+  if (layer < 0 || layer > IMAGERY_MAX_PAGE_LAYER) {
+    throw new Error("The imagery layer does not fit in page metadata.");
+  }
+  if (ancestorDelta < 0 || ancestorDelta > IMAGERY_MAX_ANCESTOR_DELTA) {
+    throw new Error("The imagery ancestor is too coarse for page metadata.");
+  }
+  const layerCode = layer + 1;
+  return {
+    layerLowByte: layerCode % IMAGERY_PAGE_LAYER_RADIX,
+    metadataByte:
+      ancestorDelta +
+      Math.floor(layerCode / IMAGERY_PAGE_LAYER_RADIX) *
+        IMAGERY_PAGE_ANCESTOR_RADIX,
   };
 }
 
 export function decodePageEntry(
   entry: EncodedPageEntry,
 ): { layer: number; scale: number; offsetX: number; offsetY: number } {
+  const ancestorDelta = entry.metadataByte % IMAGERY_PAGE_ANCESTOR_RADIX;
+  const layerCode =
+    entry.layerLowByte +
+    Math.floor(entry.metadataByte / IMAGERY_PAGE_ANCESTOR_RADIX) *
+      IMAGERY_PAGE_LAYER_RADIX;
   return {
-    layer: entry.layerByte - 1,
-    scale: 2 ** entry.ancestorDelta,
+    layer: layerCode - 1,
+    scale: 2 ** ancestorDelta,
     offsetX: entry.childOffsetX,
     offsetY: entry.childOffsetY,
   };

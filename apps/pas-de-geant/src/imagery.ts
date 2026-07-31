@@ -1,16 +1,18 @@
 import * as THREE from "three";
 import {
+  IMAGERY_MAX_STANDARD_CELLS,
   IMAGERY_PAGE_TABLE_SIZE,
   IMAGERY_ONION_OUTER_TILES,
   ImageryRequestTokenIndex,
-  STANDARD_IMAGERY_TEMPLATE,
   WEB_MERCATOR_MAX_LATITUDE,
+  encodePageLayer,
   imageryKey,
   imageryOnionPlanForContact,
   isValidImageryAddress,
   renderedImageryTileWidthM,
   selectImageryZoom,
   selectUnpinnedLruKey,
+  wrapImageryPageX,
   type ImageryAddress,
   type ImageryLoadTask,
   type ImageryOnionPlan,
@@ -20,7 +22,7 @@ import {
 const IMAGERY_GUTTER_PIXELS = 2;
 const IMAGERY_FINE_CAP_LAYERS = IMAGERY_ONION_OUTER_TILES ** 2;
 const IMAGERY_POOL_REQUIRED_LAYERS =
-  STANDARD_IMAGERY_TEMPLATE.length + IMAGERY_FINE_CAP_LAYERS;
+  IMAGERY_MAX_STANDARD_CELLS + IMAGERY_FINE_CAP_LAYERS;
 const MAX_CONCURRENT_IMAGERY_REQUESTS = 6;
 const MAX_IMAGERY_UPLOADS_PER_FRAME = 2;
 const IMAGERY_TRANSIENT_RETRY_DELAYS_MS = [1_000, 5_000, 30_000] as const;
@@ -234,16 +236,26 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
   uniform vec2 imageryPageTableSize;
   uniform vec3 imageryPoolLayout;
   uniform vec4 imageryCoordOriginScale;
+  uniform vec2 imageryWrapX;
   in vec2 vBlueMarbleUv;
   in vec2 vImageryUv;
+
+  vec2 wrappedImageryPageCoordinate() {
+    vec2 pageCoordinate =
+      imageryCoordOriginScale.xy +
+      vImageryUv * imageryCoordOriginScale.zw;
+    pageCoordinate.x +=
+      floor(
+        (imageryWrapX.y - pageCoordinate.x) / imageryWrapX.x + 0.5
+      ) * imageryWrapX.x;
+    return pageCoordinate;
+  }
 
   vec3 resolvedImageryAlbedo() {
     if (imageryEnabled < 0.5) {
       return texture(blueMarbleMap, vBlueMarbleUv).rgb;
     }
-    vec2 pageCoordinate =
-      imageryCoordOriginScale.xy +
-      vImageryUv * imageryCoordOriginScale.zw;
+    vec2 pageCoordinate = wrappedImageryPageCoordinate();
     vec2 pageCell = floor(pageCoordinate);
     if (
       pageCell.x < 0.0 ||
@@ -255,11 +267,14 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
     }
     vec2 pageUv = (pageCell + 0.5) / imageryPageTableSize;
     vec4 encoded = texture(imageryPageTable, pageUv);
-    float layerByte = floor(encoded.r * 255.0 + 0.5);
-    if (layerByte < 0.5) {
+    float layerLowByte = floor(encoded.r * 255.0 + 0.5);
+    float metadataByte = floor(encoded.g * 255.0 + 0.5);
+    float ancestorDelta = mod(metadataByte, 16.0);
+    float layerCode =
+      layerLowByte + floor(metadataByte / 16.0) * 256.0;
+    if (layerCode < 0.5) {
       return texture(blueMarbleMap, vBlueMarbleUv).rgb;
     }
-    float ancestorDelta = floor(encoded.g * 255.0 + 0.5);
     vec2 childOffset = floor(encoded.ba * 255.0 + 0.5);
     float ancestorScale = exp2(ancestorDelta);
     vec2 targetUv = fract(pageCoordinate);
@@ -270,15 +285,13 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
     vec2 poolUv = (vec2(gutter) + sourceUv * tileSize) / paddedSize;
     return texture(
       imageryTilePool,
-      vec3(poolUv, layerByte - 1.0)
+      vec3(poolUv, layerCode - 1.0)
     ).rgb;
   }
 
   vec4 resolvedImageryTileOverlay() {
     if (imageryEnabled < 0.5) return vec4(0.0);
-    vec2 pageCoordinate =
-      imageryCoordOriginScale.xy +
-      vImageryUv * imageryCoordOriginScale.zw;
+    vec2 pageCoordinate = wrappedImageryPageCoordinate();
     vec2 pageCell = floor(pageCoordinate);
     if (
       pageCell.x < 0.0 ||
@@ -290,9 +303,12 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
       imageryPageTable,
       (pageCell + 0.5) / imageryPageTableSize
     );
-    float layerByte = floor(encoded.r * 255.0 + 0.5);
-    if (layerByte < 0.5) return vec4(0.0);
-    float ancestorDelta = floor(encoded.g * 255.0 + 0.5);
+    float layerLowByte = floor(encoded.r * 255.0 + 0.5);
+    float metadataByte = floor(encoded.g * 255.0 + 0.5);
+    float ancestorDelta = mod(metadataByte, 16.0);
+    float layerCode =
+      layerLowByte + floor(metadataByte / 16.0) * 256.0;
+    if (layerCode < 0.5) return vec4(0.0);
     vec2 childOffset = floor(encoded.ba * 255.0 + 0.5);
     float ancestorScale = exp2(ancestorDelta);
     vec2 tileUv =
@@ -383,6 +399,7 @@ export class ImageryVirtualTexture {
     return {
       ...this.sharedUniforms,
       imageryCoordOriginScale: new THREE.Uniform(new THREE.Vector4()),
+      imageryWrapX: new THREE.Uniform(new THREE.Vector2(1, 0)),
     };
   }
 
@@ -392,20 +409,29 @@ export class ImageryVirtualTexture {
   ): void {
     const value = material.uniforms.imageryCoordOriginScale
       ?.value as THREE.Vector4 | undefined;
+    const wrap = material.uniforms.imageryWrapX
+      ?.value as THREE.Vector2 | undefined;
     const plan = this.visiblePlan;
-    if (!value || !plan) {
+    if (!value || !wrap || !plan) {
       value?.set(0, 0, 0, 0);
+      wrap?.set(1, 0);
       return;
     }
     const worldWidth = 2 ** plan.finestZoom;
-    let west = bounds.west * worldWidth;
-    const reference = plan.tableOriginX + plan.tableSpan * 0.5;
-    west += Math.round((reference - west) / worldWidth) * worldWidth;
+    const west = wrapImageryPageX(
+      bounds.west * worldWidth,
+      plan.tableReferenceX,
+      worldWidth,
+    );
     value.set(
       west - plan.tableOriginX,
       bounds.north * worldWidth - plan.tableOriginY,
       (bounds.east - bounds.west) * worldWidth,
       (bounds.south - bounds.north) * worldWidth,
+    );
+    wrap.set(
+      worldWidth,
+      plan.tableReferenceX - plan.tableOriginX,
     );
   }
 
@@ -509,8 +535,9 @@ export class ImageryVirtualTexture {
     texture.wrapS = THREE.ClampToEdgeWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
     texture.magFilter = THREE.LinearFilter;
-    texture.minFilter = THREE.LinearFilter;
-    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.generateMipmaps = true;
+    texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     texture.flipY = false;
     texture.needsUpdate = true;
     return texture;
@@ -966,8 +993,13 @@ export class ImageryVirtualTexture {
           }
           const index =
             (tableY * IMAGERY_PAGE_TABLE_SIZE + tableX) * 4;
-          bytes[index] = record.slot + 1;
-          bytes[index + 1] = plan.finestZoom - cell.address.z;
+          if (bytes[index] !== 0 || bytes[index + 1] !== 0) continue;
+          const encodedLayer = encodePageLayer(
+            record.slot,
+            plan.finestZoom - cell.address.z,
+          );
+          bytes[index] = encodedLayer.layerLowByte;
+          bytes[index + 1] = encodedLayer.metadataByte;
           bytes[index + 2] = childX;
           bytes[index + 3] = childY;
         }
@@ -977,7 +1009,10 @@ export class ImageryVirtualTexture {
     }
     const visibleEntries = bytes.reduce(
       (count, value, index) =>
-        index % 4 === 0 && value > 0 ? count + 1 : count,
+        index % 4 === 0 &&
+          (value > 0 || (bytes[index + 1] ?? 0) >= 16)
+          ? count + 1
+          : count,
       0,
     );
     const signature = `${plan.signature}:${maximumGroup}:${visibleEntries}:${Array.from(

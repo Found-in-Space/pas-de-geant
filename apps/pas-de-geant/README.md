@@ -204,25 +204,31 @@ It does not depend on physical Earth distance, eye height, or camera focal
 length.
 
 The normal render-space onion is a precomputed 8×8 fine cap, an
-8×8-minus-4×4 parent ring, and a second parent ring of the same shape. At the
-target resolution their outer radii are about 10.24 m, 20.48 m, and 40.96 m.
-Only the Web Mercator address anchor is resolved at runtime; the relative
-geometry and page-table footprints are fixed. Entering a two-tile edge band
-moves the anchor by four tiles, retaining half of the fine cap while its
-replacement becomes ready. The central cap loads and commits first, followed
-by the middle and outer rings at progressively lower request priority. A 32×32
-page table covers the complete onion.
+8×8-minus-4×4 parent ring, and a second parent ring of the same shape. A new
+z−3 layer surrounds that unchanged 32×32 core. At the target resolution the
+four outer radii are about 10.24 m, 20.48 m, 40.96 m, and 81.92 m. Entering a
+two-tile edge band still moves the anchor by four tiles and retains half of the
+fine cap while its replacement becomes ready. Because that movement is half
+the width of a z−3 page, four precomputed outer layouts use 48, 52, or 55
+source pages; partially overlapping coarse pages only fill cells outside the
+finer core. The central cap loads and commits first, followed by the three
+coarser groups at progressively lower request priority. A 64×64 page table
+covers the complete onion.
 
 At the smallest displayed world sizes, z0 through z3 load as complete-world
 photographic layers, coarse to fine; the z3 world is the complete 8×8 level.
 This keeps a configured photographic provider visible between Blue Marble and
 the standard local onion instead of imposing a scale gate or a fixed
-mid-resolution ceiling.
+mid-resolution ceiling. Whole-globe fragments resolve longitude to the wrapped
+page-table copy nearest the onion centre, so a window approaching one world in
+width does not fall through to Blue Marble at its geographic seam.
 
-A texture array holds the complete 160-page visible onion plus the complete
-64-page fine cap for the next anchor or z level. The resulting 224 native-size
+A texture array holds the largest 215-page visible layout plus the complete
+64-page fine cap for the next anchor or z level. The resulting 279 native-size
 layers are derived from the atomic transition and checked against the device's
-array-layer capability before allocation.
+array-layer capability before allocation. The array uses trilinear mipmapped
+minification and the device's available anisotropic filtering to keep detailed
+ground imagery stable at oblique angles and during movement.
 Downloads, decodes, and GPU uploads only populate staging. Two page-table
 textures swap after the central group or a later complete ring is ready, so
 missing, malformed, aborted, stale, or GPU-failed pages cannot partially

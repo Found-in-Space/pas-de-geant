@@ -297,15 +297,15 @@ test("keeps photographic visibility while central caps swap and outer rings refi
   await waitForInitialImagery(page);
   await expect(page.locator("body")).toHaveAttribute(
     "data-imagery-pool-layers",
-    "224",
+    "279",
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-imagery-window-size",
-    "32",
+    "64",
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-imagery-pinned-pages",
-    "160",
+    "212",
   );
   await expect
     .poll(
