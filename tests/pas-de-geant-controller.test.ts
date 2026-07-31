@@ -51,7 +51,7 @@ describe("Pas de Géant controller regressions", () => {
     expect(controllerIntent(session, 48, latch).resetGroundLevel).toBe(true);
   });
 
-  it("toggles tile boundaries with X while leaving Y unassigned", () => {
+  it("toggles terrain boundaries with X and imagery tiles with Y", () => {
     const xButton = { pressed: false, value: 0 };
     const yButton = { pressed: false, value: 0 };
     const session = {
@@ -87,5 +87,6 @@ describe("Pas de Géant controller regressions", () => {
     yButton.value = 1;
     const yPress = controllerIntent(session, 48, latch);
     expect(yPress.toggleTileOverlay).toBe(false);
+    expect(yPress.toggleTextureTileOverlay).toBe(true);
   });
 });

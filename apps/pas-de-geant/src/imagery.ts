@@ -271,6 +271,45 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
       vec3(poolUv, layerByte - 1.0)
     ).rgb;
   }
+
+  vec4 resolvedImageryTileOverlay() {
+    if (imageryEnabled < 0.5) return vec4(0.0);
+    vec2 pageCoordinate =
+      imageryCoordOriginScale.xy +
+      vImageryUv * imageryCoordOriginScale.zw;
+    vec2 pageCell = floor(pageCoordinate);
+    if (
+      pageCell.x < 0.0 ||
+      pageCell.y < 0.0 ||
+      pageCell.x >= imageryPageTableSize.x ||
+      pageCell.y >= imageryPageTableSize.y
+    ) return vec4(0.0);
+    vec4 encoded = texture(
+      imageryPageTable,
+      (pageCell + 0.5) / imageryPageTableSize
+    );
+    float layerByte = floor(encoded.r * 255.0 + 0.5);
+    if (layerByte < 0.5) return vec4(0.0);
+    float ancestorDelta = floor(encoded.g * 255.0 + 0.5);
+    vec2 childOffset = floor(encoded.ba * 255.0 + 0.5);
+    float ancestorScale = exp2(ancestorDelta);
+    vec2 tileUv =
+      (childOffset + fract(pageCoordinate)) / ancestorScale;
+    vec2 distanceToEdge = min(tileUv, 1.0 - tileUv);
+    float edgeDistance = min(distanceToEdge.x, distanceToEdge.y);
+    float tileEdge = 1.0 - smoothstep(
+      0.0,
+      max(0.0005, fwidth(edgeDistance) * 2.5),
+      edgeDistance
+    );
+    vec3 overlayColour =
+      ancestorDelta < 0.5
+        ? vec3(0.0, 0.843, 1.0)
+        : ancestorDelta < 1.5
+          ? vec3(1.0, 0.741, 0.247)
+          : vec3(1.0, 0.369, 0.659);
+    return vec4(overlayColour, mix(0.18, 0.92, tileEdge));
+  }
 `;
 
 export interface ImageryUpdateOptions extends ImageryView {

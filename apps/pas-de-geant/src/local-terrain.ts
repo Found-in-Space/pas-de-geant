@@ -120,6 +120,7 @@ function localTerrainMaterial(
   imagery: ImageryVirtualTexture,
   address: NativeTerrainTile,
   tileOverlayVisible: boolean,
+  textureTileOverlayVisible: boolean,
 ): THREE.ShaderMaterial {
   const debugColour =
     LOCAL_RING_DEBUG_COLOURS[
@@ -147,6 +148,7 @@ function localTerrainMaterial(
       skirtEdges: { value: new THREE.Vector4() },
       tileOverlayVisible: { value: tileOverlayVisible ? 1 : 0 },
       tileOverlayColour: { value: new THREE.Color(debugColour) },
+      textureTileOverlayVisible: { value: textureTileOverlayVisible ? 1 : 0 },
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
     },
     vertexShader: `
@@ -200,6 +202,7 @@ function localTerrainMaterial(
       uniform vec3 sunlight;
       uniform float tileOverlayVisible;
       uniform vec3 tileOverlayColour;
+      uniform float textureTileOverlayVisible;
       in vec3 vBaseNormal;
       out vec4 terrainColour;
       void main() {
@@ -221,6 +224,12 @@ function localTerrainMaterial(
         float overlayStrength =
           tileOverlayVisible * mix(0.18, 0.92, tileEdge);
         colour = mix(colour, tileOverlayColour, overlayStrength);
+        vec4 imageryTileOverlay = resolvedImageryTileOverlay();
+        colour = mix(
+          colour,
+          imageryTileOverlay.rgb,
+          textureTileOverlayVisible * imageryTileOverlay.a
+        );
         terrainColour = vec4(colour, 1.0);
       }
     `,
@@ -280,6 +289,7 @@ export class LocalTerrainRenderer {
   private displayRadiusM = 1;
   private radialMultiplier = 1;
   private tileOverlayVisible = false;
+  private textureTileOverlayVisible = false;
   private geometryBytes = 0;
   private diagnosticsDirty = true;
   private elevationRequestTotal = 0;
@@ -345,6 +355,13 @@ export class LocalTerrainRenderer {
     }
     this.diagnosticsDirty = true;
     this.updateDiagnostics();
+  }
+
+  setTextureTileOverlayVisible(visible: boolean): void {
+    this.textureTileOverlayVisible = visible;
+    for (const tile of this.rendered.values()) {
+      tile.mesh.material.uniforms.textureTileOverlayVisible!.value = visible ? 1 : 0;
+    }
   }
 
   sampleSurfaceHeight(
@@ -854,6 +871,7 @@ export class LocalTerrainRenderer {
         this.imagery,
         staged.address,
         this.tileOverlayVisible,
+        this.textureTileOverlayVisible,
       );
       this.imagery.configureMaterial(
         material,
@@ -1148,6 +1166,8 @@ export class LocalTerrainRenderer {
       : "";
     document.body.dataset.detailTileOverlay =
       String(this.tileOverlayVisible);
+    document.body.dataset.detailTextureTileOverlay =
+      String(this.textureTileOverlayVisible);
     document.body.dataset.detailSourceSampleMetres = plan
       ? (plan.finestTileWidthM / LOCAL_TILE_SIZE).toFixed(4)
       : "";

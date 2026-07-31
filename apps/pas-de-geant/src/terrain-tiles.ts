@@ -191,6 +191,7 @@ function terrainMaterial(
   relief: ReliefDataset,
   imagery: ImageryVirtualTexture,
   stencilAvailable: boolean,
+  textureTileOverlayVisible: boolean,
 ): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
@@ -208,6 +209,7 @@ function terrainMaterial(
     uniforms: {
       heightMap: { value: relief.texture },
       ...imagery.materialUniforms(),
+      textureTileOverlayVisible: { value: textureTileOverlayVisible ? 1 : 0 },
       normalizedRadialMetres: { value: 0 },
       heightOffsetM: { value: relief.metadata.offsetMetres },
       heightScaleM: { value: relief.metadata.scaleMetres },
@@ -247,6 +249,7 @@ function terrainMaterial(
     fragmentShader: `
       ${IMAGERY_FRAGMENT_DECLARATIONS}
       uniform vec3 sunlight;
+      uniform float textureTileOverlayVisible;
       in vec3 vWorldPosition;
       in vec3 vBaseNormal;
       out vec4 terrainColour;
@@ -280,6 +283,12 @@ function terrainMaterial(
           direct * (${LAND_DIRECT_LIGHT.toFixed(2)} - shadowLift);
         vec3 colour = balancedAlbedo * light;
         colour += vec3(0.025, 0.045, 0.065) * (1.0 - direct);
+        vec4 imageryTileOverlay = resolvedImageryTileOverlay();
+        colour = mix(
+          colour,
+          imageryTileOverlay.rgb,
+          textureTileOverlayVisible * imageryTileOverlay.a
+        );
         terrainColour = vec4(colour, 1.0);
       }
     `,
@@ -330,6 +339,7 @@ export class TerrainTileRenderer {
   private readonly relief: ReliefDataset;
   private readonly occluder = terrainOccluder();
   private readonly localTerrain: LocalTerrainRenderer;
+  private textureTileOverlayVisible = false;
   private readonly globalTerrain: THREE.Mesh<
     THREE.BufferGeometry,
     THREE.ShaderMaterial
@@ -351,7 +361,7 @@ export class TerrainTileRenderer {
     this.globalBaseBoundingRadius = geometry.boundingSphere?.radius ?? 0;
     this.globalTerrain = new THREE.Mesh(
       geometry,
-      terrainMaterial(relief, imagery, stencilAvailable),
+      terrainMaterial(relief, imagery, stencilAvailable, this.textureTileOverlayVisible),
     );
     this.globalTerrain.name = "immutable-global-surface";
     this.globalTerrain.frustumCulled = false;
@@ -428,6 +438,13 @@ export class TerrainTileRenderer {
 
   setTileOverlayVisible(visible: boolean): void {
     this.localTerrain.setTileOverlayVisible(visible);
+  }
+
+  setTextureTileOverlayVisible(visible: boolean): void {
+    this.textureTileOverlayVisible = visible;
+    this.globalTerrain.material.uniforms.textureTileOverlayVisible!.value =
+      visible ? 1 : 0;
+    this.localTerrain.setTextureTileOverlayVisible(visible);
   }
 
   sampleSurfaceHeight(

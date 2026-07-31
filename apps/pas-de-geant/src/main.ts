@@ -59,6 +59,9 @@ declare global {
     __PAS_DE_GEANT_ENABLE_TEST_HOOKS__?: boolean;
     __PAS_DE_GEANT_TEST_SET_SCALE__?: (displayRadiusM: number) => void;
     __PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__?: (visible: boolean) => void;
+    __PAS_DE_GEANT_TEST_SET_TEXTURE_TILE_OVERLAY__?: (
+      visible: boolean,
+    ) => void;
     __PAS_DE_GEANT_TEST_SET_LOCATION__?: (
       latitudeDegrees: number,
       longitudeDegrees: number,
@@ -214,6 +217,7 @@ let state = initialPlanetState(
 );
 let groundLevelElevationM = 0;
 let tileOverlayVisible = false;
+let textureTileOverlayVisible = false;
 if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
   window.__PAS_DE_GEANT_TEST_SET_SCALE__ = (displayRadiusM): void => {
     state.displayRadiusM = Math.max(1, displayRadiusM);
@@ -230,6 +234,8 @@ if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
     updatePresentation();
   };
   window.__PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__ = setTileOverlayVisible;
+  window.__PAS_DE_GEANT_TEST_SET_TEXTURE_TILE_OVERLAY__ =
+    setTextureTileOverlayVisible;
 }
 const initialCoordinates = coordinatesForFrame(state.contact);
 const initialHandPanelStatus = handPanelStatus(
@@ -331,6 +337,11 @@ function resetGroundLevel(): void {
 function setTileOverlayVisible(visible: boolean): void {
   tileOverlayVisible = visible;
   terrain.setTileOverlayVisible(visible);
+}
+
+function setTextureTileOverlayVisible(visible: boolean): void {
+  textureTileOverlayVisible = visible;
+  terrain.setTextureTileOverlayVisible(visible);
 }
 
 const terrainEyeWorldPosition = new THREE.Vector3();
@@ -643,6 +654,9 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
   );
   if (intent.toggleTileOverlay) {
     setTileOverlayVisible(!tileOverlayVisible);
+  }
+  if (intent.toggleTextureTileOverlay) {
+    setTextureTileOverlayVisible(!textureTileOverlayVisible);
   }
   if (intent.reset) resetPlanet();
   if (intent.resetGroundLevel) resetGroundLevel();

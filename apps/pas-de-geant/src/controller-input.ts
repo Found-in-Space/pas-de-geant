@@ -6,6 +6,7 @@ export interface ControllerIntent {
   radialAxis: number;
   boost: boolean;
   toggleTileOverlay: boolean;
+  toggleTextureTileOverlay: boolean;
   toggleOcean: boolean;
   reset: boolean;
   resetGroundLevel: boolean;
@@ -16,6 +17,7 @@ export interface ButtonLatch {
   bStartedAt: number | null;
   stick: boolean;
   x: boolean;
+  y: boolean;
 }
 
 export function deadzone(value: number, threshold = 0.16): number {
@@ -56,12 +58,15 @@ export function controllerIntent(
   const bPressed = rightButtons[5]?.pressed ?? rightButtons[1]?.pressed ?? false;
   const stickPressed = rightButtons[3]?.pressed ?? false;
   const xPressed = leftButtons[4]?.pressed ?? false;
+  const yPressed = leftButtons[5]?.pressed ?? false;
   const toggleOcean = aPressed && !latch.a;
   const resetGroundLevel = stickPressed && !latch.stick;
   const toggleTileOverlay = xPressed && !latch.x;
+  const toggleTextureTileOverlay = yPressed && !latch.y;
   latch.a = aPressed;
   latch.stick = stickPressed;
   latch.x = xPressed;
+  latch.y = yPressed;
   if (bPressed && latch.bStartedAt === null) latch.bStartedAt = nowMs;
   const reset =
     bPressed &&
@@ -76,6 +81,7 @@ export function controllerIntent(
       (leftButtons[0]?.value ?? 0) > 0.55 ||
       (leftButtons[1]?.value ?? 0) > 0.55,
     toggleTileOverlay,
+    toggleTextureTileOverlay,
     toggleOcean,
     reset,
     resetGroundLevel,
@@ -109,5 +115,6 @@ export function freshButtonLatch(): ButtonLatch {
     bStartedAt: null,
     stick: false,
     x: false,
+    y: false,
   };
 }
