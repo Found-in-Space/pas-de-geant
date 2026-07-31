@@ -103,6 +103,7 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
       attribute vec3 detailOffsetM;
       attribute vec3 oceanSurfaceOffsetM;
       attribute float skirtKind;
+      attribute float tileRing;
       uniform float normalizedRadialMetres;
       uniform float normalizedSeamSkirtDepth;
       uniform float normalizedOuterSkirtDepth;
@@ -110,6 +111,7 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
       varying vec2 vImageUv;
       varying vec2 vTileUv;
       varying vec3 vBaseNormal;
+      varying float vTileRing;
       void main() {
         vec3 displayedDetailOffsetM = mix(
           detailOffsetM,
@@ -129,6 +131,7 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
         vImageUv = heightUv;
         vTileUv = uv;
         vBaseNormal = normalize(mat3(modelMatrix) * normal);
+        vTileRing = tileRing;
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
     `,
@@ -139,6 +142,7 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
       varying vec2 vImageUv;
       varying vec2 vTileUv;
       varying vec3 vBaseNormal;
+      varying float vTileRing;
       void main() {
         vec3 albedo = pow(texture2D(imageMap, vImageUv).rgb, vec3(0.72));
         float direct = max(
@@ -158,7 +162,12 @@ function constructMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
         );
         float overlayStrength =
           tileOverlayVisible * mix(0.18, 0.92, tileEdge);
-        colour = mix(colour, vec3(0.0, 0.84, 1.0), overlayStrength);
+        vec3 ringColour = vTileRing < 0.5
+          ? vec3(0.0, 0.84, 1.0)
+          : vTileRing < 1.5
+            ? vec3(1.0, 0.74, 0.25)
+            : vec3(1.0, 0.37, 0.66);
+        colour = mix(colour, ringColour, overlayStrength);
         gl_FragColor = vec4(colour, 1.0);
       }
     `,
@@ -208,6 +217,13 @@ function geometryForTile(
   geometry.setAttribute(
     "skirtKind",
     new THREE.BufferAttribute(skirtKinds, 1),
+  );
+  geometry.setAttribute(
+    "tileRing",
+    new THREE.BufferAttribute(
+      new Float32Array(result.skirtEdges.length).fill(tile.ring),
+      1,
+    ),
   );
   geometry.setIndex(new THREE.BufferAttribute(result.indices, 1));
   geometry.boundingSphere = new THREE.Sphere(
