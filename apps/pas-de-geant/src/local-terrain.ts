@@ -40,11 +40,10 @@ import {
 
 const HEIGHT_RETRY_DELAY_MS = 30_000;
 const LOCAL_MIN_SKIRT_DEPTH_WORLD_M = 0.0005;
-const LOCAL_TILE_DEBUG_COLOURS = [
+const LOCAL_RING_DEBUG_COLOURS = [
   0x00d7ff,
   0xffbd3f,
   0xff5ea8,
-  0x7dff78,
 ] as const;
 
 interface ElevationPayload {
@@ -119,12 +118,12 @@ async function loadElevation(
 function localTerrainMaterial(
   relief: ReliefDataset,
   imagery: ImageryVirtualTexture,
-  address: MercatorTileAddress,
+  address: NativeTerrainTile,
   tileOverlayVisible: boolean,
 ): THREE.ShaderMaterial {
   const debugColour =
-    LOCAL_TILE_DEBUG_COLOURS[
-      Math.abs(address.x + address.y) % LOCAL_TILE_DEBUG_COLOURS.length
+    LOCAL_RING_DEBUG_COLOURS[
+      Math.max(0, Math.min(LOCAL_RING_DEBUG_COLOURS.length - 1, address.ring))
     ]!;
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
