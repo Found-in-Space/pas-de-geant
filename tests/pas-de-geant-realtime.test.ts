@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   parseLocationToolArguments,
+  realtimeGreetingEvent,
 } from "../apps/pas-de-geant/src/realtime-agent.js";
+import {
+  locationDetailForDisplayRadius,
+} from "../apps/pas-de-geant/src/location-context.js";
+import {
+  parseReverseGeocodeRequest,
+  requestReverseGeocode,
+} from "../apps/pas-de-geant/src/location-context-server.js";
 import {
   isAllowedRequestOrigin,
   realtimeSessionConfiguration,
@@ -9,6 +17,68 @@ import {
 } from "../apps/pas-de-geant/src/realtime-token-server.js";
 
 describe("Pas de Géant Realtime voice agent", () => {
+  it("kicks off a short spoken greeting when the connection opens", () => {
+    expect(realtimeGreetingEvent()).toMatchObject({
+      type: "response.create",
+      response: {
+        output_modalities: ["audio"],
+        max_output_tokens: 80,
+      },
+    });
+  });
+
+  it("uses country detail below 1000x and locality detail from 1000x", () => {
+    expect(locationDetailForDisplayRadius(999.99)).toBe("country");
+    expect(locationDetailForDisplayRadius(1_000)).toBe("locality");
+  });
+
+  it("validates and resolves scale-appropriate reverse geocoding", async () => {
+    expect(
+      parseReverseGeocodeRequest(
+        new URL("http://local/api/location/reverse?lat=52.37&lon=4.9&detail=locality"),
+      ),
+    ).toEqual({
+      latitudeDegrees: 52.37,
+      longitudeDegrees: 4.9,
+      detail: "locality",
+    });
+    expect(
+      parseReverseGeocodeRequest(
+        new URL("http://local/api/location/reverse?lat=91&lon=4.9&detail=locality"),
+      ),
+    ).toBeUndefined();
+
+    let capturedUrl = "";
+    let capturedHeaders: HeadersInit | undefined;
+    const result = await requestReverseGeocode(
+      { latitudeDegrees: 52.37, longitudeDegrees: 4.9, detail: "locality" },
+      async (input, init) => {
+        capturedUrl = String(input);
+        capturedHeaders = init?.headers;
+        return new Response(
+          JSON.stringify({
+            address: {
+              city: "Amsterdam",
+              state: "North Holland",
+              country: "Netherlands",
+              country_code: "nl",
+            },
+          }),
+        );
+      },
+    );
+    expect(new URL(capturedUrl).searchParams.get("zoom")).toBe("12");
+    expect(capturedHeaders).toMatchObject({
+      "User-Agent": expect.stringContaining("Pas-de-Geant"),
+    });
+    expect(result).toEqual({
+      country: "Netherlands",
+      country_code: "NL",
+      region: "North Holland",
+      locality: "Amsterdam",
+    });
+  });
+
   it("accepts valid location tool arguments and rejects unsafe coordinates", () => {
     expect(
       parseLocationToolArguments({

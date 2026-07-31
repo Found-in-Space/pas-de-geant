@@ -35,6 +35,12 @@ can read the exact underfoot coordinates and move the globe
 to coordinates through its `get_user_location` and `set_user_location` app
 tools.
 
+When the agent reads the current location, the local server performs a cached
+OpenStreetMap Nominatim reverse lookup. Below a 1,000× display scale it returns
+country detail only; at 1,000× and above it may also return a region and nearby
+city, town, or village. Lookups are limited to one upstream request per second
+and the endpoint can be replaced with `PAS_DE_GEANT_GEOCODER_URL`.
+
 ### The Construct
 
 Open `http://127.0.0.1:4197/construct/` for the isolated terrain test over the

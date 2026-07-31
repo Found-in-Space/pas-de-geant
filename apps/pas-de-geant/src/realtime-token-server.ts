@@ -28,7 +28,10 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
         "room-scale relief Earth experience. Answer conversationally and keep " +
         "spoken replies brief. The position shown by the app is the place under " +
         "the user’s feet. Use get_user_location before answering questions that " +
-        "depend on the precise current position. When the user asks to go, move, " +
+        "depend on the current position. Its result may include a named_location " +
+        "with country-level detail at wide globe scales and locality detail at " +
+        "close scales; do not invent a place when named_location is null. When " +
+        "the user asks to go, move, " +
         "travel, or teleport to a place and you know reasonable coordinates, use " +
         "set_user_location. Be clear when coordinates are approximate.",
       audio: {
@@ -40,7 +43,8 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
           type: "function",
           name: "get_user_location",
           description:
-            "Read the exact latitude and longitude currently under the user’s feet.",
+            "Read the coordinates, display scale, and scale-appropriate named " +
+            "location currently under the user’s feet.",
           parameters: { type: "object", properties: {}, additionalProperties: false },
         },
         {

@@ -51,6 +51,10 @@ import {
   type PlanetState,
 } from "./planet-state.js";
 import { resolveInitialLocation } from "./initial-location.js";
+import {
+  fetchNamedLocationContext,
+  locationDetailForDisplayRadius,
+} from "./location-context.js";
 import { loadReliefDataset } from "./relief.js";
 import {
   parseLocationToolArguments,
@@ -558,11 +562,20 @@ const voiceAgent = new RealtimeVoiceAgent({
   },
   onRemoteStream: setRealtimeAudioStream,
   tools: {
-    get_user_location() {
+    async get_user_location() {
       const coordinates = coordinatesForFrame(state.contact);
+      const detail = locationDetailForDisplayRadius(state.displayRadiusM);
+      const namedLocation = await fetchNamedLocationContext(
+        coordinates.latitudeDegrees,
+        coordinates.longitudeDegrees,
+        detail,
+      );
       return {
         latitude_degrees: coordinates.latitudeDegrees,
         longitude_degrees: coordinates.longitudeDegrees,
+        display_scale_factor: state.displayRadiusM,
+        location_detail: detail,
+        named_location: namedLocation ?? null,
       };
     },
     set_user_location(argumentsValue) {

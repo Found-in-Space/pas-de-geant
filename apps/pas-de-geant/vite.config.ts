@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from "vite";
 import { fileURLToPath } from "node:url";
+import { createReverseGeocodeMiddleware } from "./src/location-context-server.js";
 import { createRealtimeTokenMiddleware } from "./src/realtime-token-server.js";
 
 export default defineConfig(({ mode }) => {
@@ -8,15 +9,21 @@ export default defineConfig(({ mode }) => {
   const realtimeTokenMiddleware = createRealtimeTokenMiddleware(
     process.env.OPENAI_API_KEY || serverEnvironment.OPENAI_API_KEY,
   );
+  const reverseGeocodeMiddleware = createReverseGeocodeMiddleware(
+    process.env.PAS_DE_GEANT_GEOCODER_URL ||
+      serverEnvironment.PAS_DE_GEANT_GEOCODER_URL,
+  );
   return {
     plugins: [
       {
         name: "pas-de-geant-realtime-token",
         configureServer(server) {
           server.middlewares.use(realtimeTokenMiddleware);
+          server.middlewares.use(reverseGeocodeMiddleware);
         },
         configurePreviewServer(server) {
           server.middlewares.use(realtimeTokenMiddleware);
+          server.middlewares.use(reverseGeocodeMiddleware);
         },
       },
     ],

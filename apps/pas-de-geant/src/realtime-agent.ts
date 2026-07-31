@@ -24,6 +24,19 @@ export interface RealtimeAgentOptions {
   tools: Record<string, (argumentsValue: unknown) => unknown | Promise<unknown>>;
 }
 
+export function realtimeGreetingEvent(): Record<string, unknown> {
+  return {
+    type: "response.create",
+    response: {
+      instructions:
+        "Greet the user warmly in one short sentence and invite them to ask " +
+        "about the world. Do not call a tool in this greeting.",
+      output_modalities: ["audio"],
+      max_output_tokens: 80,
+    },
+  };
+}
+
 interface RealtimeServerEvent {
   type?: string;
   error?: { message?: string };
@@ -147,6 +160,7 @@ export class RealtimeVoiceAgent {
     this.dataChannel = dataChannel;
     dataChannel.addEventListener("open", () => {
       this.setStatus("listening", "Listening");
+      this.send(realtimeGreetingEvent());
     });
     dataChannel.addEventListener("message", (event) => {
       void this.handleServerEvent(event.data);
