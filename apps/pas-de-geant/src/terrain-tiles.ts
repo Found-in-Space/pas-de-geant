@@ -373,8 +373,6 @@ export class TerrainTileRenderer {
       latitudeDegrees,
       longitudeDegrees,
       displayRadiusM,
-      eyeHeightWorldM,
-      focalLengthPixels,
     });
     const normalizedRadialMetres = normalizedRadialOffsetForMetres(
       1,

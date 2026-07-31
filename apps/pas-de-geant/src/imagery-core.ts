@@ -1,20 +1,17 @@
-export const IMAGERY_BASE_PREFETCH_SCALE = 1.5;
-export const IMAGERY_BASE_COMMIT_SCALE = 2;
-export const IMAGERY_BASE_RELEASE_SCALE = 1.25;
-export const IMAGERY_PREFETCH_SCALE = 400;
-export const IMAGERY_COMMIT_SCALE = 500;
-export const IMAGERY_RELEASE_SCALE = 375;
-export const IMAGERY_INTERMEDIATE_MAX_ZOOM = 11;
-export const IMAGERY_TARGET_TEXEL_PIXELS = 1.25;
-export const IMAGERY_TEXEL_KEEP_MIN_PIXELS = 0.85;
-export const IMAGERY_TEXEL_KEEP_MAX_PIXELS = 1.7;
+export const IMAGERY_GPU_PAGE_SIZE = 256;
+export const IMAGERY_TARGET_METRES_PER_TEXEL = 0.01;
+export const IMAGERY_TARGET_TILE_WIDTH_M =
+  IMAGERY_GPU_PAGE_SIZE * IMAGERY_TARGET_METRES_PER_TEXEL;
+export const IMAGERY_COARSEN_TILE_WIDTH_M = 1.75;
+export const IMAGERY_REFINE_TILE_WIDTH_M = 3.75;
 export const IMAGERY_PAGE_TABLE_SIZE = 16;
 export const IMAGERY_ONION_OUTER_TILES = 4;
 export const IMAGERY_ONION_HOLE_TILES = 2;
 export const IMAGERY_ONION_LEVELS = 3;
-export const IMAGERY_GPU_PAGE_SIZE = 256;
-export const IMAGERY_WINDOW_ANCHOR_STRIDE = 4;
-export const IMAGERY_WINDOW_INNER_MARGIN = 2;
+export const IMAGERY_ONION_TARGET_RADIUS_M =
+  IMAGERY_TARGET_TILE_WIDTH_M *
+  IMAGERY_ONION_OUTER_TILES *
+  2 ** (IMAGERY_ONION_LEVELS - 2);
 export const IMAGERY_MAX_ANCESTOR_DELTA = 8;
 export const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 
@@ -24,63 +21,44 @@ export interface ImageryAddress {
   y: number;
 }
 
-export type ImageryActivation = "inactive" | "prefetching" | "active";
-
 export interface ImageryView {
   displayRadiusM: number;
   latitudeDegrees: number;
   longitudeDegrees: number;
-  eyeHeightWorldM: number;
-  focalLengthPixels: number;
 }
 
-export interface ImageryZoomOptions extends ImageryView {
-  tileSize: number;
+export interface ImageryZoomOptions {
+  displayRadiusM: number;
+  latitudeDegrees: number;
   minZoom: number;
   maxZoom: number;
   previousZoom?: number;
 }
 
-export interface ImageryWindow {
-  zoom: number;
-  originX: number;
-  originY: number;
-  size: number;
-}
-
-export interface ImageryPlanCell {
-  tableX: number;
-  tableY: number;
-  address: ImageryAddress;
-}
-
 export interface ImageryLoadTask {
   address: ImageryAddress;
-  kind: "parent" | "exact" | "onion";
+  kind: "world" | "cap" | "middle" | "outer";
+  group: number;
   priority: number;
 }
 
 export interface ImageryOnionCell {
   address: ImageryAddress;
-  ring: number;
+  group: number;
   tableX: number;
   tableY: number;
   tableSpan: number;
 }
 
 export interface ImageryOnionPlan {
-  onion: SurfaceOnionPlan;
+  mode: "world" | "onion";
   finestZoom: number;
+  minimumZoom: number;
   tableOriginX: number;
   tableOriginY: number;
+  tableSpan: number;
+  groupCount: number;
   cells: ImageryOnionCell[];
-  tasks: ImageryLoadTask[];
-  signature: string;
-}
-
-export interface ImageryPlan {
-  window: ImageryWindow;
-  cells: ImageryPlanCell[];
   tasks: ImageryLoadTask[];
   signature: string;
 }
@@ -91,6 +69,107 @@ export interface EncodedPageEntry {
   childOffsetX: number;
   childOffsetY: number;
 }
+
+interface StandardTemplateCell {
+  ring: number;
+  row: number;
+  column: number;
+  tableX: number;
+  tableY: number;
+  tableSpan: number;
+}
+
+function createStandardTemplate(): readonly StandardTemplateCell[] {
+  const cells: StandardTemplateCell[] = [];
+  const holeOffset =
+    (IMAGERY_ONION_OUTER_TILES - IMAGERY_ONION_HOLE_TILES) / 2;
+  for (let ring = 0; ring < IMAGERY_ONION_LEVELS; ring += 1) {
+    const tableSpan = 2 ** ring;
+    const tableOffset =
+      (IMAGERY_PAGE_TABLE_SIZE -
+        IMAGERY_ONION_OUTER_TILES * tableSpan) /
+      2;
+    for (let row = 0; row < IMAGERY_ONION_OUTER_TILES; row += 1) {
+      for (let column = 0; column < IMAGERY_ONION_OUTER_TILES; column += 1) {
+        if (
+          ring > 0 &&
+          row >= holeOffset &&
+          row < holeOffset + IMAGERY_ONION_HOLE_TILES &&
+          column >= holeOffset &&
+          column < holeOffset + IMAGERY_ONION_HOLE_TILES
+        ) {
+          continue;
+        }
+        cells.push({
+          ring,
+          row,
+          column,
+          tableX: tableOffset + column * tableSpan,
+          tableY: tableOffset + row * tableSpan,
+          tableSpan,
+        });
+      }
+    }
+  }
+  return cells;
+}
+
+/**
+ * The standard imagery geometry is fixed: a 4×4 cap and two 4×4-minus-2×2
+ * rings. Runtime planning only translates these precomputed relative cells to
+ * the current snapped Web Mercator anchor.
+ */
+export const STANDARD_IMAGERY_TEMPLATE = Object.freeze(
+  createStandardTemplate(),
+);
+
+interface WorldTemplateCell {
+  address: ImageryAddress;
+  tableX: number;
+  tableY: number;
+  tableSpan: number;
+}
+
+function createWorldTemplates(): readonly (readonly WorldTemplateCell[])[] {
+  const templates: WorldTemplateCell[][] = [];
+  for (let finestZoom = 0; finestZoom <= 3; finestZoom += 1) {
+    const cells: WorldTemplateCell[] = [];
+    for (
+      let zoom = 0;
+      zoom <= Math.min(2, finestZoom);
+      zoom += 1
+    ) {
+      const width = 2 ** zoom;
+      const tableSpan = 2 ** (finestZoom - zoom);
+      for (let y = 0; y < width; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          cells.push({
+            address: { z: zoom, x, y },
+            tableX: x * tableSpan,
+            tableY: y * tableSpan,
+            tableSpan,
+          });
+        }
+      }
+    }
+    templates.push(cells);
+  }
+  return templates.map((template) => Object.freeze(template));
+}
+
+/**
+ * Complete-world layouts are also built once. At runtime the selected layout
+ * is filtered to the provider's minimum z; only the optional z3 cap moves.
+ */
+export const WORLD_IMAGERY_TEMPLATES = Object.freeze(
+  createWorldTemplates(),
+);
+
+const LOCAL_CAP_OFFSETS = Object.freeze(
+  STANDARD_IMAGERY_TEMPLATE
+    .filter((cell) => cell.ring === 0)
+    .map((cell) => Object.freeze({ x: cell.column, y: cell.row })),
+);
 
 export class ImageryRequestTokenIndex {
   private sequence = 0;
@@ -156,83 +235,68 @@ export function isValidImageryAddress(address: ImageryAddress): boolean {
   );
 }
 
-export function imageryActivationForScale(
+export function renderedImageryTileWidthM(
+  latitudeDegrees: number,
   displayRadiusM: number,
-  previous: ImageryActivation,
-): ImageryActivation {
-  if (previous === "active") {
-    return displayRadiusM < IMAGERY_RELEASE_SCALE ? "inactive" : "active";
-  }
-  if (displayRadiusM >= IMAGERY_COMMIT_SCALE) return "active";
-  if (displayRadiusM >= IMAGERY_PREFETCH_SCALE) return "prefetching";
-  return "inactive";
-}
-
-export function imageryBaseActivationForScale(
-  displayRadiusM: number,
-  previous: ImageryActivation,
-): ImageryActivation {
-  if (previous === "active") {
-    return displayRadiusM < IMAGERY_BASE_RELEASE_SCALE
-      ? "inactive"
-      : "active";
-  }
-  if (displayRadiusM >= IMAGERY_BASE_COMMIT_SCALE) return "active";
-  if (displayRadiusM >= IMAGERY_BASE_PREFETCH_SCALE) return "prefetching";
-  return "inactive";
-}
-
-export function projectedImageryTexelPixels(
-  view: ImageryView,
   zoom: number,
-  tileSize: number,
 ): number {
-  const latitude = Math.max(
-    -WEB_MERCATOR_MAX_LATITUDE,
-    Math.min(WEB_MERCATOR_MAX_LATITUDE, view.latitudeDegrees),
-  );
-  const renderedTileWidthM =
-    (2 *
-      Math.PI *
-      Math.max(0.001, view.displayRadiusM) *
-      Math.max(1e-6, Math.cos((latitude * Math.PI) / 180))) /
-    2 ** zoom;
-  const renderedTexelM = renderedTileWidthM / Math.max(1, tileSize);
+  const latitude =
+    Math.max(
+      -WEB_MERCATOR_MAX_LATITUDE,
+      Math.min(WEB_MERCATOR_MAX_LATITUDE, latitudeDegrees),
+    ) *
+    Math.PI /
+    180;
   return (
-    (renderedTexelM * Math.max(1, view.focalLengthPixels)) /
-    Math.max(0.001, view.eyeHeightWorldM)
+    2 *
+    Math.PI *
+    Math.max(0.001, displayRadiusM) *
+    Math.max(1e-6, Math.cos(latitude)) /
+    2 ** Math.max(0, Math.floor(zoom))
   );
+}
+
+function nearestImageryZoom(options: ImageryZoomOptions): number {
+  let selected = options.minZoom;
+  let selectedDistance = Infinity;
+  for (let zoom = options.minZoom; zoom <= options.maxZoom; zoom += 1) {
+    const width = renderedImageryTileWidthM(
+      options.latitudeDegrees,
+      options.displayRadiusM,
+      zoom,
+    );
+    const distance = Math.abs(
+      Math.log2(width / IMAGERY_TARGET_TILE_WIDTH_M),
+    );
+    if (distance < selectedDistance) {
+      selected = zoom;
+      selectedDistance = distance;
+    }
+  }
+  return selected;
 }
 
 export function selectImageryZoom(options: ImageryZoomOptions): number {
   const minZoom = Math.max(0, Math.floor(options.minZoom));
   const maxZoom = Math.max(minZoom, Math.floor(options.maxZoom));
-  const previous =
+  let zoom =
     options.previousZoom === undefined
-      ? undefined
+      ? nearestImageryZoom({ ...options, minZoom, maxZoom })
       : Math.max(minZoom, Math.min(maxZoom, Math.floor(options.previousZoom)));
-  if (previous !== undefined) {
-    const previousPixels = projectedImageryTexelPixels(
-      options,
-      previous,
-      options.tileSize,
-    );
-    if (
-      previousPixels >= IMAGERY_TEXEL_KEEP_MIN_PIXELS &&
-      previousPixels <= IMAGERY_TEXEL_KEEP_MAX_PIXELS
-    ) {
-      return previous;
-    }
-  }
-  const equatorialPixelsAtZoomZero =
-    projectedImageryTexelPixels(options, 0, options.tileSize);
-  const calculated = Math.ceil(
-    Math.log2(
-      Math.max(1e-9, equatorialPixelsAtZoomZero) /
-        IMAGERY_TARGET_TEXEL_PIXELS,
-    ),
+  let width = renderedImageryTileWidthM(
+    options.latitudeDegrees,
+    options.displayRadiusM,
+    zoom,
   );
-  return Math.max(minZoom, Math.min(maxZoom, calculated));
+  while (width > IMAGERY_REFINE_TILE_WIDTH_M && zoom < maxZoom) {
+    zoom += 1;
+    width *= 0.5;
+  }
+  while (width < IMAGERY_COARSEN_TILE_WIDTH_M && zoom > minZoom) {
+    zoom -= 1;
+    width *= 2;
+  }
+  return zoom;
 }
 
 export function mercatorPointForImagery(
@@ -258,64 +322,6 @@ export function mercatorPointForImagery(
         2) *
       width,
   };
-}
-
-function unwrapNear(value: number, width: number, reference: number): number {
-  return value + Math.round((reference - value) / width) * width;
-}
-
-export function imageryWindowForContact(
-  latitudeDegrees: number,
-  longitudeDegrees: number,
-  zoom: number,
-  previous?: ImageryWindow,
-  size = IMAGERY_PAGE_TABLE_SIZE,
-): ImageryWindow {
-  const width = 2 ** zoom;
-  const point = mercatorPointForImagery(
-    latitudeDegrees,
-    longitudeDegrees,
-    zoom,
-  );
-  const resolvedSize = Math.max(
-    1,
-    Math.min(width, Math.floor(size)),
-  );
-  let unwrappedX = point.x;
-  if (previous?.zoom === zoom) {
-    unwrappedX = unwrapNear(
-      point.x,
-      width,
-      previous.originX + previous.size * 0.5,
-    );
-    const margin = Math.min(
-      IMAGERY_WINDOW_INNER_MARGIN,
-      Math.max(0, previous.size * 0.5 - 0.5),
-    );
-    if (
-      unwrappedX >= previous.originX + margin &&
-      unwrappedX < previous.originX + previous.size - margin &&
-      point.y >= previous.originY + margin &&
-      point.y < previous.originY + previous.size - margin
-    ) {
-      return previous;
-    }
-  }
-  const originX =
-    Math.floor(
-      (unwrappedX - resolvedSize * 0.5) / IMAGERY_WINDOW_ANCHOR_STRIDE,
-    ) * IMAGERY_WINDOW_ANCHOR_STRIDE;
-  const maximumY = Math.max(0, width - resolvedSize);
-  const originY = Math.max(
-    0,
-    Math.min(
-      maximumY,
-      Math.floor(
-        (point.y - resolvedSize * 0.5) / IMAGERY_WINDOW_ANCHOR_STRIDE,
-      ) * IMAGERY_WINDOW_ANCHOR_STRIDE,
-    ),
-  );
-  return { zoom, originX, originY, size: resolvedSize };
 }
 
 export function ancestorAtZoom(
@@ -344,112 +350,71 @@ export function siblingGroup(address: ImageryAddress): ImageryAddress[] {
   ];
 }
 
-export function siblingGroupKey(address: ImageryAddress): string {
-  return imageryKey(
-    address.z === 0 ? address : ancestorAtZoom(address, address.z - 1),
-  );
+function taskKindForGroup(group: number): ImageryLoadTask["kind"] {
+  if (group === 0) return "cap";
+  if (group === 1) return "middle";
+  return "outer";
 }
 
-export function imageryPlanForWindow(
-  window: ImageryWindow,
-  minimumZoom = 0,
-): ImageryPlan {
-  const cells: ImageryPlanCell[] = [];
-  const ancestors = new Map<string, ImageryLoadTask>();
-  const exact: ImageryLoadTask[] = [];
-  const width = 2 ** window.zoom;
-  const centre = (window.size - 1) * 0.5;
-  const lowestAncestorZoom = Math.max(
-    Math.max(0, Math.floor(minimumZoom)),
-    window.zoom - IMAGERY_MAX_ANCESTOR_DELTA,
-  );
-  for (let tableY = 0; tableY < window.size; tableY += 1) {
-    const y = window.originY + tableY;
-    if (y < 0 || y >= width) continue;
-    for (let tableX = 0; tableX < window.size; tableX += 1) {
-      const address = {
-        z: window.zoom,
-        x: wrapImageryX(window.originX + tableX, window.zoom),
-        y,
-      };
-      const priority = Math.hypot(tableX - centre, tableY - centre);
-      cells.push({ tableX, tableY, address });
-      exact.push({
-        address,
-        kind: "exact",
-        priority:
-          (window.zoom - lowestAncestorZoom) * 1_000 + priority,
-      });
-      for (
-        let ancestorZoom = lowestAncestorZoom;
-        ancestorZoom < window.zoom;
-        ancestorZoom += 1
-      ) {
-        const ancestor = ancestorAtZoom(address, ancestorZoom);
-        const key = imageryKey(ancestor);
-        const ancestorPriority =
-          (ancestorZoom - lowestAncestorZoom) * 1_000 + priority;
-        const existing = ancestors.get(key);
-        if (!existing || ancestorPriority < existing.priority) {
-          ancestors.set(key, {
-            address: ancestor,
-            kind: "parent",
-            priority: ancestorPriority,
-          });
-        }
-      }
-    }
-  }
-  const tasks = [
-    ...[...ancestors.values()].sort(
-      (first, second) =>
-        first.priority - second.priority ||
-        imageryKey(first.address).localeCompare(imageryKey(second.address)),
-    ),
-    ...exact.sort(
-      (first, second) =>
-        first.priority - second.priority ||
-        imageryKey(first.address).localeCompare(imageryKey(second.address)),
-    ),
-  ];
-  return {
-    window,
-    cells,
-    tasks,
-    signature: `${window.zoom}:${window.originX}:${window.originY}:${window.size}`,
-  };
-}
-
-export function imageryOnionPlanForContact(
+function standardImageryPlan(
   latitudeDegrees: number,
   longitudeDegrees: number,
   finestZoom: number,
+  minimumZoom: number,
 ): ImageryOnionPlan {
-  const onion = planSurfaceOnion({
+  const point = mercatorPointForImagery(
     latitudeDegrees,
     longitudeDegrees,
     finestZoom,
-    outerTiles: IMAGERY_ONION_OUTER_TILES,
-    holeTiles: IMAGERY_ONION_HOLE_TILES,
-    levels: IMAGERY_ONION_LEVELS,
-  });
-  const outermost = onion.origins[onion.origins.length - 1]!;
-  const outermostSpan = 2 ** (onion.levels - 1);
+  );
+  const anchorStride = 2 ** (IMAGERY_ONION_LEVELS - 1);
+  const anchorOffset = 2;
+  let originX =
+    Math.floor((Math.floor(point.x) - anchorOffset) / anchorStride) *
+      anchorStride +
+    anchorOffset;
+  let originY =
+    Math.floor((Math.floor(point.y) - anchorOffset) / anchorStride) *
+      anchorStride +
+    anchorOffset;
+  const origins: Array<{ x: number; y: number }> = [];
+  for (let ring = 0; ring < IMAGERY_ONION_LEVELS; ring += 1) {
+    origins.push({ x: originX, y: originY });
+    originX = Math.floor(originX / 2) - 1;
+    originY = Math.floor(originY / 2) - 1;
+  }
+  const outermost = origins.at(-1)!;
+  const outermostSpan = 2 ** (IMAGERY_ONION_LEVELS - 1);
   const tableOriginX = outermost.x * outermostSpan;
   const tableOriginY = outermost.y * outermostSpan;
-  const cells: ImageryOnionCell[] = onion.cells.map((cell) => ({
-    address: { z: cell.z, x: cell.x, y: cell.y },
-    ring: cell.ring,
-    tableX: cell.finestX - tableOriginX,
-    tableY: cell.finestY - tableOriginY,
-    tableSpan: cell.finestSpan,
-  }));
+  const cells: ImageryOnionCell[] = [];
+  for (const template of STANDARD_IMAGERY_TEMPLATE) {
+    const zoom = finestZoom - template.ring;
+    if (zoom < minimumZoom) continue;
+    const ringOrigin = origins[template.ring]!;
+    const unwrappedX = ringOrigin.x + template.column;
+    const y = ringOrigin.y + template.row;
+    const width = 2 ** zoom;
+    if (y < 0 || y >= width) continue;
+    cells.push({
+      address: {
+        z: zoom,
+        x: wrapImageryX(unwrappedX, zoom),
+        y,
+      },
+      group: template.ring,
+      tableX: template.tableX,
+      tableY: template.tableY,
+      tableSpan: template.tableSpan,
+    });
+  }
   const tasks = cells
     .map((cell) => ({
       address: cell.address,
-      kind: "onion" as const,
+      kind: taskKindForGroup(cell.group),
+      group: cell.group,
       priority:
-        cell.ring * IMAGERY_ONION_OUTER_TILES +
+        cell.group * 1_000 +
         Math.hypot(
           cell.tableX + cell.tableSpan * 0.5 -
             IMAGERY_PAGE_TABLE_SIZE * 0.5,
@@ -463,45 +428,142 @@ export function imageryOnionPlanForContact(
         imageryKey(first.address).localeCompare(imageryKey(second.address)),
     );
   return {
-    onion,
-    finestZoom: onion.finestZoom,
+    mode: "onion",
+    finestZoom,
+    minimumZoom,
     tableOriginX,
     tableOriginY,
+    tableSpan: IMAGERY_PAGE_TABLE_SIZE,
+    groupCount: IMAGERY_ONION_LEVELS,
     cells,
     tasks,
-    signature: `${onion.signature}:${tableOriginX}:${tableOriginY}`,
+    signature: [
+      "onion",
+      finestZoom,
+      minimumZoom,
+      ...origins.flatMap((origin) => [origin.x, origin.y]),
+    ].join(":"),
   };
 }
 
-export function resolvedImagerySource(
-  address: ImageryAddress,
-  resident: ReadonlySet<string>,
-  minimumZoom = 0,
-  maximumSourceZoom = address.z,
-): ImageryAddress | undefined {
-  const maximumZoom = Math.min(
-    address.z,
-    Math.max(minimumZoom, Math.floor(maximumSourceZoom)),
-  );
-  const exactReady =
-    maximumZoom >= address.z &&
-    siblingGroup(address).every((sibling) =>
-      resident.has(imageryKey(sibling)),
-    );
-  if (exactReady) return address;
-  const lowestZoom = Math.max(
-    minimumZoom,
-    address.z - IMAGERY_MAX_ANCESTOR_DELTA,
-  );
-  for (
-    let zoom = Math.min(address.z - 1, maximumZoom);
-    zoom >= lowestZoom;
-    zoom -= 1
-  ) {
-    const ancestor = ancestorAtZoom(address, zoom);
-    if (resident.has(imageryKey(ancestor))) return ancestor;
+function worldImageryPlan(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+  finestZoom: number,
+  minimumZoom: number,
+): ImageryOnionPlan {
+  const cells: ImageryOnionCell[] = [];
+  for (const template of WORLD_IMAGERY_TEMPLATES[finestZoom] ?? []) {
+    if (template.address.z < minimumZoom) continue;
+    cells.push({
+      address: template.address,
+      group: template.address.z - minimumZoom,
+      tableX: template.tableX,
+      tableY: template.tableY,
+      tableSpan: template.tableSpan,
+    });
   }
-  return undefined;
+  let localCapSignature = "global";
+  if (finestZoom === 3 && minimumZoom <= finestZoom) {
+    const point = mercatorPointForImagery(
+      latitudeDegrees,
+      longitudeDegrees,
+      finestZoom,
+    );
+    const width = 2 ** finestZoom;
+    const originX = Math.floor(point.x) - 1;
+    const originY = Math.max(
+      0,
+      Math.min(width - IMAGERY_ONION_OUTER_TILES, Math.floor(point.y) - 1),
+    );
+    const group = Math.max(0, 3 - minimumZoom);
+    for (const offset of LOCAL_CAP_OFFSETS) {
+      const unwrappedX = originX + offset.x;
+      cells.push({
+        address: {
+          z: finestZoom,
+          x: wrapImageryX(unwrappedX, finestZoom),
+          y: originY + offset.y,
+        },
+        group,
+        tableX: wrapImageryX(unwrappedX, finestZoom),
+        tableY: originY + offset.y,
+        tableSpan: 1,
+      });
+    }
+    localCapSignature = `${wrapImageryX(
+      originX,
+      finestZoom,
+    )}:${originY}`;
+  }
+  const tasksByKey = new Map<string, ImageryLoadTask>();
+  for (const cell of cells) {
+    const key = imageryKey(cell.address);
+    const existing = tasksByKey.get(key);
+    const task: ImageryLoadTask = {
+      address: cell.address,
+      kind: "world",
+      group: cell.group,
+      priority:
+        cell.group * 1_000 +
+        Math.hypot(cell.tableX, cell.tableY),
+    };
+    if (!existing || task.priority < existing.priority) {
+      tasksByKey.set(key, task);
+    }
+  }
+  const tasks = [...tasksByKey.values()].sort(
+    (first, second) =>
+      first.priority - second.priority ||
+      imageryKey(first.address).localeCompare(imageryKey(second.address)),
+  );
+  const highestGroup = tasks.reduce(
+    (maximum, task) => Math.max(maximum, task.group),
+    0,
+  );
+  return {
+    mode: "world",
+    finestZoom,
+    minimumZoom,
+    tableOriginX: 0,
+    tableOriginY: 0,
+    tableSpan: 2 ** finestZoom,
+    groupCount: highestGroup + 1,
+    cells,
+    tasks,
+    signature: [
+      "world",
+      finestZoom,
+      minimumZoom,
+      localCapSignature,
+    ].join(":"),
+  };
+}
+
+export function imageryOnionPlanForContact(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+  finestZoom: number,
+  minimumZoom = 0,
+): ImageryOnionPlan {
+  const resolvedFinestZoom = Math.max(0, Math.floor(finestZoom));
+  const resolvedMinimumZoom = Math.max(
+    0,
+    Math.min(resolvedFinestZoom, Math.floor(minimumZoom)),
+  );
+  return resolvedFinestZoom <= 3
+    ? worldImageryPlan(
+        latitudeDegrees,
+        longitudeDegrees,
+        resolvedFinestZoom,
+        resolvedMinimumZoom,
+      )
+    : standardImageryPlan(
+        latitudeDegrees,
+        longitudeDegrees,
+        resolvedFinestZoom,
+        resolvedMinimumZoom,
+      );
 }
 
 export function encodePageEntry(
@@ -544,7 +606,3 @@ export function decodePageEntry(
     offsetY: entry.childOffsetY,
   };
 }
-import {
-  planSurfaceOnion,
-  type SurfaceOnionPlan,
-} from "./surface-onion.js";

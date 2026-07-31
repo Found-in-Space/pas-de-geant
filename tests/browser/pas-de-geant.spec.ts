@@ -208,7 +208,7 @@ test("keeps the immutable globe under atomic terrain groups", async ({
   expect(new Set(frameHashes).size).toBe(1);
 });
 
-test("keeps photographic visibility while complete onions swap", async ({
+test("keeps photographic visibility while central caps swap and outer rings refine", async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -311,29 +311,16 @@ test("keeps photographic visibility while complete onions swap", async ({
     { timeout: 20_000 },
   );
   for (let sample = 0; sample < 8; sample += 1) {
-    const candidate = await page
-      .locator("body")
-      .getAttribute("data-imagery-candidate-plan");
-    if (!candidate) break;
-    expect(
-      Number(
-        await page
-          .locator("body")
-          .getAttribute("data-imagery-visible-sources"),
-      ),
-    ).toBeGreaterThan(0);
-    expect(
-      await page
-        .locator("body")
-        .getAttribute("data-imagery-visible-plan"),
-    ).toBe(originalVisiblePlan);
-    expect(
-      Number(
-        await page
-          .locator("body")
-          .getAttribute("data-imagery-page-table-epoch"),
-      ),
-    ).toBe(originalEpoch);
+    const snapshot = await page.evaluate(() => ({
+      candidate: document.body.dataset.imageryCandidatePlan,
+      visible: document.body.dataset.imageryVisiblePlan,
+      visibleSources: Number(document.body.dataset.imageryVisibleSources),
+      epoch: Number(document.body.dataset.imageryPageTableEpoch),
+    }));
+    if (!snapshot.candidate) break;
+    expect(snapshot.visibleSources).toBeGreaterThan(0);
+    expect(snapshot.visible).toBe(originalVisiblePlan);
+    expect(snapshot.epoch).toBe(originalEpoch);
     await page.waitForTimeout(40);
   }
   await expect(page.locator("body")).toHaveAttribute(
@@ -359,6 +346,107 @@ test("keeps photographic visibility while complete onions swap", async ({
         ),
     )
     .toBeGreaterThan(originalEpoch);
+});
+
+test("changes imagery z with render scale and keeps photographic world layers", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await page.addInitScript(() => {
+    window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__ = true;
+    window.__PAS_DE_GEANT_IMAGERY_CONFIG__ = {
+      id: "render-space-onion",
+      urlTemplate: "https://imagery.test/{z}/{x}/{y}.png",
+      attribution: "Synthetic browser-test imagery",
+      tileSize: 256,
+      minZoom: 0,
+      maxZoom: 20,
+    };
+  });
+  await routeFlatTerrain(page);
+  const imagery = flatPng(256, 55, 135, 65);
+  const requestedZooms = new Set<number>();
+  await page.route("https://imagery.test/**", async (route) => {
+    const path = new URL(route.request().url()).pathname.split("/");
+    requestedZooms.add(Number(path[1]));
+    await route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      body: imagery,
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#loading-state")).toBeHidden({
+    timeout: 20_000,
+  });
+  await waitForInitialImagery(page);
+  await page.evaluate(() => {
+    window.__PAS_DE_GEANT_TEST_SET_LOCATION__?.(46, 9);
+  });
+
+  for (const [displayRadiusM, expectedZoom] of [
+    [250, 9],
+    [500, 10],
+    [1_000, 11],
+  ] as const) {
+    await page.evaluate((radius) => {
+      window.__PAS_DE_GEANT_TEST_SET_SCALE__?.(radius);
+    }, displayRadiusM);
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-imagery-desired-zoom",
+      String(expectedZoom),
+      { timeout: 30_000 },
+    );
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-imagery-visible-zoom",
+      String(expectedZoom),
+      { timeout: 30_000 },
+    );
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-imagery-plan-mode",
+      "onion",
+    );
+    const centimetresPerTexel = Number(
+      await page
+        .locator("body")
+        .getAttribute("data-imagery-centimetres-per-texel"),
+    );
+    expect(centimetresPerTexel).toBeGreaterThan(0.7);
+    expect(centimetresPerTexel).toBeLessThan(1.4);
+  }
+
+  await page.evaluate(() => {
+    window.__PAS_DE_GEANT_TEST_SET_SCALE__?.(1);
+  });
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-imagery-desired-zoom",
+    "1",
+    { timeout: 30_000 },
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-imagery-visible-zoom",
+    "1",
+    { timeout: 30_000 },
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-imagery-plan-mode",
+    "world",
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-imagery-visible-group",
+    "1",
+    { timeout: 30_000 },
+  );
+  expect(requestedZooms.has(0)).toBe(true);
+  expect(requestedZooms.has(1)).toBe(true);
+  expect(
+    Number(
+      await page
+        .locator("body")
+        .getAttribute("data-imagery-visible-sources"),
+    ),
+  ).toBeGreaterThan(1);
 });
 
 test("A-to-B-to-A can replace aborted requests and ignores late completions", async ({
@@ -397,6 +485,16 @@ test("A-to-B-to-A can replace aborted requests and ignores late completions", as
     timeout: 20_000,
   });
   await waitForInitialImagery(page);
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-imagery-visible-group",
+    "2",
+    { timeout: 30_000 },
+  );
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-imagery-requests",
+    "0",
+    { timeout: 30_000 },
+  );
   const planA = await page
     .locator("body")
     .getAttribute("data-imagery-visible-plan");
@@ -405,6 +503,9 @@ test("A-to-B-to-A can replace aborted requests and ignores late completions", as
     .getAttribute("data-imagery-page-table-epoch");
   const staleBefore = Number(
     await page.locator("body").getAttribute("data-imagery-stale-total"),
+  );
+  const requestTotalBeforeB = Number(
+    await page.locator("body").getAttribute("data-imagery-request-total"),
   );
 
   await page.evaluate(() => {
@@ -415,6 +516,17 @@ test("A-to-B-to-A can replace aborted requests and ignores late completions", as
     "",
     { timeout: 20_000 },
   );
+  await expect
+    .poll(
+      async () =>
+        Number(
+          await page
+            .locator("body")
+            .getAttribute("data-imagery-request-total"),
+        ),
+      { timeout: 20_000 },
+    )
+    .toBeGreaterThan(requestTotalBeforeB);
   await page.evaluate(() => {
     window.__PAS_DE_GEANT_TEST_SET_LOCATION__?.(35.6762, 139.6503);
   });
@@ -427,10 +539,13 @@ test("A-to-B-to-A can replace aborted requests and ignores late completions", as
     "data-imagery-visible-plan",
     planA ?? "",
   );
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-imagery-page-table-epoch",
-    epochA ?? "",
-  );
+  expect(
+    Number(
+      await page
+        .locator("body")
+        .getAttribute("data-imagery-page-table-epoch"),
+    ),
+  ).toBeGreaterThanOrEqual(Number(epochA));
   await expect
     .poll(
       async () =>
