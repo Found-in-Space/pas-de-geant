@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import {
-  IMAGERY_GPU_PAGE_SIZE,
   IMAGERY_PAGE_TABLE_SIZE,
+  IMAGERY_ONION_OUTER_TILES,
   ImageryRequestTokenIndex,
+  STANDARD_IMAGERY_TEMPLATE,
   WEB_MERCATOR_MAX_LATITUDE,
   imageryKey,
   imageryOnionPlanForContact,
@@ -17,8 +18,9 @@ import {
 } from "./imagery-core.js";
 
 const IMAGERY_GUTTER_PIXELS = 2;
-const IMAGERY_POOL_LAYER_LIMIT = 96;
-const IMAGERY_POOL_BYTE_LIMIT = 64 * 1024 * 1024;
+const IMAGERY_FINE_CAP_LAYERS = IMAGERY_ONION_OUTER_TILES ** 2;
+const IMAGERY_POOL_REQUIRED_LAYERS =
+  STANDARD_IMAGERY_TEMPLATE.length + IMAGERY_FINE_CAP_LAYERS;
 const MAX_CONCURRENT_IMAGERY_REQUESTS = 6;
 const MAX_IMAGERY_UPLOADS_PER_FRAME = 2;
 const IMAGERY_TRANSIENT_RETRY_DELAYS_MS = [1_000, 5_000, 30_000] as const;
@@ -89,7 +91,7 @@ export class XyzImageryProvider implements ImageryProvider {
     this.minZoom = Math.max(0, Math.floor(configuration.minZoom ?? 0));
     this.maxZoom = Math.max(
       this.minZoom,
-      Math.min(20, Math.floor(configuration.maxZoom ?? 20)),
+      Math.floor(configuration.maxZoom ?? 20),
     );
   }
 
@@ -526,27 +528,15 @@ export class ImageryVirtualTexture {
     const maximumLayers = Number(
       context.getParameter(context.MAX_ARRAY_TEXTURE_LAYERS),
     );
-    if (maximumLayers < 2) {
+    if (maximumLayers < IMAGERY_POOL_REQUIRED_LAYERS) {
       this.poolUnavailable = true;
       this.diagnostics.gpuFailureTotal += 1;
       return;
     }
     const paddedSize =
-      IMAGERY_GPU_PAGE_SIZE + IMAGERY_GUTTER_PIXELS * 2;
+      this.provider.tileSize + IMAGERY_GUTTER_PIXELS * 2;
     const layerBytes = paddedSize * paddedSize * 4;
-    this.poolLayers = Math.max(
-      1,
-      Math.min(
-        IMAGERY_POOL_LAYER_LIMIT,
-        maximumLayers || IMAGERY_POOL_LAYER_LIMIT,
-        Math.floor(IMAGERY_POOL_BYTE_LIMIT / layerBytes),
-      ),
-    );
-    if (this.poolLayers < 5) {
-      this.poolUnavailable = true;
-      this.diagnostics.gpuFailureTotal += 1;
-      return;
-    }
+    this.poolLayers = IMAGERY_POOL_REQUIRED_LAYERS;
     this.poolPixels = new Uint8Array(
       layerBytes * this.poolLayers,
     );
@@ -571,7 +561,7 @@ export class ImageryVirtualTexture {
     (
       this.sharedUniforms.imageryPoolLayout!.value as THREE.Vector3
     ).set(
-      IMAGERY_GPU_PAGE_SIZE,
+      this.provider.tileSize,
       IMAGERY_GUTTER_PIXELS,
       paddedSize,
     );
@@ -655,7 +645,9 @@ export class ImageryVirtualTexture {
     for (const task of this.visiblePlan?.tasks ?? []) {
       this.wanted.set(imageryKey(task.address), task);
     }
-    for (const task of this.candidatePlan?.tasks ?? []) {
+    for (const task of (this.candidatePlan?.tasks ?? []).filter(
+      (candidate) => candidate.group === 0,
+    )) {
       this.wanted.set(imageryKey(task.address), task);
     }
   }
@@ -665,9 +657,9 @@ export class ImageryVirtualTexture {
       ...(this.visiblePlan?.tasks ?? []).map((task) =>
         imageryKey(task.address)
       ),
-      ...(this.candidatePlan?.tasks ?? []).map((task) =>
-        imageryKey(task.address)
-      ),
+      ...(this.candidatePlan?.tasks ?? [])
+        .filter((task) => task.group === 0)
+        .map((task) => imageryKey(task.address)),
     ]);
   }
 
@@ -738,7 +730,7 @@ export class ImageryVirtualTexture {
     const pixels = await decodeImageryTile(
       blob,
       this.provider.tileSize,
-      IMAGERY_GPU_PAGE_SIZE,
+      this.provider.tileSize,
       IMAGERY_GUTTER_PIXELS,
       signal,
     );
@@ -841,7 +833,7 @@ export class ImageryVirtualTexture {
       slot: number;
     }> = [];
     const layerBytes =
-      (IMAGERY_GPU_PAGE_SIZE + IMAGERY_GUTTER_PIXELS * 2) ** 2 * 4;
+      (this.provider.tileSize + IMAGERY_GUTTER_PIXELS * 2) ** 2 * 4;
     for (const [, record] of decoded) {
       const slot = this.allocateSlot();
       if (slot === undefined || !record.pixels) break;
@@ -1054,7 +1046,7 @@ export class ImageryVirtualTexture {
     document.body.dataset.imageryCentimetresPerTexel =
       this.desiredZoom === undefined
         ? ""
-        : (this.renderedTileWidthM / IMAGERY_GPU_PAGE_SIZE * 100).toFixed(3);
+        : (this.renderedTileWidthM / this.provider!.tileSize * 100).toFixed(3);
     document.body.dataset.imageryVisibleGroup =
       this.visiblePlan === undefined ? "" : String(this.visibleGroup);
     document.body.dataset.imageryPlanMode =

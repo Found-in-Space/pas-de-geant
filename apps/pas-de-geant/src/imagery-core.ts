@@ -1,13 +1,14 @@
-export const IMAGERY_GPU_PAGE_SIZE = 256;
-export const IMAGERY_TARGET_METRES_PER_TEXEL = 0.01;
+export const IMAGERY_GPU_PAGE_SIZE = 512;
+export const IMAGERY_TARGET_METRES_PER_TEXEL = 0.005;
 export const IMAGERY_TARGET_TILE_WIDTH_M =
   IMAGERY_GPU_PAGE_SIZE * IMAGERY_TARGET_METRES_PER_TEXEL;
 export const IMAGERY_COARSEN_TILE_WIDTH_M = 1.75;
 export const IMAGERY_REFINE_TILE_WIDTH_M = 3.75;
-export const IMAGERY_PAGE_TABLE_SIZE = 16;
-export const IMAGERY_ONION_OUTER_TILES = 4;
-export const IMAGERY_ONION_HOLE_TILES = 2;
+export const IMAGERY_PAGE_TABLE_SIZE = 32;
+export const IMAGERY_ONION_OUTER_TILES = 8;
+export const IMAGERY_ONION_HOLE_TILES = 4;
 export const IMAGERY_ONION_LEVELS = 3;
+export const IMAGERY_ONION_ANCHOR_STRIDE = 4;
 export const IMAGERY_ONION_TARGET_RADIUS_M =
   IMAGERY_TARGET_TILE_WIDTH_M *
   IMAGERY_ONION_OUTER_TILES *
@@ -115,7 +116,7 @@ function createStandardTemplate(): readonly StandardTemplateCell[] {
 }
 
 /**
- * The standard imagery geometry is fixed: a 4×4 cap and two 4×4-minus-2×2
+ * The standard imagery geometry is fixed: an 8×8 cap and two 8×8-minus-4×4
  * rings. Runtime planning only translates these precomputed relative cells to
  * the current snapped Web Mercator anchor.
  */
@@ -367,21 +368,30 @@ function standardImageryPlan(
     longitudeDegrees,
     finestZoom,
   );
-  const anchorStride = 2 ** (IMAGERY_ONION_LEVELS - 1);
-  const anchorOffset = 2;
+  const anchorStride = IMAGERY_ONION_ANCHOR_STRIDE;
+  const holeOffset =
+    (IMAGERY_ONION_OUTER_TILES - IMAGERY_ONION_HOLE_TILES) / 2;
+  const anchorMargin =
+    (IMAGERY_ONION_OUTER_TILES - anchorStride) / 2;
+  const anchorOffset =
+    (holeOffset * (2 ** IMAGERY_ONION_LEVELS - 2)) % anchorStride;
   let originX =
-    Math.floor((Math.floor(point.x) - anchorOffset) / anchorStride) *
+    Math.floor(
+      (Math.floor(point.x) - anchorMargin - anchorOffset) / anchorStride,
+    ) *
       anchorStride +
     anchorOffset;
   let originY =
-    Math.floor((Math.floor(point.y) - anchorOffset) / anchorStride) *
+    Math.floor(
+      (Math.floor(point.y) - anchorMargin - anchorOffset) / anchorStride,
+    ) *
       anchorStride +
     anchorOffset;
   const origins: Array<{ x: number; y: number }> = [];
   for (let ring = 0; ring < IMAGERY_ONION_LEVELS; ring += 1) {
     origins.push({ x: originX, y: originY });
-    originX = Math.floor(originX / 2) - 1;
-    originY = Math.floor(originY / 2) - 1;
+    originX = Math.floor(originX / 2) - holeOffset;
+    originY = Math.floor(originY / 2) - holeOffset;
   }
   const outermost = origins.at(-1)!;
   const outermostSpan = 2 ** (IMAGERY_ONION_LEVELS - 1);

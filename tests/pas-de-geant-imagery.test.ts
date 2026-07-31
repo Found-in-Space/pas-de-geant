@@ -18,9 +18,10 @@ import {
   selectImageryZoom,
   selectUnpinnedLruKey,
 } from "../apps/pas-de-geant/src/imagery-core.js";
+import { XyzImageryProvider } from "../apps/pas-de-geant/src/imagery.js";
 
 describe("photographic imagery onion", () => {
-  it("changes source z with world scale to keep GPU texels near one centimetre", () => {
+  it("changes source z with world scale to keep MapTiler texels near five millimetres", () => {
     const expectedZooms = new Map([
       [1, 1],
       [2, 2],
@@ -48,8 +49,38 @@ describe("photographic imagery onion", () => {
       expect(width).toBeLessThanOrEqual(IMAGERY_REFINE_TILE_WIDTH_M);
     }
     expect(IMAGERY_TARGET_TILE_WIDTH_M).toBe(2.56);
-    expect(IMAGERY_TARGET_METRES_PER_TEXEL).toBe(0.01);
-    expect(IMAGERY_GPU_PAGE_SIZE).toBe(256);
+    expect(IMAGERY_TARGET_METRES_PER_TEXEL).toBe(0.005);
+    expect(IMAGERY_GPU_PAGE_SIZE).toBe(512);
+  });
+
+  it("stops at the provider's maximum imagery zoom", () => {
+    expect(
+      selectImageryZoom({
+        displayRadiusM: 3_500_000,
+        latitudeDegrees: 46,
+        minZoom: 0,
+        maxZoom: 22,
+      }),
+    ).toBe(22);
+  });
+
+  it("accepts MapTiler z22 and rejects addresses beyond it", async () => {
+    const provider = new XyzImageryProvider({
+      id: "maptiler-satellite-v2",
+      urlTemplate: "https://imagery.test/{z}/{x}/{y}.jpg",
+      attribution: "MapTiler",
+      tileSize: 512,
+      minZoom: 0,
+      maxZoom: 22,
+    });
+    expect(provider.tileSize).toBe(512);
+    expect(provider.maxZoom).toBe(22);
+    await expect(
+      provider.load(
+        { z: 23, x: 0, y: 0 },
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ kind: "not-found" });
   });
 
   it("uses metre-space hysteresis without camera or physical-Earth inputs", () => {
@@ -107,21 +138,21 @@ describe("photographic imagery onion", () => {
     ).toBe(4);
   });
 
-  it("builds a precomputed 4x4 cap and two non-overlapping parent rings", () => {
+  it("builds a precomputed 8x8 cap and two non-overlapping parent rings", () => {
     const plan = imageryOnionPlanForContact(45, 9, 14);
     expect(plan.mode).toBe("onion");
-    expect(STANDARD_IMAGERY_TEMPLATE).toHaveLength(40);
+    expect(STANDARD_IMAGERY_TEMPLATE).toHaveLength(160);
     expect(Object.isFrozen(STANDARD_IMAGERY_TEMPLATE)).toBe(true);
-    expect(plan.cells).toHaveLength(40);
-    expect(plan.tasks).toHaveLength(40);
-    expect(plan.cells.filter((cell) => cell.group === 0)).toHaveLength(16);
-    expect(plan.cells.filter((cell) => cell.group === 1)).toHaveLength(12);
-    expect(plan.cells.filter((cell) => cell.group === 2)).toHaveLength(12);
-    expect(plan.tasks.filter((task) => task.kind === "cap")).toHaveLength(16);
+    expect(plan.cells).toHaveLength(160);
+    expect(plan.tasks).toHaveLength(160);
+    expect(plan.cells.filter((cell) => cell.group === 0)).toHaveLength(64);
+    expect(plan.cells.filter((cell) => cell.group === 1)).toHaveLength(48);
+    expect(plan.cells.filter((cell) => cell.group === 2)).toHaveLength(48);
+    expect(plan.tasks.filter((task) => task.kind === "cap")).toHaveLength(64);
     expect(plan.tasks.filter((task) => task.kind === "middle")).toHaveLength(
-      12,
+      48,
     );
-    expect(plan.tasks.filter((task) => task.kind === "outer")).toHaveLength(12);
+    expect(plan.tasks.filter((task) => task.kind === "outer")).toHaveLength(48);
     expect(
       Math.max(...plan.tasks.filter((task) => task.group === 0)
         .map((task) => task.priority)),
@@ -176,16 +207,16 @@ describe("photographic imagery onion", () => {
     }
   });
 
-  it("covers about 5m, 10m, and 20m with progressively coarser layers", () => {
-    const centralRadiusM = IMAGERY_TARGET_TILE_WIDTH_M * 2;
+  it("covers about 10m, 20m, and 40m with progressively coarser layers", () => {
+    const centralRadiusM = IMAGERY_TARGET_TILE_WIDTH_M * 4;
     const middleRadiusM = centralRadiusM * 2;
-    expect(centralRadiusM).toBeCloseTo(5.12);
-    expect(middleRadiusM).toBeCloseTo(10.24);
-    expect(IMAGERY_ONION_TARGET_RADIUS_M).toBeCloseTo(20.48);
+    expect(centralRadiusM).toBeCloseTo(10.24);
+    expect(middleRadiusM).toBeCloseTo(20.48);
+    expect(IMAGERY_ONION_TARGET_RADIUS_M).toBeCloseTo(40.96);
   });
 
   it("keeps photographic world coverage through the smallest scales", () => {
-    const expectedCellCounts = [1, 5, 21, 37];
+    const expectedCellCounts = [1, 5, 21, 85];
     expect(WORLD_IMAGERY_TEMPLATES.map((template) => template.length)).toEqual(
       [1, 5, 21, 21],
     );
@@ -219,7 +250,7 @@ describe("photographic imagery onion", () => {
       16,
     );
     expect(zoomThree.tasks.filter((task) => task.address.z === 3)).toHaveLength(
-      16,
+      64,
     );
   });
 
@@ -231,18 +262,46 @@ describe("photographic imagery onion", () => {
     expect(shifted.signature).not.toBe(first.signature);
   });
 
+  it("swaps on entering the two-tile edge while retaining half the fine cap", () => {
+    const zoom = 14;
+    const longitudeForTileX = (x: number): number =>
+      x / 2 ** zoom * 360 - 180;
+    const centred = imageryOnionPlanForContact(
+      0,
+      longitudeForTileX(8_193.1),
+      zoom,
+    );
+    const edge = imageryOnionPlanForContact(
+      0,
+      longitudeForTileX(8_194.1),
+      zoom,
+    );
+    const centredCap = new Set(
+      centred.cells
+        .filter((cell) => cell.group === 0)
+        .map((cell) => imageryKey(cell.address)),
+    );
+    const edgeCap = new Set(
+      edge.cells
+        .filter((cell) => cell.group === 0)
+        .map((cell) => imageryKey(cell.address)),
+    );
+    expect(edge.signature).not.toBe(centred.signature);
+    expect([...centredCap].filter((key) => edgeCap.has(key))).toHaveLength(32);
+  });
+
   it("wraps source addresses across the antimeridian without duplicates", () => {
     const plan = imageryOnionPlanForContact(0, 179.999, 8);
-    expect(plan.cells).toHaveLength(40);
+    expect(plan.cells).toHaveLength(160);
     expect(new Set(plan.cells.map((cell) => imageryKey(cell.address))).size)
-      .toBe(40);
+      .toBe(160);
     expect(
       plan.cells.every(
         (cell) =>
           cell.address.x >= 0 && cell.address.x < 2 ** cell.address.z,
       ),
     ).toBe(true);
-    expect(plan.tableOriginX).toBeGreaterThan(2 ** plan.finestZoom - 16);
+    expect(plan.tableOriginX).toBeGreaterThan(2 ** plan.finestZoom - 32);
   });
 
   it("encodes coarse onion pages across their finest-cell footprint", () => {

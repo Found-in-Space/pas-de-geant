@@ -297,15 +297,15 @@ test("keeps photographic visibility while central caps swap and outer rings refi
   await waitForInitialImagery(page);
   await expect(page.locator("body")).toHaveAttribute(
     "data-imagery-pool-layers",
-    "96",
+    "224",
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-imagery-window-size",
-    "16",
+    "32",
   );
   await expect(page.locator("body")).toHaveAttribute(
     "data-imagery-pinned-pages",
-    "40",
+    "160",
   );
   await expect
     .poll(
@@ -443,7 +443,7 @@ test("changes imagery z with render scale and keeps photographic world layers", 
         .getAttribute("data-imagery-centimetres-per-texel"),
     );
     expect(centimetresPerTexel).toBeGreaterThan(0.7);
-    expect(centimetresPerTexel).toBeLessThan(1.4);
+    expect(centimetresPerTexel).toBeLessThan(1);
   }
 
   await page.evaluate(() => {

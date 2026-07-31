@@ -170,9 +170,10 @@ source level.
 At most four elevation pages are active across the complete fetch-and-decode
 pipeline. Successful Mapterhorn responses are written to the browser's named
 Cache API storage and checked there before the network; malformed images are
-evicted as soon as worker decoding rejects them. The worker retains up to 192
-decoded pages, which covers the full 160-tile stencil plus overlap while the
-anchor moves. Browser storage quotas and eviction policy still apply.
+evicted as soon as worker decoding rejects them. The worker retains up to 256
+decoded pages, which covers the complete 225-page source window for the
+160-tile stencil, including shared edge dependencies. Browser storage quotas
+and eviction policy still apply.
 
 Before any network request completes, every active Mapterhorn address gets a
 coarse virtual tile whose vertex shader samples the embedded GEBCO raster.
@@ -194,29 +195,34 @@ render.
 The checked-in 2048×1024 Blue Marble image is the immutable complete terrain
 texture and is available immediately offline. An optional photographic XYZ
 provider refines it through an imagery quadtree that is independent from the
-terrain stencil. Imagery LOD is selected in render space: each 256-pixel GPU
-page targets a rendered width of 2.56 m, or about one centimetre per texture
+terrain stencil. Imagery pages retain the provider's native dimensions, so
+MapTiler's complete 512×512 tiles reach the GPU without being downsampled. Each
+page targets a rendered width of 2.56 m, or about five millimetres per MapTiler
 pixel. The selected XYZ z-level changes with the displayed world radius, using
 1.75 m and 3.75 m page-width boundaries to avoid oscillating at a transition.
 It does not depend on physical Earth distance, eye height, or camera focal
 length.
 
-The normal render-space onion is a precomputed 4×4 fine cap, a
-4×4-minus-2×2 parent ring, and a second parent ring of the same shape. At the
-target resolution their outer radii are about 5.12 m, 10.24 m, and 20.48 m.
+The normal render-space onion is a precomputed 8×8 fine cap, an
+8×8-minus-4×4 parent ring, and a second parent ring of the same shape. At the
+target resolution their outer radii are about 10.24 m, 20.48 m, and 40.96 m.
 Only the Web Mercator address anchor is resolved at runtime; the relative
-geometry and page-table footprints are fixed. The central cap loads and
-commits first, followed by the middle and outer rings at progressively lower
-request priority. A 16×16 page table covers the complete onion.
+geometry and page-table footprints are fixed. Entering a two-tile edge band
+moves the anchor by four tiles, retaining half of the fine cap while its
+replacement becomes ready. The central cap loads and commits first, followed
+by the middle and outer rings at progressively lower request priority. A 32×32
+page table covers the complete onion.
 
-At the smallest displayed world sizes, z0 through z2 load as complete-world
-photographic layers, coarse to fine. At z3 that world ladder is supplemented
-by a local 4×4 cap. This keeps a configured photographic provider visible
-between Blue Marble and the standard local onion instead of imposing a
-scale gate or a fixed mid-resolution ceiling.
+At the smallest displayed world sizes, z0 through z3 load as complete-world
+photographic layers, coarse to fine; the z3 world is the complete 8×8 level.
+This keeps a configured photographic provider visible between Blue Marble and
+the standard local onion instead of imposing a scale gate or a fixed
+mid-resolution ceiling.
 
-A texture array holds at most 96 decoded pages and is reduced automatically
-to stay within a 64 MiB pixel budget and the device's array-layer limit.
+A texture array holds the complete 160-page visible onion plus the complete
+64-page fine cap for the next anchor or z level. The resulting 224 native-size
+layers are derived from the atomic transition and checked against the device's
+array-layer capability before allocation.
 Downloads, decodes, and GPU uploads only populate staging. Two page-table
 textures swap after the central group or a later complete ring is ready, so
 missing, malformed, aborted, stale, or GPU-failed pages cannot partially
@@ -229,13 +235,15 @@ No network imagery provider is hard-coded. Configure one at build time with:
 VITE_IMAGERY_XYZ_TEMPLATE='https://example.test/{z}/{x}/{y}.jpg'
 VITE_IMAGERY_ATTRIBUTION='Required provider attribution'
 VITE_IMAGERY_PROVIDER_ID='provider-id'
-VITE_IMAGERY_TILE_SIZE=256
+VITE_IMAGERY_TILE_SIZE=512
 VITE_IMAGERY_MIN_ZOOM=0
-VITE_IMAGERY_MAX_ZOOM=20
+VITE_IMAGERY_MAX_ZOOM=22
 ```
 
 The URL and attribution variables are required together. Without them,
 startup and rendering remain exactly the complete embedded Blue Marble path.
+Imagery is retained at the provider's native tile size during decode, and the
+configured maximum zoom is the hard request ceiling for that provider.
 Source, license, datum, DOI, and checksum details live beside the relief asset
 and in `public/THIRD_PARTY_LICENSES.txt`.
 
