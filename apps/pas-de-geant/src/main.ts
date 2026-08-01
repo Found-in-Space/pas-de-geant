@@ -36,8 +36,8 @@ import { directionOnHandPanel } from "./hand-panel-orientation.js";
 import {
   ImageryVirtualTexture,
   configuredXyzImageryProvider,
-  type XyzImageryConfiguration,
 } from "./imagery.js";
+import { imageryConfiguration } from "./imagery-configuration.js";
 import {
   applyLogarithmicScale,
   applyRadialMultiplierRate,
@@ -97,35 +97,6 @@ const resetButton = element<HTMLButtonElement>("reset-button");
 const aircraftToggle = element<HTMLInputElement>("aircraft-toggle");
 const imageryAttribution = element<HTMLElement>("imagery-attribution");
 const initialLocationPromise = resolveInitialLocation();
-
-function optionalNumber(value: string | undefined): number | undefined {
-  if (!value) return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function imageryConfiguration(): XyzImageryConfiguration | undefined {
-  if (window.__PAS_DE_GEANT_IMAGERY_CONFIG__) {
-    return window.__PAS_DE_GEANT_IMAGERY_CONFIG__;
-  }
-  const urlTemplate = import.meta.env.VITE_IMAGERY_XYZ_TEMPLATE;
-  if (!urlTemplate) return undefined;
-  const attribution = import.meta.env.VITE_IMAGERY_ATTRIBUTION;
-  if (!attribution) {
-    console.warn(
-      "VITE_IMAGERY_ATTRIBUTION is required when photographic imagery is configured.",
-    );
-    return undefined;
-  }
-  return {
-    id: import.meta.env.VITE_IMAGERY_PROVIDER_ID,
-    urlTemplate,
-    attribution,
-    tileSize: optionalNumber(import.meta.env.VITE_IMAGERY_TILE_SIZE),
-    minZoom: optionalNumber(import.meta.env.VITE_IMAGERY_MIN_ZOOM),
-    maxZoom: optionalNumber(import.meta.env.VITE_IMAGERY_MAX_ZOOM),
-  };
-}
 
 let renderer: THREE.WebGLRenderer;
 try {

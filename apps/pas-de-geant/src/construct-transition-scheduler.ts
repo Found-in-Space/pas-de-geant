@@ -39,6 +39,11 @@ export interface SchedulerSnapshot<Target> {
   readonly requirements: readonly TileRequirementSnapshot[];
 }
 
+export interface TileTransitionSchedulerOptions {
+  /** Load resources for the initial committed fallback cut without changing topology. */
+  readonly hydrateInitialResources?: boolean;
+}
+
 export type SchedulerEventKind =
   | "request"
   | "in-flight"
@@ -63,6 +68,7 @@ export interface SchedulerEvent {
 
 interface Requirement<Resource> {
   readonly tile: TileIdentity;
+  kind: "hydration" | "replacement";
   state: TileRequirementState;
   requestId: number;
   handle: TileRequestHandle;
@@ -103,12 +109,15 @@ export class TileTransitionScheduler<Target, Resource> {
   private revisionValue = 0;
   private nextEventSequence = 1;
   private changing = false;
+  private readonly hydrateCommittedResources: boolean;
 
   constructor(
     initialTarget: Target,
     private readonly layoutSource: LayoutSource<Target>,
     private readonly provider: TileProvider<Resource>,
+    options: TileTransitionSchedulerOptions = {},
   ) {
+    this.hydrateCommittedResources = options.hydrateInitialResources ?? false;
     this.targetValue = immutableTarget(initialTarget);
     const initialCut = layoutSource.calculate(this.targetValue);
     this.committed = this.indexCut(initialCut);
@@ -117,6 +126,11 @@ export class TileTransitionScheduler<Target, Resource> {
       this.committedResources.set(key, undefined);
     }
     this.graphValue = planTransition(this.committed.values(), this.requested.values());
+    if (this.hydrateCommittedResources) {
+      for (const tile of this.committed.values()) {
+        this.requestTile(tile, "hydration");
+      }
+    }
   }
 
   get snapshot(): SchedulerSnapshot<Target> {
@@ -148,6 +162,21 @@ export class TileTransitionScheduler<Target, Resource> {
     this.listeners.add(listener);
     listener(this.snapshot);
     return () => this.listeners.delete(listener);
+  }
+
+  committedResource(tile: TileIdentity): Resource | undefined {
+    return this.committedResources.get(tileIdentityKey(tile));
+  }
+
+  dispose(): void {
+    for (const requirement of this.requirements.values()) {
+      if (requirement.state === "requested" || requirement.state === "in-flight") {
+        requirement.handle.cancel();
+      }
+    }
+    this.requirements.clear();
+    this.committedResources.clear();
+    this.listeners.clear();
   }
 
   private indexCut(cut: readonly TileIdentity[]): Map<string, TileIdentity> {
@@ -190,22 +219,38 @@ export class TileTransitionScheduler<Target, Resource> {
     );
     for (const [key, requirement] of failed) {
       this.requirements.delete(key);
-      this.requestTile(requirement.tile);
+      this.requestTile(requirement.tile, requirement.kind);
     }
   }
 
   private replan(): void {
     this.graphValue = planTransition(this.committed.values(), this.requested.values());
-    const needed = new Map<string, TileIdentity>();
+    const needed = new Map<
+      string,
+      { readonly tile: TileIdentity; readonly kind: Requirement<Resource>["kind"] }
+    >();
+    if (this.hydrateCommittedResources) {
+      for (const [key, tile] of this.committed) {
+        if (this.committedResources.get(key) === undefined) {
+          needed.set(key, { tile, kind: "hydration" });
+        }
+      }
+    }
     for (const group of this.graphValue.groups) {
       for (const tile of group.after) {
         const key = tileIdentityKey(tile);
-        if (!this.committed.has(key)) needed.set(key, tile);
+        if (!this.committed.has(key)) {
+          needed.set(key, { tile, kind: "replacement" });
+        }
       }
     }
 
     for (const [key, requirement] of [...this.requirements]) {
-      if (needed.has(key)) continue;
+      const stillNeeded = needed.get(key);
+      if (stillNeeded) {
+        requirement.kind = stillNeeded.kind;
+        continue;
+      }
       if (requirement.state === "requested" || requirement.state === "in-flight") {
         requirement.handle.cancel();
         this.notify("cancellation", {
@@ -223,13 +268,16 @@ export class TileTransitionScheduler<Target, Resource> {
       this.requirements.delete(key);
     }
 
-    for (const [key, tile] of needed) {
-      if (!this.requirements.has(key)) this.requestTile(tile);
+    for (const [key, { tile, kind }] of needed) {
+      if (!this.requirements.has(key)) this.requestTile(tile, kind);
     }
     this.attemptCommits();
   }
 
-  private requestTile(tile: TileIdentity): void {
+  private requestTile(
+    tile: TileIdentity,
+    kind: Requirement<Resource>["kind"] = "replacement",
+  ): void {
     const key = tileIdentityKey(tile);
     let requestId = -1;
     const handle = this.provider.request(tile, (result) => {
@@ -238,6 +286,7 @@ export class TileTransitionScheduler<Target, Resource> {
     requestId = handle.requestId;
     const requirement: Requirement<Resource> = {
       tile: immutableTile(tile),
+      kind,
       state: "requested",
       requestId,
       handle,
@@ -271,6 +320,12 @@ export class TileTransitionScheduler<Target, Resource> {
     requirement.state = "ready";
     requirement.resource = result.resource;
     delete requirement.reason;
+    if (requirement.kind === "hydration" && this.committed.has(key)) {
+      this.committedResources.set(key, result.resource);
+      this.requirements.delete(key);
+      this.notify("response", { tile: requirement.tile, requestId });
+      return;
+    }
     this.notify("response", { tile: requirement.tile, requestId });
     this.attemptCommits();
   }
@@ -369,7 +424,7 @@ export class TileTransitionScheduler<Target, Resource> {
       for (const tile of group.after) {
         const key = tileIdentityKey(tile);
         if (!this.committed.has(key) && !this.requirements.has(key)) {
-          this.requestTile(tile);
+          this.requestTile(tile, "replacement");
         }
       }
     }

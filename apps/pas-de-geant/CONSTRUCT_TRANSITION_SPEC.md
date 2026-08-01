@@ -125,6 +125,22 @@ Latency and symmetric jitter are deterministic. Failure modes are:
 Cancellation removes a pending request. The provider returns identity tokens,
 not imagery, elevation, decoded pixels, meshes, or textures.
 
+### Real image providers
+
+`ConstructImageTileProvider` adapts the configured imagery provider and the
+Mapterhorn elevation Cache API loader to the same request protocol. Both return
+decoded tile images; elevation remains the encoded Terrarium image rather than
+becoming a mesh. Provider maximum zoom resolves to a cropped source ancestor
+without capping the requested draw layout. Identical ancestor loads are
+coalesced, concurrency matches the production loaders, and decoded source
+images remain available for measurable session-memory cache hits.
+
+The scheduler can hydrate an initial committed fallback cut. Hydration changes
+only the resource attached to an existing committed identity, never its
+topology. A failed hydration therefore appears as an explicit retryable gap;
+later replacement batches still wait for every required resource before their
+atomic swap.
+
 ## Failure and retry semantics
 
 A failed tile leaves its requirement failed and its replacement batch blocked.
@@ -153,7 +169,7 @@ and active requirement states. They expose no provider content.
 
 ## Resource and cache policy
 
-There is intentionally no warm or decoded cache. A resource may exist only
+The scheduler itself has no warm cache. A scheduled resource may exist only
 because it is:
 
 - owned by the committed cut;
@@ -161,24 +177,28 @@ because it is:
 - ready and staged for the current transition.
 
 Exact in-flight or staged continuity across replanning is ownership continuity,
-not caching. Once an identity is released or discarded, requesting it again
-creates a new provider request. The experiment has no HTTP fetch, browser HTTP
-cache, Cache API, service worker, IndexedDB, local storage, decoding, GPU tile
-data, or provider-specific terrain/texture semantics.
+not scheduler caching. The raw provider creates a new request after release.
+The real-image adapters deliberately add provider-level source caching so the
+Construct can measure coalesced requests, decoded-memory hits, browser HTTP
+cache behaviour, and Mapterhorn Cache API hits/writes without changing
+scheduler ownership semantics.
 
 ## Interactive globe
 
 `/construct/` displays the actual committed cut on a Three.js globe and a
 requested outline plus overlays for requested, in-flight, staged, failed, and
-just-swapped tiles. It visualizes topology only and never pretends provider
-content exists.
+just-swapped tiles. Raw mode visualizes topology. Imagery mode renders the
+configured photographic tiles, and terrain mode renders the loaded Terrarium
+tiles as images so loader behaviour is visible without mesh generation.
 
 Dragging orbits and retargets the centre view; clicking targets the selected
 surface tile. Explicit x/y controls wrap x modulo world width and clip y at the
 Web Mercator north/south bounds. Z is derived from radial observer height,
 latitude, render-buffer focal length, and the configured source-tile edge in
 pixels; changing height, tile resolution, or viewport size preserves the exact
-underfoot geographic coordinate. Provider controls change deterministic
-latency, jitter and failure policy, and a retry control resubmits current failed
-requirements. Diagnostics and the event log are projections of scheduler
-snapshots/events rather than additional transition state.
+underfoot geographic coordinate. Raw-provider controls change deterministic
+latency, jitter and failure policy; a shared retry control resubmits current
+failed requirements in every mode. Diagnostics expose source loads, cache and
+coalescing hits, transfer bytes, average load time, and failures. The event log
+remains a projection of scheduler snapshots/events rather than additional
+transition state.

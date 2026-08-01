@@ -112,6 +112,30 @@ h1 em { color: var(--gold); font-family: Georgia, "Times New Roman", serif; font
 .card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .card-heading h2 { margin: 0; font-size: 1.35rem; font-weight: 540; letter-spacing: -.025em; }
 .card-heading > span { color: #80939a; font: .72rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.mode-selector {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 20px 0 0;
+  padding: 0;
+  border: 0;
+}
+.mode-selector legend { margin-bottom: 6px; color: #7f949a; font-size: .67rem; letter-spacing: .04em; }
+.mode-selector label { position: relative; cursor: pointer; }
+.mode-selector input { position: absolute; opacity: 0; pointer-events: none; }
+.mode-selector span {
+  display: block;
+  padding: 8px 6px;
+  border: 1px solid rgba(179, 216, 224, .14);
+  border-radius: 8px;
+  background: rgba(1, 7, 10, .72);
+  color: #82979d;
+  font-size: .72rem;
+  text-align: center;
+}
+.mode-selector input:checked + span { border-color: rgba(102, 226, 195, .55); background: rgba(102, 226, 195, .08); color: var(--aqua); }
+.mode-selector input:focus-visible + span { box-shadow: 0 0 0 2px rgba(102, 226, 195, .13); }
+.mode-selector input:disabled + span { opacity: .38; cursor: not-allowed; }
 .observer-height-control { margin-top: 22px; }
 .observer-height-control strong {
   display: block;
@@ -166,6 +190,7 @@ select {
 input:focus,
 select:focus { border-color: rgba(102, 226, 195, .7); box-shadow: 0 0 0 2px rgba(102, 226, 195, .09); }
 input[readonly] { border-style: dashed; color: var(--aqua); cursor: default; }
+input:disabled { opacity: .55; cursor: not-allowed; }
 .divider { height: 1px; margin: 23px -22px 20px; background: var(--line); }
 .provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 10px; }
 .wide-control { margin-bottom: 10px; }
@@ -182,6 +207,7 @@ button {
 button:hover { background: rgba(233, 201, 141, .14); }
 .fine-print { margin: 14px 0 0; color: #677c82; font-size: .68rem; line-height: 1.45; }
 .zoom-note { margin-top: 10px; }
+.provider-attribution { margin: 9px 0 0; color: #71868c; font-size: .62rem; }
 
 .diagnostics-card { grid-area: diagnostics; padding: 20px; }
 .events-card { grid-area: events; min-height: 360px; padding: 20px; }
@@ -192,6 +218,10 @@ button:hover { background: rgba(233, 201, 141, .14); }
 .metrics div { min-width: 0; padding: 15px 12px; background: rgba(4, 11, 15, .82); }
 .metrics strong { display: block; margin-bottom: 3px; font-size: 1.25rem; font-weight: 520; font-variant-numeric: tabular-nums; }
 .metrics span { display: block; overflow: hidden; color: #778b91; font-size: .64rem; white-space: nowrap; text-overflow: ellipsis; }
+.provider-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 16px; }
+.provider-metrics div { min-width: 0; padding: 10px 11px; border: 1px solid rgba(255,255,255,.055); border-radius: 8px; background: rgba(255,255,255,.018); }
+.provider-metrics strong { display: block; overflow: hidden; margin-bottom: 2px; color: #b8d2d5; font-size: .88rem; font-weight: 520; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.provider-metrics span { display: block; overflow: hidden; color: #657b81; font-size: .6rem; white-space: nowrap; text-overflow: ellipsis; }
 .state-strip { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 15px; }
 .state-strip span { padding: 4px 8px; border-radius: 99px; background: rgba(255,255,255,.04); color: #82969c; font-size: .65rem; }
 .state-strip .inflight { color: var(--blue); }
@@ -220,6 +250,7 @@ button:hover { background: rgba(233, 201, 141, .14); }
   .hero-copy { padding-right: 0; }
   .globe-card { min-height: min(680px, 78vh); }
   .metrics { grid-template-columns: repeat(3, 1fr); }
+  .provider-metrics { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 560px) {
@@ -233,4 +264,5 @@ button:hover { background: rgba(233, 201, 141, .14); }
   .xyz-grid { grid-template-columns: 1fr 1fr; }
   .xyz-grid label:last-child { grid-column: 1 / -1; }
   .provider-grid { grid-template-columns: 1fr; }
+  .provider-metrics { grid-template-columns: repeat(2, 1fr); }
 }

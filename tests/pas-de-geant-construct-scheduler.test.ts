@@ -110,6 +110,57 @@ describe("The Construct deterministic fake tile provider", () => {
 });
 
 describe("The Construct transition scheduler", () => {
+  it("hydrates the initial committed fallback without changing its cut", () => {
+    const base = uniformCut(1);
+    const provider = new FakeTileProvider({ latencyMs: 10, jitterMs: 0 });
+    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
+      "base",
+      new FixtureLayoutSource({ base }),
+      provider,
+      { hydrateInitialResources: true },
+    );
+    const events: SchedulerEvent[] = [];
+    scheduler.subscribe(eventCollector(events));
+
+    expect(scheduler.snapshot.requirements).toHaveLength(base.length);
+    expect(scheduler.snapshot.graph.groups).toEqual([]);
+    provider.advanceBy(10);
+
+    expect(scheduler.snapshot.requirements).toEqual([]);
+    expect(scheduler.snapshot.committedCut.map(tileIdentityKey).sort()).toEqual(
+      base.map(tileIdentityKey).sort(),
+    );
+    expect(events.some(({ kind }) => kind === "atomic-swap")).toBe(false);
+    for (const tile of base) {
+      expect(scheduler.committedResource(tile)?.tile).toEqual(tile);
+    }
+  });
+
+  it("keeps a failed initial tile as a retryable committed gap", () => {
+    const base = uniformCut(1);
+    const provider = new FakeTileProvider({
+      latencyMs: 10,
+      jitterMs: 0,
+      failureMode: "transient-first-attempt",
+    });
+    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
+      "base",
+      new FixtureLayoutSource({ base }),
+      provider,
+      { hydrateInitialResources: true },
+    );
+
+    provider.advanceBy(10);
+    expect(scheduler.snapshot.requirements.every(({ state }) => state === "failed"))
+      .toBe(true);
+    expect(scheduler.snapshot.committedCut).toHaveLength(base.length);
+
+    scheduler.retryFailed();
+    provider.advanceBy(10);
+    expect(scheduler.snapshot.requirements).toEqual([]);
+    expect(base.every((tile) => scheduler.committedResource(tile))).toBe(true);
+  });
+
   it("never punches a hole and commits a group only when every child is ready", () => {
     const base = uniformCut(1);
     const parent = { z: 1, x: 0, y: 0 };

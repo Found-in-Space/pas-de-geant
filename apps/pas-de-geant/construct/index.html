@@ -16,7 +16,7 @@
         </div>
         <div class="topbar-state">
           <span class="live-dot"></span>
-          <span>Fake provider clock</span>
+          <span id="provider-clock-label">Fake provider clock</span>
           <strong id="clock">0.00 s</strong>
         </div>
       </header>
@@ -26,10 +26,10 @@
           <p class="kicker">Atomic quadtree transition laboratory</p>
           <h1>Move the target.<br /><em>Watch the cut heal.</em></h1>
           <p>
-            The globe shows topology, not provider content. Observer height,
-            projection, latitude, and source-tile resolution now determine the
-            finest cut; committed coverage remains whole while independent
-            replacement regions arrive and swap.
+            Switch between raw topology and the real imagery or elevation
+            loaders. Observer height, projection, latitude, and source-tile
+            resolution determine the finest cut; committed coverage remains
+            whole while independent replacement regions arrive and swap.
           </p>
         </section>
 
@@ -57,6 +57,12 @@
             </div>
             <span id="revision">r0</span>
           </div>
+          <fieldset class="mode-selector">
+            <legend>Tile content</legend>
+            <label><input type="radio" name="tile-mode" value="raw" checked /><span>Raw</span></label>
+            <label><input id="imagery-mode" type="radio" name="tile-mode" value="imagery" /><span>Imagery</span></label>
+            <label><input type="radio" name="tile-mode" value="terrain" /><span>Terrain</span></label>
+          </fieldset>
           <label class="observer-height-control" for="observer-height">
             <span>Radial height above Earth</span>
             <strong id="observer-height-value">1,000 km</strong>
@@ -97,28 +103,31 @@
 
           <div class="divider"></div>
           <p class="kicker">Provider behaviour</p>
-          <div class="provider-grid">
-            <label><span>Latency · ms</span><input id="latency" type="number" min="0" step="50" value="650" /></label>
-            <label><span>Jitter · ±ms</span><input id="jitter" type="number" min="0" step="25" value="280" /></label>
-          </div>
-          <label class="wide-control">
-            <span>Failure mode</span>
-            <select id="failure-mode">
-              <option value="none">None</option>
-              <option value="transient-first-attempt">Transient · first attempt</option>
-              <option value="persistent-selected">Persistent · selected tile</option>
-              <option value="deterministic-rate">Persistent · deterministic rate</option>
-            </select>
-          </label>
-          <div class="provider-grid">
-            <label><span>Failure rate · %</span><input id="failure-rate" type="number" min="0" max="100" step="5" value="20" /></label>
-            <label><span>Selected z/x/y</span><input id="failure-key" type="text" placeholder="7/64/64" /></label>
+          <div id="raw-provider-controls">
+            <div class="provider-grid">
+              <label><span>Latency · ms</span><input id="latency" type="number" min="0" step="50" value="650" /></label>
+              <label><span>Jitter · ±ms</span><input id="jitter" type="number" min="0" step="25" value="280" /></label>
+            </div>
+            <label class="wide-control">
+              <span>Failure mode</span>
+              <select id="failure-mode">
+                <option value="none">None</option>
+                <option value="transient-first-attempt">Transient · first attempt</option>
+                <option value="persistent-selected">Persistent · selected tile</option>
+                <option value="deterministic-rate">Persistent · deterministic rate</option>
+              </select>
+            </label>
+            <div class="provider-grid">
+              <label><span>Failure rate · %</span><input id="failure-rate" type="number" min="0" max="100" step="5" value="20" /></label>
+              <label><span>Selected z/x/y</span><input id="failure-key" type="text" placeholder="7/64/64" /></label>
+            </div>
           </div>
           <button id="retry" type="button">Retry failed requirements</button>
-          <p class="fine-print">
+          <p id="provider-note" class="fine-print">
             Deterministic simulation only. No HTTP, Cache API, decoding, GPU
             tile data, persistence, or warm resource cache.
           </p>
+          <p id="provider-attribution" class="provider-attribution" hidden></p>
         </aside>
 
         <section class="diagnostics-card">
@@ -136,6 +145,13 @@
             <div><strong id="batch-count">0</strong><span>Safe batches</span></div>
             <div><strong id="inflight-count">0</strong><span>In flight</span></div>
             <div><strong id="blocked-count">0</strong><span>Failed</span></div>
+          </div>
+          <div class="provider-metrics">
+            <div><strong id="source-load-count">—</strong><span>Source loads</span></div>
+            <div><strong id="cache-hit-count">—</strong><span>Cache/shared hits</span></div>
+            <div><strong id="provider-byte-count">—</strong><span>Transferred</span></div>
+            <div><strong id="average-load-time">—</strong><span>Average load</span></div>
+            <div><strong id="source-gap-count">—</strong><span>Load failures</span></div>
           </div>
           <div class="state-strip" id="state-strip"></div>
         </section>

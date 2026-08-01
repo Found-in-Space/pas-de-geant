@@ -5,8 +5,16 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   FakeTileProvider,
   type FakeFailureMode,
+  type FakeTileResource,
   type FakeTileProviderOptions,
 } from "./construct-fake-tile-provider.js";
+import {
+  ConstructImageTileProvider,
+  constructImageryProvider,
+  constructTerrainProvider,
+  type ConstructImageProviderMetrics,
+  type ConstructImageTileResource,
+} from "./construct-image-tile-provider.js";
 import {
   normalizeConstructTarget,
   TileOnionLayoutSource,
@@ -16,6 +24,7 @@ import {
   observerTileZoom,
   projectedFocalLengthPixels,
 } from "./construct-observer-zoom.js";
+import type { TileProvider } from "./construct-tile-provider.js";
 import {
   TileTransitionScheduler,
   type SchedulerEvent,
@@ -26,6 +35,8 @@ import {
   tileIdentityKey,
   type TileIdentity,
 } from "./construct-transition-planner.js";
+import { imageryConfiguration } from "./imagery-configuration.js";
+import { configuredXyzImageryProvider } from "./imagery-provider.js";
 import { mercatorPoint, tileBounds } from "./tile-onion-core.js";
 
 function requiredElement<T extends HTMLElement>(id: string): T {
@@ -43,20 +54,36 @@ const observerHeightValue = requiredElement<HTMLElement>("observer-height-value"
 const tileResolutionInput = requiredElement<HTMLInputElement>("tile-resolution");
 const derivedZoom = requiredElement<HTMLElement>("derived-zoom");
 const zoomDerivationDetail = requiredElement<HTMLElement>("zoom-derivation-detail");
+const imageryModeInput = requiredElement<HTMLInputElement>("imagery-mode");
+const modeInputs = [
+  ...document.querySelectorAll<HTMLInputElement>('input[name="tile-mode"]'),
+];
 let configuredTileResolutionPixels = Number(tileResolutionInput.value);
+let rawTileResolutionPixels = configuredTileResolutionPixels;
 const latencyInput = requiredElement<HTMLInputElement>("latency");
 const jitterInput = requiredElement<HTMLInputElement>("jitter");
 const failureModeInput = requiredElement<HTMLSelectElement>("failure-mode");
 const failureRateInput = requiredElement<HTMLInputElement>("failure-rate");
 const failureKeyInput = requiredElement<HTMLInputElement>("failure-key");
+const rawProviderControls = requiredElement<HTMLElement>("raw-provider-controls");
+const providerNote = requiredElement<HTMLElement>("provider-note");
+const providerAttribution = requiredElement<HTMLElement>("provider-attribution");
 const retryButton = requiredElement<HTMLButtonElement>("retry");
 const clearLogButton = requiredElement<HTMLButtonElement>("clear-log");
 const eventLog = requiredElement<HTMLOListElement>("event-log");
 const targetLabel = requiredElement<HTMLElement>("target-label");
 const clock = requiredElement<HTMLElement>("clock");
+const providerClockLabel = requiredElement<HTMLElement>("provider-clock-label");
 const revision = requiredElement<HTMLElement>("revision");
 const settledState = requiredElement<HTMLElement>("settled-state");
 const stateStrip = requiredElement<HTMLElement>("state-strip");
+const providerMetricsElements = {
+  sourceLoads: requiredElement<HTMLElement>("source-load-count"),
+  cacheHits: requiredElement<HTMLElement>("cache-hit-count"),
+  bytes: requiredElement<HTMLElement>("provider-byte-count"),
+  averageLoad: requiredElement<HTMLElement>("average-load-time"),
+  gaps: requiredElement<HTMLElement>("source-gap-count"),
+};
 
 const counters = {
   committed: requiredElement<HTMLElement>("committed-count"),
@@ -71,6 +98,9 @@ interface GeographicTarget {
   readonly latitudeDegrees: number;
   readonly longitudeDegrees: number;
 }
+
+type ConstructMode = "raw" | "imagery" | "terrain";
+type ConstructResource = FakeTileResource | ConstructImageTileResource;
 
 const initialTile: ConstructTarget = { z: 7, x: 64, y: 64 };
 const initialTileBounds = tileBounds(initialTile);
@@ -87,14 +117,28 @@ globeHost.append(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(37, 1, 0.01, 100);
 camera.position.set(1.65, 0.95, 2.25);
+const GLOBE_RADIUS = 1;
+const DEFAULT_ORBIT_ROTATE_SPEED = 0.55;
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.enablePan = false;
-controls.minDistance = 1.75;
-controls.maxDistance = 5.2;
-controls.rotateSpeed = 0.55;
 controls.zoomSpeed = 0.7;
+
+const initialOrbitClearance =
+  camera.position.distanceTo(controls.target) - GLOBE_RADIUS;
+
+function syncOrbitRotateSpeed(): void {
+  const clearance = Math.max(
+    0,
+    camera.position.distanceTo(controls.target) - GLOBE_RADIUS,
+  );
+  controls.rotateSpeed =
+    DEFAULT_ORBIT_ROTATE_SPEED * clearance / initialOrbitClearance;
+}
+
+syncOrbitRotateSpeed();
+controls.addEventListener("change", syncOrbitRotateSpeed);
 
 const initialWidth = Math.max(1, globeHost.clientWidth);
 const initialHeight = Math.max(1, globeHost.clientHeight);
@@ -103,11 +147,26 @@ camera.aspect = initialWidth / initialHeight;
 camera.updateProjectionMatrix();
 
 const initialTarget = targetAtDerivedZoom(geographicTarget);
-const provider = new FakeTileProvider();
-const scheduler = new TileTransitionScheduler(
+const rawProvider = new FakeTileProvider();
+const configuredImagery =
+  window.__PAS_DE_GEANT_IMAGERY_PROVIDER__ ??
+  configuredXyzImageryProvider(imageryConfiguration());
+const imageryProvider = configuredImagery
+  ? constructImageryProvider(configuredImagery)
+  : undefined;
+const terrainProvider = constructTerrainProvider();
+imageryModeInput.disabled = imageryProvider === undefined;
+imageryModeInput.closest("label")?.setAttribute(
+  "title",
+  imageryProvider ? configuredImagery!.attribution : "No imagery provider is configured.",
+);
+const layoutSource = new TileOnionLayoutSource();
+let activeMode: ConstructMode = "raw";
+let activeProvider: FakeTileProvider | ConstructImageTileProvider = rawProvider;
+let scheduler = new TileTransitionScheduler<ConstructTarget, ConstructResource>(
   initialTarget,
-  new TileOnionLayoutSource(),
-  provider,
+  layoutSource,
+  rawProvider as unknown as TileProvider<ConstructResource>,
 );
 
 scene.add(new THREE.AmbientLight(0xa5c5df, 1.2));
@@ -116,7 +175,7 @@ sun.position.set(2, 3, 4);
 scene.add(sun);
 
 const globeSphere = new THREE.Mesh(
-  new THREE.SphereGeometry(1, 72, 44),
+  new THREE.SphereGeometry(GLOBE_RADIUS, 72, 44),
   new THREE.MeshPhongMaterial({
     color: 0x07121b,
     emissive: 0x02060a,
@@ -144,7 +203,9 @@ const lifecycleLayer = new THREE.Group();
 const swapLayer = new THREE.Group();
 scene.add(committedLayer, requestedLayer, lifecycleLayer, swapLayer);
 
-let latestSnapshot = scheduler.snapshot;
+let latestSnapshot: SchedulerSnapshot<ConstructTarget> = scheduler.snapshot;
+let unsubscribeScheduler = (): void => {};
+let unsubscribeProviderMetrics = (): void => {};
 let renderQueued = true;
 let lastSwap: { tiles: readonly TileIdentity[]; expiresAt: number } | undefined;
 const logEntries: SchedulerEvent[] = [];
@@ -159,11 +220,24 @@ function sphericalPoint(
   return new THREE.Vector3(
     radius * Math.cos(latitude) * Math.cos(longitude),
     radius * Math.sin(latitude),
-    radius * Math.cos(latitude) * Math.sin(longitude),
+    -radius * Math.cos(latitude) * Math.sin(longitude),
   );
 }
 
-function tilePatchGeometry(tile: TileIdentity, radius: number): THREE.BufferGeometry {
+function geographicTargetForPoint(point: THREE.Vector3): GeographicTarget {
+  return {
+    latitudeDegrees: THREE.MathUtils.radToDeg(Math.asin(point.y)),
+    longitudeDegrees: THREE.MathUtils.radToDeg(
+      Math.atan2(-point.z, point.x),
+    ),
+  };
+}
+
+function tilePatchGeometry(
+  tile: TileIdentity,
+  radius: number,
+  resource?: ConstructImageTileResource,
+): THREE.BufferGeometry {
   const bounds = tileBounds(tile);
   // Large, coarse tiles need enough curvature that their triangular chords do
   // not fall back through the globe and look like missing coverage.
@@ -174,6 +248,7 @@ function tilePatchGeometry(tile: TileIdentity, radius: number): THREE.BufferGeom
     ),
   );
   const positions: number[] = [];
+  const uvs: number[] = [];
   const indices: number[] = [];
   for (let row = 0; row <= segments; row += 1) {
     const latitude = THREE.MathUtils.lerp(bounds.north, bounds.south, row / segments);
@@ -181,6 +256,16 @@ function tilePatchGeometry(tile: TileIdentity, radius: number): THREE.BufferGeom
       const longitude = THREE.MathUtils.lerp(bounds.west, bounds.east, column / segments);
       const point = sphericalPoint(latitude, longitude, radius);
       positions.push(point.x, point.y, point.z);
+      const baseU = column / segments;
+      const baseV = 1 - row / segments;
+      if (resource) {
+        uvs.push(
+          (resource.sourceOffsetX + baseU) / resource.sourceScale,
+          1 - (resource.sourceOffsetY + 1 - baseV) / resource.sourceScale,
+        );
+      } else {
+        uvs.push(baseU, baseV);
+      }
     }
   }
   for (let row = 0; row < segments; row += 1) {
@@ -194,9 +279,26 @@ function tilePatchGeometry(tile: TileIdentity, radius: number): THREE.BufferGeom
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   return geometry;
+}
+
+const sourceTextures = new Map<HTMLImageElement, THREE.Texture>();
+
+function textureFor(resource: ConstructImageTileResource): THREE.Texture {
+  const existing = sourceTextures.get(resource.image);
+  if (existing) return existing;
+  const texture = new THREE.Texture(resource.image);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  texture.needsUpdate = true;
+  sourceTextures.set(resource.image, texture);
+  return texture;
 }
 
 function tileOutlineGeometry(tile: TileIdentity, radius: number): THREE.BufferGeometry {
@@ -265,6 +367,24 @@ function addTileFill(
   layer.add(mesh);
 }
 
+function addTileImage(
+  layer: THREE.Group,
+  tile: TileIdentity,
+  resource: ConstructImageTileResource,
+  radius: number,
+): void {
+  const mesh = new THREE.Mesh(
+    tilePatchGeometry(tile, radius, resource),
+    new THREE.MeshBasicMaterial({
+      map: textureFor(resource),
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    }),
+  );
+  mesh.userData.tile = tile;
+  layer.add(mesh);
+}
+
 function addTileOutline(
   layer: THREE.Group,
   tile: TileIdentity,
@@ -293,7 +413,12 @@ function renderGlobe(): void {
   disposeLayer(swapLayer);
 
   for (const tile of latestSnapshot.committedCut) {
-    addTileFill(committedLayer, tile, absoluteZoomColour(tile.z), 0.64, 1.002);
+    const resource = scheduler.committedResource(tile);
+    if (resource && "kind" in resource && resource.kind === "image") {
+      addTileImage(committedLayer, tile, resource, 1.002);
+    } else if (activeMode === "raw") {
+      addTileFill(committedLayer, tile, absoluteZoomColour(tile.z), 0.64, 1.002);
+    }
     addTileOutline(committedLayer, tile, 0x77a9ad, 0.35, 1.004);
   }
   for (const tile of latestSnapshot.requestedCut) {
@@ -355,6 +480,33 @@ function renderLog(): void {
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1_024) return `${bytes} B`;
+  if (bytes < 1_024 ** 2) return `${(bytes / 1_024).toFixed(1)} KiB`;
+  return `${(bytes / 1_024 ** 2).toFixed(1)} MiB`;
+}
+
+function renderProviderMetrics(
+  metrics?: ConstructImageProviderMetrics,
+): void {
+  if (!metrics) {
+    for (const element of Object.values(providerMetricsElements)) {
+      element.textContent = "—";
+    }
+    return;
+  }
+  providerMetricsElements.sourceLoads.textContent = String(metrics.sourceLoadTotal);
+  providerMetricsElements.cacheHits.textContent = String(
+    metrics.memoryHitTotal +
+      metrics.sharedRequestTotal +
+      metrics.persistentHitTotal,
+  );
+  providerMetricsElements.bytes.textContent = formatBytes(metrics.byteTotal);
+  providerMetricsElements.averageLoad.textContent =
+    `${Math.round(metrics.averageLoadMs).toLocaleString()} ms`;
+  providerMetricsElements.gaps.textContent = String(metrics.failureTotal);
+}
+
 function renderDiagnostics(): void {
   const requirements = latestSnapshot.requirements;
   const inFlight = requirements.filter(
@@ -369,13 +521,22 @@ function renderDiagnostics(): void {
   counters.inflight.textContent = String(inFlight);
   counters.failed.textContent = String(failed);
   revision.textContent = `r${latestSnapshot.revision}`;
-  settledState.textContent =
-    latestSnapshot.graph.groups.length === 0
-      ? "Settled"
-      : failed > 0
-        ? "Blocked regions"
-        : "Transitioning";
-  settledState.className = failed > 0 ? "has-failure" : inFlight > 0 ? "is-active" : "";
+  settledState.textContent = failed > 0
+    ? latestSnapshot.graph.groups.length === 0
+      ? "Visible gaps"
+      : "Blocked regions"
+    : inFlight > 0
+      ? latestSnapshot.graph.groups.length === 0
+        ? "Loading tiles"
+        : "Transitioning"
+      : latestSnapshot.graph.groups.length === 0
+        ? "Settled"
+        : "Staged";
+  settledState.className = failed > 0
+    ? "has-failure"
+    : inFlight > 0
+      ? "is-active"
+      : "";
   stateStrip.replaceChildren();
   for (const [label, count, className] of [
     ["requested", requirements.filter(({ state }) => state === "requested").length, "requested"],
@@ -498,23 +659,107 @@ function targetFromGeographic(latitude: number, longitude: number): void {
   refreshDerivedTarget();
 }
 
-scheduler.subscribe((snapshot, event) => {
-  latestSnapshot = snapshot;
-  writeTargetInputs(snapshot.target);
-  if (event) {
-    logEntries.push(event);
-    if (event.kind === "atomic-swap") {
-      lastSwap = { tiles: event.after ?? [], expiresAt: performance.now() + 1_150 };
+function bindScheduler(): void {
+  unsubscribeScheduler();
+  unsubscribeScheduler = scheduler.subscribe((snapshot, event) => {
+    latestSnapshot = snapshot;
+    writeTargetInputs(snapshot.target);
+    if (event) {
+      logEntries.push(event);
+      if (event.kind === "atomic-swap") {
+        lastSwap = {
+          tiles: event.after ?? [],
+          expiresAt: performance.now() + 1_150,
+        };
+      }
+      renderLog();
     }
-    renderLog();
+    renderDiagnostics();
+    renderQueued = true;
+  });
+}
+
+function providerForMode(
+  mode: ConstructMode,
+): FakeTileProvider | ConstructImageTileProvider {
+  if (mode === "terrain") return terrainProvider;
+  if (mode === "imagery" && imageryProvider) return imageryProvider;
+  return rawProvider;
+}
+
+function renderModePresentation(): void {
+  const isRaw = activeMode === "raw";
+  rawProviderControls.hidden = !isRaw;
+  tileResolutionInput.disabled = !isRaw;
+  providerAttribution.hidden = isRaw;
+  if (isRaw) {
+    providerNote.textContent =
+      "Deterministic simulation only. No HTTP, Cache API, decoding, GPU tile data, persistence, or warm resource cache.";
+    providerAttribution.textContent = "";
+    providerClockLabel.textContent = "Fake provider clock";
+    clock.textContent = `${(rawProvider.now / 1_000).toFixed(2)} s`;
+    renderProviderMetrics();
+    return;
   }
-  renderDiagnostics();
+  const imageProvider = activeProvider as ConstructImageTileProvider;
+  providerNote.textContent = activeMode === "terrain"
+    ? "Loads Mapterhorn Terrarium pages through the production Cache API path. Missing or malformed pages remain visible gaps until retry succeeds."
+    : "Loads the configured production imagery provider with browser HTTP caching. Decoded source pages are reused when the cut revisits them.";
+  providerAttribution.textContent = imageProvider.attribution;
+  providerClockLabel.textContent = "In flight / queued";
+  renderProviderMetrics(imageProvider.metrics);
+}
+
+function activateMode(mode: ConstructMode): void {
+  if (mode === "imagery" && !imageryProvider) return;
+  unsubscribeScheduler();
+  unsubscribeProviderMetrics();
+  scheduler.dispose();
+  activeMode = mode;
+  activeProvider = providerForMode(mode);
+  if (activeProvider instanceof ConstructImageTileProvider) {
+    configuredTileResolutionPixels = activeProvider.tilePixels;
+    tileResolutionInput.value = String(activeProvider.tilePixels);
+  } else {
+    configuredTileResolutionPixels = rawTileResolutionPixels;
+    tileResolutionInput.value = String(rawTileResolutionPixels);
+  }
+  const target = targetAtDerivedZoom(geographicTarget);
+  scheduler = new TileTransitionScheduler<ConstructTarget, ConstructResource>(
+    target,
+    layoutSource,
+    activeProvider as unknown as TileProvider<ConstructResource>,
+    { hydrateInitialResources: activeProvider instanceof ConstructImageTileProvider },
+  );
+  latestSnapshot = scheduler.snapshot;
+  logEntries.splice(0);
+  lastSwap = undefined;
+  renderLog();
+  bindScheduler();
+  if (activeProvider instanceof ConstructImageTileProvider) {
+    unsubscribeProviderMetrics = activeProvider.subscribe((metrics) => {
+      renderProviderMetrics(metrics);
+      clock.textContent = `${metrics.inFlight} / ${metrics.queued}`;
+    });
+  } else {
+    unsubscribeProviderMetrics = (): void => {};
+  }
+  renderModePresentation();
+  renderObserverDiagnostics(currentObserverLayout(geographicTarget));
   renderQueued = true;
+}
+
+rawProvider.subscribe((event) => {
+  if (activeMode === "raw") {
+    clock.textContent = `${(event.timeMs / 1_000).toFixed(2)} s`;
+  }
 });
 
-provider.subscribe((event) => {
-  clock.textContent = `${(event.timeMs / 1_000).toFixed(2)} s`;
-});
+for (const input of modeInputs) {
+  input.addEventListener("change", () => {
+    if (input.checked) activateMode(input.value as ConstructMode);
+  });
+}
 
 for (const input of [targetXInput, targetYInput]) {
   input.addEventListener("input", () => {
@@ -539,11 +784,12 @@ observerHeightInput.addEventListener("input", refreshDerivedTarget);
 tileResolutionInput.addEventListener("input", () => {
   if (tileResolutionInput.value === "" || !tileResolutionInput.validity.valid) return;
   configuredTileResolutionPixels = Number(tileResolutionInput.value);
+  rawTileResolutionPixels = configuredTileResolutionPixels;
   refreshDerivedTarget();
 });
 
 function updateProviderConfiguration(): void {
-  provider.configure({
+  rawProvider.configure({
     latencyMs: Number(latencyInput.value),
     jitterMs: Number(jitterInput.value),
     failureMode: failureModeInput.value as FakeFailureMode,
@@ -589,18 +835,14 @@ renderer.domElement.addEventListener("pointerup", (event) => {
   const intersection = raycaster.intersectObject(globeSphere, false)[0];
   if (!intersection) return;
   const point = intersection.point.normalize();
-  targetFromGeographic(
-    THREE.MathUtils.radToDeg(Math.asin(point.y)),
-    THREE.MathUtils.radToDeg(Math.atan2(point.z, point.x)),
-  );
+  const target = geographicTargetForPoint(point);
+  targetFromGeographic(target.latitudeDegrees, target.longitudeDegrees);
 });
 controls.addEventListener("end", () => {
   if (pointerTravel <= 5) return;
   const point = camera.position.clone().normalize();
-  targetFromGeographic(
-    THREE.MathUtils.radToDeg(Math.asin(point.y)),
-    THREE.MathUtils.radToDeg(Math.atan2(point.z, point.x)),
-  );
+  const target = geographicTargetForPoint(point);
+  targetFromGeographic(target.latitudeDegrees, target.longitudeDegrees);
 });
 
 function resize(): void {
@@ -619,7 +861,9 @@ let lastFrame = performance.now();
 function animate(now: number): void {
   const elapsed = Math.min(250, now - lastFrame);
   lastFrame = now;
-  provider.advanceBy(elapsed);
+  if (activeProvider instanceof FakeTileProvider) {
+    activeProvider.advanceBy(elapsed);
+  }
   controls.update();
   if (lastSwap && lastSwap.expiresAt <= now) {
     lastSwap = undefined;
@@ -627,12 +871,16 @@ function animate(now: number): void {
   }
   if (renderQueued) renderGlobe();
   renderer.render(scene, camera);
-  clock.textContent = `${(provider.now / 1_000).toFixed(2)} s`;
+  if (activeProvider instanceof FakeTileProvider) {
+    clock.textContent = `${(activeProvider.now / 1_000).toFixed(2)} s`;
+  }
   requestAnimationFrame(animate);
 }
 
-refreshDerivedTarget();
 updateProviderConfiguration();
+bindScheduler();
+renderModePresentation();
+refreshDerivedTarget();
 renderDiagnostics();
 renderLog();
 requestAnimationFrame(animate);
