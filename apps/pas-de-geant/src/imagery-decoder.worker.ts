@@ -4,6 +4,7 @@ import type {
   ImageryDecoderCommand,
   ImageryDecoderMessage,
 } from "./imagery-decoder-protocol.js";
+import { generateImageryMipChain } from "./imagery-mip-chain.js";
 
 const scope: DedicatedWorkerGlobalScope = self as DedicatedWorkerGlobalScope;
 const cancelled = new Set<number>();
@@ -73,9 +74,51 @@ async function decode(
   }
 }
 
+function mip(
+  request: Extract<ImageryDecoderCommand, { kind: "mip" }>,
+): void {
+  try {
+    const chain = generateImageryMipChain(
+      new Uint8Array(request.pixels),
+      request.width,
+      request.height,
+    );
+    const levels = chain.map(({ width, height, pixels }) => ({
+      width,
+      height,
+      // Every level is backed by a dedicated ArrayBuffer: level zero owns the
+      // transferred request buffer and subsequent levels are worker-created.
+      pixels: pixels.buffer as ArrayBuffer,
+    }));
+    post(
+      {
+        kind: "mipped",
+        requestId: request.requestId,
+        key: request.key,
+        revision: request.revision,
+        levels,
+      },
+      levels.map((level) => level.pixels),
+    );
+  } catch (error) {
+    post({
+      kind: "failure",
+      requestId: request.requestId,
+      reason:
+        error instanceof Error
+          ? error.message
+          : "The imagery mip chain could not be generated.",
+    });
+  }
+}
+
 scope.onmessage = ({ data }: MessageEvent<ImageryDecoderCommand>) => {
   if (data.kind === "cancel") {
     cancelled.add(data.requestId);
+    return;
+  }
+  if (data.kind === "mip") {
+    mip(data);
     return;
   }
   void decode(data);

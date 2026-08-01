@@ -4,7 +4,6 @@ export const IMAGERY_TARGET_METRES_PER_TEXEL = 0.005;
 export const IMAGERY_REFERENCE_TILE_PIXELS = 512;
 export const IMAGERY_COARSEN_FACTOR = 1.75 / 2.56;
 export const IMAGERY_REFINE_FACTOR = 3.75 / 2.56;
-export const IMAGERY_PAGE_TABLE_SIZE = 64;
 export const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 
 export type ImageryAddress = TileIdentity;
@@ -29,14 +28,6 @@ export function imageryKey(address: ImageryAddress): string {
 export function wrapImageryX(x: number, zoom: number): number {
   const width = 2 ** zoom;
   return ((x % width) + width) % width;
-}
-
-export function wrapImageryPageX(
-  pageX: number,
-  referenceX: number,
-  worldWidth: number,
-): number {
-  return pageX + Math.round((referenceX - pageX) / worldWidth) * worldWidth;
 }
 
 export function normalizedMercatorYForLatitude(latitudeDegrees: number): number {
@@ -132,35 +123,5 @@ export function ancestorAtZoom(
     z: resolved,
     x: Math.floor(address.x / scale),
     y: Math.floor(address.y / scale),
-  };
-}
-
-export interface ResolvedPageEntry {
-  readonly layer: number;
-  readonly scale: number;
-  readonly offsetX: number;
-  readonly offsetY: number;
-}
-
-export function resolvePageEntry(
-  target: ImageryAddress,
-  source: ImageryAddress,
-  layer: number,
-): ResolvedPageEntry {
-  if (source.z > target.z) {
-    throw new Error("A visible imagery source must contain its target.");
-  }
-  const scale = 2 ** (target.z - source.z);
-  if (
-    Math.floor(target.x / scale) !== source.x ||
-    Math.floor(target.y / scale) !== source.y
-  ) {
-    throw new Error("The imagery source does not contain its target.");
-  }
-  return {
-    layer,
-    scale,
-    offsetX: target.x - source.x * scale,
-    offsetY: target.y - source.y * scale,
   };
 }

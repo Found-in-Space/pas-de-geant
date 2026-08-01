@@ -10,7 +10,6 @@ import {
   ImageryVirtualTexture,
   imageryBoundsForGeographicBounds,
   normalizedMercatorYForLatitude,
-  type ImageryCoordinateBounds,
 } from "./imagery.js";
 import { observerTileZoom } from "./observer-tile-zoom.js";
 import { normalizeTileTarget, type TileTarget } from "./tile-layout-source.js";
@@ -55,7 +54,6 @@ export interface TerrainSurfaceOptions {
 
 interface SurfaceMesh {
   readonly tile: TileIdentity;
-  readonly imageryBounds: ImageryCoordinateBounds;
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   elevation?: ImageTileResource;
   elevationTexture?: THREE.Texture;
@@ -423,7 +421,8 @@ const FRAGMENT_SHADER = `
     colour += vec3(0.025, 0.045, 0.065) * (1.0 - direct);
     float tileEdge = edgeOverlay(vTileUv);
     colour = mix(colour, tileTint, tileOverlayVisible * (0.14 + tileEdge * 0.72));
-    vec4 imageryTileOverlay = photographicImageryAllowed > 0.5
+    vec4 imageryTileOverlay =
+      photographicImageryAllowed > 0.5 && textureOverlayVisible > 0.0
       ? resolvedImageryTileOverlay()
       : vec4(0.0);
     colour = mix(
@@ -446,6 +445,8 @@ export class TerrainSurface {
     HTMLImageElement,
     THREE.Texture
   >();
+  private readonly prewarmedElevations = new Map<string, HTMLImageElement>();
+  private readonly renderer: THREE.WebGLRenderer;
   private readonly emptyTexture: THREE.DataTexture;
   private readonly sharedUniforms: Record<string, THREE.IUniform>;
   private readonly unsubscribe: () => void;
@@ -453,6 +454,7 @@ export class TerrainSurface {
   private currentTarget: TileTarget;
 
   constructor(options: TerrainSurfaceOptions) {
+    this.renderer = options.renderer;
     this.group.name = "terrain-surface";
     options.baseTexture.wrapS = THREE.RepeatWrapping;
     options.baseTexture.wrapT = THREE.ClampToEdgeWrapping;
@@ -508,14 +510,14 @@ export class TerrainSurface {
       if (event?.kind === "atomic-swap" || (!event && committedChanged)) {
         this.syncMeshes();
       } else if (event?.kind === "response" && event.tile) {
+        const resource = this.scheduler.committedResource(event.tile);
+        this.prewarmElevation(event.tile, resource);
         const entry = this.meshes.get(tileIdentityKey(event.tile));
         if (entry) {
-          this.updateElevation(
-            entry,
-            this.scheduler.committedResource(event.tile),
-          );
+          this.updateElevation(entry, resource);
         }
       }
+      this.prunePrewarmedElevations();
     });
   }
 
@@ -529,12 +531,6 @@ export class TerrainSurface {
       latitudeDegrees: view.latitudeDegrees,
       longitudeDegrees: view.longitudeDegrees,
     });
-    for (const entry of this.meshes.values()) {
-      this.imagery.configureMaterial(
-        entry.mesh.material,
-        entry.imageryBounds,
-      );
-    }
     const target = terrainTargetForView(view, this.provider.tilePixels);
     if (
       target.z !== this.currentTarget.z ||
@@ -578,6 +574,10 @@ export class TerrainSurface {
       this.disposeMesh(entry.mesh);
     }
     this.meshes.clear();
+    for (const image of this.prewarmedElevations.values()) {
+      this.releaseTexture(this.elevationTextures, image);
+    }
+    this.prewarmedElevations.clear();
     this.elevationTextures.dispose();
     this.emptyTexture.dispose();
     for (const child of [...this.group.children]) {
@@ -632,7 +632,7 @@ export class TerrainSurface {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `surface-tile:${tileIdentityKey(tile)}`;
     mesh.frustumCulled = false;
-    return { tile: Object.freeze({ ...tile }), imageryBounds, mesh };
+    return { tile: Object.freeze({ ...tile }), mesh };
   }
 
   private addPolarCaps(): void {
@@ -695,8 +695,48 @@ export class TerrainSurface {
       texture.minFilter = THREE.NearestFilter;
       texture.generateMipmaps = false;
       texture.needsUpdate = true;
+      this.renderer.initTexture(texture);
       return texture;
     });
+  }
+
+  private prewarmElevation(
+    tile: TileIdentity,
+    resource: ElevationTileResource | undefined,
+  ): void {
+    const key = tileIdentityKey(tile);
+    const elevation = resource?.elevation;
+    const previous = this.prewarmedElevations.get(key);
+    if (previous === elevation?.image) return;
+    if (previous) {
+      this.prewarmedElevations.delete(key);
+      this.releaseTexture(this.elevationTextures, previous);
+    }
+    if (!elevation) return;
+    this.textureForElevation(elevation);
+    this.prewarmedElevations.set(key, elevation.image);
+  }
+
+  private consumePrewarmedElevation(tile: TileIdentity): void {
+    const key = tileIdentityKey(tile);
+    const image = this.prewarmedElevations.get(key);
+    if (!image) return;
+    this.prewarmedElevations.delete(key);
+    this.releaseTexture(this.elevationTextures, image);
+  }
+
+  private prunePrewarmedElevations(): void {
+    if (this.prewarmedElevations.size === 0) return;
+    const liveKeys = new Set([
+      ...this.snapshot.committedCut,
+      ...this.snapshot.requestedCut,
+      ...this.snapshot.requirements.map(({ tile }) => tile),
+    ].map((tile) => tileIdentityKey(tile)));
+    for (const [key, image] of this.prewarmedElevations) {
+      if (liveKeys.has(key)) continue;
+      this.prewarmedElevations.delete(key);
+      this.releaseTexture(this.elevationTextures, image);
+    }
   }
 
   private sourceTransform(resource: ImageTileResource): THREE.Vector4 {
@@ -714,12 +754,16 @@ export class TerrainSurface {
     resource: ElevationTileResource | undefined,
   ): void {
     const elevation = resource?.elevation;
-    if (entry.elevation === elevation) return;
+    if (entry.elevation === elevation) {
+      this.consumePrewarmedElevation(entry.tile);
+      return;
+    }
     this.releaseTexture(this.elevationTextures, entry.elevation?.image);
     entry.elevation = elevation;
     entry.elevationTexture = elevation
       ? this.textureForElevation(elevation)
       : undefined;
+    this.consumePrewarmedElevation(entry.tile);
     entry.mesh.material.uniforms.elevationMap!.value =
       entry.elevationTexture ?? this.emptyTexture;
     entry.mesh.material.uniforms.elevationEnabled!.value = elevation ? 1 : 0;

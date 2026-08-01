@@ -1,22 +1,228 @@
 import { describe, expect, it } from "vitest";
 import {
   ancestorAtZoom,
-  resolvePageEntry,
   selectImageryZoom,
 } from "../apps/pas-de-geant/src/imagery-core.js";
 import {
+  ImageryWorkerClient,
   ScheduledImageryProvider,
-  imageryMappingTarget,
-  imageryResidencyKeys,
-  preservingImagerySource,
+  imageryLayerUploadPlan,
+  imageryMigrationReady,
+  type ImageryWorkerPort,
 } from "../apps/pas-de-geant/src/imagery.js";
+import {
+  generateImageryMipChain,
+  imageryMipDimensions,
+} from "../apps/pas-de-geant/src/imagery-mip-chain.js";
+import type {
+  ImageryDecoderCommand,
+  ImageryDecoderMessage,
+} from "../apps/pas-de-geant/src/imagery-decoder-protocol.js";
+import {
+  BLUE_MARBLE_IMAGERY_KEY,
+  buildDesiredImageryTree,
+  encodeImageryTree,
+  imageryTreeImageAtGlobalUv,
+  imageryTreeNodeCount,
+  imageryTreeSourceKeys,
+  reconcileImageryTree,
+  type DesiredImageryTree,
+  type ImageryImageNode,
+  type ImageryTreeNode,
+} from "../apps/pas-de-geant/src/imagery-tree.js";
 import { ImageryRequestError, type ImageryProvider } from "../apps/pas-de-geant/src/imagery-provider.js";
 import { terrainTargetForView } from "../apps/pas-de-geant/src/terrain-surface.js";
-import { TileOnionLayoutSource } from "../apps/pas-de-geant/src/tile-layout-source.js";
 import { TileTransitionScheduler } from "../apps/pas-de-geant/src/tile-transition-scheduler.js";
 import type { TileIdentity } from "../apps/pas-de-geant/src/tile-transition-planner.js";
 
+function tileKey(tile: TileIdentity): string {
+  return `${tile.z}/${tile.x}/${tile.y}`;
+}
+
+function parseTileKey(key: string): TileIdentity {
+  const [z, x, y] = key.split("/").map(Number);
+  return { z: z!, x: x!, y: y! };
+}
+
+function reconcileForTest(
+  committed: ImageryTreeNode,
+  desired: DesiredImageryTree,
+  resident: ReadonlySet<string>,
+): ImageryTreeNode {
+  const nodes = new Map<string, ImageryImageNode>();
+  return reconcileImageryTree(committed, desired, {
+    isResident: (image) => resident.has(image),
+    sourceZoom: (image) => parseTileKey(image).z,
+    imageNode: (image) => {
+      let node = nodes.get(image);
+      if (!node) {
+        node = Object.freeze({ image });
+        nodes.set(image, node);
+      }
+      return node;
+    },
+  });
+}
+
 describe("independent photographic imagery pipeline", () => {
+  it("builds a complete padded mip chain with averaged pixels through 1 x 1", () => {
+    const base = new Uint8Array([
+      0, 10, 20, 255, 20, 30, 40, 255, 40, 50, 60, 255, 60, 70, 80, 255,
+    ]);
+    const chain = generateImageryMipChain(base, 2, 2);
+
+    expect(imageryMipDimensions(2, 2)).toEqual([
+      { width: 2, height: 2 },
+      { width: 1, height: 1 },
+    ]);
+    expect([...chain[1]!.pixels]).toEqual([30, 40, 50, 255]);
+
+    const odd = generateImageryMipChain(
+      new Uint8Array([
+        0, 0, 0, 255, 0, 0, 0, 255, 90, 0, 0, 255,
+      ]),
+      3,
+      1,
+    );
+    expect([...odd[1]!.pixels]).toEqual([30, 0, 0, 255]);
+  });
+
+  it("plans every mip upload and refuses to publish an incomplete layer", () => {
+    const chain = generateImageryMipChain(new Uint8Array(4 * 4 * 4), 4, 4);
+    const plan = imageryLayerUploadPlan(7, 4, chain);
+
+    expect(
+      plan?.map(({ slot, destinationMip, width, height }) => ({
+        slot,
+        destinationMip,
+        width,
+        height,
+      })),
+    ).toEqual([
+      { slot: 7, destinationMip: 0, width: 4, height: 4 },
+      { slot: 7, destinationMip: 1, width: 2, height: 2 },
+      { slot: 7, destinationMip: 2, width: 1, height: 1 },
+    ]);
+    expect(imageryLayerUploadPlan(7, 4, chain.slice(0, -1))).toBeUndefined();
+  });
+
+  it("coalesces worker remips and ignores a stale stitched-base revision", () => {
+    class FakeWorker implements ImageryWorkerPort {
+      readonly commands: ImageryDecoderCommand[] = [];
+      onmessage:
+        | ((event: MessageEvent<ImageryDecoderMessage>) => void)
+        | null = null;
+      postMessage(message: ImageryDecoderCommand): void {
+        this.commands.push(message);
+      }
+      terminate(): void {}
+      emit(message: ImageryDecoderMessage): void {
+        this.onmessage?.(
+          { data: message } as MessageEvent<ImageryDecoderMessage>,
+        );
+      }
+    }
+    const worker = new FakeWorker();
+    const client = new ImageryWorkerClient(worker);
+    const completed: number[] = [];
+    const complete = (revision: number): void => {
+      completed.push(revision);
+    };
+    const fail = (): void => {};
+    client.requestMip("4/2/3", 1, new Uint8Array(16), 2, 2, complete, fail);
+    client.requestMip(
+      "4/2/3",
+      2,
+      new Uint8Array(16).fill(9),
+      2,
+      2,
+      complete,
+      fail,
+    );
+
+    expect(worker.commands).toHaveLength(1);
+    const first = worker.commands[0] as Extract<
+      ImageryDecoderCommand,
+      { kind: "mip" }
+    >;
+    worker.emit({
+      kind: "mipped",
+      requestId: first.requestId,
+      key: first.key,
+      revision: first.revision,
+      levels: [{ width: 1, height: 1, pixels: new Uint8Array(4).buffer }],
+    });
+
+    expect(completed).toEqual([]);
+    expect(worker.commands).toHaveLength(2);
+    const second = worker.commands[1] as Extract<
+      ImageryDecoderCommand,
+      { kind: "mip" }
+    >;
+    expect(second.revision).toBe(2);
+    worker.emit({
+      kind: "mipped",
+      requestId: second.requestId,
+      key: second.key,
+      revision: second.revision,
+      levels: [{ width: 1, height: 1, pixels: new Uint8Array(4).buffer }],
+    });
+    expect(completed).toEqual([2]);
+    client.dispose();
+  });
+
+  it("keeps a staged pool hidden until every retained and desired chain is complete", () => {
+    const demand = new Set(["active-west", "active-east", "replacement"]);
+    const uploads = new Map([
+      ["active-west", 3],
+      ["active-east", 2],
+    ]);
+
+    expect(imageryMigrationReady(demand, uploads)).toBe(false);
+    uploads.set("replacement", 1);
+    expect(imageryMigrationReady(demand, uploads)).toBe(true);
+  });
+
+  it("traverses a mixed global cut by normalized Mercator UV, including the antimeridian", () => {
+    const cut: TileIdentity[] = [
+      { z: 1, x: 1, y: 0 },
+      { z: 1, x: 0, y: 1 },
+      { z: 1, x: 1, y: 1 },
+      { z: 2, x: 0, y: 0 },
+      { z: 2, x: 1, y: 0 },
+      { z: 2, x: 0, y: 1 },
+      { z: 2, x: 1, y: 1 },
+    ];
+    const desired = buildDesiredImageryTree(cut, (tile) => ({
+      image: `${tile.z}/${tile.x}/${tile.y}`,
+      fallbackFromNotFound: false,
+    }));
+    const nodes = new Map<string, ImageryImageNode>();
+    const root = reconcileImageryTree(
+      { image: BLUE_MARBLE_IMAGERY_KEY },
+      desired,
+      {
+        isResident: () => true,
+        sourceZoom: (image) => Number(image.split("/")[0]),
+        imageNode: (image) => {
+          let node = nodes.get(image);
+          if (!node) {
+            node = Object.freeze({ image });
+            nodes.set(image, node);
+          }
+          return node;
+        },
+      },
+    );
+
+    expect(imageryTreeImageAtGlobalUv(root, 0.125, 0.125)).toBe("2/0/0");
+    expect(imageryTreeImageAtGlobalUv(root, 0.375, 0.375)).toBe("2/1/1");
+    expect(imageryTreeImageAtGlobalUv(root, 0.75, 0.25)).toBe("1/1/0");
+    expect(imageryTreeImageAtGlobalUv(root, 0.999999, 0.25)).toBe("1/1/0");
+    expect(imageryTreeImageAtGlobalUv(root, -0.000001, 0.25)).toBe("1/1/0");
+    expect(imageryTreeImageAtGlobalUv(root, 1.000001, 0.125)).toBe("2/0/0");
+  });
+
   it("selects imagery finer than the terrain mesh", () => {
     const view = {
       latitudeDegrees: 46,
@@ -53,171 +259,238 @@ describe("independent photographic imagery pipeline", () => {
     expect(zoom1024).toBe(zoom512 - 1);
   });
 
-  it("maps a draw page above the provider cap into its source ancestor", () => {
-    const target = { z: 20, x: 312_345, y: 401_234 };
-    const source = ancestorAtZoom(target, 12);
-    const mapping = resolvePageEntry(target, source, 7);
-
-    expect(source.z).toBe(12);
-    expect(mapping.scale).toBe(256);
-    expect(mapping.offsetX).toBeGreaterThanOrEqual(0);
-    expect(mapping.offsetX).toBeLessThan(mapping.scale);
-    expect(mapping.offsetY).toBeGreaterThanOrEqual(0);
-    expect(mapping.offsetY).toBeLessThan(mapping.scale);
-  });
-
-  it("keeps a fine page grid while a coarsening transition still retains fine leaves", () => {
-    const mapping = imageryMappingTarget(
-      { z: 8, x: 100, y: 90 },
-      [
-        { z: 8, x: 100, y: 90 },
-        { z: 10, x: 405, y: 361 },
-      ],
+  it("keeps tree depth independent from a provider-capped source zoom", () => {
+    const cut = Array.from({ length: 16 }, (_, index) => ({
+      z: 2,
+      x: index % 4,
+      y: Math.floor(index / 4),
+    }));
+    const desired = buildDesiredImageryTree(cut, (tile) => ({
+      image: tileKey(ancestorAtZoom(tile, 1)),
+      fallbackFromNotFound: false,
+    }));
+    const resident = new Set(cut.map((tile) => tileKey(ancestorAtZoom(tile, 1))));
+    const root = reconcileForTest(
+      { image: BLUE_MARBLE_IMAGERY_KEY },
+      desired,
+      resident,
     );
+    const layers = new Map([...resident].map((key, index) => [key, index]));
+    const encoded = encodeImageryTree(root, 9, (image) => ({
+      poolGeneration: 9,
+      layer: layers.get(image)!,
+      revision: 1,
+      sourceTile: parseTileKey(image),
+    }));
 
-    expect(mapping).toEqual({ z: 10, x: 402, y: 362 });
+    expect(encoded?.maximumDepth).toBe(2);
+    expect(encoded?.imageCount).toBe(4);
+    expect(encoded && [...encoded.imageData].filter((_, i) => i % 4 === 1))
+      .toEqual([1, 1, 1, 1]);
   });
 
-  it("retains photographic coverage during pan and refinement until replacement is resident", () => {
-    const active = { z: 12, x: 2_100, y: 1_430 };
-    const samePage = { ...active };
-    const refinedPage = { z: 14, x: active.x * 4 + 2, y: active.y * 4 + 1 };
-    const replacement = { z: 14, x: refinedPage.x, y: refinedPage.y };
-
-    expect(preservingImagerySource(samePage, undefined, [active])).toEqual(active);
-    expect(preservingImagerySource(refinedPage, undefined, [active])).toEqual(active);
-    expect(
-      preservingImagerySource(refinedPage, replacement, [active]),
-    ).toEqual(replacement);
-  });
-
-  it("keeps same-zoom photographic coverage while a recentered replacement is pending", () => {
-    const active = { z: 10, x: 511, y: 340 };
-    const stillCoveredPage = { z: 10, x: 511, y: 340 };
-    const newlyExposedPage = { z: 10, x: 512, y: 340 };
-
-    expect(
-      preservingImagerySource(stillCoveredPage, undefined, [active]),
-    ).toEqual(active);
-    expect(
-      preservingImagerySource(newlyExposedPage, undefined, [active]),
-    ).toBeUndefined();
-  });
-
-  it("refines ready children while retaining their parent under pending and 404 children", () => {
-    const parent = { z: 10, x: 510, y: 340 };
-    const children = [
-      { z: 11, x: 1_020, y: 680 },
-      { z: 11, x: 1_021, y: 680 },
-      { z: 11, x: 1_020, y: 681 },
-      { z: 11, x: 1_021, y: 681 },
+  it("publishes parent-to-children refinement only after all four children are ready", () => {
+    const parent = Object.freeze({ image: "10/510/340" });
+    const childTiles: TileIdentity[] = [
+      { z: 1, x: 0, y: 0 },
+      { z: 1, x: 1, y: 0 },
+      { z: 1, x: 0, y: 1 },
+      { z: 1, x: 1, y: 1 },
     ];
+    const desired = buildDesiredImageryTree(childTiles, (tile) => ({
+      image: `11/${tile.x}/${tile.y}`,
+      fallbackFromNotFound: false,
+    }));
+    const resident = new Set(["11/0/0", "11/1/0", "11/0/1"]);
 
-    expect(preservingImagerySource(children[0]!, children[0], [parent])).toEqual(
-      children[0],
-    );
-    expect(preservingImagerySource(children[1]!, undefined, [parent])).toEqual(
-      parent,
-    );
-    expect(preservingImagerySource(children[2]!, undefined, [parent])).toEqual(
-      parent,
-    );
-    expect(preservingImagerySource(children[3]!, children[3], [parent])).toEqual(
-      children[3],
-    );
+    expect(reconcileForTest(parent, desired, resident)).toBe(parent);
+    resident.add("11/1/1");
+    const refined = reconcileForTest(parent, desired, resident);
+    expect("children" in refined).toBe(true);
+    if (!("children" in refined)) throw new Error("Expected refinement.");
+    expect(refined.children.map((child) => "image" in child && child.image))
+      .toEqual(["11/0/0", "11/1/0", "11/0/1", "11/1/1"]);
   });
 
-  it("selects every child after a complete parent-to-children replacement", () => {
-    const parent = { z: 10, x: 510, y: 340 };
-    const children = [
-      { z: 11, x: 1_020, y: 680 },
-      { z: 11, x: 1_021, y: 680 },
-      { z: 11, x: 1_020, y: 681 },
-      { z: 11, x: 1_021, y: 681 },
+  it("inherits the active parent for a 404 child without blocking its siblings", () => {
+    const parent = Object.freeze({ image: "10/510/340" });
+    const childTiles: TileIdentity[] = [
+      { z: 1, x: 0, y: 0 },
+      { z: 1, x: 1, y: 0 },
+      { z: 1, x: 0, y: 1 },
+      { z: 1, x: 1, y: 1 },
     ];
+    const desired = buildDesiredImageryTree(childTiles, (tile) => ({
+      image: tile.x === 1 && tile.y === 0
+        ? BLUE_MARBLE_IMAGERY_KEY
+        : `11/${tile.x}/${tile.y}`,
+      fallbackFromNotFound: tile.x === 1 && tile.y === 0,
+    }));
+    const resident = new Set(["11/0/0", "11/0/1"]);
 
-    expect(
-      children.map((child) =>
-        preservingImagerySource(child, child, [parent]),
-      ),
-    ).toEqual(children);
+    expect(reconcileForTest(parent, desired, resident)).toBe(parent);
+    resident.add("11/1/1");
+    const refined = reconcileForTest(parent, desired, resident);
+    if (!("children" in refined)) throw new Error("Expected refinement.");
+    expect(refined.children[1]).toBe(parent);
+    expect(refined.children[0]).not.toBe(parent);
+    expect(refined.children[2]).not.toBe(parent);
+    expect(refined.children[3]).not.toBe(parent);
   });
 
-  it("does not downgrade an active source when a 404 resolves to a coarser ancestor", () => {
-    const page = { z: 11, x: 1_021, y: 681 };
-    const active = { z: 10, x: 510, y: 340 };
-    const desiredFallback = { z: 9, x: 255, y: 170 };
+  it("coarsens atomically but refuses a 404 fallback that would lower active detail", () => {
+    const fine: ImageryTreeNode = Object.freeze({
+      children: Object.freeze([
+        Object.freeze({ image: "11/0/0" }),
+        Object.freeze({ image: "11/1/0" }),
+        Object.freeze({ image: "11/0/1" }),
+        Object.freeze({ image: "11/1/1" }),
+      ] as const),
+    });
+    const resident = new Set(["10/0/0", "9/0/0"]);
 
-    expect(
-      preservingImagerySource(page, desiredFallback, [active]),
-    ).toEqual(active);
+    const normal = reconcileForTest(
+      fine,
+      { image: "10/0/0", fallbackFromNotFound: false },
+      resident,
+    );
+    expect(normal).toEqual({ image: "10/0/0" });
+    const fallback = reconcileForTest(
+      fine,
+      { image: "9/0/0", fallbackFromNotFound: true },
+      resident,
+    );
+    expect(fallback).toBe(fine);
   });
 
-  it("keeps fine children through coarsening until the resident parent can replace them", () => {
-    const finePage = { z: 11, x: 1_021, y: 681 };
-    const activeChild = { ...finePage };
-    const coarseParent = { z: 10, x: 510, y: 340 };
+  it("path-copies only the refined branch and retains unchanged subtree identity", () => {
+    const committedChildren = [
+      Object.freeze({ image: "10/0/0" }),
+      Object.freeze({ image: "10/1/0" }),
+      Object.freeze({ image: "10/0/1" }),
+      Object.freeze({ image: "10/1/1" }),
+    ] as const;
+    const committed: ImageryTreeNode = Object.freeze({
+      children: Object.freeze(committedChildren),
+    });
+    const cut: TileIdentity[] = [
+      { z: 2, x: 0, y: 0 },
+      { z: 2, x: 1, y: 0 },
+      { z: 2, x: 0, y: 1 },
+      { z: 2, x: 1, y: 1 },
+      { z: 1, x: 1, y: 0 },
+      { z: 1, x: 0, y: 1 },
+      { z: 1, x: 1, y: 1 },
+    ];
+    const desired = buildDesiredImageryTree(cut, (tile) => ({
+      image: tile.z === 1
+        ? `10/${tile.x}/${tile.y}`
+        : `11/${tile.x}/${tile.y}`,
+      fallbackFromNotFound: false,
+    }));
+    const resident = new Set([
+      "10/1/0",
+      "10/0/1",
+      "10/1/1",
+      "11/0/0",
+      "11/1/0",
+      "11/0/1",
+      "11/1/1",
+    ]);
+    const refined = reconcileForTest(committed, desired, resident);
 
-    expect(
-      preservingImagerySource(finePage, undefined, [activeChild]),
-    ).toEqual(activeChild);
-    expect(
-      preservingImagerySource(finePage, coarseParent, [activeChild]),
-    ).toEqual(activeChild);
-    expect(
-      preservingImagerySource(coarseParent, coarseParent, [activeChild]),
-    ).toEqual(coarseParent);
+    if (!("children" in refined)) throw new Error("Expected global branch.");
+    expect(refined).not.toBe(committed);
+    expect(refined.children[0]).not.toBe(committedChildren[0]);
+    expect(refined.children[1]).toBe(committedChildren[1]);
+    expect(refined.children[2]).toBe(committedChildren[2]);
+    expect(refined.children[3]).toBe(committedChildren[3]);
   });
 
-  it("cannot let an abandoned partial transition clear coverage from the last active cut", () => {
-    const pageFromA = { z: 12, x: 2_100, y: 1_430 };
-    const activeFromA = { ...pageFromA };
-    const partialB = { z: 12, x: 2_101, y: 1_430 };
+  it("encodes contiguous NW/NE/SW/SE children and generation-qualified images", () => {
+    const root: ImageryTreeNode = Object.freeze({
+      children: Object.freeze([
+        Object.freeze({ image: "4/0/0" }),
+        Object.freeze({ image: "4/1/0" }),
+        Object.freeze({ image: "4/0/1" }),
+        Object.freeze({ image: "4/1/1" }),
+      ] as const),
+    });
+    const encoded = encodeImageryTree(root, 17, (image) => {
+      const sourceTile = parseTileKey(image);
+      return {
+        poolGeneration: 17,
+        layer: sourceTile.y * 2 + sourceTile.x,
+        revision: 3,
+        sourceTile,
+      };
+    });
 
-    expect(
-      preservingImagerySource(pageFromA, partialB, [activeFromA]),
-    ).toEqual(activeFromA);
-    expect(
-      preservingImagerySource(pageFromA, undefined, [activeFromA]),
-    ).toEqual(activeFromA);
+    expect(imageryTreeNodeCount(root)).toBe(5);
+    expect(encoded?.nodeCount).toBe(5);
+    expect([...encoded!.nodeData]).toEqual([
+      1, 0,
+      0, 1,
+      0, 2,
+      0, 3,
+      0, 4,
+    ]);
+    expect([...encoded!.imageData]).toEqual([
+      0, 4, 0, 0,
+      1, 4, 1, 0,
+      2, 4, 0, 1,
+      3, 4, 1, 1,
+    ]);
+    expect(encodeImageryTree(root, 18, (image) => ({
+      poolGeneration: 17,
+      layer: 0,
+      revision: 3,
+      sourceTile: parseTileKey(image),
+    }))).toBeUndefined();
   });
 
-  it("preserves normalized photographic pages on both sides of the antimeridian", () => {
-    const westOfSeam = { z: 4, x: 15, y: 7 };
-    const eastOfSeam = { z: 4, x: 0, y: 7 };
-    const westSource = { z: 3, x: 7, y: 3 };
-    const eastSource = { z: 3, x: 0, y: 3 };
-
-    expect(
-      preservingImagerySource(westOfSeam, undefined, [westSource, eastSource]),
-    ).toEqual(westSource);
-    expect(
-      preservingImagerySource(eastOfSeam, undefined, [westSource, eastSource]),
-    ).toEqual(eastSource);
-    expect(
-      imageryMappingTarget({ z: 3, x: 0, y: 3 }, [eastOfSeam]),
-    ).toEqual({ z: 4, x: 1, y: 7 });
+  it("rejects malformed cuts instead of encoding holes in global coverage", () => {
+    const leaf = (tile: TileIdentity) => ({
+      image: tileKey(tile),
+      fallbackFromNotFound: false,
+    });
+    expect(() => buildDesiredImageryTree([
+      { z: 1, x: 0, y: 0 },
+      { z: 1, x: 1, y: 0 },
+    ], leaf)).toThrow(/complete globe/);
+    expect(() => buildDesiredImageryTree([
+      { z: 0, x: 0, y: 0 },
+      { z: 1, x: 0, y: 0 },
+    ], leaf)).toThrow(/ancestor and descendant/);
   });
 
-  it("does not pretend finer active coverage fits a coarse cell", () => {
-    const coarsePage = { z: 10, x: 525, y: 357 };
-    const fineActive = { z: 12, x: 2_100, y: 1_430 };
+  it("derives a staged pool solely from its immutable candidate tree", () => {
+    const active: ImageryTreeNode = Object.freeze({
+      children: Object.freeze([
+        { image: "8/0/0" },
+        { image: "8/1/0" },
+        { image: "8/0/1" },
+        { image: "8/1/1" },
+      ] as const),
+    });
+    const candidate: ImageryTreeNode = Object.freeze({
+      children: Object.freeze([
+        { image: "9/0/0" },
+        { image: "9/1/0" },
+        { image: "9/0/1" },
+        { image: "9/1/1" },
+      ] as const),
+    });
+    const demand = imageryTreeSourceKeys(candidate);
 
-    expect(
-      preservingImagerySource(coarsePage, undefined, [fineActive]),
-    ).toBeUndefined();
-  });
-
-  it("derives residency exactly from active and planner-desired source demand", () => {
-    const layout = new TileOnionLayoutSource();
-    const active = layout.calculate({ z: 8, x: 120, y: 90 });
-    const desired = layout.calculate({ z: 10, x: 482, y: 361 });
-    const activeKeys = active.map((tile) => `${tile.z}/${tile.x}/${tile.y}`);
-    const desiredKeys = desired.map((tile) => `${tile.z}/${tile.x}/${tile.y}`);
-    const residency = imageryResidencyKeys(activeKeys, desiredKeys);
-
-    expect(residency).toEqual(new Set([...activeKeys, ...desiredKeys]));
-    expect([...activeKeys, ...desiredKeys].every((key) => residency.has(key))).toBe(true);
+    expect(demand).toEqual(new Set([
+      "9/0/0",
+      "9/1/0",
+      "9/0/1",
+      "9/1/1",
+    ]));
+    expect([...imageryTreeSourceKeys(active)].some((key) => demand.has(key)))
+      .toBe(false);
   });
 
   it("commits an imagery sibling group when one cell is a 404", async () => {
@@ -261,6 +534,39 @@ describe("independent photographic imagery pipeline", () => {
       tile: { z: 1, x: 1, y: 0 },
     });
     source.dispose();
+  });
+
+  it("marks a successful ancestor response as a 404 fallback", async () => {
+    const provider: ImageryProvider = {
+      id: "ancestor-fallback-fixture",
+      attribution: "fixture",
+      tileSize: 512,
+      minZoom: 1,
+      maxZoom: 2,
+      async load(tile) {
+        if (tile.z === 2) {
+          throw new ImageryRequestError("missing", "not-found", 404);
+        }
+        return new Blob([tileKey(tile)], { type: "image/png" });
+      },
+    };
+    const scheduled = new ScheduledImageryProvider(
+      provider,
+      async () => new Uint8Array([1, 2, 3, 4]),
+    );
+    const resource = await new Promise<{
+      sourceTile?: TileIdentity;
+      fallbackFromNotFound?: boolean;
+    }>((resolve, reject) => {
+      scheduled.request({ z: 2, x: 3, y: 2 }, (result) => {
+        if (result.phase === "response") resolve(result.resource);
+        if (result.phase === "failure") reject(new Error(result.reason));
+      });
+    });
+
+    expect(resource.sourceTile).toEqual({ z: 1, x: 1, y: 1 });
+    expect(resource.fallbackFromNotFound).toBe(true);
+    scheduled.dispose();
   });
 
   it("coalesces concurrent overzoomed consumers of one source ancestor", async () => {

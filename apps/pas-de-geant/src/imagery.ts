@@ -1,14 +1,11 @@
 import * as THREE from "three";
 import {
-  IMAGERY_PAGE_TABLE_SIZE,
   WEB_MERCATOR_MAX_LATITUDE,
   ancestorAtZoom,
   imageryKey,
   mercatorPointForImagery,
-  resolvePageEntry,
   selectImageryZoom,
   wrapImageryX,
-  wrapImageryPageX,
   type ImageryAddress,
   type ImageryView,
 } from "./imagery-core.js";
@@ -16,6 +13,22 @@ import type {
   ImageryDecoderCommand,
   ImageryDecoderMessage,
 } from "./imagery-decoder-protocol.js";
+import {
+  imageryMipDimensions,
+  type ImageryMipLevel,
+} from "./imagery-mip-chain.js";
+import {
+  BLUE_MARBLE_IMAGERY_KEY,
+  BLUE_MARBLE_IMAGERY_NODE,
+  buildDesiredImageryTree,
+  encodeImageryTree,
+  imageryTreeSourceKeys,
+  reconcileImageryTree,
+  type DesiredImageryTree,
+  type EncodedImageryTree,
+  type ImageryImageNode,
+  type ImageryTreeNode,
+} from "./imagery-tree.js";
 import {
   ImageryRequestError,
   type ImageryProvider,
@@ -27,7 +40,7 @@ import type {
   TileRequestHandle,
 } from "./tile-provider.js";
 import type { SchedulerSnapshot } from "./tile-transition-scheduler.js";
-import { tileIdentityKey, type TileIdentity } from "./tile-transition-planner.js";
+import type { TileIdentity } from "./tile-transition-planner.js";
 import { TileWorkerScheduler } from "./tile-worker-scheduler.js";
 
 export {
@@ -73,6 +86,32 @@ export function stitchImageryGutter(
   }
 }
 
+function stitchSeparateImageryGutter(
+  destination: Uint8Array,
+  source: Uint8Array,
+  tileSize: number,
+  gutter: number,
+  offsetX: -1 | 0 | 1,
+  offsetY: -1 | 0 | 1,
+): void {
+  const paddedSize = tileSize + gutter * 2;
+  const copyWidth = offsetX === 0 ? tileSize : gutter;
+  const copyHeight = offsetY === 0 ? tileSize : gutter;
+  const destinationX = offsetX < 0 ? 0 : offsetX > 0 ? gutter + tileSize : gutter;
+  const destinationY = offsetY < 0 ? 0 : offsetY > 0 ? gutter + tileSize : gutter;
+  const sourceX = offsetX < 0 ? tileSize : offsetX > 0 ? gutter : gutter;
+  const sourceY = offsetY < 0 ? tileSize : offsetY > 0 ? gutter : gutter;
+  for (let row = 0; row < copyHeight; row += 1) {
+    const sourceOffset = ((sourceY + row) * paddedSize + sourceX) * 4;
+    const destinationOffset =
+      ((destinationY + row) * paddedSize + destinationX) * 4;
+    destination.set(
+      source.subarray(sourceOffset, sourceOffset + copyWidth * 4),
+      destinationOffset,
+    );
+  }
+}
+
 export interface ImageryCoordinateBounds {
   readonly west: number;
   readonly east: number;
@@ -80,74 +119,116 @@ export interface ImageryCoordinateBounds {
   readonly south: number;
 }
 
+/** Earth-fixed normalized Web Mercator bounds for one terrain mesh. */
 export function imageryBoundsForGeographicBounds(bounds: {
   west: number;
   east: number;
   north: number;
   south: number;
 }): ImageryCoordinateBounds {
-  const north = mercatorPointForImagery(bounds.north, bounds.west, 0);
-  const south = mercatorPointForImagery(bounds.south, bounds.east, 0);
   return {
     west: (bounds.west + 180) / 360,
     east: (bounds.east + 180) / 360,
-    north: north.y,
-    south: south.y,
+    north: mercatorPointForImagery(bounds.north, bounds.west, 0).y,
+    south: mercatorPointForImagery(bounds.south, bounds.east, 0).y,
   };
 }
 
 export const IMAGERY_FRAGMENT_DECLARATIONS = `
   uniform sampler2D blueMarbleMap;
-  uniform sampler2D imageryPageTable;
+  uniform highp usampler2D imageryTree;
+  uniform highp usampler2D imageryImages;
   uniform highp sampler2DArray imageryTilePool;
   uniform float imageryEnabled;
-  uniform vec2 imageryPageTableSize;
+  uniform int imageryTreeDepth;
+  uniform int imageryTreeTextureWidth;
+  uniform int imageryImageTextureWidth;
   uniform vec3 imageryPoolLayout;
-  uniform vec4 imageryCoordOriginScale;
-  uniform vec2 imageryWrapX;
+  uniform vec4 imageryGlobalOriginScale;
   in vec2 vBlueMarbleUv;
   in vec2 vImageryUv;
 
-  vec2 wrappedImageryPageCoordinate() {
-    vec2 pageCoordinate =
-      imageryCoordOriginScale.xy +
-      vImageryUv * imageryCoordOriginScale.zw;
-    pageCoordinate.x +=
-      floor((imageryWrapX.y - pageCoordinate.x) / imageryWrapX.x + 0.5) *
-      imageryWrapX.x;
-    return pageCoordinate;
+  bool resolvedImageryLeaf(
+    out float layer,
+    out vec2 sourceUv,
+    out vec2 sourceDx,
+    out vec2 sourceDy
+  ) {
+    vec2 localUv = vImageryUv;
+    vec2 traversalLocalUv = vec2(localUv.x, min(localUv.y, 0.99999994));
+    vec2 globalOrigin = imageryGlobalOriginScale.xy;
+    vec2 globalScale = imageryGlobalOriginScale.zw;
+    vec2 globalDx = dFdx(localUv) * globalScale;
+    vec2 globalDy = dFdy(localUv) * globalScale;
+    uint nodeIndex = 0u;
+    float depthScale = 2.0;
+    for (int depth = 0; depth <= imageryTreeDepth; depth += 1) {
+      int nodeLinearIndex = int(nodeIndex);
+      uvec4 node = texelFetch(
+        imageryTree,
+        ivec2(
+          nodeLinearIndex % imageryTreeTextureWidth,
+          nodeLinearIndex / imageryTreeTextureWidth
+        ),
+        0
+      );
+      if (node.r == 0u) {
+        if (node.g == 0u) return false;
+        int imageLinearIndex = int(node.g - 1u);
+        uvec4 image = texelFetch(
+          imageryImages,
+          ivec2(
+            imageLinearIndex % imageryImageTextureWidth,
+            imageLinearIndex / imageryImageTextureWidth
+          ),
+          0
+        );
+        float sourceWidth = exp2(float(image.g));
+        layer = float(image.r);
+        sourceUv = fract(
+          fract(globalOrigin * sourceWidth) +
+          localUv * (globalScale * sourceWidth)
+        );
+        sourceDx = globalDx * sourceWidth;
+        sourceDy = globalDy * sourceWidth;
+        return true;
+      }
+      vec2 scaledOrigin = globalOrigin * depthScale;
+      vec2 scaledLocal = traversalLocalUv * (globalScale * depthScale);
+      vec2 bits = mod(
+        floor(scaledOrigin) +
+        floor(fract(scaledOrigin) + scaledLocal),
+        2.0
+      );
+      uint quadrant = uint(bits.x) + uint(bits.y) * 2u;
+      nodeIndex = node.r + quadrant;
+      depthScale *= 2.0;
+    }
+    return false;
   }
 
   vec3 resolvedImageryAlbedo() {
     if (imageryEnabled < 0.5) return texture(blueMarbleMap, vBlueMarbleUv).rgb;
-    vec2 pageCoordinate = wrappedImageryPageCoordinate();
-    vec2 pageCell = floor(pageCoordinate);
-    if (
-      pageCell.x < 0.0 || pageCell.y < 0.0 ||
-      pageCell.x >= imageryPageTableSize.x ||
-      pageCell.y >= imageryPageTableSize.y
-    ) return texture(blueMarbleMap, vBlueMarbleUv).rgb;
-    vec4 encoded = texture(
-      imageryPageTable,
-      (pageCell + 0.5) / imageryPageTableSize
-    );
-    if (encoded.r < 0.5) return texture(blueMarbleMap, vBlueMarbleUv).rgb;
-    vec2 sourceUv = (encoded.ba + fract(pageCoordinate)) / encoded.g;
+    float layer;
+    vec2 sourceUv;
+    vec2 sourceDx;
+    vec2 sourceDy;
+    if (!resolvedImageryLeaf(layer, sourceUv, sourceDx, sourceDy)) {
+      return texture(blueMarbleMap, vBlueMarbleUv).rgb;
+    }
     float tileSize = imageryPoolLayout.x;
     float gutter = imageryPoolLayout.y;
     float paddedSize = imageryPoolLayout.z;
     vec2 poolUv = (vec2(gutter) + sourceUv * tileSize) / paddedSize;
-    vec2 pageDx = dFdx(vImageryUv * imageryCoordOriginScale.zw);
-    vec2 pageDy = dFdy(vImageryUv * imageryCoordOriginScale.zw);
-    vec2 poolDx = pageDx * tileSize / (encoded.g * paddedSize);
-    vec2 poolDy = pageDy * tileSize / (encoded.g * paddedSize);
+    vec2 poolDx = sourceDx * tileSize / paddedSize;
+    vec2 poolDy = sourceDy * tileSize / paddedSize;
     float footprint = max(length(poolDx), length(poolDy)) * paddedSize;
     float supportedFootprint = max(1.0, gutter * 2.0);
     float gradientScale =
       min(1.0, supportedFootprint / max(footprint, 0.000001));
     return textureGrad(
       imageryTilePool,
-      vec3(poolUv, encoded.r - 1.0),
+      vec3(poolUv, layer),
       poolDx * gradientScale,
       poolDy * gradientScale
     ).rgb;
@@ -155,29 +236,21 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
 
   vec4 resolvedImageryTileOverlay() {
     if (imageryEnabled < 0.5) return vec4(0.0);
-    vec2 pageCoordinate = wrappedImageryPageCoordinate();
-    vec2 pageCell = floor(pageCoordinate);
-    if (
-      pageCell.x < 0.0 || pageCell.y < 0.0 ||
-      pageCell.x >= imageryPageTableSize.x ||
-      pageCell.y >= imageryPageTableSize.y
-    ) return vec4(0.0);
-    vec4 encoded = texture(
-      imageryPageTable,
-      (pageCell + 0.5) / imageryPageTableSize
-    );
-    if (encoded.r < 0.5) return vec4(0.0);
-    vec2 tileUv = (encoded.ba + fract(pageCoordinate)) / encoded.g;
-    vec2 edge = min(tileUv, 1.0 - tileUv);
+    float layer;
+    vec2 sourceUv;
+    vec2 sourceDx;
+    vec2 sourceDy;
+    if (!resolvedImageryLeaf(layer, sourceUv, sourceDx, sourceDy)) {
+      return vec4(0.0);
+    }
+    vec2 edge = min(sourceUv, 1.0 - sourceUv);
     float distanceToEdge = min(edge.x, edge.y);
     float line = 1.0 - smoothstep(
       0.0,
       max(0.0005, fwidth(distanceToEdge) * 2.5),
       distanceToEdge
     );
-    vec3 colour = encoded.g < 1.5
-      ? vec3(0.0, 0.843, 1.0)
-      : vec3(1.0, 0.741, 0.247);
+    vec3 colour = vec3(1.0, 0.741, 0.247);
     return vec4(colour, mix(0.18, 0.92, line));
   }
 `;
@@ -187,6 +260,7 @@ export interface ImageryTileResource {
   readonly tile: TileIdentity;
   readonly sourceTile?: TileIdentity;
   readonly pixels?: Uint8Array;
+  readonly fallbackFromNotFound?: boolean;
 }
 
 interface Request {
@@ -200,6 +274,7 @@ interface Request {
 interface SourceResult {
   readonly sourceTile?: TileIdentity;
   readonly pixels?: Uint8Array;
+  readonly fallbackFromNotFound?: boolean;
 }
 
 interface SourceJob {
@@ -332,6 +407,9 @@ export class ScheduledImageryProvider
           tile: request.tile,
           ...(result.sourceTile ? { sourceTile: result.sourceTile } : {}),
           ...(result.pixels ? { pixels: result.pixels } : {}),
+          ...(result.fallbackFromNotFound
+            ? { fallbackFromNotFound: true }
+            : {}),
         }),
       });
     }
@@ -368,6 +446,9 @@ export class ScheduledImageryProvider
         return {
           sourceTile: Object.freeze({ ...sourceTile }),
           pixels,
+          ...(sourceTile.z < initial.z
+            ? { fallbackFromNotFound: true }
+            : {}),
         };
       } catch (error) {
         if (!(error instanceof ImageryRequestError) || error.kind !== "not-found") {
@@ -381,16 +462,30 @@ export class ScheduledImageryProvider
   }
 }
 
-interface DecoderWorker {
-  postMessage(message: ImageryDecoderCommand): void;
+export interface ImageryWorkerPort {
+  postMessage(
+    message: ImageryDecoderCommand,
+    transfer?: Transferable[],
+  ): void;
   onmessage: ((event: MessageEvent<ImageryDecoderMessage>) => void) | null;
   terminate(): void;
 }
 
-class ImageryTileDecoder {
+interface MipWork {
+  latestRevision: number;
+  pixels: Uint8Array;
+  width: number;
+  height: number;
+  inFlight?: { requestId: number; revision: number };
+  complete(revision: number, levels: readonly ImageryMipLevel[]): void;
+  fail(revision: number, reason: string): void;
+}
+
+/** One worker client for decode plus revision-coalesced mip generation. */
+export class ImageryWorkerClient {
   private nextId = 1;
-  private readonly worker: DecoderWorker;
-  private readonly pending = new Map<
+  private readonly worker: ImageryWorkerPort;
+  private readonly decodes = new Map<
     number,
     {
       resolve(pixels: Uint8Array): void;
@@ -399,19 +494,38 @@ class ImageryTileDecoder {
       abort(): void;
     }
   >();
+  private readonly mipWork = new Map<string, MipWork>();
+  private readonly mipRequests = new Map<
+    number,
+    { key: string; revision: number }
+  >();
 
-  constructor() {
-    this.worker = new Worker(
-      new URL("./imagery-decoder.worker.ts", import.meta.url),
-      { type: "module" },
-    );
+  constructor(worker?: ImageryWorkerPort) {
+    this.worker =
+      worker ??
+      new Worker(new URL("./imagery-decoder.worker.ts", import.meta.url), {
+        type: "module",
+      });
     this.worker.onmessage = ({ data }) => {
-      const pending = this.pending.get(data.requestId);
+      if (data.kind === "decoded") {
+        const pending = this.decodes.get(data.requestId);
+        if (!pending) return;
+        this.decodes.delete(data.requestId);
+        pending.signal.removeEventListener("abort", pending.abort);
+        pending.resolve(new Uint8Array(data.pixels));
+        return;
+      }
+      const mipRequest = this.mipRequests.get(data.requestId);
+      if (mipRequest) {
+        this.finishMip(mipRequest, data);
+        return;
+      }
+      if (data.kind !== "failure") return;
+      const pending = this.decodes.get(data.requestId);
       if (!pending) return;
-      this.pending.delete(data.requestId);
+      this.decodes.delete(data.requestId);
       pending.signal.removeEventListener("abort", pending.abort);
-      if (data.kind === "decoded") pending.resolve(new Uint8Array(data.pixels));
-      else pending.reject(new ImageryRequestError(data.reason, "malformed"));
+      pending.reject(new ImageryRequestError(data.reason, "malformed"));
     };
   }
 
@@ -424,11 +538,11 @@ class ImageryTileDecoder {
     const requestId = this.nextId++;
     return new Promise((resolve, reject) => {
       const abort = (): void => {
-        if (!this.pending.delete(requestId)) return;
+        if (!this.decodes.delete(requestId)) return;
         this.worker.postMessage({ kind: "cancel", requestId });
         reject(abortError());
       };
-      this.pending.set(requestId, { resolve, reject, signal, abort });
+      this.decodes.set(requestId, { resolve, reject, signal, abort });
       signal.addEventListener("abort", abort, { once: true });
       this.worker.postMessage({
         kind: "decode",
@@ -440,13 +554,96 @@ class ImageryTileDecoder {
     });
   }
 
+  requestMip(
+    key: string,
+    revision: number,
+    pixels: Uint8Array,
+    width: number,
+    height: number,
+    complete: MipWork["complete"],
+    fail: MipWork["fail"],
+  ): void {
+    const existing = this.mipWork.get(key);
+    if (existing) {
+      if (revision < existing.latestRevision) return;
+      existing.latestRevision = revision;
+      existing.pixels = pixels;
+      existing.width = width;
+      existing.height = height;
+      existing.complete = complete;
+      existing.fail = fail;
+      if (!existing.inFlight) this.dispatchMip(key, existing);
+      return;
+    }
+    const work: MipWork = {
+      latestRevision: revision,
+      pixels,
+      width,
+      height,
+      complete,
+      fail,
+    };
+    this.mipWork.set(key, work);
+    this.dispatchMip(key, work);
+  }
+
   dispose(): void {
     this.worker.terminate();
-    for (const pending of this.pending.values()) {
+    for (const pending of this.decodes.values()) {
       pending.signal.removeEventListener("abort", pending.abort);
       pending.reject(new Error("Imagery decoder disposed."));
     }
-    this.pending.clear();
+    this.decodes.clear();
+    this.mipWork.clear();
+    this.mipRequests.clear();
+  }
+
+  private dispatchMip(key: string, work: MipWork): void {
+    const requestId = this.nextId++;
+    const revision = work.latestRevision;
+    const pixels = work.pixels.slice().buffer;
+    work.inFlight = { requestId, revision };
+    this.mipRequests.set(requestId, { key, revision });
+    this.worker.postMessage(
+      {
+        kind: "mip",
+        requestId,
+        key,
+        revision,
+        pixels,
+        width: work.width,
+        height: work.height,
+      },
+      [pixels],
+    );
+  }
+
+  private finishMip(
+    request: { key: string; revision: number },
+    message: ImageryDecoderMessage,
+  ): void {
+    this.mipRequests.delete(message.requestId);
+    const work = this.mipWork.get(request.key);
+    if (!work || work.inFlight?.requestId !== message.requestId) return;
+    work.inFlight = undefined;
+    if (request.revision !== work.latestRevision) {
+      this.dispatchMip(request.key, work);
+      return;
+    }
+    this.mipWork.delete(request.key);
+    if (message.kind === "failure") {
+      work.fail(request.revision, message.reason);
+      return;
+    }
+    if (message.kind !== "mipped") return;
+    work.complete(
+      request.revision,
+      message.levels.map(({ width, height, pixels }) => ({
+        width,
+        height,
+        pixels: new Uint8Array(pixels),
+      })),
+    );
   }
 }
 
@@ -461,43 +658,82 @@ function abortError(): Error {
 
 interface PageRecord {
   readonly sourceTile: TileIdentity;
-  state: "decoded" | "resident" | "evicted";
-  pixels?: Uint8Array;
-  slot?: number;
-  usedAt: number;
+  readonly basePixels: Uint8Array;
+  readonly node: ImageryImageNode;
+  revision: number;
+  mipRevision: number;
+  mipLevels?: readonly ImageryMipLevel[];
 }
 
-interface VisibleMapping {
-  readonly zoom: number;
-  readonly originX: number;
-  readonly originY: number;
-  readonly referenceX: number;
+interface ImageryPool {
+  readonly generation: number;
+  readonly texture: THREE.DataArrayTexture;
+  readonly layers: number;
+  readonly slots: Map<string, number>;
+  readonly uploadedRevisions: Map<string, number>;
+  readonly freeSlots: number[];
 }
 
-/** Exact planner-driven residency: active mapping plus staged replacement. */
-export function imageryResidencyKeys(
-  visibleSourceKeys: Iterable<string>,
-  desiredSourceKeys: Iterable<string>,
-): Set<string> {
-  return new Set([...visibleSourceKeys, ...desiredSourceKeys]);
+interface PoolMigration {
+  readonly pool: ImageryPool;
+  readonly root: ImageryTreeNode;
+  readonly demandedKeys: ReadonlySet<string>;
 }
 
-/** Prefer resident replacement imagery, otherwise retain prior coverage. */
-export function preservingImagerySource(
-  page: TileIdentity,
-  desiredSource: TileIdentity | undefined,
-  activeSources: readonly TileIdentity[],
-): TileIdentity | undefined {
-  return [
-    ...activeSources.map((source) => ({ source, desired: false })),
-    ...(desiredSource ? [{ source: desiredSource, desired: true }] : []),
-  ]
-    .filter(({ source }) => contains(source, page))
-    .sort(
-      (first, second) =>
-        second.source.z - first.source.z ||
-        Number(second.desired) - Number(first.desired),
-    )[0]?.source;
+interface ImageryTreeTextures {
+  readonly nodes: THREE.DataTexture;
+  readonly images: THREE.DataTexture;
+  readonly encoding: EncodedImageryTree;
+  readonly nodeWidth: number;
+  readonly imageWidth: number;
+}
+
+export interface ImageryLayerUpload {
+  readonly slot: number;
+  readonly destinationMip: number;
+  readonly width: number;
+  readonly height: number;
+  readonly pixels: Uint8Array;
+}
+
+/** A layer is publishable only when every expected mip has valid RGBA data. */
+export function imageryLayerUploadPlan(
+  slot: number,
+  paddedSize: number,
+  levels: readonly ImageryMipLevel[],
+): readonly ImageryLayerUpload[] | undefined {
+  const dimensions = imageryMipDimensions(paddedSize, paddedSize);
+  if (levels.length !== dimensions.length) return undefined;
+  const uploads: ImageryLayerUpload[] = [];
+  for (let mip = 0; mip < dimensions.length; mip += 1) {
+    const expected = dimensions[mip]!;
+    const level = levels[mip];
+    if (
+      !level ||
+      level.width !== expected.width ||
+      level.height !== expected.height ||
+      level.pixels.byteLength !== expected.width * expected.height * 4
+    ) return undefined;
+    uploads.push({
+      slot,
+      destinationMip: mip,
+      width: level.width,
+      height: level.height,
+      pixels: level.pixels,
+    });
+  }
+  return uploads;
+}
+
+/** A staged pool may replace the visible one only after its full demand exists. */
+export function imageryMigrationReady(
+  demandedKeys: Iterable<string>,
+  uploadedRevisions: ReadonlyMap<string, number>,
+): boolean {
+  for (const key of demandedKeys) {
+    if ((uploadedRevisions.get(key) ?? 0) <= 0) return false;
+  }
+  return true;
 }
 
 function initialSnapshot(target: TileTarget): SchedulerSnapshot<TileTarget> {
@@ -518,25 +754,27 @@ function initialSnapshot(target: TileTarget): SchedulerSnapshot<TileTarget> {
 export class ImageryVirtualTexture {
   private readonly provider?: ScheduledImageryProvider;
   private readonly scheduler?: TileWorkerScheduler<ImageryTileResource>;
-  private readonly decoder?: ImageryTileDecoder;
-  private readonly pageTables: [THREE.DataTexture, THREE.DataTexture];
+  private readonly workerClient?: ImageryWorkerClient;
   private readonly sharedUniforms: Record<string, THREE.IUniform>;
   private readonly records = new Map<string, PageRecord>();
-  private readonly freeSlots: number[] = [];
-  private poolTexture: THREE.DataArrayTexture;
-  private poolPixels: Uint8Array;
-  private poolLayers = 1;
+  private readonly stagingTexture: THREE.DataTexture;
+  private activePool: ImageryPool;
+  private migration?: PoolMigration;
+  private activeTreeTextures: ImageryTreeTextures;
+  private committedRoot: ImageryTreeNode = BLUE_MARBLE_IMAGERY_NODE;
+  private desiredRoot: DesiredImageryTree = Object.freeze({
+    image: BLUE_MARBLE_IMAGERY_KEY,
+    fallbackFromNotFound: false,
+  });
+  private committedSourceKeys = new Set<string>();
   private readonly tileSize: number;
   private readonly paddedSize: number;
   private readonly unsubscribe?: () => void;
   private snapshot: SchedulerSnapshot<TileTarget>;
   private target: TileTarget;
   private desiredZoom: number | undefined;
-  private activePageTable = 0;
-  private visible?: VisibleMapping;
-  private readonly visibleSourceKeys = new Set<string>();
-  private sequence = 0;
-  private mappingDirty = false;
+  private desiredSourceKeySet = new Set<string>();
+  private nextPoolGeneration = 1;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -567,20 +805,38 @@ export class ImageryVirtualTexture {
       y: Math.floor(point.y),
     });
     this.snapshot = initialSnapshot(this.target);
-    this.pageTables = [this.createPageTable(), this.createPageTable()];
     this.tileSize = imageryProvider?.tileSize ?? 1;
     this.paddedSize = this.tileSize + IMAGERY_GUTTER_PIXELS * 2;
-    this.poolPixels = new Uint8Array(
-      this.paddedSize * this.paddedSize * 4,
+    this.stagingTexture = new THREE.DataTexture(
+      new Uint8Array(4),
+      1,
+      1,
+      THREE.RGBAFormat,
+      THREE.UnsignedByteType,
     );
-    this.poolTexture = this.createPoolTexture(this.poolPixels, 1);
+    this.stagingTexture.colorSpace = THREE.SRGBColorSpace;
+    this.stagingTexture.flipY = false;
+    this.stagingTexture.unpackAlignment = 1;
+    this.stagingTexture.generateMipmaps = false;
+    this.activePool = this.createPool(1);
+    const initialEncoding = encodeImageryTree(
+      this.committedRoot,
+      this.activePool.generation,
+      () => undefined,
+    )!;
+    this.activeTreeTextures = this.createTreeTextures(initialEncoding);
     this.sharedUniforms = {
       blueMarbleMap: new THREE.Uniform(blueMarble),
-      imageryPageTable: new THREE.Uniform(this.pageTables[0]),
-      imageryTilePool: new THREE.Uniform(this.poolTexture),
+      imageryTree: new THREE.Uniform(this.activeTreeTextures.nodes),
+      imageryImages: new THREE.Uniform(this.activeTreeTextures.images),
+      imageryTilePool: new THREE.Uniform(this.activePool.texture),
       imageryEnabled: new THREE.Uniform(0),
-      imageryPageTableSize: new THREE.Uniform(
-        new THREE.Vector2(IMAGERY_PAGE_TABLE_SIZE, IMAGERY_PAGE_TABLE_SIZE),
+      imageryTreeDepth: new THREE.Uniform(initialEncoding.maximumDepth),
+      imageryTreeTextureWidth: new THREE.Uniform(
+        this.activeTreeTextures.nodeWidth,
+      ),
+      imageryImageTextureWidth: new THREE.Uniform(
+        this.activeTreeTextures.imageWidth,
       ),
       imageryPoolLayout: new THREE.Uniform(
         new THREE.Vector3(
@@ -590,16 +846,13 @@ export class ImageryVirtualTexture {
         ),
       ),
     };
-    renderer.initTexture(this.pageTables[0]);
-    renderer.initTexture(this.pageTables[1]);
-    renderer.initTexture(this.poolTexture);
     if (imageryProvider) {
       this.desiredZoom = zoom;
-      this.decoder = new ImageryTileDecoder();
+      this.workerClient = new ImageryWorkerClient();
       this.provider = new ScheduledImageryProvider(
         imageryProvider,
         (blob, tileSize, signal) =>
-          this.decoder!.decode(blob, tileSize, signal),
+          this.workerClient!.decode(blob, tileSize, signal),
       );
       this.scheduler = new TileWorkerScheduler(this.target, {
         provider: this.provider,
@@ -611,29 +864,22 @@ export class ImageryVirtualTexture {
         this.snapshot = snapshot;
         if (event?.kind === "response" && event.tile) {
           this.stage(this.scheduler!.committedResource(event.tile));
+          this.refreshDesiredTree();
         }
         if (!event || event.kind === "atomic-swap") {
           for (const tile of snapshot.committedCut) {
             this.stage(this.scheduler!.committedResource(tile));
           }
-          this.mappingDirty = true;
+          this.refreshDesiredTree();
         }
       });
-    }
-    for (
-      let slot = 0;
-      slot >= 0;
-      slot -= 1
-    ) {
-      this.freeSlots.push(slot);
     }
   }
 
   materialUniforms(): Record<string, THREE.IUniform> {
     return {
       ...this.sharedUniforms,
-      imageryCoordOriginScale: new THREE.Uniform(new THREE.Vector4()),
-      imageryWrapX: new THREE.Uniform(new THREE.Vector2(1, 0)),
+      imageryGlobalOriginScale: new THREE.Uniform(new THREE.Vector4()),
     };
   }
 
@@ -641,28 +887,15 @@ export class ImageryVirtualTexture {
     material: THREE.ShaderMaterial,
     bounds: ImageryCoordinateBounds,
   ): void {
-    const transform = material.uniforms.imageryCoordOriginScale
+    const transform = material.uniforms.imageryGlobalOriginScale
       ?.value as THREE.Vector4 | undefined;
-    const wrap = material.uniforms.imageryWrapX
-      ?.value as THREE.Vector2 | undefined;
-    if (!transform || !wrap || !this.visible) {
-      transform?.set(0, 0, 0, 0);
-      wrap?.set(1, 0);
-      return;
-    }
-    const width = 2 ** this.visible.zoom;
-    const west = wrapImageryPageX(
-      bounds.west * width,
-      this.visible.referenceX,
-      width,
-    );
+    if (!transform) return;
     transform.set(
-      west - this.visible.originX,
-      bounds.north * width - this.visible.originY,
-      (bounds.east - bounds.west) * width,
-      (bounds.south - bounds.north) * width,
+      bounds.west,
+      bounds.north,
+      bounds.east - bounds.west,
+      bounds.south - bounds.north,
     );
-    wrap.set(width, this.visible.referenceX - this.visible.originX);
   }
 
   update(view: ImageryView): void {
@@ -693,44 +926,64 @@ export class ImageryVirtualTexture {
       this.scheduler.updateTarget(target);
     }
     this.desiredZoom = zoom;
-    this.uploadDecoded();
-    if (this.mappingDirty) this.commitMapping();
+    this.processUploads();
   }
 
   dispose(): void {
     this.unsubscribe?.();
     this.scheduler?.dispose();
     this.provider?.dispose();
-    this.decoder?.dispose();
-    this.pageTables[0].dispose();
-    this.pageTables[1].dispose();
-    this.poolTexture.dispose();
+    this.workerClient?.dispose();
+    this.activeTreeTextures.nodes.dispose();
+    this.activeTreeTextures.images.dispose();
+    this.activePool.texture.dispose();
+    this.migration?.pool.texture.dispose();
+    this.stagingTexture.dispose();
     this.records.clear();
   }
 
-  private createPageTable(): THREE.DataTexture {
-    const texture = new THREE.DataTexture(
-      new Float32Array(IMAGERY_PAGE_TABLE_SIZE ** 2 * 4),
-      IMAGERY_PAGE_TABLE_SIZE,
-      IMAGERY_PAGE_TABLE_SIZE,
-      THREE.RGBAFormat,
-      THREE.FloatType,
+  private createTreeTextures(encoding: EncodedImageryTree): ImageryTreeTextures {
+    const nodeWidth = Math.ceil(Math.sqrt(encoding.nodeCount));
+    const nodeHeight = Math.ceil(encoding.nodeCount / nodeWidth);
+    const nodeData = new Uint32Array(nodeWidth * nodeHeight * 2);
+    nodeData.set(encoding.nodeData);
+    const nodes = new THREE.DataTexture(
+      nodeData,
+      nodeWidth,
+      nodeHeight,
+      THREE.RGIntegerFormat,
+      THREE.UnsignedIntType,
     );
-    texture.colorSpace = THREE.NoColorSpace;
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.generateMipmaps = false;
-    texture.flipY = false;
-    texture.needsUpdate = true;
-    return texture;
+    nodes.internalFormat = "RG32UI";
+    const imageTexelCount = Math.max(1, encoding.imageCount);
+    const imageWidth = Math.ceil(Math.sqrt(imageTexelCount));
+    const imageHeight = Math.ceil(imageTexelCount / imageWidth);
+    const imageData = new Uint32Array(imageWidth * imageHeight * 4);
+    imageData.set(encoding.imageData);
+    const images = new THREE.DataTexture(
+      imageData,
+      imageWidth,
+      imageHeight,
+      THREE.RGBAIntegerFormat,
+      THREE.UnsignedIntType,
+    );
+    images.internalFormat = "RGBA32UI";
+    for (const texture of [nodes, images]) {
+      texture.colorSpace = THREE.NoColorSpace;
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      texture.generateMipmaps = false;
+      texture.flipY = false;
+      texture.unpackAlignment = 1;
+      texture.needsUpdate = true;
+      this.renderer.initTexture(texture);
+    }
+    return { nodes, images, encoding, nodeWidth, imageWidth };
   }
 
-  private createPoolTexture(
-    pixels: Uint8Array,
-    layers: number,
-  ): THREE.DataArrayTexture {
+  private createPool(layers: number): ImageryPool {
     const texture = new THREE.DataArrayTexture(
-      pixels,
+      null,
       this.paddedSize,
       this.paddedSize,
       layers,
@@ -740,64 +993,93 @@ export class ImageryVirtualTexture {
     texture.wrapT = THREE.ClampToEdgeWrapping;
     texture.magFilter = THREE.LinearFilter;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.generateMipmaps = true;
+    texture.generateMipmaps = false;
     texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     texture.flipY = false;
+    texture.unpackAlignment = 1;
+    texture.mipmaps = imageryMipDimensions(
+      this.paddedSize,
+      this.paddedSize,
+    ).map(({ width, height }) => ({
+      data: new Uint8Array(0),
+      width,
+      height,
+      depth: layers,
+    }));
+    texture.source.dataReady = false;
     texture.needsUpdate = true;
-    return texture;
+    this.renderer.initTexture(texture);
+    return {
+      generation: this.nextPoolGeneration++,
+      texture,
+      layers,
+      slots: new Map(),
+      uploadedRevisions: new Map(),
+      freeSlots: Array.from({ length: layers }, (_, index) => layers - index - 1),
+    };
   }
 
   private stage(resource: ImageryTileResource | undefined): void {
     if (!resource?.pixels || !resource.sourceTile) return;
     const key = imageryKey(resource.sourceTile);
-    const existing = this.records.get(key);
-    if (existing) {
-      if (existing.state === "evicted") {
-        existing.pixels = resource.pixels;
-        existing.state = "decoded";
-      }
-      return;
-    }
+    if (this.records.has(key)) return;
     const record: PageRecord = {
       sourceTile: resource.sourceTile,
-      state: "decoded",
-      pixels: resource.pixels,
-      usedAt: 0,
+      basePixels: resource.pixels,
+      node: Object.freeze({ image: key }),
+      revision: 0,
+      mipRevision: 0,
     };
     this.records.set(key, record);
+    this.stitchNeighbours(record);
   }
 
-  private uploadDecoded(): void {
-    const desiredSources = this.desiredSourceKeys();
-    const decoded = [...this.records.values()]
-      .filter(
-        (record) =>
-          record.state === "decoded" &&
-          record.pixels &&
-          desiredSources.has(imageryKey(record.sourceTile)),
-      )
-      .slice(0, MAX_UPLOADS_PER_FRAME);
-    if (decoded.length === 0) return;
-    if (!this.ensurePoolCapacity()) return;
-    const layerBytes = this.paddedSize ** 2 * 4;
-    for (const record of decoded) {
-      const slot = this.allocateSlot();
-      if (slot === undefined || !record.pixels) return;
-      this.poolPixels.set(record.pixels, slot * layerBytes);
-      this.poolTexture.addLayerUpdate(slot);
-      record.pixels = undefined;
-      record.slot = slot;
-      record.state = "resident";
-      record.usedAt = ++this.sequence;
-      this.stitchNeighbours(record);
+  private processUploads(): void {
+    // A candidate generation is immutable once upload begins. Later scheduler
+    // changes remain in desiredRoot and become the following generation.
+    if (this.migration) {
+      this.uploadPendingChains(
+        this.migration.pool,
+        this.migration.demandedKeys,
+        MAX_UPLOADS_PER_FRAME,
+      );
+      if (this.migrationComplete()) this.promoteMigration();
+      this.pruneRecords();
+      return;
     }
-    this.poolTexture.needsUpdate = true;
-    this.renderer.initTexture(this.poolTexture);
-    this.mappingDirty = true;
+
+    const candidateRoot = this.readyCandidateRoot();
+    const candidateKeys = imageryTreeSourceKeys(candidateRoot);
+    const expectedLayers = Math.max(1, candidateKeys.size);
+    const activeEncoding = expectedLayers === this.activePool.layers
+      ? this.encodeTreeForPool(candidateRoot, this.activePool)
+      : undefined;
+
+    if (activeEncoding) {
+      if (candidateRoot !== this.committedRoot) {
+        this.publishTree(
+          candidateRoot,
+          this.createTreeTextures(activeEncoding),
+          this.activePool,
+        );
+      }
+      this.pruneRecords();
+      return;
+    }
+
+    this.startMigration(candidateRoot, candidateKeys);
+    const migration = this.migration!;
+    this.uploadPendingChains(
+      migration.pool,
+      migration.demandedKeys,
+      MAX_UPLOADS_PER_FRAME,
+    );
+    if (this.migrationComplete()) this.promoteMigration();
+    this.pruneRecords();
   }
 
   private stitchNeighbours(record: PageRecord): void {
-    if (record.slot === undefined) return;
+    const changed = new Set<PageRecord>([record]);
     for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
       for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
         if (offsetX === 0 && offsetY === 0) continue;
@@ -808,315 +1090,267 @@ export class ImageryVirtualTexture {
             y: record.sourceTile.y + offsetY,
           }),
         );
-        if (neighbour?.state !== "resident" || neighbour.slot === undefined) {
-          continue;
-        }
-        stitchImageryGutter(
-          this.poolPixels,
+        if (!neighbour) continue;
+        stitchSeparateImageryGutter(
+          record.basePixels,
+          neighbour.basePixels,
           this.tileSize,
           IMAGERY_GUTTER_PIXELS,
-          record.slot,
-          neighbour.slot,
           offsetX as -1 | 0 | 1,
           offsetY as -1 | 0 | 1,
         );
-        stitchImageryGutter(
-          this.poolPixels,
+        stitchSeparateImageryGutter(
+          neighbour.basePixels,
+          record.basePixels,
           this.tileSize,
           IMAGERY_GUTTER_PIXELS,
-          neighbour.slot,
-          record.slot,
           -offsetX as -1 | 0 | 1,
           -offsetY as -1 | 0 | 1,
         );
-        this.poolTexture.addLayerUpdate(neighbour.slot);
+        changed.add(neighbour);
       }
     }
+    for (const changedRecord of changed) this.remip(changedRecord);
   }
 
-  private ensurePoolCapacity(): boolean {
-    const requiredLayers = Math.max(
-      1,
-      imageryResidencyKeys(
-        this.visibleSourceKeys,
-        this.desiredSourceKeys(),
-      ).size,
-    );
-    if (requiredLayers <= this.poolLayers) return true;
-    const nextLayers = requiredLayers;
-    const layerBytes = this.paddedSize ** 2 * 4;
-    const pixels = new Uint8Array(layerBytes * nextLayers);
-    pixels.set(this.poolPixels);
-    const previous = this.poolTexture;
-    this.poolPixels = pixels;
-    this.poolLayers = nextLayers;
-    this.poolTexture = this.createPoolTexture(pixels, nextLayers);
-    this.renderer.initTexture(this.poolTexture);
-    this.sharedUniforms.imageryTilePool!.value = this.poolTexture;
-    for (let slot = nextLayers - 1; slot >= previous.image.depth; slot -= 1) {
-      this.freeSlots.push(slot);
-    }
-    previous.dispose();
-    return true;
-  }
-
-  private allocateSlot(): number | undefined {
-    const free = this.freeSlots.pop();
-    if (free !== undefined) return free;
-    const protectedSources = new Set([
-      ...this.visibleSourceKeys,
-      ...this.desiredSourceKeys(),
-    ]);
-    const candidate = [...this.records.entries()]
-      .filter(
-        ([key, record]) =>
-          record.state === "resident" && !protectedSources.has(key),
-      )
-      .sort((a, b) => a[1].usedAt - b[1].usedAt)[0];
-    if (!candidate) return undefined;
-    const record = candidate[1];
-    const slot = record.slot;
-    record.slot = undefined;
-    record.state = "evicted";
-    return slot;
-  }
-
-  private commitMapping(): void {
-    const mappingTarget = this.mappingGridTarget();
-    const zoom = mappingTarget.z;
-    const point = mercatorPointForImagery(
-      tileCentreLatitude(mappingTarget),
-      tileCentreLongitude(mappingTarget),
-      zoom,
-    );
-    const originX = Math.floor(point.x) - IMAGERY_PAGE_TABLE_SIZE / 2;
-    const originY = Math.max(
-      0,
-      Math.min(
-        2 ** zoom - IMAGERY_PAGE_TABLE_SIZE,
-        Math.floor(point.y) - IMAGERY_PAGE_TABLE_SIZE / 2,
-      ),
-    );
-    const cut = relevantTiles(
-      this.snapshot.committedCut,
-      mappingTarget,
-    ).sort((a, b) => b.z - a.z);
-    const desiredSources = this.desiredSourceKeys();
-    for (const tile of cut) {
-      const resource = this.scheduler!.committedResource(tile);
-      if (resource?.pixels && resource.sourceTile) {
-        if (!desiredSources.has(imageryKey(resource.sourceTile))) continue;
-        const record = this.records.get(imageryKey(resource.sourceTile));
-        if (record?.state !== "resident") return;
-      }
-    }
-    const entries = new Float32Array(IMAGERY_PAGE_TABLE_SIZE ** 2 * 4);
-    const nextVisibleSourceKeys = new Set<string>();
-    const worldWidth = 2 ** zoom;
-    for (let tableY = 0; tableY < IMAGERY_PAGE_TABLE_SIZE; tableY += 1) {
-      const y = originY + tableY;
-      if (y < 0 || y >= worldWidth) continue;
-      for (let tableX = 0; tableX < IMAGERY_PAGE_TABLE_SIZE; tableX += 1) {
-        const unwrappedX = originX + tableX;
-        const x = ((unwrappedX % worldWidth) + worldWidth) % worldWidth;
-        const target = { z: zoom, x, y };
-        const tile = cut.find((candidate) => contains(candidate, target));
-        const resource = tile
-          ? this.scheduler!.committedResource(tile)
-          : undefined;
-        const desiredKey = resource?.sourceTile
-          ? imageryKey(resource.sourceTile)
-          : undefined;
-        const desiredRecord =
-          desiredKey && desiredSources.has(desiredKey)
-            ? this.records.get(desiredKey)
-            : undefined;
-        const selectedSource = preservingImagerySource(
-          target,
-          desiredRecord?.state === "resident"
-            ? desiredRecord.sourceTile
-            : undefined,
-          this.activeSources(),
+  private remip(record: PageRecord): void {
+    const key = imageryKey(record.sourceTile);
+    const revision = ++record.revision;
+    this.workerClient!.requestMip(
+      key,
+      revision,
+      record.basePixels,
+      this.paddedSize,
+      this.paddedSize,
+      (completedRevision, levels) => {
+        if (record.revision !== completedRevision) return;
+        record.mipRevision = completedRevision;
+        record.mipLevels = levels.map((level, mip) =>
+          mip === 0 ? { ...level, pixels: record.basePixels } : level,
         );
-        const record = selectedSource
-          ? this.records.get(imageryKey(selectedSource))
-          : undefined;
-        if (record?.state !== "resident" || record.slot === undefined) {
-          // A swap may introduce Blue Marble only where the active table had
-          // no photographic coverage to preserve.
-          if (this.activeSourceOverlapsPage(target)) return;
-          continue;
-        }
-        const resolved = resolvePageEntry(target, record.sourceTile, record.slot);
-        const offset = (tableY * IMAGERY_PAGE_TABLE_SIZE + tableX) * 4;
-        entries[offset] = resolved.layer + 1;
-        entries[offset + 1] = resolved.scale;
-        entries[offset + 2] = resolved.offsetX;
-        entries[offset + 3] = resolved.offsetY;
-        record.usedAt = ++this.sequence;
-        nextVisibleSourceKeys.add(imageryKey(record.sourceTile));
-      }
-    }
-    const nextIndex = this.activePageTable === 0 ? 1 : 0;
-    const table = this.pageTables[nextIndex];
-    (table.image.data as Float32Array).set(entries);
-    table.needsUpdate = true;
-    this.renderer.initTexture(table);
-    this.activePageTable = nextIndex;
-    this.sharedUniforms.imageryPageTable!.value = table;
-    this.sharedUniforms.imageryEnabled!.value = 1;
-    this.visible = {
-      zoom,
-      originX,
-      originY,
-      referenceX: point.x,
-    };
-    this.visibleSourceKeys.clear();
-    for (const key of nextVisibleSourceKeys) this.visibleSourceKeys.add(key);
-    this.mappingDirty = false;
-  }
-
-  private desiredSourceKeys(): Set<string> {
-    const keys = new Set<string>();
-    for (const tile of this.snapshot.committedCut) {
-      const sourceTile = this.scheduler!.committedResource(tile)?.sourceTile;
-      if (!sourceTile) continue;
-      keys.add(imageryKey(sourceTile));
-    }
-    return keys;
-  }
-
-  private mappingGridTarget(): TileTarget {
-    const candidate = imageryMappingTarget(
-      this.snapshot.target,
-      this.snapshot.committedCut,
+      },
+      () => {
+        // Mipping is deterministic CPU work. A later stitch or source retry
+        // submits a fresh revision without exposing an incomplete chain.
+      },
     );
-    if (!this.visible || this.visible.zoom <= candidate.z) return candidate;
-    if (this.coarseGridHasCompleteReplacement(candidate)) return candidate;
-    const scale = 2 ** (this.visible.zoom - candidate.z);
-    return normalizeTileTarget({
-      z: this.visible.zoom,
-      x: Math.floor((candidate.x + 0.5) * scale),
-      y: Math.floor((candidate.y + 0.5) * scale),
-    });
   }
 
-  private coarseGridHasCompleteReplacement(target: TileTarget): boolean {
-    const cut = relevantTiles(this.snapshot.committedCut, target);
-    for (const page of pageCells(target)) {
-      const tile = cut.find((candidate) => contains(candidate, page));
-      const resource = tile
-        ? this.scheduler!.committedResource(tile)
-        : undefined;
-      if (resource?.sourceTile) {
-        const record = this.records.get(imageryKey(resource.sourceTile));
-        if (record?.state === "resident") continue;
+  private startMigration(
+    root: ImageryTreeNode,
+    demanded: Set<string>,
+  ): void {
+    // Size from this tree alone. The old generation remains independently
+    // resident until this exact candidate is complete and published.
+    const requiredLayers = Math.max(1, demanded.size);
+    const pool = this.createPool(requiredLayers);
+    for (const key of demanded) {
+      const slot = pool.freeSlots.pop();
+      if (slot === undefined) {
+        pool.texture.dispose();
+        throw new Error("The candidate imagery pool does not match its tree.");
       }
-      if (this.activeSourceOverlapsPage(page)) return false;
+      pool.slots.set(key, slot);
+    }
+    this.migration = {
+      pool,
+      root,
+      demandedKeys: new Set(demanded),
+    };
+  }
+
+  private uploadPendingChains(
+    pool: ImageryPool,
+    demanded: ReadonlySet<string>,
+    budget: number,
+  ): number {
+    let uploaded = 0;
+    const visited = new Set<string>();
+    const upload = (key: string): void => {
+      if (uploaded >= budget || visited.has(key)) return;
+      visited.add(key);
+      const record = this.records.get(key);
+      if (!record?.mipLevels || record.mipRevision === 0) return;
+      if (record.mipRevision !== record.revision) return;
+      if ((pool.uploadedRevisions.get(key) ?? 0) >= record.mipRevision) return;
+      const slot = pool.slots.get(key);
+      if (slot === undefined) return;
+      if (!this.uploadMipChain(pool, slot, record.mipLevels)) return;
+      pool.uploadedRevisions.set(key, record.mipRevision);
+      uploaded += 1;
+    };
+    for (const key of demanded) upload(key);
+    return uploaded;
+  }
+
+  private uploadMipChain(
+    pool: ImageryPool,
+    slot: number,
+    levels: readonly ImageryMipLevel[],
+  ): boolean {
+    const uploads = imageryLayerUploadPlan(slot, this.paddedSize, levels);
+    if (!uploads) return false;
+    for (const upload of uploads) {
+      this.stagingTexture.image.data = upload.pixels;
+      this.stagingTexture.image.width = upload.width;
+      this.stagingTexture.image.height = upload.height;
+      this.renderer.copyTextureToTexture(
+        this.stagingTexture,
+        pool.texture,
+        null,
+        new THREE.Vector3(0, 0, upload.slot),
+        0,
+        upload.destinationMip,
+      );
     }
     return true;
   }
 
-  private activeSources(): TileIdentity[] {
-    return [...this.visibleSourceKeys]
-      .map((key) => this.records.get(key))
-      .filter(
-        (record): record is PageRecord => record?.state === "resident",
+  private migrationComplete(): boolean {
+    const migration = this.migration;
+    if (!migration) return false;
+    if (
+      !imageryMigrationReady(
+        migration.demandedKeys,
+        migration.pool.uploadedRevisions,
       )
-      .map((record) => record.sourceTile);
+    ) return false;
+    for (const key of migration.demandedKeys) {
+      const revision = this.records.get(key)?.revision;
+      if (
+        revision === undefined ||
+        (migration.pool.uploadedRevisions.get(key) ?? 0) < revision
+      ) return false;
+    }
+    return true;
   }
 
-  private activeSourceOverlapsPage(page: TileIdentity): boolean {
-    return [...this.visibleSourceKeys].some((key) => {
-      const record = this.records.get(key);
-      return record?.state === "resident" && tilesOverlap(record.sourceTile, page);
-    });
+  private promoteMigration(): void {
+    const migration = this.migration;
+    if (!migration) return;
+    const encoding = this.encodeTreeForPool(migration.root, migration.pool);
+    if (!encoding) return;
+    const textures = this.createTreeTextures(encoding);
+    const previousPool = this.activePool;
+    this.migration = undefined;
+    this.publishTree(migration.root, textures, migration.pool);
+    previousPool.texture.dispose();
   }
-}
 
-/** Finest page grid capable of representing every currently committed leaf. */
-export function imageryMappingTarget(
-  target: TileTarget,
-  committedCut: readonly TileIdentity[],
-): TileTarget {
-  const zoom = Math.max(
-    target.z,
-    ...committedCut.map((tile) => tile.z),
-  );
-  const scale = 2 ** (zoom - target.z);
-  return normalizeTileTarget({
-    z: zoom,
-    x: Math.floor((target.x + 0.5) * scale),
-    y: Math.floor((target.y + 0.5) * scale),
-  });
-}
-
-function contains(tile: TileIdentity, target: TileIdentity): boolean {
-  if (tile.z > target.z) return false;
-  const scale = 2 ** (target.z - tile.z);
-  return (
-    Math.floor(target.x / scale) === tile.x &&
-    Math.floor(target.y / scale) === tile.y
-  );
-}
-
-function tilesOverlap(first: TileIdentity, second: TileIdentity): boolean {
-  const zoom = Math.max(first.z, second.z);
-  const firstScale = 2 ** (zoom - first.z);
-  const secondScale = 2 ** (zoom - second.z);
-  return (
-    first.x * firstScale < (second.x + 1) * secondScale &&
-    (first.x + 1) * firstScale > second.x * secondScale &&
-    first.y * firstScale < (second.y + 1) * secondScale &&
-    (first.y + 1) * firstScale > second.y * secondScale
-  );
-}
-
-function pageCells(target: TileIdentity): TileIdentity[] {
-  const width = 2 ** target.z;
-  const originX = target.x - IMAGERY_PAGE_TABLE_SIZE / 2;
-  const originY = Math.max(
-    0,
-    Math.min(width - IMAGERY_PAGE_TABLE_SIZE, target.y - IMAGERY_PAGE_TABLE_SIZE / 2),
-  );
-  const rows = Math.min(IMAGERY_PAGE_TABLE_SIZE, width);
-  const columns = Math.min(IMAGERY_PAGE_TABLE_SIZE, width);
-  return Array.from({ length: rows * columns }, (_, index) => ({
-    z: target.z,
-    x: ((originX + (index % columns)) % width + width) % width,
-    y: originY + Math.floor(index / columns),
-  }));
-}
-
-function relevantTiles(
-  cut: readonly TileIdentity[],
-  target: TileIdentity,
-): TileIdentity[] {
-  const result = new Map<string, TileIdentity>();
-  const ordered = [...cut].sort((a, b) => b.z - a.z);
-  const cells = pageCells(target).sort(
-    (a, b) =>
-      Math.hypot(
-        a.x - target.x,
-        a.y - target.y,
-      ) -
-      Math.hypot(
-        b.x - target.x,
-        b.y - target.y,
-      ),
-  );
-  for (const page of cells) {
-    const tile = ordered.find((candidate) => contains(candidate, page));
-    if (tile) result.set(tileIdentityKey(tile), tile);
+  private refreshDesiredTree(): void {
+    const keys = new Set<string>();
+    this.desiredRoot = buildDesiredImageryTree(
+      this.snapshot.committedCut,
+      (tile) => {
+        const resource = this.scheduler!.committedResource(tile);
+        if (!resource?.sourceTile) {
+          return {
+            image: BLUE_MARBLE_IMAGERY_KEY,
+            fallbackFromNotFound: true,
+          };
+        }
+        const image = imageryKey(resource.sourceTile);
+        keys.add(image);
+        return {
+          image,
+          fallbackFromNotFound: resource.fallbackFromNotFound === true,
+        };
+      },
+    );
+    this.desiredSourceKeySet = keys;
   }
-  return [...result.values()];
-}
 
-function tileCentreLongitude(tile: TileIdentity): number {
-  return ((tile.x + 0.5) / 2 ** tile.z) * 360 - 180;
-}
+  private readyCandidateRoot(): ImageryTreeNode {
+    return reconcileImageryTree(
+      this.committedRoot,
+      this.desiredRoot,
+      {
+        isResident: (image) => {
+          const record = this.records.get(image);
+          return record?.mipLevels !== undefined &&
+            record.mipRevision > 0 &&
+            record.mipRevision === record.revision;
+        },
+        sourceZoom: (image) => this.records.get(image)?.sourceTile.z ?? -1,
+        imageNode: (image) => this.records.get(image)!.node,
+      },
+    );
+  }
 
-function tileCentreLatitude(tile: TileIdentity): number {
-  const n = Math.PI - (2 * Math.PI * (tile.y + 0.5)) / 2 ** tile.z;
-  return Math.atan(Math.sinh(n)) * 180 / Math.PI;
+  private encodeTreeForPool(
+    root: ImageryTreeNode,
+    pool: ImageryPool,
+  ): EncodedImageryTree | undefined {
+    return encodeImageryTree(
+      root,
+      pool.generation,
+      (image) => {
+        const record = this.records.get(image);
+        const layer = pool.slots.get(image);
+        const revision = pool.uploadedRevisions.get(image);
+        if (
+          !record ||
+          layer === undefined ||
+          revision === undefined ||
+          revision < record.revision
+        ) return undefined;
+        return {
+          poolGeneration: pool.generation,
+          layer,
+          revision,
+          sourceTile: record.sourceTile,
+        };
+      },
+    );
+  }
+
+  private publishTree(
+    root: ImageryTreeNode,
+    textures: ImageryTreeTextures,
+    pool: ImageryPool,
+  ): void {
+    const previousTextures = this.activeTreeTextures;
+    this.committedRoot = root;
+    this.committedSourceKeys = imageryTreeSourceKeys(root);
+    this.activeTreeTextures = textures;
+    this.activePool = pool;
+    this.sharedUniforms.imageryTree!.value = textures.nodes;
+    this.sharedUniforms.imageryImages!.value = textures.images;
+    this.sharedUniforms.imageryTilePool!.value = pool.texture;
+    this.sharedUniforms.imageryTreeDepth!.value =
+      textures.encoding.maximumDepth;
+    this.sharedUniforms.imageryTreeTextureWidth!.value = textures.nodeWidth;
+    this.sharedUniforms.imageryImageTextureWidth!.value = textures.imageWidth;
+    this.sharedUniforms.imageryEnabled!.value = 1;
+    previousTextures.nodes.dispose();
+    previousTextures.images.dispose();
+    this.releasePoolSlots(pool, this.committedSourceKeys);
+    this.pruneRecords();
+  }
+
+  private releasePoolSlots(pool: ImageryPool, retained: Set<string>): void {
+    for (const [key, slot] of pool.slots) {
+      if (retained.has(key)) continue;
+      pool.slots.delete(key);
+      pool.uploadedRevisions.delete(key);
+      pool.freeSlots.push(slot);
+    }
+  }
+
+  private pruneRecords(): void {
+    const retained = new Set([
+      ...this.committedSourceKeys,
+      ...this.desiredSourceKeySet,
+      ...(this.migration?.demandedKeys ?? []),
+    ]);
+    if (this.scheduler) {
+      for (const tile of this.snapshot.requestedCut) {
+        const sourceTile = this.scheduler.committedResource(tile)?.sourceTile;
+        if (sourceTile) retained.add(imageryKey(sourceTile));
+      }
+    }
+    for (const key of this.records.keys()) {
+      if (!retained.has(key)) this.records.delete(key);
+    }
+  }
 }
