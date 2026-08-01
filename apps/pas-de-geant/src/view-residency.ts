@@ -28,9 +28,9 @@ export interface MutableCartesianPoint {
 }
 
 /**
- * Intersects a ray with an axis-aligned ellipsoid. A miss returns the closest
- * nonnegative point radially projected onto the ellipsoid, which is the cheap
- * tangent-horizon approximation used by view residency.
+ * Intersects a ray with an axis-aligned ellipsoid. A sky-facing miss returns
+ * the exact ellipsoid horizon in the ray's tangential azimuth. This keeps the
+ * footprint conservative when the visible surface ends between sampled rays.
  */
 export function intersectEllipsoidRay(
   origin: CartesianPoint,
@@ -56,7 +56,7 @@ export function intersectEllipsoidRay(
     origin.y * origin.y * inversePolarSquared -
     1;
   const discriminant = halfB * halfB - a * c;
-  let distance = Math.max(0, -halfB / a);
+  let distance = 0;
   let hit = false;
   if (discriminant >= 0) {
     const root = Math.sqrt(discriminant);
@@ -74,14 +74,52 @@ export function intersectEllipsoidRay(
   target.y = origin.y + direction.y * distance;
   target.z = origin.z + direction.z * distance;
   if (!hit) {
+    const scaledOriginX = origin.x / equatorialRadius;
+    const scaledOriginY = origin.y / polarRadius;
+    const scaledOriginZ = origin.z / equatorialRadius;
+    const scaledDirectionX = direction.x / equatorialRadius;
+    const scaledDirectionY = direction.y / polarRadius;
+    const scaledDirectionZ = direction.z / equatorialRadius;
+    const originMagnitudeSquared =
+      scaledOriginX * scaledOriginX +
+      scaledOriginY * scaledOriginY +
+      scaledOriginZ * scaledOriginZ;
+    if (originMagnitudeSquared > 1) {
+      const originMagnitude = Math.sqrt(originMagnitudeSquared);
+      const unitOriginX = scaledOriginX / originMagnitude;
+      const unitOriginY = scaledOriginY / originMagnitude;
+      const unitOriginZ = scaledOriginZ / originMagnitude;
+      const radialDirection =
+        scaledDirectionX * unitOriginX +
+        scaledDirectionY * unitOriginY +
+        scaledDirectionZ * unitOriginZ;
+      let tangentX = scaledDirectionX - unitOriginX * radialDirection;
+      let tangentY = scaledDirectionY - unitOriginY * radialDirection;
+      let tangentZ = scaledDirectionZ - unitOriginZ * radialDirection;
+      const tangentMagnitude = Math.hypot(tangentX, tangentY, tangentZ);
+      if (tangentMagnitude > 1e-12) {
+        tangentX /= tangentMagnitude;
+        tangentY /= tangentMagnitude;
+        tangentZ /= tangentMagnitude;
+        const horizonRadius = Math.sqrt(1 - 1 / originMagnitudeSquared);
+        const baseScale = 1 / originMagnitudeSquared;
+        target.x = equatorialRadius *
+          (scaledOriginX * baseScale + tangentX * horizonRadius);
+        target.y = polarRadius *
+          (scaledOriginY * baseScale + tangentY * horizonRadius);
+        target.z = equatorialRadius *
+          (scaledOriginZ * baseScale + tangentZ * horizonRadius);
+        return false;
+      }
+    }
     const radialScale = 1 / Math.sqrt(
-      (target.x * target.x + target.z * target.z) *
+      (origin.x * origin.x + origin.z * origin.z) *
         inverseEquatorialSquared +
-      target.y * target.y * inversePolarSquared,
+      origin.y * origin.y * inversePolarSquared,
     );
-    target.x *= radialScale;
-    target.y *= radialScale;
-    target.z *= radialScale;
+    target.x = origin.x * radialScale;
+    target.y = origin.y * radialScale;
+    target.z = origin.z * radialScale;
   }
   return hit;
 }

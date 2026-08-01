@@ -83,6 +83,72 @@ describe("view-local tile residency", () => {
     )).toBeGreaterThan(1);
   });
 
+  it("maps a sky-facing ray to the local horizon in its surface azimuth", () => {
+    const equatorialRadius = 6_378.137 / 6_371.0088;
+    const polarRadius = 6_356.752314245 / 6_371.0088;
+    const latitude = 51.52 * Math.PI / 180;
+    const sineLatitude = Math.sin(latitude);
+    const cosineLatitude = Math.cos(latitude);
+    const eccentricitySquared =
+      1 - polarRadius * polarRadius /
+      (equatorialRadius * equatorialRadius);
+    const primeVerticalRadius =
+      equatorialRadius /
+      Math.sqrt(1 - eccentricitySquared * sineLatitude * sineLatitude);
+    const surface = {
+      x: primeVerticalRadius * cosineLatitude,
+      y: primeVerticalRadius * (1 - eccentricitySquared) * sineLatitude,
+      z: 0,
+    };
+    const normal = { x: cosineLatitude, y: sineLatitude, z: 0 };
+    const north = { x: -sineLatitude, y: cosineLatitude, z: 0 };
+    const origin = {
+      x: surface.x + normal.x * 0.00025,
+      y: surface.y + normal.y * 0.00025,
+      z: 0,
+    };
+    const result = { x: 0, y: 0, z: 0 };
+    const direction = {
+      x: normal.x * 0.8 + north.x * 0.6,
+      y: normal.y * 0.8 + north.y * 0.6,
+      z: 0,
+    };
+
+    expect(intersectEllipsoidRay(
+      origin,
+      direction,
+      equatorialRadius,
+      polarRadius,
+      result,
+    )).toBe(false);
+    const scaledOrigin = {
+      x: origin.x / equatorialRadius,
+      y: origin.y / polarRadius,
+      z: origin.z / equatorialRadius,
+    };
+    const scaledResult = {
+      x: result.x / equatorialRadius,
+      y: result.y / polarRadius,
+      z: result.z / equatorialRadius,
+    };
+    expect(Math.hypot(
+      scaledResult.x,
+      scaledResult.y,
+      scaledResult.z,
+    )).toBeCloseTo(1, 12);
+    expect(
+      scaledOrigin.x * scaledResult.x +
+      scaledOrigin.y * scaledResult.y +
+      scaledOrigin.z * scaledResult.z,
+    ).toBeCloseTo(1, 12);
+    expect(Math.hypot(
+      result.x - surface.x,
+      result.y - surface.y,
+      result.z - surface.z,
+    )).toBeGreaterThan(0.01);
+    expect(result.y).toBeGreaterThan(surface.y);
+  });
+
   it("only changes its signature after crossing a half-tile sampling boundary", () => {
     const first = {
       underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
