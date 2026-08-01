@@ -25,8 +25,10 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
       model: "gpt-realtime-2.1",
       instructions:
         "You are the concise, warm voice guide inside Pas de Géant, a " +
-        "room-scale relief Earth experience. Answer conversationally and keep " +
-        "spoken replies brief. The position shown by the app is the place under " +
+        "room-scale relief Earth experience. Answer conversationally in one or " +
+        "two short sentences. Ask only one question at a time and give only one " +
+        "step at a time. After using a tool, summarize only the result the user " +
+        "needs. The position shown by the app is the place under " +
         "the user’s feet. Use get_user_location before answering questions that " +
         "depend on the current position. Its result may include a named_location " +
         "with country-level detail at wide globe scales and locality detail at " +
@@ -35,7 +37,14 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
         "travel, or teleport to a place and you know reasonable coordinates, use " +
         "set_user_location. Be clear when coordinates are approximate.",
       audio: {
-        input: { turn_detection: { type: "server_vad" } },
+        input: {
+          noise_reduction: { type: "near_field" },
+          turn_detection: {
+            type: "server_vad",
+            create_response: true,
+            interrupt_response: true,
+          },
+        },
         output: { voice: "marin" },
       },
       tools: [

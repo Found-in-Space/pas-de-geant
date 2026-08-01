@@ -32,7 +32,6 @@ export function realtimeGreetingEvent(): Record<string, unknown> {
         "Greet the user warmly in one short sentence and invite them to ask " +
         "about the world. Do not call a tool in this greeting.",
       output_modalities: ["audio"],
-      max_output_tokens: 80,
     },
   };
 }
@@ -41,6 +40,8 @@ interface RealtimeServerEvent {
   type?: string;
   error?: { message?: string };
   response?: {
+    status?: string;
+    status_details?: unknown;
     output?: Array<Partial<RealtimeAgentToolCall> & { type?: string }>;
   };
 }
@@ -49,8 +50,6 @@ interface RealtimeTokenResponse {
   value?: string;
   error?: string;
 }
-
-const MICROPHONE_ECHO_SETTLE_MS = 400;
 
 export class RealtimeVoiceAgent {
   private readonly tokenEndpoint: string;
@@ -62,10 +61,13 @@ export class RealtimeVoiceAgent {
   private microphoneStream: MediaStream | null = null;
   private starting = false;
   private speaking = false;
+  private userSpeechActive = false;
   private greetingStarted = false;
-  private greetingInProgress = false;
-  private microphoneEnabled = false;
-  private microphoneResumeTimer: ReturnType<typeof setTimeout> | null = null;
+  private statusAfterPlayback: RealtimeAgentStatus | null = null;
+  private activeResponseCount = 0;
+  private responseRequestPending = false;
+  private toolBatchesInFlight = 0;
+  private continuationPending = false;
 
   constructor(options: RealtimeAgentOptions) {
     this.tokenEndpoint = options.tokenEndpoint ?? "/api/realtime/token";
@@ -106,6 +108,7 @@ export class RealtimeVoiceAgent {
         return;
       }
       this.microphoneStream = microphoneStream;
+      this.reportMicrophoneProcessing(microphoneStream);
       await this.connect(microphoneStream, token);
     } catch (error) {
       const cancelled = !this.starting;
@@ -159,9 +162,6 @@ export class RealtimeVoiceAgent {
       }
     });
     for (const track of stream.getAudioTracks()) {
-      // The guide owns the first turn. Keep VAD silent until its greeting has
-      // finished so microphone noise cannot interrupt the initial response.
-      track.enabled = false;
       peerConnection.addTrack(track, stream);
     }
 
@@ -211,45 +211,67 @@ export class RealtimeVoiceAgent {
         this.startGreeting();
         break;
       case "input_audio_buffer.speech_started":
-        if (!this.microphoneEnabled) break;
+        this.userSpeechActive = true;
         this.setStatus("listening", "Hearing you…");
         break;
       case "input_audio_buffer.speech_stopped":
+        this.userSpeechActive = false;
+        // With create_response enabled, speech_stopped schedules an automatic
+        // response before response.created arrives over the data channel.
+        this.responseRequestPending = true;
         this.setStatus("thinking", "Thinking…");
         break;
       case "response.created":
-        this.cancelMicrophoneResume();
-        this.setMicrophoneEnabled(false);
-        this.setStatus("thinking", "Thinking…");
+        this.activeResponseCount += 1;
+        this.responseRequestPending = false;
+        if (!this.speaking && !this.userSpeechActive) {
+          this.setStatus("thinking", "Thinking…");
+        }
         break;
       case "output_audio_buffer.started":
       case "response.output_audio.delta":
-        this.cancelMicrophoneResume();
-        this.setMicrophoneEnabled(false);
         this.speaking = true;
-        this.setStatus("speaking", "Speaking");
+        if (!this.userSpeechActive) this.setStatus("speaking", "Speaking");
         break;
       case "output_audio_buffer.stopped":
+      case "output_audio_buffer.cleared":
         this.speaking = false;
-        if (this.greetingInProgress) {
-          this.finishGreeting();
-        } else {
-          this.scheduleMicrophoneResume();
-        }
+        this.applyStatusAfterPlayback();
+        this.flushContinuation();
         break;
       case "response.done":
         await this.handleResponseDone(event);
         break;
-      case "error":
-        this.cancelMicrophoneResume();
-        this.setMicrophoneEnabled(true);
-        this.greetingInProgress = false;
-        this.setStatus("error", event.error?.message ?? "Realtime API error.");
+      case "error": {
+        console.error("Realtime API error:", event.error);
+        this.responseRequestPending = false;
+        const detail = event.error?.message ?? "Realtime API error.";
+        if (this.speaking) {
+          this.deferStatusAfterPlayback({ state: "error", detail });
+        } else {
+          this.setStatus("error", detail);
+        }
         break;
+      }
     }
   }
 
   private async handleResponseDone(event: RealtimeServerEvent): Promise<void> {
+    this.activeResponseCount = Math.max(0, this.activeResponseCount - 1);
+    const responseStatus = event.response?.status;
+    const responseStatusDetails = event.response?.status_details;
+    if (responseStatus !== undefined && responseStatus !== "completed") {
+      const diagnostic = {
+        status: responseStatus,
+        statusDetails: responseStatusDetails,
+      };
+      if (responseStatus === "cancelled") {
+        console.info("Realtime response cancelled:", diagnostic);
+      } else {
+        console.warn("Realtime response did not complete:", diagnostic);
+      }
+    }
+
     const calls = (event.response?.output ?? []).filter(
       (item): item is RealtimeAgentToolCall & { type: "function_call" } =>
         item.type === "function_call" &&
@@ -257,26 +279,41 @@ export class RealtimeVoiceAgent {
         typeof item.arguments === "string" &&
         typeof item.call_id === "string",
     );
+    if (responseStatus !== undefined && responseStatus !== "completed") {
+      this.settleTerminalResponse(responseStatus, responseStatusDetails);
+      this.flushContinuation();
+      return;
+    }
     if (calls.length === 0) {
-      if (!this.speaking && this.microphoneEnabled) {
-        this.setStatus("listening", "Listening");
-      }
+      this.settleTerminalResponse(responseStatus, responseStatusDetails);
+      this.flushContinuation();
       return;
     }
 
-    this.setStatus("thinking", "Using app controls…");
-    for (const call of calls) {
-      const output = await this.executeTool(call);
-      this.send({
-        type: "conversation.item.create",
-        item: {
-          type: "function_call_output",
-          call_id: call.call_id,
-          output: JSON.stringify(output),
-        },
-      });
+    this.toolBatchesInFlight += 1;
+    if (!this.speaking && !this.userSpeechActive) {
+      this.setStatus("thinking", "Using app controls…");
     }
-    this.send({ type: "response.create" });
+    try {
+      const outputs: Array<{ call: RealtimeAgentToolCall; output: unknown }> = [];
+      for (const call of calls) {
+        outputs.push({ call, output: await this.executeTool(call) });
+      }
+      for (const { call, output } of outputs) {
+        this.send({
+          type: "conversation.item.create",
+          item: {
+            type: "function_call_output",
+            call_id: call.call_id,
+            output: JSON.stringify(output),
+          },
+        });
+      }
+      this.continuationPending = true;
+    } finally {
+      this.toolBatchesInFlight -= 1;
+      this.flushContinuation();
+    }
   }
 
   private async executeTool(call: RealtimeAgentToolCall): Promise<unknown> {
@@ -292,45 +329,109 @@ export class RealtimeVoiceAgent {
     }
   }
 
-  private send(event: unknown): void {
-    if (this.dataChannel?.readyState !== "open") return;
+  private send(event: unknown): boolean {
+    if (this.dataChannel?.readyState !== "open") return false;
     this.dataChannel.send(JSON.stringify(event));
+    return true;
   }
 
   private startGreeting(): void {
     if (this.greetingStarted) return;
     this.greetingStarted = true;
-    this.greetingInProgress = true;
     this.setStatus("thinking", "Greeting…");
-    this.send(realtimeGreetingEvent());
+    if (this.send(realtimeGreetingEvent())) {
+      this.responseRequestPending = true;
+    }
   }
 
-  private finishGreeting(): void {
-    this.greetingInProgress = false;
-    this.scheduleMicrophoneResume();
+  private settleTerminalResponse(
+    status: string | undefined,
+    statusDetails: unknown,
+  ): void {
+    const nextStatus = terminalResponseStatus(status, statusDetails);
+    // response.done ends generation, but WebRTC may still be playing buffered
+    // audio. Keep the speaking state until the output buffer stops or is cleared.
+    if (this.speaking) {
+      this.deferStatusAfterPlayback(nextStatus);
+      return;
+    }
+    if (
+      nextStatus.state !== "error" &&
+      (this.userSpeechActive || this.hasResponseOrToolActivity())
+    ) {
+      return;
+    }
+    this.setStatus(nextStatus.state, nextStatus.detail);
   }
 
-  private scheduleMicrophoneResume(): void {
-    this.cancelMicrophoneResume();
-    this.setStatus("speaking", "Finishing…");
-    this.microphoneResumeTimer = setTimeout(() => {
-      this.microphoneResumeTimer = null;
-      if (!this.peerConnection) return;
-      this.setMicrophoneEnabled(true);
-      this.setStatus("listening", "Listening");
-    }, MICROPHONE_ECHO_SETTLE_MS);
+  private applyStatusAfterPlayback(): void {
+    const nextStatus = this.statusAfterPlayback;
+    this.statusAfterPlayback = null;
+    if (nextStatus?.state === "error") {
+      this.setStatus(nextStatus.state, nextStatus.detail);
+      return;
+    }
+    if (this.userSpeechActive) return;
+    if (this.hasResponseOrToolActivity()) {
+      this.setStatus("thinking", "Thinking…");
+      return;
+    }
+    this.setStatus(
+      nextStatus?.state ?? "listening",
+      nextStatus?.detail ?? "Listening",
+    );
   }
 
-  private cancelMicrophoneResume(): void {
-    if (this.microphoneResumeTimer === null) return;
-    clearTimeout(this.microphoneResumeTimer);
-    this.microphoneResumeTimer = null;
+  private deferStatusAfterPlayback(status: RealtimeAgentStatus): void {
+    if (
+      this.statusAfterPlayback?.state === "error" &&
+      status.state !== "error"
+    ) {
+      return;
+    }
+    this.statusAfterPlayback = status;
   }
 
-  private setMicrophoneEnabled(enabled: boolean): void {
-    this.microphoneEnabled = enabled;
-    for (const track of this.microphoneStream?.getAudioTracks() ?? []) {
-      track.enabled = enabled;
+  private hasResponseOrToolActivity(): boolean {
+    return (
+      this.activeResponseCount > 0 ||
+      this.responseRequestPending ||
+      this.toolBatchesInFlight > 0
+    );
+  }
+
+  private flushContinuation(): void {
+    if (
+      !this.continuationPending ||
+      this.hasResponseOrToolActivity() ||
+      this.speaking ||
+      this.userSpeechActive
+    ) {
+      return;
+    }
+    if (!this.send({ type: "response.create" })) return;
+    this.continuationPending = false;
+    // Hold this state through the data-channel gap until response.created.
+    this.responseRequestPending = true;
+  }
+
+  private reportMicrophoneProcessing(stream: MediaStream): void {
+    for (const track of stream.getAudioTracks()) {
+      const settings = track.getSettings();
+      const processing = {
+        echoCancellation: settings.echoCancellation,
+        noiseSuppression: settings.noiseSuppression,
+        autoGainControl: settings.autoGainControl,
+      };
+      console.info("Realtime microphone processing:", processing);
+      const disabled = Object.entries(processing)
+        .filter(([, enabled]) => enabled === false)
+        .map(([name]) => name);
+      if (disabled.length > 0) {
+        console.warn(
+          `Requested microphone processing is disabled: ${disabled.join(", ")}.`,
+        );
+      }
     }
   }
 
@@ -339,7 +440,6 @@ export class RealtimeVoiceAgent {
   }
 
   private cleanup(): void {
-    this.cancelMicrophoneResume();
     this.onRemoteStream(null);
     this.dataChannel?.close();
     this.dataChannel = null;
@@ -348,10 +448,51 @@ export class RealtimeVoiceAgent {
     for (const track of this.microphoneStream?.getTracks() ?? []) track.stop();
     this.microphoneStream = null;
     this.speaking = false;
+    this.userSpeechActive = false;
     this.greetingStarted = false;
-    this.greetingInProgress = false;
-    this.microphoneEnabled = false;
+    this.statusAfterPlayback = null;
+    this.activeResponseCount = 0;
+    this.responseRequestPending = false;
+    this.toolBatchesInFlight = 0;
+    this.continuationPending = false;
   }
+}
+
+function terminalResponseStatus(
+  status: string | undefined,
+  statusDetails: unknown,
+): RealtimeAgentStatus {
+  if (status === "failed") {
+    return {
+      state: "error",
+      detail:
+        responseStatusMessage(statusDetails) ?? "Voice response failed. Try again.",
+    };
+  }
+  if (status === "incomplete") {
+    const reason = responseStatusReason(statusDetails);
+    return {
+      state: "error",
+      detail: reason
+        ? `Voice response ended early (${reason}). Try again.`
+        : "Voice response ended early. Try again.",
+    };
+  }
+  return { state: "listening", detail: "Listening" };
+}
+
+function responseStatusMessage(statusDetails: unknown): string | undefined {
+  if (!statusDetails || typeof statusDetails !== "object") return undefined;
+  const error = (statusDetails as { error?: unknown }).error;
+  if (!error || typeof error !== "object") return undefined;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" ? message : undefined;
+}
+
+function responseStatusReason(statusDetails: unknown): string | undefined {
+  if (!statusDetails || typeof statusDetails !== "object") return undefined;
+  const reason = (statusDetails as { reason?: unknown }).reason;
+  return typeof reason === "string" ? reason : undefined;
 }
 
 export function parseLocationToolArguments(value: unknown): {
