@@ -22,7 +22,6 @@
     "dev": "npm run dev --workspace @found-in-space/pas-de-geant --",
     "test": "vitest run",
     "test:browser": "playwright test --config playwright.pas-de-geant.config.ts",
-    "test:construct:browser": "playwright test --config playwright.pas-de-geant-construct.config.ts",
     "typecheck": "tsc --build --pretty false && tsc --project tsconfig.tools.json --pretty false"
   },
   "engines": {

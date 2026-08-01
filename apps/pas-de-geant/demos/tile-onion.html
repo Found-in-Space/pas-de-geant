@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A flat visual debugger for the Pas de Géant Web Mercator tile onion."
+    />
+    <title>Tile Onion — Pas de Géant</title>
+  </head>
+  <body>
+    <aside class="demo-panel">
+      <nav class="breadcrumb">
+        <a href="../">Pas de Géant</a>
+        <span>/ Tile Onion</span>
+      </nav>
+
+      <p class="kicker">Tile calculation reference</p>
+      <h1>Tile Onion</h1>
+      <p class="intro">
+        The complete provider-independent quadtree cut in Web Mercator space.
+        Click the map—including either polar gutter—or enter a coordinate.
+      </p>
+
+      <form id="coordinate-form" class="coordinate-form">
+        <div class="field-pair">
+          <label>
+            <span>Latitude</span>
+            <input
+              id="latitude"
+              name="latitude"
+              type="number"
+              min="-90"
+              max="90"
+              step="any"
+              value="45.9"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            <span>Longitude</span>
+            <input
+              id="longitude"
+              name="longitude"
+              type="number"
+              step="any"
+              value="9.25"
+              inputmode="decimal"
+            />
+          </label>
+        </div>
+        <button type="submit">Calculate position</button>
+      </form>
+
+      <label class="zoom-control" for="max-zoom">
+        <span>Maximum zoom</span>
+        <strong id="max-zoom-value">z8</strong>
+      </label>
+      <input
+        id="max-zoom"
+        class="max-zoom-input"
+        type="number"
+        min="0"
+        step="1"
+        value="8"
+        inputmode="numeric"
+      />
+
+      <button id="fit-world" class="secondary-button" type="button">
+        Fit full world
+      </button>
+
+      <div id="validation-message" class="validation-message" role="alert"></div>
+
+      <section class="diagnostics" aria-labelledby="diagnostics-title">
+        <div class="section-heading">
+          <h2 id="diagnostics-title">Committed plan</h2>
+          <span id="mode-badge" class="mode-badge">Normal</span>
+        </div>
+        <dl>
+          <div><dt>Coordinate</dt><dd id="coordinate-readout">—</dd></div>
+          <div><dt>Plan zoom</dt><dd id="zoom-readout">—</dd></div>
+          <div><dt>Underfoot</dt><dd id="underfoot-readout">—</dd></div>
+          <div><dt>Fine anchor</dt><dd id="anchor-readout">—</dd></div>
+          <div><dt>Fine tiles</dt><dd id="fine-count-readout">—</dd></div>
+          <div><dt>All leaves</dt><dd id="leaf-count-readout">—</dd></div>
+          <div><dt>Zoom levels</dt><dd id="level-count-readout">—</dd></div>
+          <div><dt>Edge distance</dt><dd id="edge-distance-readout">—</dd></div>
+          <div><dt>Pole lock</dt><dd id="pole-lock-readout">—</dd></div>
+        </dl>
+      </section>
+
+      <section class="legend" aria-labelledby="legend-title">
+        <h2 id="legend-title">Zoom key</h2>
+        <div id="zoom-legend" class="zoom-legend"></div>
+      </section>
+
+      <details>
+        <summary>Active XYZ leaves</summary>
+        <pre id="tile-list"></pre>
+      </details>
+    </aside>
+
+    <main class="demo-stage">
+      <div id="map-shell" class="map-shell">
+        <canvas
+          id="tile-map"
+          aria-label="Interactive flat Web Mercator tile layout with polar selection gutters"
+        ></canvas>
+      </div>
+      <p class="stage-hint">
+        Click to select · drag to pan · scroll to zoom · gold lines mark ±85.0511°
+      </p>
+    </main>
+
+    <script type="module" src="/src/tile-onion.ts"></script>
+  </body>
+</html>
