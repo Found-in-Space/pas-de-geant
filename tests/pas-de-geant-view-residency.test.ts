@@ -1,21 +1,92 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyViewResidency,
+  hotResidencySignature,
   intersectEllipsoidRay,
   viewResidencySignature,
+  warmResidencySignature,
+  warmHorizonRadians,
 } from "../apps/pas-de-geant/src/view-residency.js";
 
 describe("view-local tile residency", () => {
   const cut = Array.from({ length: 16 }, (_, x) => ({ z: 4, x, y: 8 }));
 
+  it("uses a camera height twenty-five percent above the live eye height", () => {
+    const polarRadius = 1_000 * 6_356.752314245 / 6_371.0088;
+    const expanded = warmHorizonRadians(1_000, 2);
+    const unexpanded = Math.acos(polarRadius / (polarRadius + 2));
+
+    expect(expanded).toBeCloseTo(
+      Math.acos(polarRadius / (polarRadius + 2.5)),
+      12,
+    );
+    expect(expanded).toBeGreaterThan(unexpanded);
+  });
+
+  it("keeps warm horizon coverage orientation-independent in every bearing", () => {
+    const horizonCut = [
+      { z: 8, x: 128, y: 128 },
+      { z: 8, x: 132, y: 128 },
+      { z: 8, x: 124, y: 128 },
+      { z: 8, x: 128, y: 124 },
+      { z: 8, x: 128, y: 132 },
+      { z: 8, x: 150, y: 128 },
+    ];
+    const eastFacing = classifyViewResidency(horizonCut, {
+      underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
+      footprint: [{ latitudeDegrees: 0, longitudeDegrees: 5 }],
+      displayRadiusM: 1_000,
+      observerHeightWorldM: 1.65,
+    });
+    const westFacing = classifyViewResidency(horizonCut, {
+      underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
+      footprint: [{ latitudeDegrees: 0, longitudeDegrees: -5 }],
+      displayRadiusM: 1_000,
+      observerHeightWorldM: 1.65,
+    });
+
+    expect(eastFacing.warm).toEqual(westFacing.warm);
+    for (const key of [
+      "8/132/128",
+      "8/124/128",
+      "8/128/124",
+      "8/128/132",
+    ]) expect(eastFacing.warm.has(key)).toBe(true);
+    expect(eastFacing.warm.has("8/150/128")).toBe(false);
+    expect(eastFacing.hot).not.toEqual(westFacing.hot);
+    const shared = {
+      underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
+      displayRadiusM: 1_000,
+      observerHeightWorldM: 1.65,
+    };
+    expect(warmResidencySignature(8, {
+      ...shared,
+      footprint: [{ latitudeDegrees: 0, longitudeDegrees: 5 }],
+    })).toBe(warmResidencySignature(8, {
+      ...shared,
+      footprint: [{ latitudeDegrees: 0, longitudeDegrees: -5 }],
+    }));
+    expect(hotResidencySignature(8, {
+      ...shared,
+      footprint: [{ latitudeDegrees: 0, longitudeDegrees: 5 }],
+    })).not.toBe(hotResidencySignature(8, {
+      ...shared,
+      footprint: [{ latitudeDegrees: 0, longitudeDegrees: -5 }],
+    }));
+  });
+
   it("expands demand toward an inclined surface footprint without retaining the globe", () => {
     const downward = classifyViewResidency(cut, {
       underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
       footprint: [{ latitudeDegrees: 0, longitudeDegrees: 0 }],
+      displayRadiusM: 1_000,
+      observerHeightWorldM: 1.65,
     });
     const inclined = classifyViewResidency(cut, {
       underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
       footprint: [{ latitudeDegrees: 0, longitudeDegrees: 65 }],
+      displayRadiusM: 1_000,
+      observerHeightWorldM: 1.65,
     });
 
     expect(inclined.hot.size).toBeGreaterThan(downward.hot.size);
@@ -32,6 +103,8 @@ describe("view-local tile residency", () => {
     const residency = classifyViewResidency(mixedCut, {
       underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
       footprint: [{ latitudeDegrees: 0, longitudeDegrees: 0 }],
+      displayRadiusM: 1_000,
+      observerHeightWorldM: 1.65,
     });
 
     expect(residency.warm.has("12/2048/2048")).toBe(true);
@@ -153,6 +226,8 @@ describe("view-local tile residency", () => {
     const first = {
       underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
       footprint: [{ latitudeDegrees: 0, longitudeDegrees: 10 }],
+      displayRadiusM: 1_000,
+      observerHeightWorldM: 1.65,
     };
     const nearby = {
       ...first,

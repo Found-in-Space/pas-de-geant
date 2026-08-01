@@ -68,6 +68,7 @@ export class TileWorkerScheduler<Resource> {
   >();
   private readonly resources = new Map<string, Resource>();
   private demandedResources: ReadonlySet<string> | undefined;
+  private priorityResources: ReadonlySet<string> = new Set();
   private nextDirectRequestId = -1;
   private pendingTarget: TileTarget | undefined;
   private targetInFlight = false;
@@ -122,9 +123,15 @@ export class TileWorkerScheduler<Resource> {
    * Changes expensive payload residency without changing topology. An
    * undefined demand preserves the historical hydrate-everything behaviour.
    */
-  updateResourceDemand(demandedTiles: Iterable<TileIdentity>): void {
+  updateResourceDemand(
+    demandedTiles: Iterable<TileIdentity>,
+    priorityTiles: Iterable<TileIdentity> = [],
+  ): void {
     const demanded = new Set([...demandedTiles].map(tileIdentityKey));
+    const priority = [...priorityTiles];
     this.demandedResources = demanded;
+    this.priorityResources = new Set(priority.map(tileIdentityKey));
+    this.options.provider.updatePriority?.(priority);
     for (const [key, request] of [...this.requests]) {
       if (demanded.has(key)) continue;
       request.handle?.cancel();
@@ -146,6 +153,12 @@ export class TileWorkerScheduler<Resource> {
     }
     this.hydrateDemandedCommitted();
     if (changed) this.notifyResourceChange();
+  }
+
+  updateResourcePriority(priorityTiles: Iterable<TileIdentity>): void {
+    const priority = [...priorityTiles];
+    this.priorityResources = new Set(priority.map(tileIdentityKey));
+    this.options.provider.updatePriority?.(priority);
   }
 
   updateTarget(target: TileTarget): void {
@@ -288,14 +301,21 @@ export class TileWorkerScheduler<Resource> {
 
   private hydrateDemandedCommitted(): void {
     if (!this.demandedResources) return;
-    for (const tile of this.snapshotValue.committedCut) {
+    const demandedResources = this.demandedResources;
+    const hydrate = (tile: TileIdentity): void => {
       const key = tileIdentityKey(tile);
       if (
-        !this.demandedResources.has(key) ||
+        !demandedResources.has(key) ||
         this.resources.has(key) ||
         this.requests.has(key)
-      ) continue;
+      ) return;
       this.requestDirectHydration(tile, key);
+    };
+    for (const tile of this.snapshotValue.committedCut) {
+      if (this.priorityResources.has(tileIdentityKey(tile))) hydrate(tile);
+    }
+    for (const tile of this.snapshotValue.committedCut) {
+      if (!this.priorityResources.has(tileIdentityKey(tile))) hydrate(tile);
     }
   }
 

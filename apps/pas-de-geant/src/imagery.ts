@@ -49,8 +49,11 @@ import {
 } from "./tile-transition-planner.js";
 import { TileWorkerScheduler } from "./tile-worker-scheduler.js";
 import {
-  classifyViewResidency,
-  viewResidencySignature,
+  classifyHotResidency,
+  classifyWarmResidency,
+  hotResidencySignature,
+  sameResidencyKeys,
+  warmResidencySignature,
   type ViewResidencyInput,
 } from "./view-residency.js";
 
@@ -293,6 +296,7 @@ interface SourceJob {
   readonly sourceTile: TileIdentity;
   readonly consumers: Set<number>;
   state: "queued" | "active";
+  hot: boolean;
   controller?: AbortController;
 }
 
@@ -305,6 +309,7 @@ export class ScheduledImageryProvider
   private readonly requests = new Map<number, Request>();
   private readonly jobs = new Map<string, SourceJob>();
   private readonly queuedJobs: SourceJob[] = [];
+  private prioritySourceKeys = new Set<string>();
   private disposed = false;
   private requestTotal = 0;
   private sourceLoadTotal = 0;
@@ -358,6 +363,7 @@ export class ScheduledImageryProvider
         sourceTile,
         consumers: new Set(),
         state: "queued",
+        hot: this.prioritySourceKeys.has(sourceKey),
       };
       this.jobs.set(sourceKey, job);
       this.queuedJobs.push(job);
@@ -382,6 +388,18 @@ export class ScheduledImageryProvider
     this.jobs.clear();
   }
 
+  updatePriority(tiles: Iterable<TileIdentity>): void {
+    const priority = new Set<string>();
+    for (const tile of tiles) {
+      priority.add(imageryKey(ancestorAtZoom(tile, this.source.maxZoom)));
+    }
+    this.prioritySourceKeys = priority;
+    for (const job of this.jobs.values()) job.hot = priority.has(job.key);
+    this.queuedJobs.sort((first, second) =>
+      Number(second.hot) - Number(first.hot)
+    );
+  }
+
   private cancelRequest(requestId: number): void {
     const request = this.requests.get(requestId);
     if (!request?.active) return;
@@ -401,6 +419,9 @@ export class ScheduledImageryProvider
   }
 
   private pumpJobs(): void {
+    this.queuedJobs.sort((first, second) =>
+      Number(second.hot) - Number(first.hot)
+    );
     while (this.activeJobCount < MAX_CONCURRENT_REQUESTS) {
       const job = this.queuedJobs.shift();
       if (!job) return;
@@ -811,10 +832,14 @@ export class ImageryVirtualTexture {
   private hotKeys = new Set<string>();
   private warmKeys = new Set<string>();
   private residencyInput?: ViewResidencyInput;
-  private residencyViewSignature = -1;
-  private residencyRevision = -2;
+  private hotViewSignature = -1;
+  private hotRevision = -2;
+  private warmViewSignature = -1;
+  private warmRevision = -2;
   private uploadTotal = 0;
   private residencyClassificationTotal = 0;
+  private hotResidencyClassificationTotal = 0;
+  private warmResidencyClassificationTotal = 0;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -897,6 +922,8 @@ export class ImageryVirtualTexture {
       this.residencyInput = {
         underfoot: initialView,
         footprint: [],
+        displayRadiusM: initialView.displayRadiusM,
+        observerHeightWorldM: 0,
       };
       this.scheduler = new TileWorkerScheduler(this.target, {
         provider: this.provider,
@@ -980,6 +1007,8 @@ export class ImageryVirtualTexture {
     this.residencyInput = residencyInput ?? {
       underfoot: view,
       footprint: [],
+      displayRadiusM: view.displayRadiusM,
+      observerHeightWorldM: 0,
     };
     this.applyResidency();
     this.processUploads();
@@ -999,6 +1028,8 @@ export class ImageryVirtualTexture {
     estimatedCpuBytes: number;
     estimatedGpuBytes: number;
     residencyClassificationTotal: number;
+    hotResidencyClassificationTotal: number;
+    warmResidencyClassificationTotal: number;
   } {
     const provider = this.provider?.metrics;
     const mipBytesPerLayer = imageryMipDimensions(
@@ -1021,6 +1052,8 @@ export class ImageryVirtualTexture {
         (this.activePool.layers + (this.migration?.pool.layers ?? 0)) *
         mipBytesPerLayer,
       residencyClassificationTotal: this.residencyClassificationTotal,
+      hotResidencyClassificationTotal: this.hotResidencyClassificationTotal,
+      warmResidencyClassificationTotal: this.warmResidencyClassificationTotal,
     };
   }
 
@@ -1309,34 +1342,61 @@ export class ImageryVirtualTexture {
       this.residencyInput.footprint.length === 0 ||
       this.snapshot.committedCut.length === 0
     ) return;
-    const signature = viewResidencySignature(
+    const hotSignature = hotResidencySignature(
       this.target.z,
       this.residencyInput,
     );
-    if (
-      signature === this.residencyViewSignature &&
-      this.snapshot.revision === this.residencyRevision
-    ) return;
-    this.residencyViewSignature = signature;
-    this.residencyRevision = this.snapshot.revision;
+    const warmSignature = warmResidencySignature(
+      this.target.z,
+      this.residencyInput,
+    );
+    const hotNeedsClassification =
+      hotSignature !== this.hotViewSignature ||
+      this.snapshot.revision !== this.hotRevision;
+    const warmNeedsClassification =
+      warmSignature !== this.warmViewSignature ||
+      this.snapshot.revision !== this.warmRevision;
+    if (!hotNeedsClassification && !warmNeedsClassification) return;
+    this.hotViewSignature = hotSignature;
+    this.hotRevision = this.snapshot.revision;
+    this.warmViewSignature = warmSignature;
+    this.warmRevision = this.snapshot.revision;
     this.residencyClassificationTotal += 1;
+    if (hotNeedsClassification) this.hotResidencyClassificationTotal += 1;
+    if (warmNeedsClassification) this.warmResidencyClassificationTotal += 1;
     const workingCut = new Map<string, TileIdentity>();
     for (const tile of [
       ...this.snapshot.committedCut,
       ...this.snapshot.requestedCut,
     ]) workingCut.set(tileIdentityKey(tile), tile);
     const workingTiles = [...workingCut.values()];
-    const classified = classifyViewResidency(
-      workingTiles,
-      this.residencyInput,
-      this.warmKeys,
+    if (hotNeedsClassification) {
+      this.hotKeys = new Set(classifyHotResidency(
+        workingTiles,
+        this.residencyInput,
+      ));
+    }
+    let warmChanged = false;
+    if (warmNeedsClassification) {
+      const warm = classifyWarmResidency(
+        workingTiles,
+        this.residencyInput,
+        this.warmKeys,
+      );
+      warmChanged = !sameResidencyKeys(this.warmKeys, warm);
+      this.warmKeys = new Set(warm);
+    }
+    const hot = workingTiles.filter((tile) =>
+      this.hotKeys.has(tileIdentityKey(tile)),
     );
-    this.hotKeys = new Set(classified.hot);
-    this.warmKeys = new Set(classified.warm);
+    if (!warmChanged) {
+      this.scheduler.updateResourcePriority(hot);
+      return;
+    }
     const demanded = workingTiles.filter((tile) =>
       this.warmKeys.has(tileIdentityKey(tile)),
     );
-    this.scheduler.updateResourceDemand(demanded);
+    this.scheduler.updateResourceDemand(demanded, hot);
   }
 
   private migrationComplete(): boolean {

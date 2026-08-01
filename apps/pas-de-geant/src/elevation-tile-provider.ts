@@ -49,6 +49,10 @@ export class ElevationTileProvider implements TileProvider<ElevationTileResource
     this.elevationProvider.retainSourceTiles(tiles);
   }
 
+  updatePriority(tiles: Iterable<TileIdentity>): void {
+    this.elevationProvider.updatePriority(tiles);
+  }
+
   request(
     tile: TileIdentity,
     observer: (result: TileProviderResult<ElevationTileResource>) => void,

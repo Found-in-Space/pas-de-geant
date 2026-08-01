@@ -103,6 +103,7 @@ interface SourceJob {
   readonly consumers: Set<number>;
   priorityZoom: number;
   state: "queued" | "in-flight";
+  hot: boolean;
   controller?: AbortController;
 }
 
@@ -228,6 +229,7 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
   private readonly jobs = new Map<string, SourceJob>();
   private readonly queue: SourceJob[] = [];
   private readonly consumers = new Map<number, Consumer>();
+  private prioritySourceKeys = new Set<string>();
   private readonly listeners = new Set<
     (metrics: ImageTileProviderMetrics) => void
   >();
@@ -290,6 +292,19 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
       changed = true;
     }
     if (changed) this.emit();
+  }
+
+  updatePriority(tiles: Iterable<TileIdentity>): void {
+    const priority = new Set<string>();
+    for (const tile of tiles) {
+      try {
+        priority.add(tileIdentityKey(this.options.resolveSource(tile).sourceTile));
+      } catch {
+        // Tiles outside provider coverage cannot contribute queued work.
+      }
+    }
+    this.prioritySourceKeys = priority;
+    for (const job of this.jobs.values()) job.hot = priority.has(job.key);
   }
 
   subscribe(listener: (metrics: ImageTileProviderMetrics) => void): () => void {
@@ -370,6 +385,7 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
           consumers: new Set([requestId]),
           priorityZoom: tile.z,
           state: "queued",
+          hot: this.prioritySourceKeys.has(key),
         };
         this.jobs.set(key, job);
         this.queue.push(job);
@@ -407,6 +423,7 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
     while (this.activeJobCount < this.options.concurrency) {
       this.queue.sort(
         (first, second) =>
+          Number(second.hot) - Number(first.hot) ||
           second.priorityZoom - first.priorityZoom ||
           second.sourceTile.z - first.sourceTile.z,
       );

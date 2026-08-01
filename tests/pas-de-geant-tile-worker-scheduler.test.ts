@@ -39,6 +39,33 @@ function snapshot(revision: number, committedCut = [{ z: 0, x: 0, y: 0 }]) {
 }
 
 describe("Tile worker scheduler bridge", () => {
+  it("starts hot hydration before the rest of the warm committed cut", () => {
+    const worker = new FakeWorker();
+    const requested: string[] = [];
+    const provider: TileProvider<unknown> = {
+      request: (tile) => {
+        requested.push(`${tile.z}/${tile.x}/${tile.y}`);
+        return { requestId: requested.length, cancel() {} };
+      },
+    };
+    const warm = [
+      { z: 2, x: 0, y: 0 },
+      { z: 2, x: 1, y: 0 },
+      { z: 2, x: 2, y: 0 },
+    ];
+    const scheduler = new TileWorkerScheduler(warm[0]!, {
+      provider,
+      createWorker: () => worker,
+      hydrateInitialResources: false,
+      initialResourceDemand: [],
+    });
+    worker.emit({ kind: "snapshot", snapshot: snapshot(0, warm) });
+
+    scheduler.updateResourceDemand(warm, [warm[2]!]);
+    expect(requested).toEqual(["2/2/0", "2/0/0", "2/1/0"]);
+    scheduler.dispose();
+  });
+
   it("hydrates only seeded initial demand after the first topology snapshot", () => {
     const worker = new FakeWorker();
     const requested: string[] = [];

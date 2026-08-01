@@ -20,4 +20,6 @@ export interface TileProvider<Resource> {
     tile: TileIdentity,
     observer: (result: TileProviderResult<Resource>) => void,
   ): TileRequestHandle;
+  /** Reorders queued work without cancelling or restarting active requests. */
+  updatePriority?(tiles: Iterable<TileIdentity>): void;
 }
