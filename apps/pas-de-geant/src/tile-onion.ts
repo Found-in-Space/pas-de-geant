@@ -138,25 +138,21 @@ function logicalPoint(clientX: number, clientY: number): { x: number; y: number 
   };
 }
 
-function zoomHue(zoom: number, finestZoom: number): number {
-  if (finestZoom === 0) return 198;
-  return 205 - zoom / finestZoom * 145;
+/**
+ * A tile's colour is intentionally a function of its absolute XYZ zoom only.
+ * This lets a z8 leaf retain its visual meaning while the plan gains or loses
+ * coarser transition levels near a Mercator boundary.
+ */
+function zoomHue(zoom: number): number {
+  return ((205 - zoom * 137.50776405003785) % 360 + 360) % 360;
 }
 
-function leafFill(
-  tile: TileOnionPlan["leaves"][number],
-  finestZoom: number,
-): string {
-  if (tile.role === "finest") return "hsla(42, 96%, 66%, 0.82)";
-  return `hsla(${zoomHue(tile.z, finestZoom)}, 72%, 52%, 0.42)`;
+function zoomFill(zoom: number): string {
+  return `hsla(${zoomHue(zoom)}, 72%, 52%, 0.42)`;
 }
 
-function leafStroke(
-  tile: TileOnionPlan["leaves"][number],
-  finestZoom: number,
-): string {
-  if (tile.role === "finest") return "hsla(44, 100%, 82%, 0.96)";
-  return `hsla(${zoomHue(tile.z, finestZoom)}, 82%, 72%, 0.88)`;
+function zoomStroke(zoom: number): string {
+  return `hsla(${zoomHue(zoom)}, 82%, 72%, 0.88)`;
 }
 
 function drawBackground(): void {
@@ -205,7 +201,7 @@ function drawBackground(): void {
   }
 }
 
-function drawLeaf(tile: TileOnionPlan["leaves"][number], finestZoom: number): void {
+function drawLeaf(tile: TileOnionPlan["leaves"][number]): void {
   const divisor = 2 ** tile.z;
   const left = screenX(tile.x / divisor);
   const right = screenX((tile.x + 1) / divisor);
@@ -214,9 +210,9 @@ function drawLeaf(tile: TileOnionPlan["leaves"][number], finestZoom: number): vo
   if (right < 0 || left > viewportWidth || bottom < 0 || top > viewportHeight) {
     return;
   }
-  context.fillStyle = leafFill(tile, finestZoom);
+  context.fillStyle = zoomFill(tile.z);
   context.fillRect(left, top, right - left, bottom - top);
-  context.strokeStyle = leafStroke(tile, finestZoom);
+  context.strokeStyle = zoomStroke(tile.z);
   context.lineWidth = tile.role === "finest" ? 1.5 : 1;
   context.strokeRect(left, top, right - left, bottom - top);
 
@@ -274,7 +270,7 @@ function draw(): void {
   drawBackground();
   if (!committedPlan) return;
   for (const tile of committedPlan.leaves) {
-    drawLeaf(tile, committedPlan.effectiveZoom);
+    drawLeaf(tile);
   }
   drawSelection(committedPlan);
 }
@@ -315,20 +311,13 @@ function renderDiagnostics(plan: TileOnionPlan): void {
     : "inside Mercator";
   poleLockReadout.textContent = plan.state.poleLocked ? "locked" : "tracking";
 
-  const fineLegend = document.createElement("span");
-  fineLegend.className = "legend-item";
-  const fineSwatch = document.createElement("span");
-  fineSwatch.className = "legend-swatch";
-  fineSwatch.style.backgroundColor = "hsl(42 96% 66%)";
-  fineLegend.append(fineSwatch, "fine target");
   zoomLegend.replaceChildren(
-    fineLegend,
     ...levels.map(([zoom]) => {
       const item = document.createElement("span");
       item.className = "legend-item";
       const swatch = document.createElement("span");
       swatch.className = "legend-swatch";
-      swatch.style.backgroundColor = `hsl(${zoomHue(zoom, plan.effectiveZoom)} 72% 52%)`;
+      swatch.style.backgroundColor = `hsl(${zoomHue(zoom)} 72% 52%)`;
       item.append(swatch, `z${zoom}`);
       return item;
     }),

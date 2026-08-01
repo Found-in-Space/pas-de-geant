@@ -99,6 +99,8 @@ Every committed plan must satisfy all of the following:
    at the same finest zoom in each of the eight neighbouring directions.
 6. Terrain and imagery would consume the same finest mesh and the same derived
    tile hierarchy. They must not make independent base-tile selections.
+7. Any two active tiles whose closed footprints touch, including at only a
+   corner, differ by at most one zoom level.
 
 The fifth invariant cannot apply in the outermost Web Mercator row, where a
 north or south neighbour does not exist, or at zooms too coarse to contain the
@@ -140,28 +142,50 @@ columns.
 Only the inner `8x8` mesh has a prescribed rectangular shape. There is no
 fixed number or fixed geometry of outer shells.
 
-The complete plan is an exact quadtree cut constructed from `z0`:
+The complete plan is the least balanced quadtree cut implied by the finest
+targets. It is constructed by monotone family and balance closure:
 
-1. Begin with the `z0` root tile.
-2. If a tile does not intersect the finest target mesh, keep it as an active
-   leaf.
-3. If a tile intersects the target and is coarser than the target zoom,
-   replace it with its four children.
-4. Apply the same rule recursively to the intersecting children.
-5. At the target zoom, keep the target tiles as active leaves.
+1. Materialize the `z0` root and seed every distinct tile in the finest mesh as
+   a minimum required depth.
+2. To materialize a tile, first materialize its ancestors. Opening its parent
+   always materializes the complete four-child family. A materialized sibling
+   is a provisional leaf: it can be opened later, but can never coarsen
+   independently of its family.
+3. Every newly materialized tile `(z, x, y)` with `z > 0` propagates a balance
+   requirement to the aligned tiles at `z - 1` whose closed footprints touch
+   it. Along each axis these are the containing coarse coordinate and the
+   exterior coarse coordinate on the side faced by the child. Their Cartesian
+   product includes cardinal and corner-only neighbours.
+4. Coarse `x` coordinates wrap at the antimeridian. Coarse `y` coordinates are
+   clipped at the north and south Web Mercator boundaries and never wrap.
+   Wrapped aliases, especially at low zoom, are deduplicated.
+5. Continue processing newly materialized tiles until no requirement can open
+   another parent. The active cut consists of every materialized node whose
+   children were never materialized.
 
-The non-intersecting siblings produced along the refined branches form the
-outer coverage. Their count, zooms, and outline depend on the target's exact
-position in the global quadtree. They are not repeated `8x8` rings with
-centred holes.
+Opening a parent is the quadtree equivalent of a mine-sweep operation: if one
+part of a `z - 1` tile requires depth `z`, the parent cannot remain active, so
+all four of its depth-`z` children are immediately materialized. Propagating
+from their exposed boundaries produces whatever `z - 1`, `z - 2`, and further
+transition regions the alignment requires. There is no fixed shell count.
 
-This process reaches toward `z0`, but `z0` is not rendered underneath finer
-descendants. Once any part of `z0` is refined, its retained descendants and
-siblings collectively cover the rest of the Web Mercator surface.
+The construction is a fixed-point calculation, not first-discovery
+finalization. Materialization and opening are monotone and memoized, so the
+order in which equivalent requirements arrive does not change the result.
+Each operation is forced either by a finest target, complete-family closure,
+or the one-level touching constraint. The fixed point is therefore the unique
+coarsest cut satisfying those requirements.
 
-The algorithm uses integer range intersection and parent/child operations. Its
-cost is proportional to the emitted plan and its zoom depth, rather than the
-number of tiles that exist at the finest zoom.
+Completeness and non-overlap follow because refinement only replaces one leaf
+with all four children. Balance follows because a depth-`z` tile materializes
+every touching aligned depth-`z - 1` region; a touching leaf at `z - 2` or
+coarser would contain one of those materialized regions and therefore could
+not remain a leaf.
+
+Tile identities, materialized nodes, opened nodes, and pending work are hashed
+and deduplicated. Each node is materialized and processed at most once, so
+expected time and memory are proportional to the resulting quadtree. The
+algorithm never enumerates the finest-resolution world grid.
 
 ## Plan changes and atomicity
 
@@ -303,16 +327,20 @@ The experiment is successful when all of the following are demonstrable:
 3. The active addresses form a complete non-overlapping quadtree cut of the
    Web Mercator domain.
 4. No active plan contains both an ancestor and one of its descendants.
-5. Outer coverage changes shape as required by quadtree alignment and is not
+5. Every edge- or corner-touching pair of active tiles differs by at most one
+   zoom level, including pairs that touch across the antimeridian.
+6. Outer coverage changes shape as required by quadtree alignment and is not
    limited to a hardcoded shell count.
-6. Crossing the antimeridian does not replace equivalent wrapped coverage or
+7. Crossing the antimeridian does not replace equivalent wrapped coverage or
    produce duplicate addresses.
-7. Entering boundary mode preserves a local patch of visible Mercator detail
+8. Balance propagation stops at the north and south Web Mercator boundaries;
+   those edges are never treated as neighbours.
+9. Entering boundary mode preserves a local patch of visible Mercator detail
    without requesting a full latitude row.
-8. Approaching or crossing a pole cannot cause rapid anchor or zoom churn.
-9. Returning to the Mercator domain produces one staged, atomic transition
+10. Approaching or crossing a pole cannot cause rapid anchor or zoom churn.
+11. Returning to the Mercator domain produces one staged, atomic transition
    back to normal coverage.
-10. The tile-onion calculator has no dependency on the main application's
+12. The tile-onion calculator has no dependency on the main application's
     existing terrain or imagery onion calculations.
 
 ## Parameters still to determine experimentally

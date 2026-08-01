@@ -168,52 +168,94 @@ function compareAddresses(
   return first.z - second.z || first.y - second.y || first.x - second.x;
 }
 
-function quadtreeLeaves(
+function balancedQuadtreeLeaves(
   finestTiles: readonly TileAddress[],
-  targetZoom: number,
 ): TileOnionLeaf[] {
   const finestKeys = new Set(finestTiles.map(tileKey));
-  const refinedAtZoom = Array.from(
-    { length: targetZoom + 1 },
-    () => new Set<string>(),
-  );
-  for (const target of finestTiles) {
-    for (let zoom = 0; zoom <= targetZoom; zoom += 1) {
-      const divisor = 2 ** (targetZoom - zoom);
-      refinedAtZoom[zoom]!.add(
-        tileKey({
-          z: zoom,
-          x: Math.floor(target.x / divisor),
-          y: Math.floor(target.y / divisor),
-        }),
-      );
+  const root = { z: 0, x: 0, y: 0 };
+  const materialized = new Map<string, TileAddress>([[tileKey(root), root]]);
+  const opened = new Set<string>();
+  const balanceQueue: TileAddress[] = [root];
+
+  const open = (address: TileAddress): void => {
+    const key = tileKey(address);
+    if (opened.has(key)) return;
+    opened.add(key);
+
+    const childZoom = address.z + 1;
+    for (let deltaY = 0; deltaY < 2; deltaY += 1) {
+      for (let deltaX = 0; deltaX < 2; deltaX += 1) {
+        const child = {
+          z: childZoom,
+          x: address.x * 2 + deltaX,
+          y: address.y * 2 + deltaY,
+        };
+        const childKey = tileKey(child);
+        if (!materialized.has(childKey)) {
+          materialized.set(childKey, child);
+          balanceQueue.push(child);
+        }
+      }
+    }
+  };
+
+  const materialize = (address: TileAddress): void => {
+    if (materialized.has(tileKey(address))) return;
+
+    const missingPath: TileAddress[] = [];
+    let cursor = address;
+    while (!materialized.has(tileKey(cursor))) {
+      missingPath.push(cursor);
+      cursor = {
+        z: cursor.z - 1,
+        x: Math.floor(cursor.x / 2),
+        y: Math.floor(cursor.y / 2),
+      };
+    }
+
+    for (let index = missingPath.length - 1; index >= 0; index -= 1) {
+      const required = missingPath[index]!;
+      open({
+        z: required.z - 1,
+        x: Math.floor(required.x / 2),
+        y: Math.floor(required.y / 2),
+      });
+    }
+  };
+
+  for (const target of finestTiles) materialize(target);
+
+  for (let queueIndex = 0; queueIndex < balanceQueue.length; queueIndex += 1) {
+    const address = balanceQueue[queueIndex]!;
+    if (address.z === 0) continue;
+
+    const coarseZoom = address.z - 1;
+    const coarseWidth = 2 ** coarseZoom;
+    const containingX = Math.floor(address.x / 2);
+    const containingY = Math.floor(address.y / 2);
+    const exteriorX = wrapTileX(
+      containingX + (address.x % 2 === 0 ? -1 : 1),
+      coarseZoom,
+    );
+    const exteriorY = containingY + (address.y % 2 === 0 ? -1 : 1);
+    const coarseXs = new Set([containingX, exteriorX]);
+    const coarseYs = new Set([containingY]);
+    if (exteriorY >= 0 && exteriorY < coarseWidth) coarseYs.add(exteriorY);
+
+    for (const y of coarseYs) {
+      for (const x of coarseXs) {
+        materialize({ z: coarseZoom, x, y });
+      }
     }
   }
 
-  const leaves: TileOnionLeaf[] = [];
-  const visit = (address: TileAddress): void => {
-    const key = tileKey(address);
-    if (!refinedAtZoom[address.z]!.has(key)) {
-      leaves.push({ ...address, role: "outer" });
-      return;
-    }
-    if (address.z === targetZoom) {
-      leaves.push({
-        ...address,
-        role: finestKeys.has(key) ? "finest" : "outer",
-      });
-      return;
-    }
-    const childZoom = address.z + 1;
-    const childX = address.x * 2;
-    const childY = address.y * 2;
-    visit({ z: childZoom, x: childX, y: childY });
-    visit({ z: childZoom, x: childX + 1, y: childY });
-    visit({ z: childZoom, x: childX, y: childY + 1 });
-    visit({ z: childZoom, x: childX + 1, y: childY + 1 });
-  };
-  visit({ z: 0, x: 0, y: 0 });
-  return leaves.sort(compareAddresses);
+  return [...materialized.values()]
+    .filter((address) => !opened.has(tileKey(address)))
+    .map((address): TileOnionLeaf => ({
+      ...address,
+      role: finestKeys.has(tileKey(address)) ? "finest" : "outer",
+    }))
+    .sort(compareAddresses);
 }
 
 function boundaryTileWidthKm(zoom: number): number {
@@ -432,7 +474,7 @@ export function calculateTileOnionPlan(
     finestTiles = target.finestTiles;
   }
 
-  const leaves = quadtreeLeaves(finestTiles, effectiveZoom);
+  const leaves = balancedQuadtreeLeaves(finestTiles);
   const state: TileOnionState = {
     mode,
     requestedMaxZoom,
