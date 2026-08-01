@@ -3,6 +3,7 @@ import {
   LOCAL_HEIGHT_CACHE_LIMIT,
   LOCAL_RING_LEVELS,
   LOCAL_RING_OUTER_TILES,
+  LOCAL_TERRAIN_MAX_ZOOM,
   LOCAL_TILE_COARSEN_WIDTH_M,
   LOCAL_TILE_REFINE_WIDTH_M,
   LOCAL_TILE_SIZE,
@@ -25,6 +26,9 @@ import {
   selectNativeTerrainPlan,
   selectNativeTerrainZoom,
   terrainEdgeInterpolation,
+  terrainSourceAddress,
+  terrainSourceDependencies,
+  terrainSourcePixelCoordinates,
 } from "../apps/pas-de-geant/src/local-terrain-core.js";
 import {
   MAPTERHORN_ELEVATION_CACHE_NAME,
@@ -73,6 +77,59 @@ describe("Pas de Géant native terrain rings", () => {
       LOCAL_TILE_COARSEN_WIDTH_M * 2 ** 5 / (2 * Math.PI);
     expect(selectNativeTerrainZoom(0, radiusAtLower * 1.01, 5)).toBe(5);
     expect(selectNativeTerrainZoom(0, radiusAtLower * 0.99, 5)).toBe(4);
+  });
+
+  it("keeps drawn tiles room-scale after Mapterhorn reaches z12", () => {
+    const latitudeDegrees = 46;
+    const displayRadiusM = 700_000;
+    const drawZoom = selectNativeTerrainZoom(
+      latitudeDegrees,
+      displayRadiusM,
+    );
+    const plan = selectNativeTerrainPlan({
+      latitudeDegrees,
+      longitudeDegrees: 9,
+      displayRadiusM,
+    });
+
+    expect(drawZoom).toBeGreaterThan(LOCAL_TERRAIN_MAX_ZOOM);
+    expect(plan.finestZoom).toBe(drawZoom);
+    expect(plan.finestTileWidthM).toBeGreaterThanOrEqual(
+      LOCAL_TILE_COARSEN_WIDTH_M,
+    );
+    expect(plan.finestTileWidthM).toBeLessThanOrEqual(
+      LOCAL_TILE_REFINE_WIDTH_M,
+    );
+    expect(plan.maxZoom).toBe(LOCAL_TERRAIN_MAX_ZOOM);
+    expect(
+      plan.required.every((address) => address.z === LOCAL_TERRAIN_MAX_ZOOM),
+    ).toBe(true);
+
+    const first = plan.active.find((tile) => tile.ring === 0)!;
+    const east = { ...first, x: first.x + 1 };
+    expect(terrainSourceAddress(first).z).toBe(LOCAL_TERRAIN_MAX_ZOOM);
+    const firstEastEdge = terrainSourcePixelCoordinates(
+      first,
+      LOCAL_TILE_SIZE,
+      0,
+    );
+    const eastWestEdge = terrainSourcePixelCoordinates(east, 0, 0);
+    expect(eastWestEdge).toEqual(firstEastEdge);
+    expect(plan.sourceTexelWidthM).toBeGreaterThan(
+      plan.finestTileWidthM / LOCAL_TILE_SIZE,
+    );
+
+    const sourceX = 2_000;
+    const edgeSubtile = {
+      z: 22,
+      x: sourceX * 1_024 + 1_022,
+      y: 1_500 * 1_024,
+    };
+    expect(
+      terrainSourceDependencies(edgeSubtile).some(
+        (address) => address.x === sourceX + 1,
+      ),
+    ).toBe(true);
   });
 
   it("builds one 8x8 cap and two identical two-tile-wide parent rings", () => {

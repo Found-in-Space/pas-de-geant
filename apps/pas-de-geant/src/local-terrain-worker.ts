@@ -4,11 +4,9 @@ import {
   WGS84_B_KM,
 } from "./planet-state.js";
 import {
-  LOCAL_GRID_SIZE,
   LOCAL_HEIGHT_CACHE_LIMIT,
   LOCAL_TILE_SIZE,
   LruCache,
-  buildHeightGrid513,
   clampOceanSurfaceOffsetM,
   decodeTerrariumPixels,
   interpolateOceanSurfaceOffsetM,
@@ -17,7 +15,8 @@ import {
   mercatorCoordinatesForTilePoint,
   mercatorTileKey,
   terrainEdgeInterpolation,
-  wrapMercatorX,
+  terrainSourceDependencies,
+  terrainSourcePixelCoordinates,
   type DecodedHeightTile,
   type LocalEdgeMask,
   type LocalTerrainWorkerRequest,
@@ -40,18 +39,6 @@ const worker = self as unknown as {
   postMessage(message: LocalTerrainWorkerResult, transfer?: Transferable[]): void;
   close(): void;
 };
-
-function adjacentAddress(
-  address: MercatorTileAddress,
-  deltaX: number,
-  deltaY: number,
-): MercatorTileAddress {
-  return {
-    z: address.z,
-    x: wrapMercatorX(address.x + deltaX, address.z),
-    y: address.y + deltaY,
-  };
-}
 
 function decodedHeights(
   address: MercatorTileAddress,
@@ -234,42 +221,56 @@ function terrainSurfacePoint(
   };
 }
 
-function decodedHeightAtGridPoint(
+function decodedHeightAtSourcePixel(
+  sourceZoom: number,
+  globalPixelX: number,
+  globalPixelY: number,
+): number {
+  const pixelWorldWidth = 2 ** sourceZoom * LOCAL_TILE_SIZE;
+  const x =
+    ((globalPixelX % pixelWorldWidth) + pixelWorldWidth) % pixelWorldWidth;
+  const y = Math.max(0, Math.min(pixelWorldWidth - 1, globalPixelY));
+  const integerX = Math.floor(x);
+  const integerY = Math.floor(y);
+  const address = {
+    z: sourceZoom,
+    x: Math.floor(integerX / LOCAL_TILE_SIZE),
+    y: Math.floor(integerY / LOCAL_TILE_SIZE),
+  };
+  const heights = decodedHeights(address);
+  if (!heights) {
+    throw new Error("The decoded elevation source is no longer cached.");
+  }
+  const pixelX = integerX % LOCAL_TILE_SIZE;
+  const pixelY = integerY % LOCAL_TILE_SIZE;
+  return heights[pixelY * LOCAL_TILE_SIZE + pixelX] ?? 0;
+}
+
+function decodedHeightForTerrainPoint(
   address: MercatorTileAddress,
   pixelX: number,
   pixelY: number,
-): number | undefined {
-  const centre = decodedHeights(address);
-  if (!centre) return undefined;
-  if (pixelX < LOCAL_TILE_SIZE && pixelY < LOCAL_TILE_SIZE) {
-    return centre[pixelY * LOCAL_TILE_SIZE + pixelX] ?? 0;
-  }
-  if (pixelX === LOCAL_TILE_SIZE && pixelY < LOCAL_TILE_SIZE) {
-    const east = decodedHeights(adjacentAddress(address, 1, 0));
-    return (
-      east?.[pixelY * LOCAL_TILE_SIZE] ??
-      centre[pixelY * LOCAL_TILE_SIZE + LOCAL_TILE_SIZE - 1] ??
-      0
-    );
-  }
-  if (pixelY === LOCAL_TILE_SIZE && pixelX < LOCAL_TILE_SIZE) {
-    const south = decodedHeights(adjacentAddress(address, 0, 1));
-    return (
-      south?.[pixelX] ??
-      centre[(LOCAL_TILE_SIZE - 1) * LOCAL_TILE_SIZE + pixelX] ??
-      0
-    );
-  }
-  const southEast = decodedHeights(adjacentAddress(address, 1, 1));
-  const south = decodedHeights(adjacentAddress(address, 0, 1));
-  const east = decodedHeights(adjacentAddress(address, 1, 0));
-  return (
-    southEast?.[0] ??
-    south?.[LOCAL_TILE_SIZE - 1] ??
-    east?.[(LOCAL_TILE_SIZE - 1) * LOCAL_TILE_SIZE] ??
-    centre[centre.length - 1] ??
-    0
+): number {
+  const source = terrainSourcePixelCoordinates(address, pixelX, pixelY);
+  const sourceZoom = source.zoom;
+  const sourcePixelX = source.x;
+  const sourcePixelY = source.y;
+  const west = Math.floor(sourcePixelX);
+  const north = Math.floor(sourcePixelY);
+  const fractionX = sourcePixelX - west;
+  const fractionY = sourcePixelY - north;
+  const northWest = decodedHeightAtSourcePixel(sourceZoom, west, north);
+  if (fractionX === 0 && fractionY === 0) return northWest;
+  const northEast = decodedHeightAtSourcePixel(sourceZoom, west + 1, north);
+  const southWest = decodedHeightAtSourcePixel(sourceZoom, west, north + 1);
+  const southEast = decodedHeightAtSourcePixel(
+    sourceZoom,
+    west + 1,
+    north + 1,
   );
+  const northern = northWest + (northEast - northWest) * fractionX;
+  const southern = southWest + (southEast - southWest) * fractionX;
+  return northern + (southern - northern) * fractionY;
 }
 
 function constrainedSurfacePoint(
@@ -316,14 +317,11 @@ function constrainedSurfacePoint(
         : constraint.edge === "south"
           ? LOCAL_TILE_SIZE
           : pixelAlongEdge;
-    const heightM = decodedHeightAtGridPoint(
+    const heightM = decodedHeightForTerrainPoint(
       constraint.address,
       endpointX,
       endpointY,
     );
-    if (heightM === undefined) {
-      throw new Error("The seam source tile is no longer cached.");
-    }
     return terrainSurfacePoint(
       constraint.address,
       endpointX,
@@ -370,7 +368,6 @@ function constrainedSurfacePoint(
 
 function buildFinalGeometry(
   address: MercatorTileAddress,
-  grid: Float32Array,
   vertices: Uint16Array,
   triangles: Uint32Array,
   enabledSkirtEdges: LocalEdgeMask,
@@ -410,7 +407,7 @@ function buildFinalGeometry(
   for (let index = 0; index < baseVertexCount; index += 1) {
     const pixelX = vertices[index * 2] ?? 0;
     const pixelY = vertices[index * 2 + 1] ?? 0;
-    const heightM = grid[pixelY * LOCAL_GRID_SIZE + pixelX] ?? 0;
+    const heightM = decodedHeightForTerrainPoint(address, pixelX, pixelY);
     const surface = terrainSurfacePoint(address, pixelX, pixelY, heightM);
     const coordinates = mercatorCoordinatesForTilePoint(
       address,
@@ -649,7 +646,7 @@ function buildMesh(
     ...Object.values(request.edgeConstraints ?? {}).map(
       (constraint) => constraint.address,
     ),
-  ];
+  ].flatMap(terrainSourceDependencies);
   const missingSource = requiredSources.find(
     (address) => !decodedHeights(address),
   );
@@ -665,14 +662,7 @@ function buildMesh(
     });
     return;
   }
-  const centre = decodedHeights(request.address)!;
   try {
-    const grid = buildHeightGrid513(
-      centre,
-      decodedHeights(adjacentAddress(request.address, 1, 0)),
-      decodedHeights(adjacentAddress(request.address, 0, 1)),
-      decodedHeights(adjacentAddress(request.address, 1, 1)),
-    );
     const selected = regularGridMesh(request.segments);
     const enabledSkirtEdges =
       request.includeSkirts === false
@@ -681,7 +671,6 @@ function buildMesh(
           { north: 1, east: 1, south: 1, west: 1 };
     const geometry = buildFinalGeometry(
       request.address,
-      grid,
       selected.vertices,
       selected.triangles,
       enabledSkirtEdges,

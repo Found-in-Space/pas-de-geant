@@ -5,13 +5,14 @@ import {
   IMAGERY_ONION_OUTER_TILES,
   ImageryRequestTokenIndex,
   WEB_MERCATOR_MAX_LATITUDE,
-  encodePageLayer,
   imageryKey,
   imageryOnionPlanForContact,
   isValidImageryAddress,
   renderedImageryTileWidthM,
+  resolvePageEntry,
   selectImageryZoom,
   selectUnpinnedLruKey,
+  wrapImageryX,
   wrapImageryPageX,
   type ImageryAddress,
   type ImageryLoadTask,
@@ -19,7 +20,7 @@ import {
   type ImageryView,
 } from "./imagery-core.js";
 
-const IMAGERY_GUTTER_PIXELS = 2;
+const IMAGERY_GUTTER_PIXELS = 8;
 const IMAGERY_FINE_CAP_LAYERS = IMAGERY_ONION_OUTER_TILES ** 2;
 const IMAGERY_POOL_REQUIRED_LAYERS =
   IMAGERY_MAX_STANDARD_CELLS + IMAGERY_FINE_CAP_LAYERS;
@@ -181,6 +182,44 @@ interface ImageryDiagnostics {
   gpuFailureTotal: number;
 }
 
+export function stitchImageryGutter(
+  pixels: Uint8Array,
+  tileSize: number,
+  gutter: number,
+  destinationLayer: number,
+  sourceLayer: number,
+  offsetX: -1 | 0 | 1,
+  offsetY: -1 | 0 | 1,
+): void {
+  const paddedSize = tileSize + gutter * 2;
+  const layerBytes = paddedSize * paddedSize * 4;
+  const copyWidth = offsetX === 0 ? tileSize : gutter;
+  const copyHeight = offsetY === 0 ? tileSize : gutter;
+  const destinationX =
+    offsetX < 0 ? 0 : offsetX > 0 ? gutter + tileSize : gutter;
+  const destinationY =
+    offsetY < 0 ? 0 : offsetY > 0 ? gutter + tileSize : gutter;
+  const sourceX =
+    offsetX < 0 ? tileSize : offsetX > 0 ? gutter : gutter;
+  const sourceY =
+    offsetY < 0 ? tileSize : offsetY > 0 ? gutter : gutter;
+  const destinationLayerOffset = destinationLayer * layerBytes;
+  const sourceLayerOffset = sourceLayer * layerBytes;
+  const rowBytes = copyWidth * 4;
+  for (let row = 0; row < copyHeight; row += 1) {
+    const sourceOffset =
+      sourceLayerOffset +
+      ((sourceY + row) * paddedSize + sourceX) * 4;
+    const destinationOffset =
+      destinationLayerOffset +
+      ((destinationY + row) * paddedSize + destinationX) * 4;
+    pixels.set(
+      pixels.subarray(sourceOffset, sourceOffset + rowBytes),
+      destinationOffset,
+    );
+  }
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
@@ -267,25 +306,32 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
     }
     vec2 pageUv = (pageCell + 0.5) / imageryPageTableSize;
     vec4 encoded = texture(imageryPageTable, pageUv);
-    float layerLowByte = floor(encoded.r * 255.0 + 0.5);
-    float metadataByte = floor(encoded.g * 255.0 + 0.5);
-    float ancestorDelta = mod(metadataByte, 16.0);
-    float layerCode =
-      layerLowByte + floor(metadataByte / 16.0) * 256.0;
+    float layerCode = encoded.r;
     if (layerCode < 0.5) {
       return texture(blueMarbleMap, vBlueMarbleUv).rgb;
     }
-    vec2 childOffset = floor(encoded.ba * 255.0 + 0.5);
-    float ancestorScale = exp2(ancestorDelta);
+    float ancestorScale = encoded.g;
+    vec2 childOffset = encoded.ba;
     vec2 targetUv = fract(pageCoordinate);
     vec2 sourceUv = (childOffset + targetUv) / ancestorScale;
     float tileSize = imageryPoolLayout.x;
     float gutter = imageryPoolLayout.y;
     float paddedSize = imageryPoolLayout.z;
     vec2 poolUv = (vec2(gutter) + sourceUv * tileSize) / paddedSize;
-    return texture(
+    vec2 pageDx = dFdx(vImageryUv * imageryCoordOriginScale.zw);
+    vec2 pageDy = dFdy(vImageryUv * imageryCoordOriginScale.zw);
+    vec2 poolDx = pageDx * tileSize / (ancestorScale * paddedSize);
+    vec2 poolDy = pageDy * tileSize / (ancestorScale * paddedSize);
+    float footprint =
+      max(length(poolDx), length(poolDy)) * paddedSize;
+    float supportedFootprint = max(1.0, gutter * 2.0);
+    float gradientScale =
+      min(1.0, supportedFootprint / max(footprint, 0.000001));
+    return textureGrad(
       imageryTilePool,
-      vec3(poolUv, layerCode - 1.0)
+      vec3(poolUv, layerCode - 1.0),
+      poolDx * gradientScale,
+      poolDy * gradientScale
     ).rgb;
   }
 
@@ -303,14 +349,10 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
       imageryPageTable,
       (pageCell + 0.5) / imageryPageTableSize
     );
-    float layerLowByte = floor(encoded.r * 255.0 + 0.5);
-    float metadataByte = floor(encoded.g * 255.0 + 0.5);
-    float ancestorDelta = mod(metadataByte, 16.0);
-    float layerCode =
-      layerLowByte + floor(metadataByte / 16.0) * 256.0;
+    float layerCode = encoded.r;
     if (layerCode < 0.5) return vec4(0.0);
-    vec2 childOffset = floor(encoded.ba * 255.0 + 0.5);
-    float ancestorScale = exp2(ancestorDelta);
+    float ancestorScale = encoded.g;
+    vec2 childOffset = encoded.ba;
     vec2 tileUv =
       (childOffset + fract(pageCoordinate)) / ancestorScale;
     vec2 distanceToEdge = min(tileUv, 1.0 - tileUv);
@@ -321,9 +363,9 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
       edgeDistance
     );
     vec3 overlayColour =
-      ancestorDelta < 0.5
+      ancestorScale < 1.5
         ? vec3(0.0, 0.843, 1.0)
-        : ancestorDelta < 1.5
+        : ancestorScale < 3.0
           ? vec3(1.0, 0.741, 0.247)
           : vec3(1.0, 0.369, 0.659);
     return vec4(overlayColour, mix(0.18, 0.92, tileEdge));
@@ -361,6 +403,7 @@ export class ImageryVirtualTexture {
   private desiredZoom: number | undefined;
   private visibleGroup = -1;
   private renderedTileWidthM = 0;
+  private sourceTexelWidthM = 0;
   private mappedCellCount = 0;
   private mappingSignature = "";
   private pageTableEpoch = 0;
@@ -464,7 +507,14 @@ export class ImageryVirtualTexture {
         options.longitudeDegrees,
         desiredZoom,
         this.provider.minZoom,
+        this.provider.maxZoom,
       );
+      this.sourceTexelWidthM =
+        renderedImageryTileWidthM(
+          options.latitudeDegrees,
+          options.displayRadiusM,
+          Math.min(desiredZoom, this.provider.maxZoom),
+        ) / this.provider.tileSize;
       if (
         this.candidatePlan &&
         nextPlan.signature === this.visiblePlan?.signature
@@ -505,11 +555,11 @@ export class ImageryVirtualTexture {
 
   private createPageTable(): THREE.DataTexture {
     const texture = new THREE.DataTexture(
-      new Uint8Array(IMAGERY_PAGE_TABLE_SIZE * IMAGERY_PAGE_TABLE_SIZE * 4),
+      new Float32Array(IMAGERY_PAGE_TABLE_SIZE * IMAGERY_PAGE_TABLE_SIZE * 4),
       IMAGERY_PAGE_TABLE_SIZE,
       IMAGERY_PAGE_TABLE_SIZE,
       THREE.RGBAFormat,
-      THREE.UnsignedByteType,
+      THREE.FloatType,
     );
     texture.colorSpace = THREE.NoColorSpace;
     texture.magFilter = THREE.NearestFilter;
@@ -653,6 +703,7 @@ export class ImageryVirtualTexture {
     this.desiredZoom = undefined;
     this.visibleGroup = -1;
     this.renderedTileWidthM = 0;
+    this.sourceTexelWidthM = 0;
     this.mappedCellCount = 0;
     this.wanted.clear();
     for (const [key, request] of this.activeRequests) {
@@ -835,6 +886,85 @@ export class ImageryVirtualTexture {
     }
   }
 
+  private stitchStagedGutters(
+    staged: ReadonlyArray<{
+      key: string;
+      record: ImageryRecord;
+      slot: number;
+    }>,
+  ): Set<number> {
+    if (!this.provider) return new Set();
+    const available = new Map<
+      string,
+      { address: ImageryAddress; slot: number }
+    >();
+    for (const [key, record] of this.records) {
+      if (record.status === "resident" && record.slot !== undefined) {
+        available.set(key, { address: record.address, slot: record.slot });
+      }
+    }
+    for (const { key, record, slot } of staged) {
+      available.set(key, { address: record.address, slot });
+    }
+
+    const affected = new Map<
+      string,
+      { address: ImageryAddress; slot: number }
+    >();
+    for (const { key, record, slot } of staged) {
+      affected.set(key, { address: record.address, slot });
+      for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+        for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+          if (offsetX === 0 && offsetY === 0) continue;
+          const neighbor = available.get(
+            imageryKey({
+              z: record.address.z,
+              x: wrapImageryX(
+                record.address.x + offsetX,
+                record.address.z,
+              ),
+              y: record.address.y + offsetY,
+            }),
+          );
+          if (neighbor) {
+            affected.set(imageryKey(neighbor.address), neighbor);
+          }
+        }
+      }
+    }
+
+    const touchedSlots = new Set<number>();
+    for (const destination of affected.values()) {
+      for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+        for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+          if (offsetX === 0 && offsetY === 0) continue;
+          const source = available.get(
+            imageryKey({
+              z: destination.address.z,
+              x: wrapImageryX(
+                destination.address.x + offsetX,
+                destination.address.z,
+              ),
+              y: destination.address.y + offsetY,
+            }),
+          );
+          if (!source) continue;
+          stitchImageryGutter(
+            this.poolPixels,
+            this.provider.tileSize,
+            IMAGERY_GUTTER_PIXELS,
+            destination.slot,
+            source.slot,
+            offsetX as -1 | 0 | 1,
+            offsetY as -1 | 0 | 1,
+          );
+          touchedSlots.add(destination.slot);
+        }
+      }
+    }
+    return touchedSlots;
+  }
+
   private uploadDecodedTiles(): void {
     if (!this.provider || this.poolLayers <= 1) return;
     const decoded = [...this.records.entries()]
@@ -856,19 +986,24 @@ export class ImageryVirtualTexture {
       .slice(0, MAX_IMAGERY_UPLOADS_PER_FRAME);
     if (decoded.length === 0) return;
     const staged: Array<{
+      key: string;
       record: ImageryRecord;
       slot: number;
     }> = [];
     const layerBytes =
       (this.provider.tileSize + IMAGERY_GUTTER_PIXELS * 2) ** 2 * 4;
-    for (const [, record] of decoded) {
+    for (const [key, record] of decoded) {
       const slot = this.allocateSlot();
       if (slot === undefined || !record.pixels) break;
       this.poolPixels.set(record.pixels, slot * layerBytes);
-      this.poolTexture.addLayerUpdate(slot);
-      staged.push({ record, slot });
+      staged.push({ key, record, slot });
     }
     if (staged.length > 0) {
+      const touchedSlots = this.stitchStagedGutters(staged);
+      for (const { slot } of staged) touchedSlots.add(slot);
+      for (const slot of touchedSlots) {
+        this.poolTexture.addLayerUpdate(slot);
+      }
       this.poolTexture.needsUpdate = true;
       const context = this.renderer.getContext();
       context.getError();
@@ -971,13 +1106,14 @@ export class ImageryVirtualTexture {
     maximumGroup: number,
     force: boolean,
   ): boolean {
-    const bytes = new Uint8Array(
+    const entries = new Float32Array(
       IMAGERY_PAGE_TABLE_SIZE * IMAGERY_PAGE_TABLE_SIZE * 4,
     );
     const nextVisibleKeys = new Set<string>();
     for (const cell of plan.cells) {
       if (cell.group > maximumGroup) continue;
-      const record = this.records.get(imageryKey(cell.address));
+      const sourceAddress = cell.sourceAddress ?? cell.address;
+      const record = this.records.get(imageryKey(sourceAddress));
       if (record?.status !== "resident" || record.slot === undefined) continue;
       for (let childY = 0; childY < cell.tableSpan; childY += 1) {
         for (let childX = 0; childX < cell.tableSpan; childX += 1) {
@@ -993,30 +1129,41 @@ export class ImageryVirtualTexture {
           }
           const index =
             (tableY * IMAGERY_PAGE_TABLE_SIZE + tableX) * 4;
-          if (bytes[index] !== 0 || bytes[index + 1] !== 0) continue;
-          const encodedLayer = encodePageLayer(
+          if (entries[index] !== 0) continue;
+          const targetAddress = {
+            z: plan.finestZoom,
+            x: wrapImageryPageX(
+              cell.address.x * cell.tableSpan + childX,
+              plan.tableReferenceX,
+              2 ** plan.finestZoom,
+            ),
+            y: cell.address.y * cell.tableSpan + childY,
+          };
+          targetAddress.x = ((targetAddress.x % 2 ** plan.finestZoom) +
+            2 ** plan.finestZoom) % 2 ** plan.finestZoom;
+          const resolved = resolvePageEntry(
+            targetAddress,
+            sourceAddress,
             record.slot,
-            plan.finestZoom - cell.address.z,
           );
-          bytes[index] = encodedLayer.layerLowByte;
-          bytes[index + 1] = encodedLayer.metadataByte;
-          bytes[index + 2] = childX;
-          bytes[index + 3] = childY;
+          entries[index] = resolved.layer + 1;
+          entries[index + 1] = resolved.scale;
+          entries[index + 2] = resolved.offsetX;
+          entries[index + 3] = resolved.offsetY;
         }
       }
       record.usedAt = ++this.sequence;
-      nextVisibleKeys.add(imageryKey(cell.address));
+      nextVisibleKeys.add(imageryKey(sourceAddress));
     }
-    const visibleEntries = bytes.reduce(
+    const visibleEntries = entries.reduce(
       (count, value, index) =>
-        index % 4 === 0 &&
-          (value > 0 || (bytes[index + 1] ?? 0) >= 16)
+        index % 4 === 0 && value > 0
           ? count + 1
           : count,
       0,
     );
     const signature = `${plan.signature}:${maximumGroup}:${visibleEntries}:${Array.from(
-      bytes,
+      entries,
     ).join(",")}`;
     if (!force && signature === this.mappingSignature) {
       this.sharedUniforms.imageryEnabled!.value = 1;
@@ -1024,8 +1171,8 @@ export class ImageryVirtualTexture {
     }
     const stagingIndex = this.activePageTable === 0 ? 1 : 0;
     const staging = this.pageTables[stagingIndex];
-    const stagingData = staging.image.data as Uint8Array;
-    stagingData.set(bytes);
+    const stagingData = staging.image.data as Float32Array;
+    stagingData.set(entries);
     staging.needsUpdate = true;
     const context = this.renderer.getContext();
     context.getError();
@@ -1081,7 +1228,11 @@ export class ImageryVirtualTexture {
     document.body.dataset.imageryCentimetresPerTexel =
       this.desiredZoom === undefined
         ? ""
-        : (this.renderedTileWidthM / this.provider!.tileSize * 100).toFixed(3);
+        : (this.sourceTexelWidthM * 100).toFixed(3);
+    document.body.dataset.imagerySourceZoom =
+      this.desiredZoom === undefined
+        ? ""
+        : String(Math.min(this.desiredZoom, this.provider!.maxZoom));
     document.body.dataset.imageryVisibleGroup =
       this.visiblePlan === undefined ? "" : String(this.visibleGroup);
     document.body.dataset.imageryPlanMode =

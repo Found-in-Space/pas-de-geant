@@ -146,13 +146,17 @@ two-tile-wide ring. Each finer square exactly fills the parent ring's hole.
 The complete three-level stencil therefore contains 64 + 48 + 48 = 160
 addresses.
 
-The target native tile width is 5.12 room metres, or about 1 cm per source
-pixel. The selected source zoom changes only when the current tile becomes
-smaller than 3.5 m or larger than 7.5 m; the wider-than-two hysteresis band
-prevents a level change from immediately reversing itself. Mapterhorn
-refinement stops at z12, and regional z13–17 LiDAR is intentionally not
-requested. At z0–2 the renderer simply uses every available world tile because
-an 8×8 footprint cannot yet exist.
+The target drawn tile width is 5.12 room metres. The selected draw zoom changes
+only when the current tile becomes smaller than 3.5 m or larger than 7.5 m;
+the wider-than-two hysteresis band prevents a level change from immediately
+reversing itself. Mapterhorn requests stop at z12, and regional z13–17 LiDAR is
+intentionally not requested. Above that source ceiling the stencil continues
+to refine in render space: each small virtual tile samples its proper subregion
+of the containing z12 page, including a one-pixel bilinear halo from adjacent
+source pages where needed. The source raster therefore loses no additional
+resolution through tile resizing, while drawn mesh footprints stay stable at
+hyperlocal planet scales. At z0–2 the renderer simply uses every available
+world tile because an 8×8 footprint cannot yet exist.
 
 All tile offsets, ring membership, skirts, priorities, and mesh density are
 fixed. Four tiles around the contact point retain the complete
@@ -165,7 +169,7 @@ calculation, budget collapse, or per-frame neighbour search. Movement inside
 the snapped quadtree anchor does not alter the ring addresses; the four
 full-resolution tiles move only when the contact point crosses their stable
 2×2 anchor. Crossing a scale threshold shifts the same stencil up or down one
-source level.
+draw level; its source level remains capped independently.
 
 At most four elevation pages are active across the complete fetch-and-decode
 pipeline. Successful Mapterhorn responses are written to the browser's named
@@ -197,9 +201,12 @@ texture and is available immediately offline. An optional photographic XYZ
 provider refines it through an imagery quadtree that is independent from the
 terrain stencil. Imagery pages retain the provider's native dimensions, so
 MapTiler's complete 512×512 tiles reach the GPU without being downsampled. Each
-page targets a rendered width of 2.56 m, or about five millimetres per MapTiler
-pixel. The selected XYZ z-level changes with the displayed world radius, using
-1.75 m and 3.75 m page-width boundaries to avoid oscillating at a transition.
+drawn page targets a rendered width of 2.56 m, or about five millimetres per
+source pixel while the provider can supply that resolution. The draw z-level
+changes with the displayed world radius, using 1.75 m and 3.75 m page-width
+boundaries to avoid oscillating at a transition. Once it passes the configured
+provider maximum, the virtual page grid keeps refining but samples the correct
+subregion of the maximum-z ancestor; requests never pass the provider ceiling.
 It does not depend on physical Earth distance, eye height, or camera focal
 length.
 
@@ -228,10 +235,16 @@ A texture array holds the largest 215-page visible layout plus the complete
 layers are derived from the atomic transition and checked against the device's
 array-layer capability before allocation. The array uses trilinear mipmapped
 minification and the device's available anisotropic filtering to keep detailed
-ground imagery stable at oblique angles and during movement.
-Downloads, decodes, and GPU uploads only populate staging. Two page-table
-textures swap after the central group or a later complete ring is ready, so
-missing, malformed, aborted, stale, or GPU-failed pages cannot partially
+ground imagery stable at oblique angles and during movement. Before mipmaps
+are regenerated, resident same-z neighbours supply real edge pixels to each
+page's eight-pixel gutter so filtering does not expose joins between pages.
+Sampling gradients come from the continuous page coordinate rather than each
+array layer's resetting UV, and are capped at the mip footprint covered by the
+gutter; otherwise a tile boundary is mistaken for extreme minification.
+Downloads, decodes, and GPU uploads only populate staging. Two floating-point
+page-table textures retain source scale and child offsets through deep
+overzoom, then swap after the central group or a later complete ring is ready,
+so missing, malformed, aborted, stale, or GPU-failed pages cannot partially
 change a committed group. Web Mercator requests stop at ±85.05112878° while
 Blue Marble continues across both poles.
 

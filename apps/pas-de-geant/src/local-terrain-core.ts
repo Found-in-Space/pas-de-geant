@@ -68,6 +68,7 @@ export interface NativeTerrainPlan {
   minZoom: number;
   maxZoom: number;
   finestTileWidthM: number;
+  sourceTexelWidthM: number;
   signature: string;
 }
 
@@ -196,8 +197,8 @@ export function wrapMercatorX(x: number, zoom: number): number {
 export function isValidMercatorAddress(address: MercatorTileAddress): boolean {
   const width = 2 ** address.z;
   return (
+    Number.isInteger(address.z) &&
     address.z >= LOCAL_TERRAIN_MIN_ZOOM &&
-    address.z <= LOCAL_TERRAIN_MAX_ZOOM &&
     Number.isInteger(address.x) &&
     Number.isInteger(address.y) &&
     address.x >= 0 &&
@@ -205,6 +206,77 @@ export function isValidMercatorAddress(address: MercatorTileAddress): boolean {
     address.y >= 0 &&
     address.y < width
   );
+}
+
+/**
+ * Resolves a drawn (possibly overzoomed) tile to the native Mapterhorn page
+ * that contains it. Draw zoom is deliberately independent from source zoom:
+ * beyond z12 the stencil keeps its room-scale footprint while reusing the
+ * corresponding subregion of the z12 height page.
+ */
+export function terrainSourceAddress(
+  address: MercatorTileAddress,
+): MercatorTileAddress {
+  const sourceZoom = Math.min(LOCAL_TERRAIN_MAX_ZOOM, address.z);
+  const divisor = 2 ** (address.z - sourceZoom);
+  return {
+    z: sourceZoom,
+    x: wrapMercatorX(Math.floor(address.x / divisor), sourceZoom),
+    y: Math.floor(address.y / divisor),
+  };
+}
+
+/** Native pages needed to bilinearly sample a complete drawn tile. */
+export function terrainSourceDependencies(
+  address: MercatorTileAddress,
+): MercatorTileAddress[] {
+  const source = terrainSourceAddress(address);
+  const targetToSourceScale = 2 ** (source.z - address.z);
+  const west = address.x * targetToSourceScale;
+  const east = (address.x + 1) * targetToSourceScale;
+  const north = address.y * targetToSourceScale;
+  const south = (address.y + 1) * targetToSourceScale;
+  const sourceWidth = 2 ** source.z;
+  const firstSourceTile = (coordinate: number): number =>
+    Math.floor(Math.floor(coordinate * LOCAL_TILE_SIZE) / LOCAL_TILE_SIZE);
+  const lastBilinearSourceTile = (coordinate: number): number =>
+    Math.floor(
+      (Math.floor(coordinate * LOCAL_TILE_SIZE) + 1) / LOCAL_TILE_SIZE,
+    );
+  const xCoordinates = [
+    firstSourceTile(west),
+    lastBilinearSourceTile(east),
+  ];
+  const yCoordinates = [
+    firstSourceTile(north),
+    Math.min(sourceWidth - 1, lastBilinearSourceTile(south)),
+  ];
+  const dependencies = new Map<string, MercatorTileAddress>();
+  for (const y of yCoordinates) {
+    for (const x of xCoordinates) {
+      const dependency = {
+        z: source.z,
+        x: wrapMercatorX(x, source.z),
+        y,
+      };
+      dependencies.set(mercatorTileKey(dependency), dependency);
+    }
+  }
+  return [...dependencies.values()];
+}
+
+export function terrainSourcePixelCoordinates(
+  address: MercatorTileAddress,
+  pixelX: number,
+  pixelY: number,
+): { zoom: number; x: number; y: number } {
+  const sourceZoom = Math.min(address.z, LOCAL_TERRAIN_MAX_ZOOM);
+  const targetToSourceScale = 2 ** (sourceZoom - address.z);
+  return {
+    zoom: sourceZoom,
+    x: (address.x * LOCAL_TILE_SIZE + pixelX) * targetToSourceScale,
+    y: (address.y * LOCAL_TILE_SIZE + pixelY) * targetToSourceScale,
+  };
 }
 
 export function wrapLongitude(longitudeDegrees: number): number {
@@ -286,7 +358,7 @@ export function renderedMercatorTileWidthM(
     Math.PI *
     Math.max(0.001, displayRadiusM) *
     Math.max(1e-6, Math.cos(latitude)) /
-    2 ** Math.max(LOCAL_TERRAIN_MIN_ZOOM, Math.min(LOCAL_TERRAIN_MAX_ZOOM, zoom))
+    2 ** Math.max(LOCAL_TERRAIN_MIN_ZOOM, Math.floor(zoom))
   );
 }
 
@@ -294,31 +366,21 @@ function nearestNativeTerrainZoom(
   latitudeDegrees: number,
   displayRadiusM: number,
 ): number {
-  let bestZoom = LOCAL_TERRAIN_MIN_ZOOM;
-  let bestDistance = Infinity;
-  for (
-    let zoom = LOCAL_TERRAIN_MIN_ZOOM;
-    zoom <= LOCAL_TERRAIN_MAX_ZOOM;
-    zoom += 1
-  ) {
-    const width = renderedMercatorTileWidthM(
-      latitudeDegrees,
-      displayRadiusM,
-      zoom,
-    );
-    const distance = Math.abs(Math.log2(width / LOCAL_TILE_TARGET_WIDTH_M));
-    if (distance < bestDistance) {
-      bestZoom = zoom;
-      bestDistance = distance;
-    }
-  }
-  return bestZoom;
+  const zoomZeroWidth = renderedMercatorTileWidthM(
+    latitudeDegrees,
+    displayRadiusM,
+    0,
+  );
+  return Math.max(
+    LOCAL_TERRAIN_MIN_ZOOM,
+    Math.round(Math.log2(zoomZeroWidth / LOCAL_TILE_TARGET_WIDTH_M)),
+  );
 }
 
 /**
- * The only source-LOD state transition. Native tiles halve or double in render
- * space when their source zoom changes, so the hysteresis band must be wider
- * than a factor of two.
+ * The only draw-LOD state transition. Virtual tiles halve or double in render
+ * space when their draw zoom changes, so the hysteresis band must be wider
+ * than a factor of two. Source zoom is capped independently.
  */
 export function selectNativeTerrainZoom(
   latitudeDegrees: number,
@@ -328,19 +390,13 @@ export function selectNativeTerrainZoom(
   let zoom =
     previousZoom === undefined
       ? nearestNativeTerrainZoom(latitudeDegrees, displayRadiusM)
-      : Math.max(
-          LOCAL_TERRAIN_MIN_ZOOM,
-          Math.min(LOCAL_TERRAIN_MAX_ZOOM, Math.round(previousZoom)),
-        );
+      : Math.max(LOCAL_TERRAIN_MIN_ZOOM, Math.round(previousZoom));
   let width = renderedMercatorTileWidthM(
     latitudeDegrees,
     displayRadiusM,
     zoom,
   );
-  while (
-    width > LOCAL_TILE_REFINE_WIDTH_M &&
-    zoom < LOCAL_TERRAIN_MAX_ZOOM
-  ) {
+  while (width > LOCAL_TILE_REFINE_WIDTH_M) {
     zoom += 1;
     width *= 0.5;
   }
@@ -594,22 +650,12 @@ export function selectNativeTerrainPlan(
   );
   const minZoom =
     active.length > 0
-      ? Math.min(...active.map((tile) => tile.z))
-      : finestZoom;
+      ? Math.min(...active.map((tile) => terrainSourceAddress(tile).z))
+      : Math.min(finestZoom, LOCAL_TERRAIN_MAX_ZOOM);
   const required: MercatorTileAddress[] = [];
   const requiredKeys = new Set<string>();
   for (const tile of active) {
-    for (const [deltaX, deltaY] of [
-      [0, 0],
-      [1, 0],
-      [0, 1],
-      [1, 1],
-    ] as const) {
-      const address = {
-        z: tile.z,
-        x: wrapMercatorX(tile.x + deltaX, tile.z),
-        y: tile.y + deltaY,
-      };
+    for (const address of terrainSourceDependencies(tile)) {
       if (!isValidMercatorAddress(address)) continue;
       const key = mercatorTileKey(address);
       if (requiredKeys.has(key)) continue;
@@ -628,12 +674,18 @@ export function selectNativeTerrainPlan(
     baseZoom,
     finestZoom,
     minZoom,
-    maxZoom: finestZoom,
+    maxZoom: Math.min(finestZoom, LOCAL_TERRAIN_MAX_ZOOM),
     finestTileWidthM: renderedMercatorTileWidthM(
       options.latitudeDegrees,
       options.displayRadiusM,
       finestZoom,
     ),
+    sourceTexelWidthM:
+      renderedMercatorTileWidthM(
+        options.latitudeDegrees,
+        options.displayRadiusM,
+        Math.min(finestZoom, LOCAL_TERRAIN_MAX_ZOOM),
+      ) / LOCAL_TILE_SIZE,
     signature,
   };
 }

@@ -17,11 +17,15 @@ import {
   imageryOnionPlanForContact,
   mercatorPointForImagery,
   renderedImageryTileWidthM,
+  resolvePageEntry,
   selectImageryZoom,
   selectUnpinnedLruKey,
   wrapImageryPageX,
 } from "../apps/pas-de-geant/src/imagery-core.js";
-import { XyzImageryProvider } from "../apps/pas-de-geant/src/imagery.js";
+import {
+  XyzImageryProvider,
+  stitchImageryGutter,
+} from "../apps/pas-de-geant/src/imagery.js";
 
 describe("photographic imagery onion", () => {
   it("changes source z with world scale to keep MapTiler texels near five millimetres", () => {
@@ -56,15 +60,59 @@ describe("photographic imagery onion", () => {
     expect(IMAGERY_GPU_PAGE_SIZE).toBe(512);
   });
 
-  it("stops at the provider's maximum imagery zoom", () => {
+  it("overzooms drawn pages without requesting beyond the provider", () => {
+    const targetZoom = selectImageryZoom({
+      displayRadiusM: 700_000,
+      latitudeDegrees: 46,
+      minZoom: 0,
+      maxZoom: 12,
+    });
+    const plan = imageryOnionPlanForContact(46, 9, targetZoom, 0, 12);
+
+    expect(targetZoom).toBe(20);
     expect(
-      selectImageryZoom({
-        displayRadiusM: 3_500_000,
-        latitudeDegrees: 46,
-        minZoom: 0,
-        maxZoom: 22,
-      }),
-    ).toBe(22);
+      plan.tasks.every((task) => task.address.z <= 12),
+    ).toBe(true);
+    expect(
+      plan.cells
+        .filter((cell) => cell.group === 0)
+        .every(
+          (cell) =>
+            cell.address.z === targetZoom && cell.sourceAddress?.z === 12,
+        ),
+    ).toBe(true);
+    for (const cell of plan.cells) {
+      const source = cell.sourceAddress ?? cell.address;
+      for (let y = 0; y < cell.tableSpan; y += 1) {
+        for (let x = 0; x < cell.tableSpan; x += 1) {
+          expect(() =>
+            encodePageEntry(
+              {
+                z: plan.finestZoom,
+                x:
+                  (cell.address.x * cell.tableSpan + x) %
+                  2 ** plan.finestZoom,
+                y: cell.address.y * cell.tableSpan + y,
+              },
+              source,
+              0,
+            )
+          ).not.toThrow();
+        }
+      }
+    }
+    expect(
+      resolvePageEntry(
+        { z: 24, x: 1_234 * 4_096 + 3_000, y: 987 * 4_096 + 2_000 },
+        { z: 12, x: 1_234, y: 987 },
+        17,
+      ),
+    ).toEqual({
+      layer: 17,
+      scale: 4_096,
+      offsetX: 3_000,
+      offsetY: 2_000,
+    });
   });
 
   it("accepts MapTiler z22 and rejects addresses beyond it", async () => {
@@ -384,6 +432,32 @@ describe("photographic imagery onion", () => {
       offsetX: 3,
       offsetY: 0,
     });
+  });
+
+  it("copies neighboring imagery into side and corner gutters", () => {
+    const tileSize = 2;
+    const gutter = 1;
+    const paddedSize = tileSize + gutter * 2;
+    const layerBytes = paddedSize * paddedSize * 4;
+    const pixels = new Uint8Array(layerBytes * 2);
+    const redOffset = (layer: number, x: number, y: number): number =>
+      layer * layerBytes + (y * paddedSize + x) * 4;
+    pixels[redOffset(0, 1, 1)] = 10;
+    pixels[redOffset(1, 1, 1)] = 1;
+    pixels[redOffset(1, 2, 1)] = 2;
+    pixels[redOffset(1, 1, 2)] = 3;
+    pixels[redOffset(1, 2, 2)] = 4;
+
+    stitchImageryGutter(pixels, tileSize, gutter, 0, 1, 1, 0);
+    stitchImageryGutter(pixels, tileSize, gutter, 0, 1, 0, -1);
+    stitchImageryGutter(pixels, tileSize, gutter, 0, 1, 1, -1);
+
+    expect(pixels[redOffset(0, 3, 1)]).toBe(1);
+    expect(pixels[redOffset(0, 3, 2)]).toBe(3);
+    expect(pixels[redOffset(0, 1, 0)]).toBe(3);
+    expect(pixels[redOffset(0, 2, 0)]).toBe(4);
+    expect(pixels[redOffset(0, 3, 0)]).toBe(3);
+    expect(pixels[redOffset(0, 1, 1)]).toBe(10);
   });
 
   it("allows A to restart after an A-to-B-to-A cancellation", () => {

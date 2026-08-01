@@ -37,6 +37,7 @@ export interface ImageryZoomOptions {
   displayRadiusM: number;
   latitudeDegrees: number;
   minZoom: number;
+  /** Provider ceiling; draw zoom can exceed it and resolve to source ancestors. */
   maxZoom: number;
   previousZoom?: number;
 }
@@ -49,7 +50,10 @@ export interface ImageryLoadTask {
 }
 
 export interface ImageryOnionCell {
+  /** Geographic page drawn by this cell. */
   address: ImageryAddress;
+  /** Provider page sampled by this cell when the draw page is overzoomed. */
+  sourceAddress?: ImageryAddress;
   group: number;
   tableX: number;
   tableY: number;
@@ -75,6 +79,13 @@ export interface EncodedPageEntry {
   metadataByte: number;
   childOffsetX: number;
   childOffsetY: number;
+}
+
+export interface ResolvedPageEntry {
+  layer: number;
+  scale: number;
+  offsetX: number;
+  offsetY: number;
 }
 
 export interface StandardTemplateCell {
@@ -330,38 +341,29 @@ export function renderedImageryTileWidthM(
 }
 
 function nearestImageryZoom(options: ImageryZoomOptions): number {
-  let selected = options.minZoom;
-  let selectedDistance = Infinity;
-  for (let zoom = options.minZoom; zoom <= options.maxZoom; zoom += 1) {
-    const width = renderedImageryTileWidthM(
-      options.latitudeDegrees,
-      options.displayRadiusM,
-      zoom,
-    );
-    const distance = Math.abs(
-      Math.log2(width / IMAGERY_TARGET_TILE_WIDTH_M),
-    );
-    if (distance < selectedDistance) {
-      selected = zoom;
-      selectedDistance = distance;
-    }
-  }
-  return selected;
+  const zoomZeroWidth = renderedImageryTileWidthM(
+    options.latitudeDegrees,
+    options.displayRadiusM,
+    0,
+  );
+  return Math.max(
+    options.minZoom,
+    Math.round(Math.log2(zoomZeroWidth / IMAGERY_TARGET_TILE_WIDTH_M)),
+  );
 }
 
 export function selectImageryZoom(options: ImageryZoomOptions): number {
   const minZoom = Math.max(0, Math.floor(options.minZoom));
-  const maxZoom = Math.max(minZoom, Math.floor(options.maxZoom));
   let zoom =
     options.previousZoom === undefined
-      ? nearestImageryZoom({ ...options, minZoom, maxZoom })
-      : Math.max(minZoom, Math.min(maxZoom, Math.floor(options.previousZoom)));
+      ? nearestImageryZoom({ ...options, minZoom })
+      : Math.max(minZoom, Math.floor(options.previousZoom));
   let width = renderedImageryTileWidthM(
     options.latitudeDegrees,
     options.displayRadiusM,
     zoom,
   );
-  while (width > IMAGERY_REFINE_TILE_WIDTH_M && zoom < maxZoom) {
+  while (width > IMAGERY_REFINE_TILE_WIDTH_M) {
     zoom += 1;
     width *= 0.5;
   }
@@ -642,13 +644,14 @@ export function imageryOnionPlanForContact(
   longitudeDegrees: number,
   finestZoom: number,
   minimumZoom = 0,
+  maximumSourceZoom = finestZoom,
 ): ImageryOnionPlan {
   const resolvedFinestZoom = Math.max(0, Math.floor(finestZoom));
   const resolvedMinimumZoom = Math.max(
     0,
     Math.min(resolvedFinestZoom, Math.floor(minimumZoom)),
   );
-  return resolvedFinestZoom <= 3
+  const plan = resolvedFinestZoom <= 3
     ? worldImageryPlan(
         latitudeDegrees,
         longitudeDegrees,
@@ -661,6 +664,52 @@ export function imageryOnionPlanForContact(
         resolvedFinestZoom,
         resolvedMinimumZoom,
       );
+  const resolvedMaximumSourceZoom = Math.max(
+    resolvedMinimumZoom,
+    Math.min(resolvedFinestZoom, Math.floor(maximumSourceZoom)),
+  );
+  if (resolvedMaximumSourceZoom >= resolvedFinestZoom) return plan;
+
+  const cells = plan.cells.map((cell) => ({
+    ...cell,
+    sourceAddress: ancestorAtZoom(
+      cell.address,
+      Math.min(cell.address.z, resolvedMaximumSourceZoom),
+    ),
+  }));
+  const originalTasks = new Map(
+    plan.tasks.map((task) => [imageryKey(task.address), task]),
+  );
+  const tasksByKey = new Map<string, ImageryLoadTask>();
+  for (const cell of cells) {
+    const sourceAddress = cell.sourceAddress!;
+    const sourceKey = imageryKey(sourceAddress);
+    const original = originalTasks.get(imageryKey(cell.address));
+    const task: ImageryLoadTask = {
+      address: sourceAddress,
+      kind: original?.kind ?? taskKindForGroup(cell.group),
+      group: cell.group,
+      priority: original?.priority ?? cell.group * 1_000,
+    };
+    const existing = tasksByKey.get(sourceKey);
+    if (
+      !existing ||
+      task.group < existing.group ||
+      (task.group === existing.group && task.priority < existing.priority)
+    ) {
+      tasksByKey.set(sourceKey, task);
+    }
+  }
+  return {
+    ...plan,
+    cells,
+    tasks: [...tasksByKey.values()].sort(
+      (first, second) =>
+        first.priority - second.priority ||
+        imageryKey(first.address).localeCompare(imageryKey(second.address)),
+    ),
+    signature: `${plan.signature}:source-max=${resolvedMaximumSourceZoom}`,
+  };
 }
 
 export function encodePageEntry(
@@ -668,13 +717,33 @@ export function encodePageEntry(
   source: ImageryAddress,
   layer: number,
 ): EncodedPageEntry {
+  const resolved = resolvePageEntry(target, source, layer);
+  const ancestorDelta = Math.log2(resolved.scale);
+  if (ancestorDelta > IMAGERY_MAX_ANCESTOR_DELTA) {
+    throw new Error("The imagery ancestor is too coarse for one byte page entry.");
+  }
+  const encodedLayer = encodePageLayer(layer, ancestorDelta);
+  return {
+    ...encodedLayer,
+    childOffsetX: resolved.offsetX,
+    childOffsetY: resolved.offsetY,
+  };
+}
+
+/**
+ * Resolves a target page into a provider ancestor without byte-packing it.
+ * The GPU page table stores these values as floats so provider overzoom is not
+ * constrained by the legacy eight-level RGBA8 metadata layout.
+ */
+export function resolvePageEntry(
+  target: ImageryAddress,
+  source: ImageryAddress,
+  layer: number,
+): ResolvedPageEntry {
   if (source.z > target.z) {
     throw new Error("A visible imagery source must contain its target.");
   }
   const delta = target.z - source.z;
-  if (delta > IMAGERY_MAX_ANCESTOR_DELTA) {
-    throw new Error("The imagery ancestor is too coarse for one page entry.");
-  }
   const divisor = 2 ** delta;
   if (
     Math.floor(target.x / divisor) !== source.x ||
@@ -682,11 +751,11 @@ export function encodePageEntry(
   ) {
     throw new Error("The imagery source does not contain its target.");
   }
-  const encodedLayer = encodePageLayer(layer, delta);
   return {
-    ...encodedLayer,
-    childOffsetX: target.x - source.x * divisor,
-    childOffsetY: target.y - source.y * divisor,
+    layer,
+    scale: divisor,
+    offsetX: target.x - source.x * divisor,
+    offsetY: target.y - source.y * divisor,
   };
 }
 

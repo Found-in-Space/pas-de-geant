@@ -24,6 +24,8 @@ import {
   sampleRegularHeightGrid,
   selectNativeTerrainPlan,
   selectNativeTerrainZoom,
+  terrainSourceAddress,
+  terrainSourceDependencies,
   wrapMercatorX,
   type LocalTerrainWorkerRequest,
   type LocalTerrainWorkerResult,
@@ -730,7 +732,11 @@ export class LocalTerrainRenderer {
       ) {
         continue;
       }
-      if (this.prerequisiteState(address) !== "decoded") continue;
+      if (
+        this.prerequisiteState(terrainSourceAddress(address)) !== "decoded"
+      ) {
+        continue;
+      }
       const neighbours = this.meshPrerequisites(address);
       if (
         neighbours.some(
@@ -751,7 +757,9 @@ export class LocalTerrainRenderer {
       }
       if (
         Object.values(address.edgeConstraints).some((constraint) => {
-          const state = this.prerequisiteState(constraint.address);
+          const state = this.prerequisiteState(
+            terrainSourceAddress(constraint.address),
+          );
           return state === "failed";
         })
       ) {
@@ -805,7 +813,7 @@ export class LocalTerrainRenderer {
   private meshPrerequisites(
     address: NativeTerrainTile,
   ): MercatorTileAddress[] {
-    const sources = [
+    const targets = [
       address,
       ...Object.values(address.edgeConstraints).map(
         (constraint) => constraint.address,
@@ -813,18 +821,8 @@ export class LocalTerrainRenderer {
     ];
     const prerequisites: MercatorTileAddress[] = [];
     const keys = new Set<string>();
-    for (const source of sources) {
-      for (const [deltaX, deltaY] of [
-        [0, 0],
-        [1, 0],
-        [0, 1],
-        [1, 1],
-      ] as const) {
-        const dependency = {
-          z: source.z,
-          x: wrapMercatorX(source.x + deltaX, source.z),
-          y: source.y + deltaY,
-        };
+    for (const target of targets) {
+      for (const dependency of terrainSourceDependencies(target)) {
         if (!isValidMercatorAddress(dependency)) continue;
         const key = mercatorTileKey(dependency);
         if (keys.has(key)) continue;
@@ -915,7 +913,9 @@ export class LocalTerrainRenderer {
   }
 
   private fallbackEligible(address: NativeTerrainTile): boolean {
-    const centreState = this.prerequisiteState(address);
+    const centreState = this.prerequisiteState(
+      terrainSourceAddress(address),
+    );
     if (centreState === "ocean" || centreState === "failed") return true;
     if (
       (this.failedMeshUntil.get(address.geometrySignature) ?? 0) > Date.now()
@@ -924,7 +924,9 @@ export class LocalTerrainRenderer {
     }
     if (
       Object.values(address.edgeConstraints).some((constraint) => {
-        const state = this.prerequisiteState(constraint.address);
+        const state = this.prerequisiteState(
+          terrainSourceAddress(constraint.address),
+        );
         return state === "failed";
       })
     ) {
@@ -1083,12 +1085,12 @@ export class LocalTerrainRenderer {
     }
     const now = Date.now();
     const allUnavailable = plan.active.every((address) => {
-      const key = mercatorTileKey(address);
+      const key = mercatorTileKey(terrainSourceAddress(address));
       return (
         this.decoded.peek(key) === "ocean" ||
         this.permanentFailures.has(key) ||
         (this.failedUntil.get(key) ?? 0) > now ||
-        (this.failedMeshUntil.get(key) ?? 0) > now
+        (this.failedMeshUntil.get(address.geometrySignature) ?? 0) > now
       );
     });
     return allUnavailable ? "fallback" : "loading";
@@ -1104,6 +1106,7 @@ export class LocalTerrainRenderer {
     const now = Date.now();
     for (const address of plan?.active ?? []) {
       const key = mercatorTileKey(address);
+      const sourceKey = mercatorTileKey(terrainSourceAddress(address));
       const rendered = this.rendered.get(key);
       let state = "p";
       if (
@@ -1111,17 +1114,17 @@ export class LocalTerrainRenderer {
       ) {
         state = "r";
         readyCells += 1;
-      } else if (this.decoded.peek(key) === "ocean") {
+      } else if (this.decoded.peek(sourceKey) === "ocean") {
         state = "o";
         fallbackCells += 1;
       } else if (
-        this.permanentFailures.has(key) ||
-        (this.failedUntil.get(key) ?? 0) > now ||
-        (this.failedMeshUntil.get(key) ?? 0) > now
+        this.permanentFailures.has(sourceKey) ||
+        (this.failedUntil.get(sourceKey) ?? 0) > now ||
+        (this.failedMeshUntil.get(address.geometrySignature) ?? 0) > now
       ) {
         state = "f";
         fallbackCells += 1;
-      } else if (this.decoded.peek(key) === "decoded") {
+      } else if (this.decoded.peek(sourceKey) === "decoded") {
         state = "d";
       }
       states.push(state);
@@ -1172,7 +1175,7 @@ export class LocalTerrainRenderer {
     document.body.dataset.detailTextureTileOverlay =
       String(this.textureTileOverlayVisible);
     document.body.dataset.detailSourceSampleMetres = plan
-      ? (plan.finestTileWidthM / LOCAL_TILE_SIZE).toFixed(4)
+      ? plan.sourceTexelWidthM.toFixed(4)
       : "";
     document.body.dataset.detailSourceSamplePixels = "";
     document.body.dataset.detailRequestedErrorMetres = "";
