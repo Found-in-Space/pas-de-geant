@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   flatSurfaceObserverHeightMetres,
+  imageryUvForGeographicPoint,
   sourceUvForTilePoint,
 } from "../apps/pas-de-geant/src/terrain-surface.js";
 
@@ -38,5 +39,19 @@ describe("Terrain surface composition", () => {
 
     expect(sameScaleRatio).toBeCloseTo(first, 12);
     expect(higherObserver).toBeCloseTo(first * 2, 12);
+  });
+
+  it("maps photographic pages in Web Mercator rather than equirectangular latitude", () => {
+    const uv = imageryUvForGeographicPoint(
+      { west: -180, east: 180, north: 85, south: -85 },
+      60,
+      0,
+    );
+    const equirectangularV = (85 - 60) / 170;
+
+    expect(uv.u).toBeCloseTo(0.5);
+    expect(uv.v).not.toBeCloseTo(equirectangularV, 2);
+    expect(uv.v).toBeGreaterThan(0);
+    expect(uv.v).toBeLessThan(0.5);
   });
 });

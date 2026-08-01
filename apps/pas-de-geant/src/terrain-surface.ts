@@ -1,31 +1,30 @@
 import * as THREE from "three";
+import { ImageTexturePool } from "./image-texture-pool.js";
 import {
   createElevationTileProvider,
-  createImageryTileProvider,
   type ImageTileResource,
 } from "./image-tile-provider.js";
 import type { ImageryProvider } from "./imagery-provider.js";
 import {
-  observerTileZoom,
-} from "./observer-tile-zoom.js";
+  IMAGERY_FRAGMENT_DECLARATIONS,
+  ImageryVirtualTexture,
+  imageryBoundsForGeographicBounds,
+  normalizedMercatorYForLatitude,
+  type ImageryCoordinateBounds,
+} from "./imagery.js";
+import { observerTileZoom } from "./observer-tile-zoom.js";
+import { normalizeTileTarget, type TileTarget } from "./tile-layout-source.js";
 import {
-  normalizeTileTarget,
-  TileOnionLayoutSource,
-  type TileTarget,
-} from "./tile-layout-source.js";
-import {
-  SurfaceTileProvider,
-  type SurfaceTileResource,
-} from "./surface-tile-provider.js";
+  ElevationTileProvider,
+  type ElevationTileResource,
+} from "./elevation-tile-provider.js";
 import { mercatorPoint, tileBounds } from "./tile-onion-core.js";
 import {
   tileIdentityKey,
   type TileIdentity,
 } from "./tile-transition-planner.js";
-import {
-  TileTransitionScheduler,
-  type SchedulerSnapshot,
-} from "./tile-transition-scheduler.js";
+import type { SchedulerSnapshot } from "./tile-transition-scheduler.js";
+import { TileWorkerScheduler } from "./tile-worker-scheduler.js";
 import {
   EARTH_MEAN_RADIUS_KM,
   WGS84_A_KM,
@@ -34,6 +33,8 @@ import {
 
 const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 const SKIRT_DEPTH_WORLD_METRES = 0.02;
+/** Geometry LOD density; deliberately independent from imagery texel density. */
+export const TERRAIN_TARGET_SCREEN_PIXELS_PER_ELEVATION_PIXEL = 2;
 
 export interface TerrainSurfaceView {
   readonly latitudeDegrees: number;
@@ -53,13 +54,34 @@ export interface TerrainSurfaceOptions {
 }
 
 interface SurfaceMesh {
+  readonly tile: TileIdentity;
+  readonly imageryBounds: ImageryCoordinateBounds;
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
-  readonly resource?: SurfaceTileResource;
+  elevation?: ImageTileResource;
+  elevationTexture?: THREE.Texture;
 }
 
 interface SourceUv {
   readonly u: number;
   readonly v: number;
+}
+
+/** Local Web Mercator UV; this is intentionally not the Blue Marble UV. */
+export function imageryUvForGeographicPoint(
+  bounds: { west: number; east: number; north: number; south: number },
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+): SourceUv {
+  const north = normalizedMercatorYForLatitude(bounds.north);
+  const south = normalizedMercatorYForLatitude(bounds.south);
+  return {
+    u: (longitudeDegrees - bounds.west) / (bounds.east - bounds.west),
+    v:
+      south === north
+        ? 0
+        : (normalizedMercatorYForLatitude(latitudeDegrees) - north) /
+          (south - north),
+  };
 }
 
 /** Source-space UV for a draw tile, including overzoomed ancestor cropping. */
@@ -73,9 +95,7 @@ export function sourceUvForTilePoint(
 ): SourceUv {
   return {
     u: (resource.sourceOffsetX + tileU) / resource.sourceScale,
-    v:
-      1 -
-      (resource.sourceOffsetY + 1 - tileV) / resource.sourceScale,
+    v: 1 - (resource.sourceOffsetY + 1 - tileV) / resource.sourceScale,
   };
 }
 
@@ -87,15 +107,10 @@ export function flatSurfaceObserverHeightMetres(
   observerHeightWorldM: number,
   displayRadiusM: number,
 ): number {
-  return (
-    observerHeightWorldM *
-    EARTH_MEAN_RADIUS_KM *
-    1_000 /
-    displayRadiusM
-  );
+  return (observerHeightWorldM * EARTH_MEAN_RADIUS_KM * 1_000) / displayRadiusM;
 }
 
-function targetForView(
+export function terrainTargetForView(
   view: TerrainSurfaceView,
   tilePixels: number,
 ): TileTarget {
@@ -107,6 +122,8 @@ function targetForView(
     latitudeDegrees: view.latitudeDegrees,
     projectedFocalLengthPixels: view.focalLengthPixels,
     tilePixels,
+    targetScreenPixelsPerSourcePixel:
+      TERRAIN_TARGET_SCREEN_PIXELS_PER_ELEVATION_PIXEL,
   }).zoom;
   const point = mercatorPoint(
     view.latitudeDegrees,
@@ -118,6 +135,19 @@ function targetForView(
     x: Math.floor(point.x),
     y: Math.floor(point.y),
   });
+}
+
+function sameCut(
+  first: readonly TileIdentity[],
+  second: readonly TileIdentity[],
+): boolean {
+  if (first.length !== second.length) return false;
+  for (let index = 0; index < first.length; index += 1) {
+    if (tileIdentityKey(first[index]!) !== tileIdentityKey(second[index]!)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function geodeticVertex(
@@ -157,15 +187,12 @@ function patchGeometry(
   bounds: { west: number; east: number; north: number; south: number },
   columns: number,
   rows: number,
-  elevation?: ImageTileResource,
-  imagery?: ImageTileResource,
   includeSkirts = true,
 ): THREE.BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
   const baseUvs: number[] = [];
   const tileUvs: number[] = [];
-  const elevationUvs: number[] = [];
   const imageryUvs: number[] = [];
   const skirts: number[] = [];
   const indices: number[] = [];
@@ -183,13 +210,7 @@ function patchGeometry(
     normals.push(vertex.normal.x, vertex.normal.y, vertex.normal.z);
     baseUvs.push((longitude + 180) / 360, (90 - latitude) / 180);
     tileUvs.push(tileU, tileV);
-    const elevationUv = elevation
-      ? sourceUvForTilePoint(elevation, tileU, tileV)
-      : { u: tileU, v: tileV };
-    const imageryUv = imagery
-      ? sourceUvForTilePoint(imagery, tileU, tileV)
-      : { u: tileU, v: tileV };
-    elevationUvs.push(elevationUv.u, elevationUv.v);
+    const imageryUv = imageryUvForGeographicPoint(bounds, latitude, longitude);
     imageryUvs.push(imageryUv.u, imageryUv.v);
     skirts.push(skirt);
     return positions.length / 3 - 1;
@@ -260,10 +281,6 @@ function patchGeometry(
         );
         baseUvs.push(baseUvs[uvOffset]!, baseUvs[uvOffset + 1]!);
         tileUvs.push(tileUvs[uvOffset]!, tileUvs[uvOffset + 1]!);
-        elevationUvs.push(
-          elevationUvs[uvOffset]!,
-          elevationUvs[uvOffset + 1]!,
-        );
         imageryUvs.push(imageryUvs[uvOffset]!, imageryUvs[uvOffset + 1]!);
         skirts.push(1);
         return positions.length / 3 - 1;
@@ -273,20 +290,26 @@ function patchGeometry(
         const second = edge[index + 1]!;
         const firstSkirt = skirtEdge[index]!;
         const secondSkirt = skirtEdge[index + 1]!;
-        indices.push(first, firstSkirt, second, second, firstSkirt, secondSkirt);
+        indices.push(
+          first,
+          firstSkirt,
+          second,
+          second,
+          firstSkirt,
+          secondSkirt,
+        );
       }
     }
   }
 
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions, 3),
+  );
   geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
   geometry.setAttribute("baseUv", new THREE.Float32BufferAttribute(baseUvs, 2));
   geometry.setAttribute("tileUv", new THREE.Float32BufferAttribute(tileUvs, 2));
-  geometry.setAttribute(
-    "elevationUv",
-    new THREE.Float32BufferAttribute(elevationUvs, 2),
-  );
   geometry.setAttribute(
     "imageryUv",
     new THREE.Float32BufferAttribute(imageryUvs, 2),
@@ -298,20 +321,20 @@ function patchGeometry(
 }
 
 function tileTint(zoom: number): THREE.Color {
-  return new THREE.Color().setHSL(((zoom * 0.137) % 1 + 1) % 1, 0.7, 0.48);
+  return new THREE.Color().setHSL((((zoom * 0.137) % 1) + 1) % 1, 0.7, 0.48);
 }
 
 const VERTEX_SHADER = `
   in vec2 baseUv;
   in vec2 tileUv;
-  in vec2 elevationUv;
   in vec2 imageryUv;
   in float skirt;
   uniform sampler2D elevationMap;
   uniform float elevationEnabled;
   uniform float normalizedRadialMetres;
   uniform float normalizedSkirtDepth;
-  out vec2 vBaseUv;
+  uniform vec4 elevationUvTransform;
+  out vec2 vBlueMarbleUv;
   out vec2 vTileUv;
   out vec2 vImageryUv;
   out vec3 vWorldPosition;
@@ -342,12 +365,13 @@ const VERTEX_SHADER = `
   }
 
   void main() {
+    vec2 elevationUv = tileUv * elevationUvTransform.xy + elevationUvTransform.zw;
     float heightM = elevationEnabled > 0.5 ? elevationAt(elevationUv) : 0.0;
     vec3 displaced =
       position + normal * heightM * normalizedRadialMetres -
       normal * normalizedSkirtDepth * skirt;
     vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
-    vBaseUv = baseUv;
+    vBlueMarbleUv = baseUv;
     vTileUv = tileUv;
     vImageryUv = imageryUv;
     vWorldPosition = worldPosition.xyz;
@@ -357,16 +381,13 @@ const VERTEX_SHADER = `
 `;
 
 const FRAGMENT_SHADER = `
-  uniform sampler2D baseMap;
-  uniform sampler2D imageryMap;
-  uniform float imageryEnabled;
+  ${IMAGERY_FRAGMENT_DECLARATIONS}
+  uniform float photographicImageryAllowed;
   uniform float tileOverlayVisible;
   uniform float textureOverlayVisible;
   uniform vec3 tileTint;
   uniform vec3 sunlight;
-  in vec2 vBaseUv;
   in vec2 vTileUv;
-  in vec2 vImageryUv;
   in vec3 vWorldPosition;
   in vec3 vBaseNormal;
   out vec4 surfaceColour;
@@ -382,9 +403,9 @@ const FRAGMENT_SHADER = `
   }
 
   void main() {
-    vec3 albedo = imageryEnabled > 0.5
-      ? texture(imageryMap, vImageryUv).rgb
-      : texture(baseMap, vBaseUv).rgb;
+    vec3 albedo = photographicImageryAllowed > 0.5
+      ? resolvedImageryAlbedo()
+      : texture(blueMarbleMap, vBlueMarbleUv).rgb;
     vec3 derivedNormal = normalize(cross(dFdx(vWorldPosition), dFdy(vWorldPosition)));
     if (dot(derivedNormal, vBaseNormal) < 0.0) derivedNormal *= -1.0;
     float direct = max(0.0, dot(derivedNormal, normalize(sunlight)));
@@ -402,31 +423,30 @@ const FRAGMENT_SHADER = `
     colour += vec3(0.025, 0.045, 0.065) * (1.0 - direct);
     float tileEdge = edgeOverlay(vTileUv);
     colour = mix(colour, tileTint, tileOverlayVisible * (0.14 + tileEdge * 0.72));
-    if (imageryEnabled > 0.5) {
-      float sourceEdge = edgeOverlay(vImageryUv);
-      colour = mix(
-        colour,
-        vec3(0.0, 0.843, 1.0),
-        textureOverlayVisible * sourceEdge * 0.88
-      );
-    }
+    vec4 imageryTileOverlay = photographicImageryAllowed > 0.5
+      ? resolvedImageryTileOverlay()
+      : vec4(0.0);
+    colour = mix(
+      colour,
+      imageryTileOverlay.rgb,
+      textureOverlayVisible * imageryTileOverlay.a
+    );
     surfaceColour = vec4(colour, 1.0);
   }
 `;
 
-/** Atomic, provider-neutral terrain and imagery surface renderer. */
+/** Atomic terrain topology renderer with late-bound photographic imagery. */
 export class TerrainSurface {
   readonly group = new THREE.Group();
-  private readonly provider: SurfaceTileProvider;
-  private readonly scheduler: TileTransitionScheduler<
-    TileTarget,
-    SurfaceTileResource
-  >;
+  private readonly provider: ElevationTileProvider;
+  private readonly imagery: ImageryVirtualTexture;
+  private readonly scheduler: TileWorkerScheduler<ElevationTileResource>;
   private readonly meshes = new Map<string, SurfaceMesh>();
-  private readonly imageryTextures = new Map<HTMLImageElement, THREE.Texture>();
-  private readonly elevationTextures = new Map<HTMLImageElement, THREE.Texture>();
+  private readonly elevationTextures = new ImageTexturePool<
+    HTMLImageElement,
+    THREE.Texture
+  >();
   private readonly emptyTexture: THREE.DataTexture;
-  private readonly maximumAnisotropy: number;
   private readonly sharedUniforms: Record<string, THREE.IUniform>;
   private readonly unsubscribe: () => void;
   private snapshot: SchedulerSnapshot<TileTarget>;
@@ -434,27 +454,27 @@ export class TerrainSurface {
 
   constructor(options: TerrainSurfaceOptions) {
     this.group.name = "terrain-surface";
-    this.maximumAnisotropy = options.renderer.capabilities.getMaxAnisotropy();
     options.baseTexture.wrapS = THREE.RepeatWrapping;
     options.baseTexture.wrapT = THREE.ClampToEdgeWrapping;
     options.baseTexture.needsUpdate = true;
 
     const elevationProvider = createElevationTileProvider();
-    const imageryProvider = options.imageryProvider
-      ? createImageryTileProvider(options.imageryProvider)
-      : undefined;
-    this.provider = new SurfaceTileProvider(
-      elevationProvider,
-      imageryProvider,
-      options.imageryProvider?.minZoom,
+    this.imagery = new ImageryVirtualTexture(
+      options.renderer,
+      options.baseTexture,
+      options.imageryProvider,
+      options.initialView,
     );
-    this.currentTarget = targetForView(options.initialView, this.provider.tilePixels);
-    this.scheduler = new TileTransitionScheduler(
-      this.currentTarget,
-      new TileOnionLayoutSource(),
-      this.provider,
-      { hydrateInitialResources: true },
+    this.provider = new ElevationTileProvider(elevationProvider);
+    this.currentTarget = terrainTargetForView(
+      options.initialView,
+      this.provider.tilePixels,
     );
+    this.scheduler = new TileWorkerScheduler(this.currentTarget, {
+      provider: this.provider,
+      hydrateInitialResources: true,
+      retryDelayMs: 5_000,
+    });
     this.snapshot = this.scheduler.snapshot;
     this.emptyTexture = new THREE.DataTexture(
       new Uint8Array([0, 0, 0, 255]),
@@ -464,10 +484,9 @@ export class TerrainSurface {
     );
     this.emptyTexture.needsUpdate = true;
     this.sharedUniforms = {
-      baseMap: { value: options.baseTexture },
       normalizedRadialMetres: {
-        value: options.initialView.radialMultiplier /
-          (EARTH_MEAN_RADIUS_KM * 1_000),
+        value:
+          options.initialView.radialMultiplier / (EARTH_MEAN_RADIUS_KM * 1_000),
       },
       normalizedSkirtDepth: {
         value: SKIRT_DEPTH_WORLD_METRES / options.initialView.displayRadiusM,
@@ -477,9 +496,26 @@ export class TerrainSurface {
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
     };
     this.addPolarCaps();
-    this.unsubscribe = this.scheduler.subscribe((snapshot) => {
+    this.imagery.update({
+      displayRadiusM: options.initialView.displayRadiusM,
+      latitudeDegrees: options.initialView.latitudeDegrees,
+      longitudeDegrees: options.initialView.longitudeDegrees,
+    });
+    this.unsubscribe = this.scheduler.subscribe((snapshot, event) => {
+      const committedChanged =
+        !event && !sameCut(this.snapshot.committedCut, snapshot.committedCut);
       this.snapshot = snapshot;
-      this.syncMeshes();
+      if (event?.kind === "atomic-swap" || (!event && committedChanged)) {
+        this.syncMeshes();
+      } else if (event?.kind === "response" && event.tile) {
+        const entry = this.meshes.get(tileIdentityKey(event.tile));
+        if (entry) {
+          this.updateElevation(
+            entry,
+            this.scheduler.committedResource(event.tile),
+          );
+        }
+      }
     });
   }
 
@@ -488,7 +524,18 @@ export class TerrainSurface {
       view.radialMultiplier / (EARTH_MEAN_RADIUS_KM * 1_000);
     this.sharedUniforms.normalizedSkirtDepth!.value =
       SKIRT_DEPTH_WORLD_METRES / view.displayRadiusM;
-    const target = targetForView(view, this.provider.tilePixels);
+    this.imagery.update({
+      displayRadiusM: view.displayRadiusM,
+      latitudeDegrees: view.latitudeDegrees,
+      longitudeDegrees: view.longitudeDegrees,
+    });
+    for (const entry of this.meshes.values()) {
+      this.imagery.configureMaterial(
+        entry.mesh.material,
+        entry.imageryBounds,
+      );
+    }
+    const target = terrainTargetForView(view, this.provider.tilePixels);
     if (
       target.z !== this.currentTarget.z ||
       target.x !== this.currentTarget.x ||
@@ -524,20 +571,21 @@ export class TerrainSurface {
     this.unsubscribe();
     this.scheduler.dispose();
     this.provider.dispose();
+    this.imagery.dispose();
     for (const entry of this.meshes.values()) {
+      this.releaseTexture(this.elevationTextures, entry.elevation?.image);
       this.group.remove(entry.mesh);
       this.disposeMesh(entry.mesh);
     }
     this.meshes.clear();
-    for (const texture of this.imageryTextures.values()) texture.dispose();
-    for (const texture of this.elevationTextures.values()) texture.dispose();
-    this.imageryTextures.clear();
-    this.elevationTextures.clear();
+    this.elevationTextures.dispose();
     this.emptyTexture.dispose();
     for (const child of [...this.group.children]) {
       if (!(child instanceof THREE.Mesh)) continue;
       this.group.remove(child);
-      this.disposeMesh(child as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>);
+      this.disposeMesh(
+        child as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>,
+      );
     }
   }
 
@@ -545,56 +593,46 @@ export class TerrainSurface {
     const retained = new Set(
       this.snapshot.committedCut.map((tile) => tileIdentityKey(tile)),
     );
-    for (const [key, entry] of [...this.meshes]) {
-      if (retained.has(key)) continue;
+    const obsolete = [...this.meshes].filter(([key]) => !retained.has(key));
+    for (const tile of this.snapshot.committedCut) {
+      const key = tileIdentityKey(tile);
+      const current = this.meshes.get(key);
+      if (current) {
+        this.updateElevation(current, this.scheduler.committedResource(tile));
+        continue;
+      }
+      const entry = this.createTileMesh(tile);
+      this.meshes.set(key, entry);
+      this.group.add(entry.mesh);
+      this.updateElevation(entry, this.scheduler.committedResource(tile));
+    }
+    for (const [key, entry] of obsolete) {
       this.meshes.delete(key);
+      this.releaseTexture(this.elevationTextures, entry.elevation?.image);
       this.group.remove(entry.mesh);
       this.disposeMesh(entry.mesh);
     }
-    for (const tile of this.snapshot.committedCut) {
-      const key = tileIdentityKey(tile);
-      const resource = this.scheduler.committedResource(tile);
-      const current = this.meshes.get(key);
-      if (current && current.resource === resource) continue;
-      if (current) {
-        this.group.remove(current.mesh);
-        this.disposeMesh(current.mesh);
-      }
-      const mesh = this.createTileMesh(tile, resource);
-      this.meshes.set(key, { mesh, resource });
-      this.group.add(mesh);
-    }
   }
 
-  private createTileMesh(
-    tile: TileIdentity,
-    resource?: SurfaceTileResource,
-  ): THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> {
+  private createTileMesh(tile: TileIdentity): SurfaceMesh {
     const segments = segmentsForTile(tile);
-    const geometry = patchGeometry(
-      tileBounds(tile),
-      segments,
-      segments,
-      resource?.elevation,
-      resource?.imagery,
-    );
-    const elevationMap = resource
-      ? this.textureForElevation(resource.elevation)
-      : this.emptyTexture;
-    const imageryMap = resource?.imagery
-      ? this.textureForImagery(resource.imagery)
-      : this.emptyTexture;
+    const bounds = tileBounds(tile);
+    const imageryBounds = imageryBoundsForGeographicBounds(bounds);
+    const geometry = patchGeometry(bounds, segments, segments);
+    const elevationMap = this.emptyTexture;
     const material = this.surfaceMaterial({
       elevationMap,
-      elevationEnabled: resource ? 1 : 0,
-      imageryMap,
-      imageryEnabled: resource?.imagery ? 1 : 0,
+      elevationEnabled: 0,
       tileTint: tileTint(tile.z),
     });
+    this.imagery.configureMaterial(
+      material,
+      imageryBounds,
+    );
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `surface-tile:${tileIdentityKey(tile)}`;
     mesh.frustumCulled = false;
-    return mesh;
+    return { tile: Object.freeze({ ...tile }), imageryBounds, mesh };
   }
 
   private addPolarCaps(): void {
@@ -603,12 +641,11 @@ export class TerrainSurface {
       { west: -180, east: 180, north: -WEB_MERCATOR_MAX_LATITUDE, south: -90 },
     ]) {
       const mesh = new THREE.Mesh(
-        patchGeometry(bounds, 128, 8, undefined, undefined, false),
+        patchGeometry(bounds, 128, 8, false),
         this.surfaceMaterial({
           elevationMap: this.emptyTexture,
           elevationEnabled: 0,
-          imageryMap: this.emptyTexture,
-          imageryEnabled: 0,
+          photographicImageryAllowed: false,
           tileTint: new THREE.Color(0x3d8a95),
         }),
       );
@@ -621,8 +658,8 @@ export class TerrainSurface {
   private surfaceMaterial(values: {
     elevationMap: THREE.Texture;
     elevationEnabled: number;
-    imageryMap: THREE.Texture;
-    imageryEnabled: number;
+    elevationUvTransform?: THREE.Vector4;
+    photographicImageryAllowed?: boolean;
     tileTint: THREE.Color;
   }): THREE.ShaderMaterial {
     return new THREE.ShaderMaterial({
@@ -632,10 +669,15 @@ export class TerrainSurface {
       depthWrite: true,
       uniforms: {
         ...this.sharedUniforms,
+        ...this.imagery.materialUniforms(),
         elevationMap: { value: values.elevationMap },
         elevationEnabled: { value: values.elevationEnabled },
-        imageryMap: { value: values.imageryMap },
-        imageryEnabled: { value: values.imageryEnabled },
+        elevationUvTransform: {
+          value: values.elevationUvTransform ?? new THREE.Vector4(1, 1, 0, 0),
+        },
+        photographicImageryAllowed: {
+          value: values.photographicImageryAllowed === false ? 0 : 1,
+        },
         tileTint: { value: values.tileTint },
       },
       vertexShader: VERTEX_SHADER,
@@ -643,35 +685,54 @@ export class TerrainSurface {
     });
   }
 
-  private textureForImagery(resource: ImageTileResource): THREE.Texture {
-    const existing = this.imageryTextures.get(resource.image);
-    if (existing) return existing;
-    const texture = new THREE.Texture(resource.image);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.wrapS = THREE.ClampToEdgeWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
-    texture.magFilter = THREE.LinearFilter;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.generateMipmaps = true;
-    texture.anisotropy = this.maximumAnisotropy;
-    texture.needsUpdate = true;
-    this.imageryTextures.set(resource.image, texture);
-    return texture;
+  private textureForElevation(resource: ImageTileResource): THREE.Texture {
+    return this.elevationTextures.acquire(resource.image, () => {
+      const texture = new THREE.Texture(resource.image);
+      texture.colorSpace = THREE.NoColorSpace;
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      texture.generateMipmaps = false;
+      texture.needsUpdate = true;
+      return texture;
+    });
   }
 
-  private textureForElevation(resource: ImageTileResource): THREE.Texture {
-    const existing = this.elevationTextures.get(resource.image);
-    if (existing) return existing;
-    const texture = new THREE.Texture(resource.image);
-    texture.colorSpace = THREE.NoColorSpace;
-    texture.wrapS = THREE.ClampToEdgeWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.generateMipmaps = false;
-    texture.needsUpdate = true;
-    this.elevationTextures.set(resource.image, texture);
-    return texture;
+  private sourceTransform(resource: ImageTileResource): THREE.Vector4 {
+    return new THREE.Vector4(
+      1 / resource.sourceScale,
+      1 / resource.sourceScale,
+      resource.sourceOffsetX / resource.sourceScale,
+      (resource.sourceScale - resource.sourceOffsetY - 1) /
+        resource.sourceScale,
+    );
+  }
+
+  private updateElevation(
+    entry: SurfaceMesh,
+    resource: ElevationTileResource | undefined,
+  ): void {
+    const elevation = resource?.elevation;
+    if (entry.elevation === elevation) return;
+    this.releaseTexture(this.elevationTextures, entry.elevation?.image);
+    entry.elevation = elevation;
+    entry.elevationTexture = elevation
+      ? this.textureForElevation(elevation)
+      : undefined;
+    entry.mesh.material.uniforms.elevationMap!.value =
+      entry.elevationTexture ?? this.emptyTexture;
+    entry.mesh.material.uniforms.elevationEnabled!.value = elevation ? 1 : 0;
+    entry.mesh.material.uniforms.elevationUvTransform!.value = elevation
+      ? this.sourceTransform(elevation)
+      : new THREE.Vector4(1, 1, 0, 0);
+  }
+
+  private releaseTexture(
+    textures: ImageTexturePool<HTMLImageElement, THREE.Texture>,
+    image: HTMLImageElement | undefined,
+  ): void {
+    textures.release(image);
   }
 
   private disposeMesh(

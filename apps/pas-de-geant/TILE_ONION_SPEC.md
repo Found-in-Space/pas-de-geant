@@ -96,8 +96,9 @@ Every committed plan must satisfy all of the following:
    an onion boundary.
 5. In normal mode, the tile containing the user has at least one complete tile
    at the same finest zoom in each of the eight neighbouring directions.
-6. Terrain and imagery would consume the same finest mesh and the same derived
-   tile hierarchy. They must not make independent base-tile selections.
+6. Each consumer may run the calculator independently with its own finest z
+   and provider cap. Terrain owns the mesh cut; imagery maps its independent
+   hierarchy to terrain fragments through Web Mercator coordinates.
 7. Any two active tiles whose closed footprints touch, including at only a
    corner, differ by at most one zoom level.
 

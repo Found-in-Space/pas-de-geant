@@ -3,7 +3,11 @@ import type { TileIdentity } from "./tile-transition-planner.js";
 export type TileProviderResult<Resource> =
   | { readonly phase: "in-flight" }
   | { readonly phase: "response"; readonly resource: Resource }
-  | { readonly phase: "failure"; readonly reason: string };
+  | {
+      readonly phase: "failure";
+      readonly reason: string;
+      readonly status?: number;
+    };
 
 export interface TileRequestHandle {
   readonly requestId: number;

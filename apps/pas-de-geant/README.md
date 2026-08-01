@@ -49,27 +49,28 @@ The production surface is composed from reusable, provider-neutral modules:
   XYZ cut;
 - the transition planner finds the minimal atomic replacement groups between
   two complete cuts;
-- the scheduler owns the committed resources, cancels superseded work, and
-  publishes only complete atomic swaps;
+- the payload-neutral worker scheduler owns the committed terrain resources,
+  cancels superseded work, and publishes only complete atomic swaps;
 - cancellable image providers coalesce source requests and reuse decoded
   overzoom ancestors;
-- a composite surface provider joins Terrarium elevation and optional XYZ
-  photography into one resource for each draw tile;
+- an independent photographic planner maintains a virtual-texture page table
+  and GPU texture-array pool at its own draw and source zooms;
 - `TerrainSurface` is the only application-facing integration point.
 
-The requested z level comes from observer height above the flat, un-displaced
-Earth surface, latitude, render-buffer focal length, and source tile
-resolution. Terrain elevation never feeds back into LOD selection. Changing
-the displayed Earth radius converts the same room-space eye height to a new
-physical observer height and therefore selects a new cut.
+Terrain z comes from observer height above the flat, un-displaced Earth
+surface, latitude, render-buffer focal length, elevation page resolution, and
+its own screen-density target. Photographic z uses a separate metre-per-texel
+target and hysteresis. Either pipeline can therefore be capped, overzoomed,
+and tuned without changing the other. Terrain elevation never feeds back into
+LOD selection.
 
 The embedded Blue Marble is immediate, complete fallback imagery. Mapterhorn
-Terrarium pages hydrate the committed cut, while a configured photographic
-provider can replace the corresponding texture regions. Elevation is required
-before a new terrain replacement commits. Missing photographic imagery uses
-Blue Marble and cannot create a surface hole. Failed elevation hydration keeps
-the initial flat tile; failed replacement leaves the previous committed tile
-visible.
+Terrarium pages hydrate the committed terrain cut. The photographic pipeline
+loads and commits independently, and a fragment can resolve a finer imagery
+page than the terrain mesh containing it. Elevation is required before a new
+terrain replacement commits. A confirmed missing elevation page resolves as
+flat terrain; a missing photographic page resolves to an available ancestor
+or Blue Marble. Neither kind of 404 blocks its sibling cells.
 
 Terrarium displacement is decoded and bilinearly sampled in the vertex shader.
 Draw tiles sample cropped regions of source ancestors after the provider's
@@ -77,12 +78,12 @@ maximum zoom. Shallow skirts hide unavoidable raster/LOD edge differences.
 There is no hidden inner globe: only the committed Web Mercator surface and
 flat Blue Marble polar caps are rendered.
 
-Photographic source textures use clamped edge sampling, linear magnification,
-trilinear mipmapped minification, and the device's available anisotropy.
-Overzoomed children share a single source texture and continuous cropped source
-UVs, so a draw-tile join within the same ancestor samples the same coordinate
-from both sides. Press Y to inspect the actual source boundaries; press X to
-inspect the committed draw cut.
+Photographic source pages retain their native dimensions in a mipmapped,
+anisotropic GPU texture array. A double-buffered page table maps continuous Web
+Mercator fragment coordinates to an exact page or an overzoomed provider
+ancestor. Existing mappings remain visible until a replacement mapping is
+ready. Press Y to inspect photographic source boundaries; press X to inspect
+the independent committed terrain cut.
 
 ### Optional photographic imagery
 

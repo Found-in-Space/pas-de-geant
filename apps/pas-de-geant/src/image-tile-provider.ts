@@ -91,9 +91,7 @@ interface Consumer {
   readonly requestId: number;
   readonly tile: TileIdentity;
   readonly mapping: SourceMapping;
-  readonly observer: (
-    result: TileProviderResult<ImageTileResource>,
-  ) => void;
+  readonly observer: (result: TileProviderResult<ImageTileResource>) => void;
   active: boolean;
 }
 
@@ -110,7 +108,10 @@ function immutableTile(tile: TileIdentity): TileIdentity {
   return Object.freeze({ z: tile.z, x: tile.x, y: tile.y });
 }
 
-function sourceMapping(tile: TileIdentity, sourceTile: TileIdentity): SourceMapping {
+function sourceMapping(
+  tile: TileIdentity,
+  sourceTile: TileIdentity,
+): SourceMapping {
   const sourceScale = 2 ** (tile.z - sourceTile.z);
   return Object.freeze({
     sourceTile: immutableTile(sourceTile),
@@ -136,6 +137,15 @@ function isAbortError(error: unknown): boolean {
 
 function errorReason(error: unknown): string {
   return error instanceof Error ? error.message : "Tile image loading failed.";
+}
+
+class HttpTileError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
 function elevationCacheStatus(
@@ -192,7 +202,9 @@ async function decodeBlobImage(
       };
       image.onerror = (): void => {
         cleanup();
-        reject(new Error("The tile response could not be decoded as an image."));
+        reject(
+          new Error("The tile response could not be decoded as an image."),
+        );
       };
       image.src = url;
     });
@@ -206,9 +218,7 @@ async function decodeBlobImage(
  * coalesces identical overzoomed source requests and retains decoded sources
  * so revisits can use the session memory cache.
  */
-export class ImageTileProvider
-  implements TileProvider<ImageTileResource>
-{
+export class ImageTileProvider implements TileProvider<ImageTileResource> {
   readonly mode: ImageTileKind;
   readonly tilePixels: number;
   readonly attribution: string;
@@ -252,14 +262,13 @@ export class ImageTileProvider
         this.successfulLoadTotal === 0
           ? 0
           : this.loadDurationTotalMs / this.successfulLoadTotal,
-      queued: [...this.jobs.values()].filter(({ state }) => state === "queued").length,
+      queued: [...this.jobs.values()].filter(({ state }) => state === "queued")
+        .length,
       inFlight: this.activeJobCount,
     });
   }
 
-  subscribe(
-    listener: (metrics: ImageTileProviderMetrics) => void,
-  ): () => void {
+  subscribe(listener: (metrics: ImageTileProviderMetrics) => void): () => void {
     this.listeners.add(listener);
     listener(this.metrics);
     return () => this.listeners.delete(listener);
@@ -277,9 +286,7 @@ export class ImageTileProvider
 
   request(
     sourceTile: TileIdentity,
-    observer: (
-      result: TileProviderResult<ImageTileResource>,
-    ) => void,
+    observer: (result: TileProviderResult<ImageTileResource>) => void,
   ): TileRequestHandle {
     const requestId = this.nextRequestId++;
     const tile = immutableTile(sourceTile);
@@ -289,7 +296,9 @@ export class ImageTileProvider
       mapping = this.options.resolveSource(tile);
     } catch (error) {
       this.failureTotal += 1;
-      queueMicrotask(() => observer({ phase: "failure", reason: errorReason(error) }));
+      queueMicrotask(() =>
+        observer({ phase: "failure", reason: errorReason(error) }),
+      );
       this.emit();
       return Object.freeze({ requestId, cancel() {} });
     }
@@ -411,7 +420,8 @@ export class ImageTileProvider
     this.loadDurationTotalMs += loadDurationMs;
     this.successfulLoadTotal += 1;
     if (source.cacheStatus === "persistent-hit") this.persistentHitTotal += 1;
-    if (source.cacheStatus === "persistent-write") this.persistentWriteTotal += 1;
+    if (source.cacheStatus === "persistent-write")
+      this.persistentWriteTotal += 1;
     for (const requestId of job.consumers) {
       const consumer = this.consumers.get(requestId);
       if (!consumer?.active) continue;
@@ -435,7 +445,11 @@ export class ImageTileProvider
       for (const requestId of job.consumers) {
         const consumer = this.consumers.get(requestId);
         if (!consumer?.active) continue;
-        consumer.observer({ phase: "failure", reason: errorReason(error) });
+        consumer.observer({
+          phase: "failure",
+          reason: errorReason(error),
+          ...(error instanceof HttpTileError ? { status: error.status } : {}),
+        });
         this.consumers.delete(requestId);
       }
     }
@@ -515,7 +529,8 @@ export function createElevationTileProvider(): ImageTileProvider {
     loadSource: async (source, signal) => {
       const payload = await loadCachedElevation(source, signal);
       if (payload.status < 200 || payload.status >= 300) {
-        throw new Error(
+        throw new HttpTileError(
+          payload.status,
           `Elevation tile ${tileIdentityKey(source)} failed with ${payload.status}.`,
         );
       }
