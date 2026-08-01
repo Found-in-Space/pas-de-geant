@@ -12,7 +12,10 @@ import {
   normalizedMercatorYForLatitude,
 } from "./imagery.js";
 import { observerTileZoom } from "./observer-tile-zoom.js";
-import { normalizeTileTarget, type TileTarget } from "./tile-layout-source.js";
+import {
+  normalizeTileTarget,
+  type TileTarget,
+} from "./tile-layout-source.js";
 import {
   ElevationTileProvider,
   type ElevationTileResource,
@@ -29,6 +32,12 @@ import {
   WGS84_A_KM,
   WGS84_B_KM,
 } from "./planet-state.js";
+import {
+  classifyViewResidency,
+  viewResidencySignature,
+  type GeographicPoint,
+  type ViewResidencyInput,
+} from "./view-residency.js";
 
 const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 const SKIRT_DEPTH_WORLD_METRES = 0.02;
@@ -43,6 +52,24 @@ export interface TerrainSurfaceView {
   /** Eye height above the un-displaced, flat local surface in render metres. */
   readonly observerHeightWorldM: number;
   readonly focalLengthPixels: number;
+  /** Surface intersections/tangent points sampled from the active eye frusta. */
+  readonly footprint: readonly GeographicPoint[];
+}
+
+export interface TerrainRuntimeMetrics {
+  readonly committedLeafCount: number;
+  readonly hotTerrainTileCount: number;
+  readonly warmTerrainTileCount: number;
+  readonly residencyClassificationTotal: number;
+  readonly imagery: ReturnType<ImageryVirtualTexture["getMetrics"]>;
+  readonly elevation: {
+    readonly decodedSourceCount: number;
+    readonly textureCount: number;
+    readonly requestTotal: number;
+    readonly sourceLoadTotal: number;
+    readonly estimatedCpuBytes: number;
+    readonly estimatedGpuBytes: number;
+  };
 }
 
 export interface TerrainSurfaceOptions {
@@ -452,6 +479,12 @@ export class TerrainSurface {
   private readonly unsubscribe: () => void;
   private snapshot: SchedulerSnapshot<TileTarget>;
   private currentTarget: TileTarget;
+  private hotKeys = new Set<string>();
+  private warmKeys = new Set<string>();
+  private residencyInput: ViewResidencyInput;
+  private residencyViewSignature = -1;
+  private residencyRevision = -2;
+  private residencyClassificationTotal = 0;
 
   constructor(options: TerrainSurfaceOptions) {
     this.renderer = options.renderer;
@@ -472,10 +505,15 @@ export class TerrainSurface {
       options.initialView,
       this.provider.tilePixels,
     );
+    this.residencyInput = {
+      underfoot: options.initialView,
+      footprint: options.initialView.footprint,
+    };
     this.scheduler = new TileWorkerScheduler(this.currentTarget, {
       provider: this.provider,
-      hydrateInitialResources: true,
+      hydrateInitialResources: false,
       retryDelayMs: 5_000,
+      initialResourceDemand: [],
     });
     this.snapshot = this.scheduler.snapshot;
     this.emptyTexture = new THREE.DataTexture(
@@ -507,7 +545,12 @@ export class TerrainSurface {
       const committedChanged =
         !event && !sameCut(this.snapshot.committedCut, snapshot.committedCut);
       this.snapshot = snapshot;
-      if (event?.kind === "atomic-swap" || (!event && committedChanged)) {
+      this.applyResidency();
+      if (
+        event?.kind === "atomic-swap" ||
+        event?.sequence === -1 ||
+        (!event && committedChanged)
+      ) {
         this.syncMeshes();
       } else if (event?.kind === "response" && event.tile) {
         const resource = this.scheduler.committedResource(event.tile);
@@ -530,7 +573,15 @@ export class TerrainSurface {
       displayRadiusM: view.displayRadiusM,
       latitudeDegrees: view.latitudeDegrees,
       longitudeDegrees: view.longitudeDegrees,
+    }, {
+      underfoot: view,
+      footprint: view.footprint,
     });
+    this.residencyInput = {
+      underfoot: view,
+      footprint: view.footprint,
+    };
+    this.applyResidency();
     const target = terrainTargetForView(view, this.provider.tilePixels);
     if (
       target.z !== this.currentTarget.z ||
@@ -548,6 +599,27 @@ export class TerrainSurface {
       minZoom: zooms.length > 0 ? Math.min(...zooms) : 0,
       maxZoom: zooms.length > 0 ? Math.max(...zooms) : 0,
       budgetLimited: false,
+    };
+  }
+
+  getMetrics(): TerrainRuntimeMetrics {
+    const elevation = this.provider.metrics;
+    return {
+      committedLeafCount: this.snapshot.committedCut.length,
+      hotTerrainTileCount: this.hotKeys.size,
+      warmTerrainTileCount: this.warmKeys.size,
+      residencyClassificationTotal: this.residencyClassificationTotal,
+      imagery: this.imagery.getMetrics(),
+      elevation: {
+        decodedSourceCount: elevation.decodedSourceCount,
+        textureCount: this.elevationTextures.size,
+        requestTotal: elevation.requestTotal,
+        sourceLoadTotal: elevation.sourceLoadTotal,
+        estimatedCpuBytes: elevation.estimatedDecodedBytes,
+        estimatedGpuBytes:
+          this.elevationTextures.size * this.provider.tilePixels *
+          this.provider.tilePixels * 4,
+      },
     };
   }
 
@@ -612,6 +684,42 @@ export class TerrainSurface {
       this.group.remove(entry.mesh);
       this.disposeMesh(entry.mesh);
     }
+  }
+
+  private applyResidency(): void {
+    if (
+      this.residencyInput.footprint.length === 0 ||
+      this.snapshot.committedCut.length === 0
+    ) return;
+    const signature = viewResidencySignature(
+      this.currentTarget.z,
+      this.residencyInput,
+    );
+    if (
+      signature === this.residencyViewSignature &&
+      this.snapshot.revision === this.residencyRevision
+    ) return;
+    this.residencyViewSignature = signature;
+    this.residencyRevision = this.snapshot.revision;
+    this.residencyClassificationTotal += 1;
+    const workingCut = new Map<string, TileIdentity>();
+    for (const tile of [
+      ...this.snapshot.committedCut,
+      ...this.snapshot.requestedCut,
+    ]) workingCut.set(tileIdentityKey(tile), tile);
+    const workingTiles = [...workingCut.values()];
+    const classified = classifyViewResidency(
+      workingTiles,
+      this.residencyInput,
+      this.warmKeys,
+    );
+    this.hotKeys = new Set(classified.hot);
+    this.warmKeys = new Set(classified.warm);
+    const demanded = workingTiles.filter((tile) =>
+      this.warmKeys.has(tileIdentityKey(tile)),
+    );
+    this.scheduler.updateResourceDemand(demanded);
+    this.provider.retainSourceTiles(demanded);
   }
 
   private createTileMesh(tile: TileIdentity): SurfaceMesh {

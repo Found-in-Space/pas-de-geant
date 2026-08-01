@@ -33,15 +33,26 @@ import {
   ImageryRequestError,
   type ImageryProvider,
 } from "./imagery-provider.js";
-import { normalizeTileTarget, type TileTarget } from "./tile-layout-source.js";
+import {
+  normalizeTileTarget,
+  type TileTarget,
+} from "./tile-layout-source.js";
 import type {
   TileProvider,
   TileProviderResult,
   TileRequestHandle,
 } from "./tile-provider.js";
 import type { SchedulerSnapshot } from "./tile-transition-scheduler.js";
-import type { TileIdentity } from "./tile-transition-planner.js";
+import {
+  tileIdentityKey,
+  type TileIdentity,
+} from "./tile-transition-planner.js";
 import { TileWorkerScheduler } from "./tile-worker-scheduler.js";
+import {
+  classifyViewResidency,
+  viewResidencySignature,
+  type ViewResidencyInput,
+} from "./view-residency.js";
 
 export {
   configuredXyzImageryProvider,
@@ -295,6 +306,9 @@ export class ScheduledImageryProvider
   private readonly jobs = new Map<string, SourceJob>();
   private readonly queuedJobs: SourceJob[] = [];
   private disposed = false;
+  private requestTotal = 0;
+  private sourceLoadTotal = 0;
+  private decodeTotal = 0;
 
   constructor(
     readonly source: ImageryProvider,
@@ -306,10 +320,27 @@ export class ScheduledImageryProvider
       new Uint8Array(await blob.arrayBuffer()),
   ) {}
 
+  get metrics(): {
+    requestTotal: number;
+    sourceLoadTotal: number;
+    decodeTotal: number;
+    queued: number;
+    inFlight: number;
+  } {
+    return {
+      requestTotal: this.requestTotal,
+      sourceLoadTotal: this.sourceLoadTotal,
+      decodeTotal: this.decodeTotal,
+      queued: this.queuedJobs.length,
+      inFlight: this.activeJobCount,
+    };
+  }
+
   request(
     tile: TileIdentity,
     observer: (result: TileProviderResult<ImageryTileResource>) => void,
   ): TileRequestHandle {
+    this.requestTotal += 1;
     const sourceTile = ancestorAtZoom(tile, this.source.maxZoom);
     const sourceKey = imageryKey(sourceTile);
     const request: Request = {
@@ -377,6 +408,7 @@ export class ScheduledImageryProvider
       job.state = "active";
       job.controller = new AbortController();
       this.activeJobCount += 1;
+      this.sourceLoadTotal += 1;
       for (const requestId of job.consumers) {
         this.requests.get(requestId)?.observer({ phase: "in-flight" });
       }
@@ -443,6 +475,7 @@ export class ScheduledImageryProvider
       try {
         const blob = await this.source.load(sourceTile, signal);
         const pixels = await this.decode(blob, this.source.tileSize, signal);
+        this.decodeTotal += 1;
         return {
           sourceTile: Object.freeze({ ...sourceTile }),
           pixels,
@@ -775,6 +808,13 @@ export class ImageryVirtualTexture {
   private desiredZoom: number | undefined;
   private desiredSourceKeySet = new Set<string>();
   private nextPoolGeneration = 1;
+  private hotKeys = new Set<string>();
+  private warmKeys = new Set<string>();
+  private residencyInput?: ViewResidencyInput;
+  private residencyViewSignature = -1;
+  private residencyRevision = -2;
+  private uploadTotal = 0;
+  private residencyClassificationTotal = 0;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -854,16 +894,27 @@ export class ImageryVirtualTexture {
         (blob, tileSize, signal) =>
           this.workerClient!.decode(blob, tileSize, signal),
       );
+      this.residencyInput = {
+        underfoot: initialView,
+        footprint: [],
+      };
       this.scheduler = new TileWorkerScheduler(this.target, {
         provider: this.provider,
-        hydrateInitialResources: true,
+        hydrateInitialResources: false,
         retryDelayMs: 5_000,
+        initialResourceDemand: [],
       });
       this.snapshot = this.scheduler.snapshot;
       this.unsubscribe = this.scheduler.subscribe((snapshot, event) => {
         this.snapshot = snapshot;
-        if (event?.kind === "response" && event.tile) {
-          this.stage(this.scheduler!.committedResource(event.tile));
+        this.applyResidency();
+        if (event?.kind === "response") {
+          if (event.tile) this.stage(this.scheduler!.committedResource(event.tile));
+          else {
+            for (const tile of snapshot.committedCut) {
+              this.stage(this.scheduler!.committedResource(tile));
+            }
+          }
           this.refreshDesiredTree();
         }
         if (!event || event.kind === "atomic-swap") {
@@ -898,7 +949,7 @@ export class ImageryVirtualTexture {
     );
   }
 
-  update(view: ImageryView): void {
+  update(view: ImageryView, residencyInput?: ViewResidencyInput): void {
     if (!this.scheduler || !this.provider) return;
     const zoom = selectImageryZoom({
       ...view,
@@ -926,7 +977,51 @@ export class ImageryVirtualTexture {
       this.scheduler.updateTarget(target);
     }
     this.desiredZoom = zoom;
+    this.residencyInput = residencyInput ?? {
+      underfoot: view,
+      footprint: [],
+    };
+    this.applyResidency();
     this.processUploads();
+  }
+
+  getMetrics(): {
+    committedLeafCount: number;
+    hotTileCount: number;
+    warmTileCount: number;
+    recordCount: number;
+    activeLayerCount: number;
+    migrationLayerCount: number;
+    requestTotal: number;
+    sourceLoadTotal: number;
+    decodeTotal: number;
+    uploadTotal: number;
+    estimatedCpuBytes: number;
+    estimatedGpuBytes: number;
+    residencyClassificationTotal: number;
+  } {
+    const provider = this.provider?.metrics;
+    const mipBytesPerLayer = imageryMipDimensions(
+      this.paddedSize,
+      this.paddedSize,
+    ).reduce((total, level) => total + level.width * level.height * 4, 0);
+    return {
+      committedLeafCount: this.snapshot.committedCut.length,
+      hotTileCount: this.hotKeys.size,
+      warmTileCount: this.warmKeys.size,
+      recordCount: this.records.size,
+      activeLayerCount: this.activePool.layers,
+      migrationLayerCount: this.migration?.pool.layers ?? 0,
+      requestTotal: provider?.requestTotal ?? 0,
+      sourceLoadTotal: provider?.sourceLoadTotal ?? 0,
+      decodeTotal: provider?.decodeTotal ?? 0,
+      uploadTotal: this.uploadTotal,
+      estimatedCpuBytes: this.records.size * mipBytesPerLayer,
+      estimatedGpuBytes:
+        (this.activePool.layers + (this.migration?.pool.layers ?? 0)) *
+        mipBytesPerLayer,
+      residencyClassificationTotal: this.residencyClassificationTotal,
+    };
   }
 
   dispose(): void {
@@ -1203,7 +1298,45 @@ export class ImageryVirtualTexture {
         upload.destinationMip,
       );
     }
+    this.uploadTotal += 1;
     return true;
+  }
+
+  private applyResidency(): void {
+    if (
+      !this.scheduler ||
+      !this.residencyInput ||
+      this.residencyInput.footprint.length === 0 ||
+      this.snapshot.committedCut.length === 0
+    ) return;
+    const signature = viewResidencySignature(
+      this.target.z,
+      this.residencyInput,
+    );
+    if (
+      signature === this.residencyViewSignature &&
+      this.snapshot.revision === this.residencyRevision
+    ) return;
+    this.residencyViewSignature = signature;
+    this.residencyRevision = this.snapshot.revision;
+    this.residencyClassificationTotal += 1;
+    const workingCut = new Map<string, TileIdentity>();
+    for (const tile of [
+      ...this.snapshot.committedCut,
+      ...this.snapshot.requestedCut,
+    ]) workingCut.set(tileIdentityKey(tile), tile);
+    const workingTiles = [...workingCut.values()];
+    const classified = classifyViewResidency(
+      workingTiles,
+      this.residencyInput,
+      this.warmKeys,
+    );
+    this.hotKeys = new Set(classified.hot);
+    this.warmKeys = new Set(classified.warm);
+    const demanded = workingTiles.filter((tile) =>
+      this.warmKeys.has(tileIdentityKey(tile)),
+    );
+    this.scheduler.updateResourceDemand(demanded);
   }
 
   private migrationComplete(): boolean {
@@ -1247,6 +1380,7 @@ export class ImageryVirtualTexture {
           return {
             image: BLUE_MARBLE_IMAGERY_KEY,
             fallbackFromNotFound: true,
+            evictCommitted: !this.warmKeys.has(tileIdentityKey(tile)),
           };
         }
         const image = imageryKey(resource.sourceTile);

@@ -53,6 +53,8 @@ export interface ImageTileProviderMetrics {
   readonly averageLoadMs: number;
   readonly queued: number;
   readonly inFlight: number;
+  readonly decodedSourceCount: number;
+  readonly estimatedDecodedBytes: number;
 }
 
 interface SourceMapping {
@@ -265,7 +267,29 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
       queued: [...this.jobs.values()].filter(({ state }) => state === "queued")
         .length,
       inFlight: this.activeJobCount,
+      decodedSourceCount: this.sourceCache.size,
+      estimatedDecodedBytes:
+        this.sourceCache.size * this.tilePixels * this.tilePixels * 4,
     });
+  }
+
+  /** Retains decoded images only for the current view/transition working set. */
+  retainSourceTiles(tiles: Iterable<TileIdentity>): void {
+    const retained = new Set<string>();
+    for (const tile of tiles) {
+      try {
+        retained.add(tileIdentityKey(this.options.resolveSource(tile).sourceTile));
+      } catch {
+        // A tile outside provider coverage has no decoded source to retain.
+      }
+    }
+    let changed = false;
+    for (const key of [...this.sourceCache.keys()]) {
+      if (retained.has(key)) continue;
+      this.sourceCache.delete(key);
+      changed = true;
+    }
+    if (changed) this.emit();
   }
 
   subscribe(listener: (metrics: ImageTileProviderMetrics) => void): () => void {

@@ -5,6 +5,10 @@ export class ImageTexturePool<Image, Texture extends { dispose(): void }> {
     { texture: Texture; references: number }
   >();
 
+  get size(): number {
+    return this.entries.size;
+  }
+
   acquire(image: Image, create: () => Texture): Texture {
     const existing = this.entries.get(image);
     if (existing) {

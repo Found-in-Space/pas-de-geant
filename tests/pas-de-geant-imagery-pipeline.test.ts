@@ -231,6 +231,7 @@ describe("independent photographic imagery pipeline", () => {
       radialMultiplier: 1,
       observerHeightWorldM: 1.65,
       focalLengthPixels: 250,
+      footprint: [],
     };
     const terrain = terrainTargetForView(view, 512);
     const imageryZoom = selectImageryZoom({
@@ -361,6 +362,27 @@ describe("independent photographic imagery pipeline", () => {
       resident,
     );
     expect(fallback).toBe(fine);
+  });
+
+  it("evicts committed photography when Blue Marble is an intentional residency fallback", () => {
+    const committed = Object.freeze({ image: "12/1200/1500" });
+    const transient = reconcileForTest(
+      committed,
+      { image: BLUE_MARBLE_IMAGERY_KEY, fallbackFromNotFound: true },
+      new Set(),
+    );
+    expect(transient).toBe(committed);
+
+    const evicted = reconcileForTest(
+      committed,
+      {
+        image: BLUE_MARBLE_IMAGERY_KEY,
+        fallbackFromNotFound: true,
+        evictCommitted: true,
+      },
+      new Set(),
+    );
+    expect(imageryTreeSourceKeys(evicted)).toEqual(new Set());
   });
 
   it("path-copies only the refined branch and retains unchanged subtree identity", () => {

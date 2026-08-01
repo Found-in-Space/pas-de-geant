@@ -20,6 +20,8 @@ export type ImageryTreeNode = ImageryImageNode | ImageryChildrenNode;
 export interface DesiredImageryLeaf {
   readonly image: string;
   readonly fallbackFromNotFound: boolean;
+  /** Blue Marble is intentional residency eviction, not transient absence. */
+  readonly evictCommitted?: boolean;
 }
 
 export interface DesiredImageryChildren {
@@ -159,7 +161,7 @@ export function reconcileImageryTree(
     leaf: DesiredImageryLeaf,
   ): boolean => {
     if (leaf.image === BLUE_MARBLE_IMAGERY_KEY) {
-      return hasPhotographicImage(current);
+      return leaf.evictCommitted !== true && hasPhotographicImage(current);
     }
     return (
       leaf.fallbackFromNotFound &&

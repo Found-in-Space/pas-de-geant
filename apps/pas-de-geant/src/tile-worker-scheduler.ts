@@ -29,6 +29,8 @@ export interface TileWorkerSchedulerOptions<Resource> {
   readonly provider: TileProvider<Resource>;
   /** Optional retry cadence for transient provider failures. */
   readonly retryDelayMs?: number;
+  /** Demand known before the worker can emit its initial hydration requests. */
+  readonly initialResourceDemand?: Iterable<TileIdentity>;
 }
 
 function initialSnapshot(target: TileTarget): SchedulerSnapshot<TileTarget> {
@@ -57,9 +59,16 @@ export class TileWorkerScheduler<Resource> {
   >();
   private readonly requests = new Map<
     string,
-    { readonly requestId: number; handle?: TileRequestHandle }
+    {
+      readonly requestId: number;
+      readonly tile: TileIdentity;
+      readonly workerOwned: boolean;
+      handle?: TileRequestHandle;
+    }
   >();
   private readonly resources = new Map<string, Resource>();
+  private demandedResources: ReadonlySet<string> | undefined;
+  private nextDirectRequestId = -1;
   private pendingTarget: TileTarget | undefined;
   private targetInFlight = false;
   private targetFlushQueued = false;
@@ -72,6 +81,11 @@ export class TileWorkerScheduler<Resource> {
     private readonly options: TileWorkerSchedulerOptions<Resource>,
   ) {
     this.snapshotValue = initialSnapshot(initialTarget);
+    if (options.initialResourceDemand) {
+      this.demandedResources = new Set(
+        [...options.initialResourceDemand].map(tileIdentityKey),
+      );
+    }
     this.worker =
       options.createWorker?.() ??
       new Worker(new URL("./tile-scheduler.worker.ts", import.meta.url), {
@@ -104,13 +118,45 @@ export class TileWorkerScheduler<Resource> {
     return this.resources.get(tileIdentityKey(tile));
   }
 
+  /**
+   * Changes expensive payload residency without changing topology. An
+   * undefined demand preserves the historical hydrate-everything behaviour.
+   */
+  updateResourceDemand(demandedTiles: Iterable<TileIdentity>): void {
+    const demanded = new Set([...demandedTiles].map(tileIdentityKey));
+    this.demandedResources = demanded;
+    for (const [key, request] of [...this.requests]) {
+      if (demanded.has(key)) continue;
+      request.handle?.cancel();
+      this.requests.delete(key);
+      if (request.workerOwned) {
+        this.worker.postMessage({
+          kind: "resource-result",
+          key,
+          requestId: request.requestId,
+          result: { phase: "response", resource: undefined },
+        });
+      }
+    }
+    let changed = false;
+    for (const key of [...this.resources.keys()]) {
+      if (demanded.has(key)) continue;
+      this.resources.delete(key);
+      changed = true;
+    }
+    this.hydrateDemandedCommitted();
+    if (changed) this.notifyResourceChange();
+  }
+
   updateTarget(target: TileTarget): void {
     this.pendingTarget = target;
     this.flushTarget();
   }
 
   retryFailed(): void {
-    if (!this.disposed) this.worker.postMessage({ kind: "retry" });
+    if (this.disposed) return;
+    this.worker.postMessage({ kind: "retry" });
+    this.hydrateDemandedCommitted();
   }
 
   dispose(): void {
@@ -155,12 +201,27 @@ export class TileWorkerScheduler<Resource> {
   private requestResource(
     message: Extract<TileSchedulerMessage, { kind: "resource-request" }>,
   ): void {
+    if (this.demandedResources && !this.demandedResources.has(message.key)) {
+      this.worker.postMessage({
+        kind: "resource-result",
+        key: message.key,
+        requestId: message.requestId,
+        result: { phase: "response", resource: undefined },
+      });
+      return;
+    }
     const old = this.requests.get(message.key);
     old?.handle?.cancel();
     const provisional: {
       readonly requestId: number;
+      readonly tile: TileIdentity;
+      readonly workerOwned: boolean;
       handle?: TileRequestHandle;
-    } = { requestId: message.requestId };
+    } = {
+      requestId: message.requestId,
+      tile: message.tile,
+      workerOwned: true,
+    };
     this.requests.set(message.key, provisional);
     const handle = this.options.provider.request(message.tile, (result) => {
       const active = this.requests.get(message.key);
@@ -191,6 +252,53 @@ export class TileWorkerScheduler<Resource> {
     this.resources.delete(key);
   }
 
+  private requestDirectHydration(tile: TileIdentity, key: string): void {
+    const requestId = this.nextDirectRequestId--;
+    const provisional: {
+      readonly requestId: number;
+      readonly tile: TileIdentity;
+      readonly workerOwned: boolean;
+      handle?: TileRequestHandle;
+    } = { requestId, tile, workerOwned: false };
+    this.requests.set(key, provisional);
+    const handle = this.options.provider.request(tile, (result) => {
+      const active = this.requests.get(key);
+      if (!active || active.requestId !== requestId || this.disposed) return;
+      if (result.phase === "in-flight") return;
+      this.requests.delete(key);
+      if (result.phase === "response") {
+        this.resources.set(key, result.resource);
+        this.notifyResourceChange();
+      } else {
+        this.scheduleRetry();
+      }
+    });
+    if (this.requests.get(key) === provisional) provisional.handle = handle;
+  }
+
+  private notifyResourceChange(): void {
+    for (const listener of this.listeners) {
+      listener(this.snapshotValue, {
+        sequence: -1,
+        revision: this.snapshotValue.revision,
+        kind: "response",
+      });
+    }
+  }
+
+  private hydrateDemandedCommitted(): void {
+    if (!this.demandedResources) return;
+    for (const tile of this.snapshotValue.committedCut) {
+      const key = tileIdentityKey(tile);
+      if (
+        !this.demandedResources.has(key) ||
+        this.resources.has(key) ||
+        this.requests.has(key)
+      ) continue;
+      this.requestDirectHydration(tile, key);
+    }
+  }
+
   private retainLiveResources(): void {
     const live = new Set([
       ...this.snapshotValue.committedCut.map(tileIdentityKey),
@@ -205,6 +313,7 @@ export class TileWorkerScheduler<Resource> {
       request.handle?.cancel();
       this.requests.delete(key);
     }
+    this.hydrateDemandedCommitted();
   }
 
   private flushTarget(): void {
@@ -225,7 +334,7 @@ export class TileWorkerScheduler<Resource> {
     if (delay === undefined || delay < 0 || this.retryTimer !== undefined) return;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;
-      if (!this.disposed) this.worker.postMessage({ kind: "retry" });
+      if (!this.disposed) this.retryFailed();
     }, delay);
   }
 }

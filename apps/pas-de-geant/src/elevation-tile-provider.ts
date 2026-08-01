@@ -1,5 +1,6 @@
 import type {
   ImageTileProvider,
+  ImageTileProviderMetrics,
   ImageTileResource,
 } from "./image-tile-provider.js";
 import type {
@@ -38,6 +39,14 @@ export class ElevationTileProvider implements TileProvider<ElevationTileResource
 
   constructor(private readonly elevationProvider: ImageTileProvider) {
     this.tilePixels = elevationProvider.tilePixels;
+  }
+
+  get metrics(): ImageTileProviderMetrics {
+    return this.elevationProvider.metrics;
+  }
+
+  retainSourceTiles(tiles: Iterable<TileIdentity>): void {
+    this.elevationProvider.retainSourceTiles(tiles);
   }
 
   request(

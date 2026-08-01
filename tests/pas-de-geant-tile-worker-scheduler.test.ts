@@ -39,6 +39,74 @@ function snapshot(revision: number, committedCut = [{ z: 0, x: 0, y: 0 }]) {
 }
 
 describe("Tile worker scheduler bridge", () => {
+  it("hydrates only seeded initial demand after the first topology snapshot", () => {
+    const worker = new FakeWorker();
+    const requested: string[] = [];
+    const provider: TileProvider<{ id: string }> = {
+      request: (tile) => {
+        requested.push(`${tile.z}/${tile.x}/${tile.y}`);
+        return { requestId: requested.length, cancel() {} };
+      },
+    };
+    const demanded = { z: 1, x: 0, y: 0 };
+    const fallback = { z: 1, x: 1, y: 0 };
+    const scheduler = new TileWorkerScheduler(
+      demanded,
+      {
+        provider,
+        createWorker: () => worker,
+        hydrateInitialResources: false,
+        initialResourceDemand: [demanded],
+      },
+    );
+
+    expect(requested).toEqual([]);
+    worker.emit({
+      kind: "snapshot",
+      snapshot: snapshot(0, [demanded, fallback]),
+    });
+    expect(requested).toEqual(["1/0/0"]);
+    expect(worker.commands[0]).toMatchObject({
+      kind: "initialize",
+      hydrateInitialResources: false,
+    });
+    scheduler.dispose();
+  });
+
+  it("commits off-demand fallback and hydrates an unchanged committed tile on demand", () => {
+    const worker = new FakeWorker();
+    let respond: ((resource: { id: string }) => void) | undefined;
+    const provider: TileProvider<{ id: string }> = {
+      request: (_tile, observer) => {
+        respond = (resource) => observer({ phase: "response", resource });
+        return { requestId: 21, cancel() {} };
+      },
+    };
+    const scheduler = new TileWorkerScheduler(
+      { z: 0, x: 0, y: 0 },
+      { provider, createWorker: () => worker },
+    );
+    const tile = { z: 0, x: 0, y: 0 };
+    scheduler.updateResourceDemand([]);
+    worker.emit({
+      kind: "resource-request",
+      tile,
+      key: "0/0/0",
+      requestId: 7,
+    });
+    expect(respond).toBeUndefined();
+    expect(worker.commands.at(-1)).toMatchObject({
+      kind: "resource-result",
+      requestId: 7,
+      result: { phase: "response" },
+    });
+
+    worker.emit({ kind: "snapshot", snapshot: snapshot(1, [tile]) });
+    scheduler.updateResourceDemand([tile]);
+    respond!({ id: "late-hydration" });
+    expect(scheduler.committedResource(tile)).toEqual({ id: "late-hydration" });
+  });
+
   it("advances independent terrain and imagery instances without sharing targets or cuts", async () => {
     const terrainWorker = new FakeWorker();
     const imageryWorker = new FakeWorker();

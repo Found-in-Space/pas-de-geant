@@ -6,6 +6,34 @@ import {
 import type { TileProviderResult } from "../apps/pas-de-geant/src/tile-provider.js";
 
 describe("Image tile provider", () => {
+  it("releases decoded sources outside the retained geographic working set", async () => {
+    const provider = new ImageTileProvider({
+      mode: "terrain",
+      tilePixels: 512,
+      concurrency: 1,
+      resolveSource: (tile) => ({
+        sourceTile: tile,
+        sourceScale: 1,
+        sourceOffsetX: 0,
+        sourceOffsetY: 0,
+      }),
+      loadSource: async () => ({
+        image: {} as HTMLImageElement,
+        byteLength: 10,
+        cacheStatus: "provider" as const,
+      }),
+    });
+    provider.request({ z: 2, x: 1, y: 1 }, () => {});
+    provider.request({ z: 2, x: 2, y: 1 }, () => {});
+    await vi.waitFor(() =>
+      expect(provider.metrics.decodedSourceCount).toBe(2),
+    );
+
+    provider.retainSourceTiles([{ z: 2, x: 1, y: 1 }]);
+    expect(provider.metrics.decodedSourceCount).toBe(1);
+    expect(provider.metrics.estimatedDecodedBytes).toBe(512 * 512 * 4);
+  });
+
   it("starts the highest display zoom first", async () => {
     const startedZooms: number[] = [];
     const provider = new ImageTileProvider({

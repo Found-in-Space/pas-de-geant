@@ -41,6 +41,7 @@ import {
   applyLogarithmicScale,
   applyRadialMultiplierRate,
   coordinatesForFrame,
+  EARTH_MEAN_RADIUS_KM,
   horizontalWorldMetresForKilometres,
   initialPlanetState,
   radialWorldMetresForKilometres,
@@ -48,6 +49,8 @@ import {
   rollContactFrame,
   solvePlanetPose,
   type PlanetState,
+  WGS84_A_KM,
+  WGS84_B_KM,
 } from "./planet-state.js";
 import { resolveInitialLocation } from "./initial-location.js";
 import {
@@ -60,6 +63,10 @@ import {
   type RealtimeAgentStatus,
 } from "./realtime-agent.js";
 import { TerrainSurface } from "./terrain-surface.js";
+import {
+  intersectEllipsoidRay,
+  type GeographicPoint,
+} from "./view-residency.js";
 
 declare global {
   interface Window {
@@ -73,6 +80,10 @@ declare global {
       latitudeDegrees: number,
       longitudeDegrees: number,
     ) => void;
+    __PAS_DE_GEANT_TEST_SET_VIEW_PITCH__?: (pitchRadians: number) => void;
+    __PAS_DE_GEANT_TEST_GET_TERRAIN_METRICS__?: () => ReturnType<
+      TerrainSurface["getMetrics"]
+    >;
   }
 }
 
@@ -83,6 +94,7 @@ const element = <T extends HTMLElement>(id: string): T => {
 };
 
 const sceneRoot = element<HTMLDivElement>("scene-root");
+const benchmarkParameters = new URLSearchParams(window.location.search);
 const vrSlot = element<HTMLDivElement>("vr-slot");
 const loadingState = element<HTMLDivElement>("loading-state");
 const errorState = element<HTMLDivElement>("error-state");
@@ -196,6 +208,10 @@ let state = initialPlanetState(
   initialLocation.latitudeDegrees,
   initialLocation.longitudeDegrees,
 );
+const benchmarkScale = Number(benchmarkParameters.get("benchmarkScale"));
+if (Number.isFinite(benchmarkScale) && benchmarkScale >= 1) {
+  state.displayRadiusM = benchmarkScale;
+}
 const terrain = new TerrainSurface({
   renderer,
   baseTexture: blueMarbleTexture,
@@ -207,6 +223,7 @@ const terrain = new TerrainSurface({
     radialMultiplier: state.radialMultiplier,
     observerHeightWorldM: 1.65,
     focalLengthPixels: 1_000,
+    footprint: [],
   },
 });
 planetRoot.add(terrain.group);
@@ -237,6 +254,13 @@ if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
   window.__PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__ = setTileOverlayVisible;
   window.__PAS_DE_GEANT_TEST_SET_TEXTURE_TILE_OVERLAY__ =
     setTextureTileOverlayVisible;
+  window.__PAS_DE_GEANT_TEST_SET_VIEW_PITCH__ = (pitchRadians): void => {
+    pitch = Math.max(-1.35, Math.min(1.1, pitchRadians));
+    camera.rotation.set(pitch, yaw, 0);
+    updatePresentation();
+  };
+  window.__PAS_DE_GEANT_TEST_GET_TERRAIN_METRICS__ = () =>
+    terrain.getMetrics();
 }
 const initialCoordinates = coordinatesForFrame(state.contact);
 const initialHandPanelStatus = handPanelStatus(
@@ -310,7 +334,11 @@ let pointerActive = false;
 let pointerX = 0;
 let pointerY = 0;
 let yaw = 0;
-let pitch = -0.55;
+const benchmarkPitch = Number(benchmarkParameters.get("benchmarkPitch"));
+let pitch = Number.isFinite(benchmarkPitch)
+  ? Math.max(-1.35, Math.min(1.1, benchmarkPitch))
+  : -0.55;
+camera.rotation.set(pitch, yaw, 0);
 let aircraftEnabled = false;
 let vrSessionActive = false;
 let aircraftCount = 0;
@@ -353,16 +381,80 @@ function setTextureTileOverlayVisible(visible: boolean): void {
 
 const terrainEyeWorldPosition = new THREE.Vector3();
 const terrainDrawingBufferSize = new THREE.Vector2();
+const terrainRayWorldPoint = new THREE.Vector3();
+const terrainRayLocalOrigin = new THREE.Vector3();
+const terrainRayLocalPoint = new THREE.Vector3();
+const terrainRayLocalDirection = new THREE.Vector3();
+const terrainSurfacePoint = new THREE.Vector3();
+const TERRAIN_EQUATORIAL_RADIUS = WGS84_A_KM / EARTH_MEAN_RADIUS_KM;
+const TERRAIN_POLAR_RADIUS = WGS84_B_KM / EARTH_MEAN_RADIUS_KM;
+const terrainFootprint: Array<{
+  latitudeDegrees: number;
+  longitudeDegrees: number;
+}> = [];
+let terrainFootprintLength = 0;
+const TERRAIN_NDC_SAMPLES = [-1, 0, 1] as const;
+
+function appendTerrainFootprint(viewCamera: THREE.Camera): void {
+  viewCamera.updateWorldMatrix(true, false);
+  viewCamera.getWorldPosition(terrainEyeWorldPosition);
+  for (const ndcY of TERRAIN_NDC_SAMPLES) {
+    for (const ndcX of TERRAIN_NDC_SAMPLES) {
+      terrainRayWorldPoint.set(ndcX, ndcY, 0.5).unproject(viewCamera);
+      terrainRayLocalOrigin.copy(terrainEyeWorldPosition);
+      planetRoot.worldToLocal(terrainRayLocalOrigin);
+      terrainRayLocalPoint.copy(terrainRayWorldPoint);
+      planetRoot.worldToLocal(terrainRayLocalPoint);
+      terrainRayLocalDirection
+        .subVectors(terrainRayLocalPoint, terrainRayLocalOrigin)
+        .normalize();
+      intersectEllipsoidRay(
+        terrainRayLocalOrigin,
+        terrainRayLocalDirection,
+        TERRAIN_EQUATORIAL_RADIUS,
+        TERRAIN_POLAR_RADIUS,
+        terrainSurfacePoint,
+      );
+      const point = terrainFootprint[terrainFootprintLength] ?? {
+        latitudeDegrees: 0,
+        longitudeDegrees: 0,
+      };
+      terrainFootprint[terrainFootprintLength++] = point;
+      const horizontal = Math.hypot(
+        terrainSurfacePoint.x,
+        terrainSurfacePoint.z,
+      );
+      point.latitudeDegrees = THREE.MathUtils.radToDeg(Math.atan2(
+        terrainSurfacePoint.y /
+          (TERRAIN_POLAR_RADIUS * TERRAIN_POLAR_RADIUS),
+        horizontal /
+          (TERRAIN_EQUATORIAL_RADIUS * TERRAIN_EQUATORIAL_RADIUS),
+      ));
+      point.longitudeDegrees = THREE.MathUtils.radToDeg(
+        Math.atan2(-terrainSurfacePoint.z, terrainSurfacePoint.x),
+      );
+    }
+  }
+}
 
 function terrainViewMetrics(): {
   eyeHeightWorldM: number;
   focalLengthPixels: number;
+  footprint: readonly GeographicPoint[];
 } {
   const viewCamera = renderer.xr.isPresenting
     ? renderer.xr.getCamera()
     : camera;
   viewCamera.updateWorldMatrix(true, false);
   viewCamera.getWorldPosition(terrainEyeWorldPosition);
+  planetRoot.updateWorldMatrix(true, false);
+  terrainFootprintLength = 0;
+  if (viewCamera instanceof THREE.ArrayCamera) {
+    for (const eyeCamera of viewCamera.cameras) appendTerrainFootprint(eyeCamera);
+  } else {
+    appendTerrainFootprint(viewCamera);
+  }
+  terrainFootprint.length = terrainFootprintLength;
   // The local-floor reference space measures eye height from world y=0,
   // which is the un-displaced flat base surface used for terrain LOD.
   const eyeHeightWorldM = Math.max(0.001, terrainEyeWorldPosition.y);
@@ -388,6 +480,7 @@ function terrainViewMetrics(): {
   return {
     eyeHeightWorldM,
     focalLengthPixels: Math.max(1, focalLengthPixels),
+    footprint: terrainFootprint,
   };
 }
 
@@ -406,6 +499,7 @@ function updatePresentation(): void {
     radialMultiplier: state.radialMultiplier,
     observerHeightWorldM: view.eyeHeightWorldM,
     focalLengthPixels: view.focalLengthPixels,
+    footprint: view.footprint,
   });
   atmosphere.update(state.radialMultiplier);
   coordinatesReadout.textContent = formatCoordinates(
@@ -947,10 +1041,21 @@ function render(nowMs: number): void {
 }
 
 window.addEventListener("beforeunload", () => {
+  if (benchmarkMetricsTimer !== undefined) {
+    window.clearInterval(benchmarkMetricsTimer);
+  }
   terrain.dispose();
   handPanel.dispose();
   handPanelRuntime.dispose();
 });
+
+const benchmarkMetricsTimer = benchmarkParameters.get("benchmarkMetrics") === "1"
+  ? window.setInterval(() => {
+      document.body.dataset.terrainMetrics = JSON.stringify(
+        terrain.getMetrics(),
+      );
+    }, 1_000)
+  : undefined;
 
 updatePresentation();
 setTileOverlayVisible(false);
