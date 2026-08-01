@@ -13,6 +13,10 @@ import {
   type ConstructTarget,
 } from "./construct-layout-source.js";
 import {
+  observerTileZoom,
+  projectedFocalLengthPixels,
+} from "./construct-observer-zoom.js";
+import {
   TileTransitionScheduler,
   type SchedulerEvent,
   type SchedulerSnapshot,
@@ -34,6 +38,12 @@ const globeHost = requiredElement<HTMLElement>("globe");
 const targetXInput = requiredElement<HTMLInputElement>("target-x");
 const targetYInput = requiredElement<HTMLInputElement>("target-y");
 const targetZInput = requiredElement<HTMLInputElement>("target-z");
+const observerHeightInput = requiredElement<HTMLInputElement>("observer-height");
+const observerHeightValue = requiredElement<HTMLElement>("observer-height-value");
+const tileResolutionInput = requiredElement<HTMLInputElement>("tile-resolution");
+const derivedZoom = requiredElement<HTMLElement>("derived-zoom");
+const zoomDerivationDetail = requiredElement<HTMLElement>("zoom-derivation-detail");
+let configuredTileResolutionPixels = Number(tileResolutionInput.value);
 const latencyInput = requiredElement<HTMLInputElement>("latency");
 const jitterInput = requiredElement<HTMLInputElement>("jitter");
 const failureModeInput = requiredElement<HTMLSelectElement>("failure-mode");
@@ -57,13 +67,17 @@ const counters = {
   failed: requiredElement<HTMLElement>("blocked-count"),
 };
 
-const initialTarget: ConstructTarget = { z: 7, x: 64, y: 64 };
-const provider = new FakeTileProvider();
-const scheduler = new TileTransitionScheduler(
-  initialTarget,
-  new TileOnionLayoutSource(),
-  provider,
-);
+interface GeographicTarget {
+  readonly latitudeDegrees: number;
+  readonly longitudeDegrees: number;
+}
+
+const initialTile: ConstructTarget = { z: 7, x: 64, y: 64 };
+const initialTileBounds = tileBounds(initialTile);
+let geographicTarget: GeographicTarget = {
+  latitudeDegrees: (initialTileBounds.north + initialTileBounds.south) / 2,
+  longitudeDegrees: (initialTileBounds.west + initialTileBounds.east) / 2,
+};
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -81,6 +95,20 @@ controls.minDistance = 1.75;
 controls.maxDistance = 5.2;
 controls.rotateSpeed = 0.55;
 controls.zoomSpeed = 0.7;
+
+const initialWidth = Math.max(1, globeHost.clientWidth);
+const initialHeight = Math.max(1, globeHost.clientHeight);
+renderer.setSize(initialWidth, initialHeight, false);
+camera.aspect = initialWidth / initialHeight;
+camera.updateProjectionMatrix();
+
+const initialTarget = targetAtDerivedZoom(geographicTarget);
+const provider = new FakeTileProvider();
+const scheduler = new TileTransitionScheduler(
+  initialTarget,
+  new TileOnionLayoutSource(),
+  provider,
+);
 
 scene.add(new THREE.AmbientLight(0xa5c5df, 1.2));
 const sun = new THREE.DirectionalLight(0xffe6b8, 2.2);
@@ -369,20 +397,105 @@ function writeTargetInputs(target: Readonly<ConstructTarget>): void {
   targetLabel.textContent = `z${target.z} / ${target.x} / ${target.y}`;
 }
 
+function observerHeightMeters(): number {
+  return 10 ** Number(observerHeightInput.value);
+}
+
+function tileResolutionPixels(): number {
+  return configuredTileResolutionPixels;
+}
+
+function formatObserverHeight(heightMeters: number): string {
+  if (heightMeters < 1_000) {
+    return `${heightMeters.toLocaleString(undefined, { maximumFractionDigits: 0 })} m`;
+  }
+  const kilometres = heightMeters / 1_000;
+  const maximumFractionDigits = kilometres < 10 ? 2 : kilometres < 100 ? 1 : 0;
+  return `${kilometres.toLocaleString(undefined, { maximumFractionDigits })} km`;
+}
+
+function currentObserverLayout(target: Readonly<GeographicTarget>): {
+  readonly target: ConstructTarget;
+  readonly focalLengthPixels: number;
+  readonly continuousZoom: number;
+} {
+  // Tile source pixels are compared with physical render-buffer pixels. Using
+  // the drawing-buffer height here makes that DPR choice explicit.
+  const drawingBufferSize = renderer.getDrawingBufferSize(new THREE.Vector2());
+  const focalLengthPixels = projectedFocalLengthPixels(
+    drawingBufferSize.y,
+    camera.fov,
+  );
+  const result = observerTileZoom({
+    observerHeightMeters: observerHeightMeters(),
+    latitudeDegrees: target.latitudeDegrees,
+    projectedFocalLengthPixels: focalLengthPixels,
+    tilePixels: tileResolutionPixels(),
+  });
+  const point = mercatorPoint(
+    target.latitudeDegrees,
+    target.longitudeDegrees,
+    result.zoom,
+  );
+  return {
+    target: normalizeConstructTarget({
+      z: result.zoom,
+      x: Math.floor(point.x),
+      y: Math.floor(point.y),
+    }),
+    focalLengthPixels,
+    continuousZoom: result.continuousZoom,
+  };
+}
+
+function targetAtDerivedZoom(
+  target: Readonly<GeographicTarget>,
+): ConstructTarget {
+  return currentObserverLayout(target).target;
+}
+
+function renderObserverDiagnostics(
+  layout: ReturnType<typeof currentObserverLayout>,
+): void {
+  const heightMeters = observerHeightMeters();
+  const tilePixels = tileResolutionPixels();
+  const formattedHeight = formatObserverHeight(heightMeters);
+  observerHeightValue.textContent = formattedHeight;
+  observerHeightInput.setAttribute("aria-valuetext", formattedHeight);
+  derivedZoom.textContent = `z${layout.target.z}`;
+  zoomDerivationDetail.textContent =
+    `raw z${layout.continuousZoom.toFixed(2)} · ${tilePixels.toLocaleString()} px tile · ` +
+    `${Math.round(layout.focalLengthPixels).toLocaleString()} px render-buffer focal length · ` +
+    `${Math.abs(geographicTarget.latitudeDegrees).toFixed(2)}°` +
+    `${geographicTarget.latitudeDegrees < 0 ? " S" : " N"}`;
+}
+
 function setTarget(target: ConstructTarget): void {
   const normalized = normalizeConstructTarget(target);
   writeTargetInputs(normalized);
+  const current = latestSnapshot.target;
+  if (
+    current.z === normalized.z &&
+    current.x === normalized.x &&
+    current.y === normalized.y
+  ) {
+    return;
+  }
   scheduler.updateTarget(normalized);
 }
 
+function refreshDerivedTarget(): void {
+  const layout = currentObserverLayout(geographicTarget);
+  renderObserverDiagnostics(layout);
+  setTarget(layout.target);
+}
+
 function targetFromGeographic(latitude: number, longitude: number): void {
-  const zoom = normalizeConstructTarget({
-    z: Number(targetZInput.value),
-    x: 0,
-    y: 0,
-  }).z;
-  const point = mercatorPoint(latitude, longitude, zoom);
-  setTarget({ z: zoom, x: Math.floor(point.x), y: Math.floor(point.y) });
+  geographicTarget = {
+    latitudeDegrees: latitude,
+    longitudeDegrees: longitude,
+  };
+  refreshDerivedTarget();
 }
 
 scheduler.subscribe((snapshot, event) => {
@@ -403,18 +516,31 @@ provider.subscribe((event) => {
   clock.textContent = `${(event.timeMs / 1_000).toFixed(2)} s`;
 });
 
-for (const input of [targetXInput, targetYInput, targetZInput]) {
+for (const input of [targetXInput, targetYInput]) {
   input.addEventListener("input", () => {
-    if ([targetXInput, targetYInput, targetZInput].some(({ value }) => value === "")) {
+    if ([targetXInput, targetYInput].some(({ value }) => value === "")) {
       return;
     }
-    setTarget({
-      z: Number(targetZInput.value),
+    const target = normalizeConstructTarget({
+      z: latestSnapshot.target.z,
       x: Number(targetXInput.value),
       y: Number(targetYInput.value),
     });
+    const bounds = tileBounds(target);
+    geographicTarget = {
+      latitudeDegrees: (bounds.north + bounds.south) / 2,
+      longitudeDegrees: (bounds.west + bounds.east) / 2,
+    };
+    refreshDerivedTarget();
   });
 }
+
+observerHeightInput.addEventListener("input", refreshDerivedTarget);
+tileResolutionInput.addEventListener("input", () => {
+  if (tileResolutionInput.value === "" || !tileResolutionInput.validity.valid) return;
+  configuredTileResolutionPixels = Number(tileResolutionInput.value);
+  refreshDerivedTarget();
+});
 
 function updateProviderConfiguration(): void {
   provider.configure({
@@ -483,6 +609,7 @@ function resize(): void {
   renderer.setSize(width, height, false);
   camera.aspect = width / Math.max(1, height);
   camera.updateProjectionMatrix();
+  refreshDerivedTarget();
 }
 const resizeObserver = new ResizeObserver(resize);
 resizeObserver.observe(globeHost);
@@ -504,7 +631,7 @@ function animate(now: number): void {
   requestAnimationFrame(animate);
 }
 
-writeTargetInputs(initialTarget);
+refreshDerivedTarget();
 updateProviderConfiguration();
 renderDiagnostics();
 renderLog();

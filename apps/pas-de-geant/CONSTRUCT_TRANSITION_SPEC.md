@@ -174,8 +174,11 @@ just-swapped tiles. It visualizes topology only and never pretends provider
 content exists.
 
 Dragging orbits and retargets the centre view; clicking targets the selected
-surface tile. Explicit x/y/z controls wrap x modulo world width and clip y at
-the Web Mercator north/south bounds. Provider controls change deterministic
+surface tile. Explicit x/y controls wrap x modulo world width and clip y at the
+Web Mercator north/south bounds. Z is derived from radial observer height,
+latitude, render-buffer focal length, and the configured source-tile edge in
+pixels; changing height, tile resolution, or viewport size preserves the exact
+underfoot geographic coordinate. Provider controls change deterministic
 latency, jitter and failure policy, and a retry control resubmits current failed
 requirements. Diagnostics and the event log are projections of scheduler
 snapshots/events rather than additional transition state.

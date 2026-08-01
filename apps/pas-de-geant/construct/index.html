@@ -26,9 +26,10 @@
           <p class="kicker">Atomic quadtree transition laboratory</p>
           <h1>Move the target.<br /><em>Watch the cut heal.</em></h1>
           <p>
-            The globe shows topology, not provider content. Orbit or click to
-            request a new balanced cut; committed coverage remains whole while
-            independent replacement regions arrive and swap.
+            The globe shows topology, not provider content. Observer height,
+            projection, latitude, and source-tile resolution now determine the
+            finest cut; committed coverage remains whole while independent
+            replacement regions arrive and swap.
           </p>
         </section>
 
@@ -51,16 +52,48 @@
         <aside class="control-card">
           <div class="card-heading">
             <div>
-              <p class="kicker">Requested target</p>
-              <h2>XYZ focus</h2>
+              <p class="kicker">Observer-driven target</p>
+              <h2>Underfoot focus</h2>
             </div>
             <span id="revision">r0</span>
+          </div>
+          <label class="observer-height-control" for="observer-height">
+            <span>Radial height above Earth</span>
+            <strong id="observer-height-value">1,000 km</strong>
+            <input
+              id="observer-height"
+              type="range"
+              min="1"
+              max="8"
+              step="0.001"
+              value="6"
+              aria-describedby="observer-height-scale"
+            />
+          </label>
+          <div id="observer-height-scale" class="range-scale">
+            <span>10 m</span><span>log scale</span><span>100,000 km</span>
+          </div>
+          <label class="tile-resolution-control">
+            <span>Source tile edge · px</span>
+            <input id="tile-resolution" type="number" min="1" step="1" value="512" />
+          </label>
+          <div class="zoom-derivation" aria-live="polite">
+            <div>
+              <span>Derived finest layout</span>
+              <strong id="derived-zoom">z—</strong>
+            </div>
+            <p id="zoom-derivation-detail">Waiting for viewport dimensions.</p>
           </div>
           <div class="xyz-grid">
             <label><span>X · wraps</span><input id="target-x" type="number" step="1" /></label>
             <label><span>Y · clips</span><input id="target-y" type="number" min="0" step="1" /></label>
-            <label><span>Target z</span><input id="target-z" type="number" min="0" step="1" /></label>
+            <label><span>Derived Z · read only</span><input id="target-z" type="number" readonly aria-readonly="true" /></label>
           </div>
+          <p class="fine-print zoom-note">
+            At the same view, doubling the tile edge lowers the derived layout
+            by exactly one Z level. Terrain uses 512 px tiles; imagery may use
+            256 px tiles.
+          </p>
 
           <div class="divider"></div>
           <p class="kicker">Provider behaviour</p>

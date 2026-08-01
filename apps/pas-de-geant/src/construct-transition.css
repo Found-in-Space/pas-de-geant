@@ -112,6 +112,42 @@ h1 em { color: var(--gold); font-family: Georgia, "Times New Roman", serif; font
 .card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .card-heading h2 { margin: 0; font-size: 1.35rem; font-weight: 540; letter-spacing: -.025em; }
 .card-heading > span { color: #80939a; font: .72rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.observer-height-control { margin-top: 22px; }
+.observer-height-control strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--gold);
+  font: 1.28rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 560;
+}
+.observer-height-control input[type="range"] {
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--aqua);
+  cursor: ew-resize;
+}
+.range-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -2px;
+  color: #60757b;
+  font-size: .61rem;
+  font-variant-numeric: tabular-nums;
+}
+.tile-resolution-control { margin-top: 16px; }
+.zoom-derivation {
+  margin-top: 10px;
+  padding: 12px 13px;
+  border: 1px solid rgba(102, 226, 195, .13);
+  border-radius: 9px;
+  background: rgba(102, 226, 195, .035);
+}
+.zoom-derivation div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.zoom-derivation span { color: #82979d; font-size: .68rem; }
+.zoom-derivation strong { color: var(--aqua); font: 1rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.zoom-derivation p { margin: 5px 0 0; color: #6f848a; font: .63rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .xyz-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 21px; }
 label { display: block; }
 label > span { display: block; margin: 0 0 6px; color: #7f949a; font-size: .67rem; letter-spacing: .04em; }
@@ -129,6 +165,7 @@ select {
 }
 input:focus,
 select:focus { border-color: rgba(102, 226, 195, .7); box-shadow: 0 0 0 2px rgba(102, 226, 195, .09); }
+input[readonly] { border-style: dashed; color: var(--aqua); cursor: default; }
 .divider { height: 1px; margin: 23px -22px 20px; background: var(--line); }
 .provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 10px; }
 .wide-control { margin-bottom: 10px; }
@@ -144,6 +181,7 @@ button {
 }
 button:hover { background: rgba(233, 201, 141, .14); }
 .fine-print { margin: 14px 0 0; color: #677c82; font-size: .68rem; line-height: 1.45; }
+.zoom-note { margin-top: 10px; }
 
 .diagnostics-card { grid-area: diagnostics; padding: 20px; }
 .events-card { grid-area: events; min-height: 360px; padding: 20px; }
