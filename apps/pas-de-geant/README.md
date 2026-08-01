@@ -41,36 +41,25 @@ country detail only; at 1,000× and above it may also return a region and nearby
 city, town, or village. Lookups are limited to one upstream request per second
 and the endpoint can be replaced with `PAS_DE_GEANT_GEOCODER_URL`.
 
-### The Construct
+### Tile onion demo
 
-Open `http://127.0.0.1:4197/construct/` for the isolated terrain test over the
-Alps–Po valley transition at 45.90° N, 9.25° E. It renders a fixed two-level
-Mapterhorn stencil with one bundled NASA Blue Marble texture. It does not
-instantiate the GEBCO globe, stars, aircraft, or another terrain fallback.
+Open `http://127.0.0.1:4197/demos/tile-onion.html` for the standalone tile
+calculation reference. It shows the complete provider-independent quadtree cut
+on a flat Web Mercator world, with untiled north and south polar selection
+gutters. Click anywhere in the displayed latitude range or enter coordinates
+to move the fine patch; use the maximum-zoom control to inspect its hierarchy.
+The diagnostics expose the committed XYZ leaves, active zooms, anchor,
+boundary mode, and pole-direction lock.
 
-The finest level is an 8×8 block. Its four underfoot pages retain the complete
-512×512 grid while the other 60 use 64×64 cells. Two clean, two-tile-wide
-parent rings add 48 pages each at the next two source levels, using 32×32 and
-16×16 cells. The complete 160-mesh construct therefore steps gradually through
-z, z−1, and z−2 and spans 32 finest-tile widths. The snapped anchor changes
-while the user is still several tiles from the visible edge. Shared meshes
-remain in place across an anchor change; a source-level change keeps the old
-construct until the four new underfoot meshes are ready. Ground height is
-bilinearly sampled and filtered over eight seconds with a
-four-centimetre-per-second world-space speed limit.
+The calculator is implemented independently of the main application's terrain
+and imagery planners. Its complete behaviour and invariants are recorded in
+[`TILE_ONION_SPEC.md`](./TILE_ONION_SPEC.md).
 
-The five preview buttons load the same fixed 2×2 construct at 1×, 100×, 250×,
-500×, and 1000× global scale. At this latitude those scales select Mapterhorn
-z6, z12, and then the verified local source cap of z14. The 250×, 500×, and
-1000× previews therefore reuse the same source addresses. The existing Quest
-and desktop controller mappings are unchanged.
-
-Run the fixed-pattern and automated visual previews with:
+Run the planner tests and production build with:
 
 ```sh
-npm test -- --run tests/pas-de-geant-construct.test.ts
+npm test -- --run tests/pas-de-geant-tile-onion.test.ts
 npm run build
-npm run test:construct:browser
 ```
 
 WebXR requires a secure context. For a USB-connected Quest 2, an Android
@@ -80,8 +69,8 @@ reverse tunnel lets Oculus Browser treat the app as device-local:
 adb reverse tcp:4197 tcp:4197
 ```
 
-Then open `http://localhost:4197` on the headset. Any shared or deployed
-build should be served over HTTPS.
+Then open `http://localhost:4197` on the headset. Any shared or deployed build
+should be served over HTTPS.
 
 ## Quest controls
 
@@ -193,8 +182,7 @@ Native geometry is staged in coherent groups: the four underfoot cells, the
 rest of the finest ring, and each of the two parent rings. A group remains
 entirely on GEBCO until all of its available Mapterhorn meshes are ready, then
 commits once. Missing cells remain GEBCO during that commit. This preserves the
-construct's generation-and-commit principle without delaying the first Earth
-render.
+generation-and-commit principle without delaying the first Earth render.
 
 The checked-in 2048×1024 Blue Marble image is the immutable complete terrain
 texture and is available immediately offline. An optional photographic XYZ

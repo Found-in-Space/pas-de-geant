@@ -41,8 +41,8 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: {
           main: fileURLToPath(new URL("./index.html", import.meta.url)),
-          construct: fileURLToPath(
-            new URL("./construct/index.html", import.meta.url),
+          tileOnion: fileURLToPath(
+            new URL("./demos/tile-onion.html", import.meta.url),
           ),
         },
       },
