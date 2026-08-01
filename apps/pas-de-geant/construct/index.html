@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="An interactive atomic quadtree transition laboratory." />
+    <title>The Construct — Pas de Géant</title>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div>
+          <a class="breadcrumb" href="../">Pas de Géant</a>
+          <span class="slash">/</span>
+          <span>Construct</span>
+        </div>
+        <div class="topbar-state">
+          <span class="live-dot"></span>
+          <span>Fake provider clock</span>
+          <strong id="clock">0.00 s</strong>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero-copy">
+          <p class="kicker">Atomic quadtree transition laboratory</p>
+          <h1>Move the target.<br /><em>Watch the cut heal.</em></h1>
+          <p>
+            The globe shows topology, not provider content. Orbit or click to
+            request a new balanced cut; committed coverage remains whole while
+            independent replacement regions arrive and swap.
+          </p>
+        </section>
+
+        <section class="globe-card" aria-label="Interactive tile globe">
+          <div id="globe" class="globe"></div>
+          <div class="globe-label">
+            <span>Drag to orbit · click to retarget · scroll to zoom</span>
+            <strong id="target-label">z7 / 64 / 64</strong>
+          </div>
+          <div class="legend" aria-label="Tile state legend">
+            <span><i class="committed"></i>Committed</span>
+            <span><i class="requested"></i>Requested cut</span>
+            <span><i class="inflight"></i>In flight</span>
+            <span><i class="ready"></i>Staged</span>
+            <span><i class="failed"></i>Failed</span>
+            <span><i class="swapped"></i>Just swapped</span>
+          </div>
+        </section>
+
+        <aside class="control-card">
+          <div class="card-heading">
+            <div>
+              <p class="kicker">Requested target</p>
+              <h2>XYZ focus</h2>
+            </div>
+            <span id="revision">r0</span>
+          </div>
+          <div class="xyz-grid">
+            <label><span>X · wraps</span><input id="target-x" type="number" step="1" /></label>
+            <label><span>Y · clips</span><input id="target-y" type="number" min="0" step="1" /></label>
+            <label><span>Target z</span><input id="target-z" type="number" min="0" step="1" /></label>
+          </div>
+
+          <div class="divider"></div>
+          <p class="kicker">Provider behaviour</p>
+          <div class="provider-grid">
+            <label><span>Latency · ms</span><input id="latency" type="number" min="0" step="50" value="650" /></label>
+            <label><span>Jitter · ±ms</span><input id="jitter" type="number" min="0" step="25" value="280" /></label>
+          </div>
+          <label class="wide-control">
+            <span>Failure mode</span>
+            <select id="failure-mode">
+              <option value="none">None</option>
+              <option value="transient-first-attempt">Transient · first attempt</option>
+              <option value="persistent-selected">Persistent · selected tile</option>
+              <option value="deterministic-rate">Persistent · deterministic rate</option>
+            </select>
+          </label>
+          <div class="provider-grid">
+            <label><span>Failure rate · %</span><input id="failure-rate" type="number" min="0" max="100" step="5" value="20" /></label>
+            <label><span>Selected z/x/y</span><input id="failure-key" type="text" placeholder="7/64/64" /></label>
+          </div>
+          <button id="retry" type="button">Retry failed requirements</button>
+          <p class="fine-print">
+            Deterministic simulation only. No HTTP, Cache API, decoding, GPU
+            tile data, persistence, or warm resource cache.
+          </p>
+        </aside>
+
+        <section class="diagnostics-card">
+          <div class="card-heading">
+            <div>
+              <p class="kicker">Scheduler</p>
+              <h2>Live ownership</h2>
+            </div>
+            <span id="settled-state">Settled</span>
+          </div>
+          <div class="metrics">
+            <div><strong id="committed-count">0</strong><span>Committed leaves</span></div>
+            <div><strong id="requested-count">0</strong><span>Requested leaves</span></div>
+            <div><strong id="group-count">0</strong><span>Replacement groups</span></div>
+            <div><strong id="batch-count">0</strong><span>Safe batches</span></div>
+            <div><strong id="inflight-count">0</strong><span>In flight</span></div>
+            <div><strong id="blocked-count">0</strong><span>Failed</span></div>
+          </div>
+          <div class="state-strip" id="state-strip"></div>
+        </section>
+
+        <section class="events-card">
+          <div class="card-heading">
+            <div>
+              <p class="kicker">Immutable notifications</p>
+              <h2>Request &amp; swap log</h2>
+            </div>
+            <button id="clear-log" class="quiet-button" type="button">Clear</button>
+          </div>
+          <ol id="event-log" class="event-log"></ol>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/construct-transition.ts"></script>
+  </body>
+</html>
