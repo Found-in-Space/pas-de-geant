@@ -30,8 +30,8 @@ Then open `http://localhost:4197` in the headset.
 
 - Left stick: head-relative travel
 - Left trigger: faster travel
-- Right stick horizontal: whole-planet scale
-- Right stick vertical: radial terrain and altitude exaggeration
+- Right stick vertical: whole-planet scale
+- Right stick horizontal: radial terrain and altitude exaggeration
 - X: toggle committed terrain-tile tint and boundaries
 - Y: toggle photographic source-tile boundaries
 - A: toggle the Realtime voice guide

@@ -39,8 +39,8 @@ Then open `http://localhost:4197` in the headset.
 
 - Left stick: head-relative travel
 - Left trigger: faster travel
-- Right stick horizontal: whole-planet scale
-- Right stick vertical: terrain and altitude exaggeration
+- Right stick vertical: whole-planet scale
+- Right stick horizontal: terrain and altitude exaggeration
 - X: toggle committed terrain-tile tint and boundary outlines
 - Y: toggle photographic source-tile boundaries
 - Hold B: reset location and scale

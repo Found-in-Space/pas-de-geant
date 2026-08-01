@@ -8,9 +8,6 @@ export const INITIAL_REFERENCE_DISTANCE_M = 10;
 export const INITIAL_DISPLAY_RADIUS_M =
   (EARTH_MEAN_RADIUS_KM / SCALE_REFERENCE_DISTANCE_KM) *
   INITIAL_REFERENCE_DISTANCE_M;
-export const MIN_DISPLAY_RADIUS_M = 1;
-export const MIN_RADIAL_MULTIPLIER = 0;
-export const MAX_RADIAL_MULTIPLIER = 20;
 
 const rotation = new Quaternion();
 const movementAxis = new Vector3();
@@ -247,13 +244,12 @@ export function applyLogarithmicScale(
   octavesPerSecond = 0.72,
 ): number {
   const next = radiusM * 2 ** (axis * octavesPerSecond * deltaSeconds);
-  const clamped = Math.max(MIN_DISPLAY_RADIUS_M, next);
   const detentDistance =
-    Math.abs(Math.log2(clamped / INITIAL_DISPLAY_RADIUS_M));
+    Math.abs(Math.log2(next / INITIAL_DISPLAY_RADIUS_M));
   if (Math.abs(axis) < 0.12 && detentDistance < 0.035) {
     return INITIAL_DISPLAY_RADIUS_M;
   }
-  return clamped;
+  return next;
 }
 
 export function applyRadialMultiplierRate(
@@ -262,13 +258,7 @@ export function applyRadialMultiplierRate(
   deltaSeconds: number,
   unitsPerSecond = 3,
 ): number {
-  const next = Math.max(
-    MIN_RADIAL_MULTIPLIER,
-    Math.min(
-      MAX_RADIAL_MULTIPLIER,
-      multiplier + axis * unitsPerSecond * deltaSeconds,
-    ),
-  );
+  const next = multiplier + axis * unitsPerSecond * deltaSeconds;
   if (Math.abs(axis) < 0.12 && Math.abs(next - 1) < 0.08) return 1;
   return next;
 }

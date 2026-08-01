@@ -5,6 +5,10 @@ import {
   freshButtonLatch,
   headRelativeTravel,
 } from "../apps/pas-de-geant/src/controller-input.js";
+import {
+  applyLogarithmicScale,
+  applyRadialMultiplierRate,
+} from "../apps/pas-de-geant/src/planet-state.js";
 
 describe("Pas de Géant controller regressions", () => {
   it("rotates travel with headset yaw while ignoring pitch", () => {
@@ -90,5 +94,49 @@ describe("Pas de Géant controller regressions", () => {
     aButton.pressed = true;
     aButton.value = 1;
     expect(controllerIntent(session, 48, latch).toggleAgent).toBe(true);
+  });
+
+  it("maps right-stick vertical to scale and horizontal to radial amplification", () => {
+    const stick = [0, 0, 0, 0];
+    const session = {
+      inputSources: [
+        {
+          handedness: "right",
+          gamepad: { axes: stick, buttons: [] },
+        },
+      ],
+    } as unknown as XRSession;
+
+    stick[3] = -0.75;
+    const up = controllerIntent(session, 0, freshButtonLatch());
+    expect(up.scaleAxis).toBeGreaterThan(0);
+    expect(up.radialAxis).toBe(0);
+
+    stick[2] = 0.75;
+    stick[3] = 0;
+    const right = controllerIntent(session, 0, freshButtonLatch());
+    expect(right.scaleAxis).toBe(0);
+    expect(right.radialAxis).toBeGreaterThan(0);
+  });
+
+  it("ignores right-stick axis drift within its dead zone", () => {
+    const session = {
+      inputSources: [
+        {
+          handedness: "right",
+          gamepad: { axes: [0, 0, 0.75, -0.2], buttons: [] },
+        },
+      ],
+    } as unknown as XRSession;
+
+    const intent = controllerIntent(session, 0, freshButtonLatch());
+    expect(intent.scaleAxis).toBe(0);
+    expect(intent.radialAxis).toBeGreaterThan(0);
+  });
+
+  it("does not clamp global scale or radial amplification", () => {
+    expect(applyLogarithmicScale(1, -1, 10)).toBeLessThan(1);
+    expect(applyRadialMultiplierRate(20, 1, 1)).toBeGreaterThan(20);
+    expect(applyRadialMultiplierRate(0, -1, 1)).toBeLessThan(0);
   });
 });

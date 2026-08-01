@@ -18,6 +18,9 @@ export interface ButtonLatch {
   y: boolean;
 }
 
+/** Suppresses incidental perpendicular motion while using the right stick. */
+export const RIGHT_STICK_DEADZONE = 0.25;
+
 export function deadzone(value: number, threshold = 0.16): number {
   const magnitude = Math.abs(value);
   if (magnitude < threshold) return 0;
@@ -26,13 +29,14 @@ export function deadzone(value: number, threshold = 0.16): number {
 
 export function stickForSource(
   source: XRInputSource | undefined,
+  threshold?: number,
 ): [number, number] {
   const axes = source?.gamepad?.axes;
   if (!axes || axes.length < 2) return [0, 0];
   const offset = axes.length >= 4 ? axes.length - 2 : 0;
   return [
-    deadzone(axes[offset] ?? 0),
-    deadzone(axes[offset + 1] ?? 0),
+    deadzone(axes[offset] ?? 0, threshold),
+    deadzone(axes[offset + 1] ?? 0, threshold),
   ];
 }
 
@@ -49,7 +53,7 @@ export function controllerIntent(
   const right =
     sources.find((source) => source.handedness === "right") ?? sources[1];
   const [travelX, travelY] = stickForSource(left);
-  const [scaleAxis, radialAxis] = stickForSource(right);
+  const [radialAxis, scaleAxis] = stickForSource(right, RIGHT_STICK_DEADZONE);
   const leftButtons = left?.gamepad?.buttons ?? [];
   const rightButtons = right?.gamepad?.buttons ?? [];
   const aPressed = rightButtons[4]?.pressed ?? rightButtons[0]?.pressed ?? false;
@@ -70,8 +74,9 @@ export function controllerIntent(
   if (!bPressed || reset) latch.bStartedAt = null;
   return {
     travel: new Vector2(travelX, travelY),
-    scaleAxis,
-    radialAxis: -radialAxis,
+    // Up increases scale; right increases radial exaggeration.
+    scaleAxis: scaleAxis === 0 ? 0 : -scaleAxis,
+    radialAxis,
     boost:
       (leftButtons[0]?.value ?? 0) > 0.55 ||
       (leftButtons[1]?.value ?? 0) > 0.55,
