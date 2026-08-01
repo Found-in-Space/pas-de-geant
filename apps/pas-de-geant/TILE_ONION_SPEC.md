@@ -2,9 +2,8 @@
 
 ## Status
 
-This document specifies the standalone tile-onion algorithm and its visual
-debugging page. It is intentionally independent of the tile onion calculations
-currently used by the main Pas de Géant application.
+This document specifies the provider-independent tile-onion algorithm used by
+Pas de Géant and its standalone visual debugging page.
 
 The interactive implementation is the standalone `/demos/tile-onion.html`
 page. It accepts coordinates or clicks on a flat Mercator world and its polar
@@ -21,8 +20,8 @@ The page contains only:
 - a flat Web Mercator world with north and south polar selection gutters; and
 - an overlay of the currently calculated tile coverage.
 
-The calculator must not import, call, or otherwise depend on the main
-application's terrain or imagery onion planners.
+The calculator must not import, call, or otherwise depend on a terrain,
+imagery, scheduler, or renderer implementation.
 
 ## Scope
 
@@ -41,7 +40,7 @@ It does not specify:
 - terrain or imagery providers;
 - network loading, decoding, textures, elevation, or mesh detail;
 - a polar data source or a second polar projection;
-- integration with the main application's existing onion implementations; or
+- application-specific rendering integration; or
 - final numerical screen-space LOD and hysteresis thresholds.
 
 ## Geographic and geometric models
@@ -313,8 +312,8 @@ poles but have no invented XYZ coverage. In boundary mode, a selected polar
 position is connected to its stable nearest-edge anchor while detailed tiles
 remain inside the valid Mercator region.
 
-This is an established algorithm reference and is deliberately separate from
-The Construct, which remains a place for testing new ideas.
+This page is a visual reference for the same generic calculator consumed by
+the production surface library.
 
 ## Acceptance criteria
 
@@ -340,8 +339,8 @@ The experiment is successful when all of the following are demonstrable:
 10. Approaching or crossing a pole cannot cause rapid anchor or zoom churn.
 11. Returning to the Mercator domain produces one staged, atomic transition
    back to normal coverage.
-12. The tile-onion calculator has no dependency on the main application's
-    existing terrain or imagery onion calculations.
+12. The tile-onion calculator has no dependency on terrain or imagery
+    providers, transition scheduling, or rendering.
 
 ## Parameters still to determine experimentally
 

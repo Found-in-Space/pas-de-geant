@@ -44,9 +44,6 @@ export default defineConfig(({ mode }) => {
           tileOnion: fileURLToPath(
             new URL("./demos/tile-onion.html", import.meta.url),
           ),
-          construct: fileURLToPath(
-            new URL("./construct/index.html", import.meta.url),
-          ),
         },
       },
     },

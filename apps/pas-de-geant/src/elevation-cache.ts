@@ -1,7 +1,8 @@
-import {
-  mapterhornUrlForTile,
-  type MercatorTileAddress,
-} from "./local-terrain-core.js";
+import type { TileIdentity } from "./tile-transition-planner.js";
+
+function mapterhornUrlForTile(address: TileIdentity): string {
+  return `https://tiles.mapterhorn.com/${address.z}/${address.x}/${address.y}.webp`;
+}
 
 export const MAPTERHORN_ELEVATION_CACHE_NAME =
   "pas-de-geant-mapterhorn-elevation-v1";
@@ -66,7 +67,7 @@ async function responsePayload(
 }
 
 export async function loadCachedElevation(
-  address: MercatorTileAddress,
+  address: TileIdentity,
   signal: AbortSignal,
   options: ElevationCacheOptions = {},
 ): Promise<CachedElevationPayload & { status: number }> {
@@ -137,7 +138,7 @@ export async function loadCachedElevation(
 }
 
 export async function deleteCachedElevation(
-  address: MercatorTileAddress,
+  address: TileIdentity,
   cacheStorage: ElevationCacheStorage | null = browserCacheStorage(),
 ): Promise<"deleted" | "missing" | "unavailable" | "error"> {
   if (!cacheStorage) return "unavailable";

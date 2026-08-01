@@ -2,10 +2,9 @@
 
 _Walk around worlds, one small step at a time._
 
-Pas de Géant is a room-scale WebXR relief globe. Mean sea level starts at the
-physical-floor apex beneath the headset, and the floor datum can be reset to
-the current terrain elevation. Walking or controller travel rolls the planet
-through that contact point.
+Pas de Géant is a room-scale WebXR terrain globe. The un-displaced WGS 84
+surface meets the physical floor beneath the observer. Walking or controller
+travel rolls the planet through that contact point.
 
 ## Run locally
 
@@ -15,228 +14,79 @@ From the repository root:
 npm run dev -- --port 4197
 ```
 
-Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel,
-Z/X to change planet scale, C/V to change the radial multiplier, and
-Backspace to reset.
+Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel, Z/X to
+change planet scale, C/V to change radial exaggeration, and Backspace to reset.
 
-To enable the Realtime voice guide, copy `.env.example` to `.env.local`, add
-an OpenAI API key, and restart the development server. The key stays in the
-local Vite server. The browser receives only a short-lived Realtime client
-secret from `POST /api/realtime/token`.
-
-```sh
-cp apps/pas-de-geant/.env.example apps/pas-de-geant/.env.local
-```
-
-The voice guide uses normal voice-activity detection rather than
-push-to-talk. In VR, press A once to connect and leave the microphone open;
-press A again to disconnect. Its voice plays through the headset. The agent
-can read the exact underfoot coordinates and move the globe
-to coordinates through its `get_user_location` and `set_user_location` app
-tools.
-
-When the agent reads the current location, the local server performs a cached
-OpenStreetMap Nominatim reverse lookup. Below a 1,000× display scale it returns
-country detail only; at 1,000× and above it may also return a region and nearby
-city, town, or village. Lookups are limited to one upstream request per second
-and the endpoint can be replaced with `PAS_DE_GEANT_GEOCODER_URL`.
-
-### Tile onion demo
-
-Open `http://127.0.0.1:4197/demos/tile-onion.html` for the standalone tile
-calculation reference. It shows the complete provider-independent quadtree cut
-on a flat Web Mercator world, with untiled north and south polar selection
-gutters. Click anywhere in the displayed latitude range or enter coordinates
-to move the fine patch; use the maximum-zoom control to inspect its hierarchy.
-The diagnostics expose the committed XYZ leaves, active zooms, anchor,
-boundary mode, and pole-direction lock.
-
-The calculator is implemented independently of the main application's terrain
-and imagery planners. Its complete behaviour and invariants are recorded in
-[`TILE_ONION_SPEC.md`](./TILE_ONION_SPEC.md).
-
-Run the planner tests and production build with:
-
-```sh
-npm test -- --run tests/pas-de-geant-tile-onion.test.ts
-npm run build
-```
-
-WebXR requires a secure context. For a USB-connected Quest 2, an Android
-reverse tunnel lets Oculus Browser treat the app as device-local:
+WebXR requires a secure context. A USB-connected Quest can use an Android
+reverse tunnel:
 
 ```sh
 adb reverse tcp:4197 tcp:4197
 ```
 
-Then open `http://localhost:4197` on the headset. Any shared or deployed build
-should be served over HTTPS.
+Then open `http://localhost:4197` in the headset.
 
-## Quest controls
+## Controls
 
 - Left stick: head-relative travel
 - Left trigger: faster travel
-- X: toggle tinted native-tile surfaces and boundary outlines
-- A: toggle the Realtime voice guide on or off
 - Right stick horizontal: whole-planet scale
-- Right stick vertical: radial multiplier
-- Hold B: reset to the detected starting location and initial scale
-- Right-stick press: set the current terrain underfoot to physical floor level
+- Right stick vertical: radial terrain and altitude exaggeration
+- X: toggle committed terrain-tile tint and boundaries
+- Y: toggle photographic source-tile boundaries
+- A: toggle the Realtime voice guide
+- Hold B: reset location and scale
 
-The hand panel uses touch-os and the bundled NASA Blue Marble image to show the
-current underfoot position on a whole-Earth map. It remains available offline;
-the latitude and longitude appear directly beneath the map, followed by the
-planet-root global scale factor, radial multiplier, and selected topography
-zoom range. The fourth status cell shows whether the voice agent is off,
-connecting, listening, thinking, speaking, or in an error state. Terrain LOD
-is selected automatically. Each X press toggles
-alternating tile-surface tints and high-contrast boundary outlines. Hold B
-resets the planet. The map readout is throttled and hosted under an isolated
-scene node so it does not traverse or invalidate the terrain scene.
+The hand panel uses touch-os and the embedded NASA Blue Marble image to show
+the underfoot point, display scale, radial multiplier, committed terrain zoom
+range, and voice-agent state.
 
-The camera and XR reference space are never moved to simulate travel. The
-planet root is rolled and translated so the selected contact point remains
-beneath the headset. A right-stick press captures the native underfoot
-elevation (or global relief while native detail is unavailable) as the floor
-datum.
+## Terrain and imagery library
 
-At startup, the app asks the browser for the device location. If that is
-unavailable or denied, it uses an approximate IP location from GeoJS; if both
-methods fail, it falls back to the intersection of the equator and prime
-meridian. Reset returns to whichever starting location was resolved. Location
-discovery runs entirely in the browser and is not stored by the app.
+The production surface is composed from reusable, provider-neutral modules:
 
-Planet scale uniformly converts geographic kilometres into room metres.
-It has a 1 m rendered-radius lower bound and no application-imposed upper
-bound.
-The separate radial multiplier applies after that conversion to terrain,
-aircraft altitude, and the 100 km atmosphere. The mean-sea-level WGS84
-ellipsoid is the default floor contact; a right-stick press replaces that
-datum with the current underfoot terrain elevation.
-There is currently no synthetic sea surface: negative source elevations
-remain negative terrain and are not interpreted as water.
+- the tile-onion layout calculates a complete, non-overlapping, 2:1 balanced
+  XYZ cut;
+- the transition planner finds the minimal atomic replacement groups between
+  two complete cuts;
+- the scheduler owns the committed resources, cancels superseded work, and
+  publishes only complete atomic swaps;
+- cancellable image providers coalesce source requests and reuse decoded
+  overzoom ancestors;
+- a composite surface provider joins Terrarium elevation and optional XYZ
+  photography into one resource for each draw tile;
+- `TerrainSurface` is the only application-facing integration point.
 
-## Terrain and imagery
+The requested z level comes from observer height above the flat, un-displaced
+Earth surface, latitude, render-buffer focal length, and source tile
+resolution. Terrain elevation never feeds back into LOD selection. Changing
+the displayed Earth radius converts the same room-space eye height to a new
+physical observer height and therefore selects a new cut.
 
-The checked-in `public/relief/gebco-2026-r16.bin` is a 4096×2048,
-metre-quantized derivative of the GEBCO 2026 grid. To regenerate it from an
-official stride-21 NetCDF subset:
+The embedded Blue Marble is immediate, complete fallback imagery. Mapterhorn
+Terrarium pages hydrate the committed cut, while a configured photographic
+provider can replace the corresponding texture regions. Elevation is required
+before a new terrain replacement commits. Missing photographic imagery uses
+Blue Marble and cannot create a surface hole. Failed elevation hydration keeps
+the initial flat tile; failed replacement leaves the previous committed tile
+visible.
 
-```sh
-npm run prepare:relief --workspace @found-in-space/pas-de-geant
-```
+Terrarium displacement is decoded and bilinearly sampled in the vertex shader.
+Draw tiles sample cropped regions of source ancestors after the provider's
+maximum zoom. Shallow skirts hide unavoidable raster/LOD edge differences.
+There is no hidden inner globe: only the committed Web Mercator surface and
+flat Blue Marble polar caps are rendered.
 
-Around the current contact point, the renderer requests native tiles from
-Mapterhorn's global 512 px Terrarium pyramid. Source selection is a fixed
-render-space clipmap rather than a screen-space quadtree search. The finest
-level is one complete 8×8 tile square. Each of the next two coarser levels is
-the same 8×8 square with its central 4×4 tiles removed, producing a repeating
-two-tile-wide ring. Each finer square exactly fills the parent ring's hole.
-The complete three-level stencil therefore contains 64 + 48 + 48 = 160
-addresses.
+Photographic source textures use clamped edge sampling, linear magnification,
+trilinear mipmapped minification, and the device's available anisotropy.
+Overzoomed children share a single source texture and continuous cropped source
+UVs, so a draw-tile join within the same ancestor samples the same coordinate
+from both sides. Press Y to inspect the actual source boundaries; press X to
+inspect the committed draw cut.
 
-The target drawn tile width is 5.12 room metres. The selected draw zoom changes
-only when the current tile becomes smaller than 3.5 m or larger than 7.5 m;
-the wider-than-two hysteresis band prevents a level change from immediately
-reversing itself. Mapterhorn requests stop at z12, and regional z13–17 LiDAR is
-intentionally not requested. Above that source ceiling the stencil continues
-to refine in render space: each small virtual tile samples its proper subregion
-of the containing z12 page, including a one-pixel bilinear halo from adjacent
-source pages where needed. The source raster therefore loses no additional
-resolution through tile resizing, while drawn mesh footprints stay stable at
-hyperlocal planet scales. At z0–2 the renderer simply uses every available
-world tile because an 8×8 footprint cannot yet exist.
+### Optional photographic imagery
 
-All tile offsets, ring membership, skirts, priorities, and mesh density are
-fixed. Four tiles around the contact point retain the complete
-512×512 source grid. The rest of the finest level uses 128×128 cells, and the
-two parent rings use 64×64 and 32×32 cells. Same-zoom neighbours share decoded
-boundary samples; a shallow skirt closes changes in mesh density and source
-zoom without blending Mapterhorn and GEBCO at the same surface point. There is
-no terrain-planning worker, RTIN simplification, per-tile screen-space
-calculation, budget collapse, or per-frame neighbour search. Movement inside
-the snapped quadtree anchor does not alter the ring addresses; the four
-full-resolution tiles move only when the contact point crosses their stable
-2×2 anchor. Crossing a scale threshold shifts the same stencil up or down one
-draw level; its source level remains capped independently.
-
-At most four elevation pages are active across the complete fetch-and-decode
-pipeline. Successful Mapterhorn responses are written to the browser's named
-Cache API storage and checked there before the network; malformed images are
-evicted as soon as worker decoding rejects them. The worker retains up to 256
-decoded pages, which covers the complete 225-page source window for the
-160-tile stencil, including shared edge dependencies. Browser storage quotas
-and eviction policy still apply.
-
-Before any network request completes, every active Mapterhorn address gets a
-coarse virtual tile whose vertex shader samples the embedded GEBCO raster.
-That tile writes the same stencil and owns the same footprint as the eventual
-native mesh. A completed Mapterhorn mesh replaces its GEBCO geometry in place;
-there are never two elevation providers drawing the same point. Missing,
-malformed, zero-only, polar, and offline pages simply keep their GEBCO tile.
-Any rasterization crack falls through to the complete geographic GEBCO globe
-beneath it, which uses the same elevation and texture rather than an unrelated
-sea-level plane.
-
-Native geometry is staged in coherent groups: the four underfoot cells, the
-rest of the finest ring, and each of the two parent rings. A group remains
-entirely on GEBCO until all of its available Mapterhorn meshes are ready, then
-commits once. Missing cells remain GEBCO during that commit. This preserves the
-generation-and-commit principle without delaying the first Earth render.
-
-The checked-in 2048×1024 Blue Marble image is the immutable complete terrain
-texture and is available immediately offline. An optional photographic XYZ
-provider refines it through an imagery quadtree that is independent from the
-terrain stencil. Imagery pages retain the provider's native dimensions, so
-MapTiler's complete 512×512 tiles reach the GPU without being downsampled. Each
-drawn page targets a rendered width of 2.56 m, or about five millimetres per
-source pixel while the provider can supply that resolution. The draw z-level
-changes with the displayed world radius, using 1.75 m and 3.75 m page-width
-boundaries to avoid oscillating at a transition. Once it passes the configured
-provider maximum, the virtual page grid keeps refining but samples the correct
-subregion of the maximum-z ancestor; requests never pass the provider ceiling.
-It does not depend on physical Earth distance, eye height, or camera focal
-length.
-
-The normal render-space onion is a precomputed 8×8 fine cap, an
-8×8-minus-4×4 parent ring, and a second parent ring of the same shape. A new
-z−3 layer surrounds that unchanged 32×32 core. At the target resolution the
-four outer radii are about 10.24 m, 20.48 m, 40.96 m, and 81.92 m. Entering a
-two-tile edge band still moves the anchor by four tiles and retains half of the
-fine cap while its replacement becomes ready. Because that movement is half
-the width of a z−3 page, four precomputed outer layouts use 48, 52, or 55
-source pages; partially overlapping coarse pages only fill cells outside the
-finer core. The central cap loads and commits first, followed by the three
-coarser groups at progressively lower request priority. A 64×64 page table
-covers the complete onion.
-
-At the smallest displayed world sizes, z0 through z3 load as complete-world
-photographic layers, coarse to fine; the z3 world is the complete 8×8 level.
-This keeps a configured photographic provider visible between Blue Marble and
-the standard local onion instead of imposing a scale gate or a fixed
-mid-resolution ceiling. Whole-globe fragments resolve longitude to the wrapped
-page-table copy nearest the onion centre, so a window approaching one world in
-width does not fall through to Blue Marble at its geographic seam.
-
-A texture array holds the largest 215-page visible layout plus the complete
-64-page fine cap for the next anchor or z level. The resulting 279 native-size
-layers are derived from the atomic transition and checked against the device's
-array-layer capability before allocation. The array uses trilinear mipmapped
-minification and the device's available anisotropic filtering to keep detailed
-ground imagery stable at oblique angles and during movement. Before mipmaps
-are regenerated, resident same-z neighbours supply real edge pixels to each
-page's eight-pixel gutter so filtering does not expose joins between pages.
-Sampling gradients come from the continuous page coordinate rather than each
-array layer's resetting UV, and are capped at the mip footprint covered by the
-gutter; otherwise a tile boundary is mistaken for extreme minification.
-Downloads, decodes, and GPU uploads only populate staging. Two floating-point
-page-table textures retain source scale and child offsets through deep
-overzoom, then swap after the central group or a later complete ring is ready,
-so missing, malformed, aborted, stale, or GPU-failed pages cannot partially
-change a committed group. Web Mercator requests stop at ±85.05112878° while
-Blue Marble continues across both poles.
-
-No network imagery provider is hard-coded. Configure one at build time with:
+No network imagery provider is hard-coded. Configure one at build time:
 
 ```sh
 VITE_IMAGERY_XYZ_TEMPLATE='https://example.test/{z}/{x}/{y}.jpg'
@@ -247,54 +97,48 @@ VITE_IMAGERY_MIN_ZOOM=0
 VITE_IMAGERY_MAX_ZOOM=22
 ```
 
-The URL and attribution variables are required together. Without them,
-startup and rendering remain exactly the complete embedded Blue Marble path.
-Imagery is retained at the provider's native tile size during decode, and the
-configured maximum zoom is the hard request ceiling for that provider.
-Source, license, datum, DOI, and checksum details live beside the relief asset
-and in `public/THIRD_PARTY_LICENSES.txt`.
+The URL and attribution are required together. Source tiles retain their
+native dimensions, requests never exceed the provider maximum zoom, and deep
+draw levels crop the corresponding source ancestor.
 
-Mapterhorn publishes its tile format, endpoint, and complete source-level
-attribution at <https://mapterhorn.com/data-access/> and
-<https://mapterhorn.com/attribution/>. Its global source catalog identifies
-Copernicus GLO-30 as a 30 m source produced by DLR and Airbus Defence and Space
-and provided under Copernicus by the European Union and ESA.
+Mapterhorn publishes its endpoint and source-level attribution at
+<https://mapterhorn.com/data-access/> and
+<https://mapterhorn.com/attribution/>.
 
-## Celestial sphere
+## Location and Realtime guide
 
-The sky loads the default Found in Space SkyKit catalogue from
-`data.foundin.space` without delaying the relief Earth. Stars through apparent
-magnitude 6.5 are flattened from their ICRS catalogue positions onto a
-fixed-radius celestial sphere. The sphere feeds adjusted magnitude and
-temperature attributes into SkyKit's own WebGL core-and-halo star shader, so
-its point size, colour, bright core, and soft glow match the main SkyKit
-renderer. The catalogue's zero-distance Sun row is intentionally omitted until
-solar-system bodies are modelled separately.
+At startup, the app first asks the browser for device location, then tries an
+approximate GeoJS location, and finally falls back to 0° N, 0° E. Reset returns
+to the resolved starting point.
 
-Astronomy Engine converts the J2000 star directions into the Earth-fixed frame
-for the device's current UTC time. That frame is composed with the same full
-rolling-Earth orientation used by the terrain, so walking or controller travel
-rotates the sky with the planet while the sphere remains centred on the active
-desktop or XR camera. The sidereal-time component is refreshed once per second.
+To enable the voice guide, copy `.env.example` to `.env.local`, add an OpenAI
+API key, and restart the local server. The browser receives only a short-lived
+Realtime client secret from `POST /api/realtime/token`.
 
-SkyKit range requests use browser-persistent caching where available. If the
-catalogue cannot be reached, the Earth remains operational with an empty sky;
-the application does not substitute invented stars.
+```sh
+cp apps/pas-de-geant/.env.example apps/pas-de-geant/.env.local
+```
 
-## Live aircraft proof of concept
+The local server also performs cached OpenStreetMap Nominatim reverse lookups
+for the guide. The upstream endpoint can be replaced with
+`PAS_DE_GEANT_GEOCODER_URL`.
 
-The aircraft layer queries the public Airplanes.live point API for traffic
-within 250 NM of the current underfoot coordinates. It polls every 30 seconds
-only during an active immersive VR session, then dead-reckons positions
-between reports from groundspeed, track, and track rate. Aircraft altitude
-uses the same radial exaggeration as the terrain. Hiding the layer,
-backgrounding the page, or leaving VR stops requests immediately.
+## Other layers
 
-Live aircraft are an optional feature, off by default on each page load.
-Enable the checkbox before entering VR to use them. The setting remains in
-effect for repeated VR sessions until the page is reloaded.
+The celestial sphere loads the default Found in Space SkyKit catalogue and
+uses Astronomy Engine to rotate J2000 directions into the current Earth-fixed
+frame. Catalogue failure leaves an empty sky without blocking the surface.
 
-This refresh rate is intended only for short proof-of-concept sessions. The
-published free allowance is not sufficient for an unattended or production
-deployment; agree suitable commercial access before using the layer that
-way.
+Live Airplanes.live traffic is opt-in and only polls during an immersive VR
+session. Leaving VR, hiding the page, or disabling the layer stops requests.
+
+## Validation
+
+```sh
+npm run check
+npm test
+npm run build
+```
+
+Source and licence details are in `public/THIRD_PARTY_LICENSES.txt`. Terrain
+and imagery are not suitable for navigation or safety-critical use.

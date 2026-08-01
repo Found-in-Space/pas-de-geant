@@ -41,14 +41,14 @@ Then open `http://localhost:4197` in the headset.
 - Left trigger: faster travel
 - Right stick horizontal: whole-planet scale
 - Right stick vertical: terrain and altitude exaggeration
-- X: toggle tinted native-tile surfaces and boundary outlines
+- X: toggle committed terrain-tile tint and boundary outlines
+- Y: toggle photographic source-tile boundaries
 - Hold B: reset location and scale
-- Right-stick press: set the current terrain underfoot to physical floor level
 
 ## What is modelled
 
-- A WGS 84 Earth with a user-resettable underfoot floor datum
-- Global GEBCO 2026 relief and bathymetry with local Copernicus GLO-30 detail
+- A WGS 84 Earth whose sea-level ellipsoid meets the physical floor
+- Mapterhorn / Copernicus GLO-30 terrain with atomic quadtree transitions
 - Embedded NASA Blue Marble imagery with optional atomic XYZ refinement
 - A Gaia DR3 / Hipparcos celestial sphere through Found in Space SkyKit
 - Optional Airplanes.live traffic during an active immersive session

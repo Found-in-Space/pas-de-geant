@@ -8,22 +8,6 @@ NASA imagery must not be used to imply NASA endorsement. NASA identifiers and
 insignia are not included in this application.
 
 
-GEBCO_2026 GRID
-
-GEBCO Bathymetric Compilation Group 2026 (2026). The GEBCO_2026 Grid — a
-continuous terrain model for oceans and land at 15 arc-second intervals.
-NERC EDS British Oceanographic Data Centre NOC.
-doi:10.5285/4f68d5c7-45eb-f999-e063-7086abc036fa
-
-The GEBCO Grid is placed in the public domain and may be used free of charge.
-Users must acknowledge its source, must not imply endorsement by GEBCO, IHO,
-or IOC, and must not misrepresent the grid or its source. The grid is not for
-navigation or safety-at-sea use.
-
-Full terms:
-https://www.gebco.net/data-products-gridded-bathymetry-data/gebco2026-grid
-
-
 MAPTERHORN TERRAIN TILES AND COPERNICUS GLO-30
 
 Local land detail is requested at runtime from Mapterhorn's public global
@@ -50,25 +34,6 @@ https://github.com/mapterhorn/mapterhorn/blob/main/source-catalog/glo30/LICENSE.
 
 The organisations in charge of the Copernicus programme by law or by
 delegation incur no liability for use of the Copernicus WorldDEM-30.
-
-
-MAPBOX MARTINI
-
-The local terrain worker uses @mapbox/martini 0.2.0 under the ISC License.
-
-Copyright (c) 2019, Mapbox
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted, provided that the above
-copyright notice and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
-AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
-LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
-OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
-PERFORMANCE OF THIS SOFTWARE.
 
 
 AIRPLANES.LIVE ADS-B DATA

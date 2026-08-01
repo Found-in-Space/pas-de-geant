@@ -19,38 +19,6 @@ describe("Pas de Géant controller regressions", () => {
     expect(travel.y).toBeCloseTo(0);
   });
 
-  it("emits the ground-level reset only once per right-stick press", () => {
-    const stickButton = { pressed: true, value: 1 };
-    const session = {
-      inputSources: [
-        {
-          handedness: "right",
-          gamepad: {
-            axes: [0, 0, 0, 0],
-            buttons: [
-              { pressed: false, value: 0 },
-              { pressed: false, value: 0 },
-              { pressed: false, value: 0 },
-              stickButton,
-              { pressed: false, value: 0 },
-              { pressed: false, value: 0 },
-            ],
-          },
-        },
-      ],
-    } as unknown as XRSession;
-    const latch = freshButtonLatch();
-
-    expect(controllerIntent(session, 0, latch).resetGroundLevel).toBe(true);
-    expect(controllerIntent(session, 16, latch).resetGroundLevel).toBe(false);
-    stickButton.pressed = false;
-    stickButton.value = 0;
-    expect(controllerIntent(session, 32, latch).resetGroundLevel).toBe(false);
-    stickButton.pressed = true;
-    stickButton.value = 1;
-    expect(controllerIntent(session, 48, latch).resetGroundLevel).toBe(true);
-  });
-
   it("toggles terrain boundaries with X and imagery tiles with Y", () => {
     const xButton = { pressed: false, value: 0 };
     const yButton = { pressed: false, value: 0 };

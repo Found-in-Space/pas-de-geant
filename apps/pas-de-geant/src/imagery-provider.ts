@@ -1,7 +1,18 @@
-import {
-  isValidImageryAddress,
-  type ImageryAddress,
-} from "./imagery-core.js";
+import type { TileIdentity } from "./tile-transition-planner.js";
+
+function isValidImageryAddress(address: TileIdentity): boolean {
+  const width = 2 ** address.z;
+  return (
+    Number.isSafeInteger(address.z) &&
+    Number.isSafeInteger(address.x) &&
+    Number.isSafeInteger(address.y) &&
+    address.z >= 0 &&
+    address.x >= 0 &&
+    address.x < width &&
+    address.y >= 0 &&
+    address.y < width
+  );
+}
 
 export interface ImageryProvider {
   readonly id: string;
@@ -9,7 +20,7 @@ export interface ImageryProvider {
   readonly tileSize: number;
   readonly minZoom: number;
   readonly maxZoom: number;
-  load(address: ImageryAddress, signal: AbortSignal): Promise<Blob>;
+  load(address: TileIdentity, signal: AbortSignal): Promise<Blob>;
 }
 
 export interface XyzImageryConfiguration {
@@ -61,10 +72,10 @@ export class XyzImageryProvider implements ImageryProvider {
     }
     this.id = configuration.id?.trim() || "configured-xyz";
     this.attribution = configuration.attribution.trim();
-    this.tileSize = Math.max(
-      1,
-      Math.min(1_024, Math.floor(configuration.tileSize ?? 256)),
-    );
+    this.tileSize = Math.floor(configuration.tileSize ?? 256);
+    if (!Number.isSafeInteger(this.tileSize) || this.tileSize <= 0) {
+      throw new Error("The imagery tile size must be a positive integer.");
+    }
     this.minZoom = Math.max(0, Math.floor(configuration.minZoom ?? 0));
     this.maxZoom = Math.max(
       this.minZoom,
@@ -72,7 +83,7 @@ export class XyzImageryProvider implements ImageryProvider {
     );
   }
 
-  async load(address: ImageryAddress, signal: AbortSignal): Promise<Blob> {
+  async load(address: TileIdentity, signal: AbortSignal): Promise<Blob> {
     if (
       !isValidImageryAddress(address) ||
       address.z < this.minZoom ||

@@ -8,15 +8,12 @@ export interface ControllerIntent {
   toggleTileOverlay: boolean;
   toggleTextureTileOverlay: boolean;
   toggleAgent: boolean;
-  toggleOcean: boolean;
   reset: boolean;
-  resetGroundLevel: boolean;
 }
 
 export interface ButtonLatch {
   a: boolean;
   bStartedAt: number | null;
-  stick: boolean;
   x: boolean;
   y: boolean;
 }
@@ -57,15 +54,12 @@ export function controllerIntent(
   const rightButtons = right?.gamepad?.buttons ?? [];
   const aPressed = rightButtons[4]?.pressed ?? rightButtons[0]?.pressed ?? false;
   const bPressed = rightButtons[5]?.pressed ?? rightButtons[1]?.pressed ?? false;
-  const stickPressed = rightButtons[3]?.pressed ?? false;
   const xPressed = leftButtons[4]?.pressed ?? false;
   const yPressed = leftButtons[5]?.pressed ?? false;
   const toggleAgent = aPressed && !latch.a;
-  const resetGroundLevel = stickPressed && !latch.stick;
   const toggleTileOverlay = xPressed && !latch.x;
   const toggleTextureTileOverlay = yPressed && !latch.y;
   latch.a = aPressed;
-  latch.stick = stickPressed;
   latch.x = xPressed;
   latch.y = yPressed;
   if (bPressed && latch.bStartedAt === null) latch.bStartedAt = nowMs;
@@ -84,9 +78,7 @@ export function controllerIntent(
     toggleTileOverlay,
     toggleTextureTileOverlay,
     toggleAgent,
-    toggleOcean: toggleAgent,
     reset,
-    resetGroundLevel,
   };
 }
 
@@ -115,7 +107,6 @@ export function freshButtonLatch(): ButtonLatch {
   return {
     a: false,
     bStartedAt: null,
-    stick: false,
     x: false,
     y: false,
   };

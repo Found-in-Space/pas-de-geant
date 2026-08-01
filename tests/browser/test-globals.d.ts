@@ -1,7 +1,7 @@
 import type {
   ImageryProvider,
   XyzImageryConfiguration,
-} from "../../apps/pas-de-geant/src/imagery.js";
+} from "../../apps/pas-de-geant/src/imagery-provider.js";
 
 declare global {
   interface Window {

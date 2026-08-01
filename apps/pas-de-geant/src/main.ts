@@ -34,9 +34,8 @@ import {
 } from "./hand-panel.js";
 import { directionOnHandPanel } from "./hand-panel-orientation.js";
 import {
-  ImageryVirtualTexture,
   configuredXyzImageryProvider,
-} from "./imagery.js";
+} from "./imagery-provider.js";
 import { imageryConfiguration } from "./imagery-configuration.js";
 import {
   applyLogarithmicScale,
@@ -55,13 +54,12 @@ import {
   fetchNamedLocationContext,
   locationDetailForDisplayRadius,
 } from "./location-context.js";
-import { loadReliefDataset } from "./relief.js";
 import {
   parseLocationToolArguments,
   RealtimeVoiceAgent,
   type RealtimeAgentStatus,
 } from "./realtime-agent.js";
-import { TerrainTileRenderer } from "./terrain-tiles.js";
+import { TerrainSurface } from "./terrain-surface.js";
 
 declare global {
   interface Window {
@@ -104,7 +102,6 @@ try {
     antialias: true,
     alpha: false,
     powerPreference: "high-performance",
-    stencil: true,
   });
 } catch (error) {
   loadingState.hidden = true;
@@ -179,33 +176,39 @@ const blueMarbleTexture = await new THREE.TextureLoader().loadAsync(
 );
 blueMarbleTexture.colorSpace = THREE.SRGBColorSpace;
 blueMarbleTexture.flipY = false;
+blueMarbleTexture.wrapS = THREE.RepeatWrapping;
+blueMarbleTexture.wrapT = THREE.ClampToEdgeWrapping;
 blueMarbleTexture.needsUpdate = true;
 blueMarbleTexture.anisotropy = Math.min(
   4,
   renderer.capabilities.getMaxAnisotropy(),
 );
 
-const relief = await loadReliefDataset();
-document.body.dataset.reliefFallback = String(relief.fallback);
 const photographicImageryProvider =
   window.__PAS_DE_GEANT_IMAGERY_PROVIDER__ ??
   configuredXyzImageryProvider(imageryConfiguration());
 imageryAttribution.textContent = photographicImageryProvider
   ? ` + ${photographicImageryProvider.attribution}`
   : "";
-const imagery = new ImageryVirtualTexture(
+const initialLocation = await initialLocationPromise;
+document.body.dataset.locationSource = initialLocation.source;
+let state = initialPlanetState(
+  initialLocation.latitudeDegrees,
+  initialLocation.longitudeDegrees,
+);
+const terrain = new TerrainSurface({
   renderer,
-  blueMarbleTexture,
-  photographicImageryProvider,
-);
-const renderingContext = renderer.getContext();
-const detailStencilAvailable =
-  renderingContext.getParameter(renderingContext.STENCIL_BITS) > 0;
-const terrain = new TerrainTileRenderer(
-  relief,
-  imagery,
-  detailStencilAvailable,
-);
+  baseTexture: blueMarbleTexture,
+  imageryProvider: photographicImageryProvider,
+  initialView: {
+    latitudeDegrees: initialLocation.latitudeDegrees,
+    longitudeDegrees: initialLocation.longitudeDegrees,
+    displayRadiusM: state.displayRadiusM,
+    radialMultiplier: state.radialMultiplier,
+    observerHeightWorldM: 1.65,
+    focalLengthPixels: 1_000,
+  },
+});
 planetRoot.add(terrain.group);
 const aircraftLayer = new AircraftLayer();
 planetRoot.add(aircraftLayer.group);
@@ -213,13 +216,6 @@ planetRoot.add(aircraftLayer.group);
 const atmosphere = new AtmosphereLayer();
 planetRoot.add(atmosphere.mesh);
 
-const initialLocation = await initialLocationPromise;
-document.body.dataset.locationSource = initialLocation.source;
-let state = initialPlanetState(
-  initialLocation.latitudeDegrees,
-  initialLocation.longitudeDegrees,
-);
-let groundLevelElevationM = 0;
 let tileOverlayVisible = false;
 let textureTileOverlayVisible = false;
 let realtimeAgentStatus: RealtimeAgentStatus = {
@@ -326,17 +322,8 @@ function resetPlanet(): void {
     initialLocation.latitudeDegrees,
     initialLocation.longitudeDegrees,
   );
-  groundLevelElevationM = 0;
   previousXrHead = null;
   updatePresentation();
-}
-
-function resetGroundLevel(): void {
-  const coordinates = coordinatesForFrame(state.contact);
-  groundLevelElevationM = terrain.sampleSurfaceHeight(
-    coordinates.latitudeDegrees,
-    coordinates.longitudeDegrees,
-  );
 }
 
 function setUserLocation(
@@ -347,7 +334,6 @@ function setUserLocation(
     latitudeDegrees,
     longitudeDegrees,
   ).contact;
-  groundLevelElevationM = 0;
   previousXrHead = null;
   updatePresentation();
   return coordinatesForFrame(state.contact);
@@ -355,11 +341,13 @@ function setUserLocation(
 
 function setTileOverlayVisible(visible: boolean): void {
   tileOverlayVisible = visible;
+  document.body.dataset.detailTileOverlay = String(visible);
   terrain.setTileOverlayVisible(visible);
 }
 
 function setTextureTileOverlayVisible(visible: boolean): void {
   textureTileOverlayVisible = visible;
+  document.body.dataset.detailTextureTileOverlay = String(visible);
   terrain.setTextureTileOverlayVisible(visible);
 }
 
@@ -375,8 +363,8 @@ function terrainViewMetrics(): {
     : camera;
   viewCamera.updateWorldMatrix(true, false);
   viewCamera.getWorldPosition(terrainEyeWorldPosition);
-  // The local-floor reference space keeps the physical floor at world y=0,
-  // independently of the calibrated planet-root elevation.
+  // The local-floor reference space measures eye height from world y=0,
+  // which is the un-displaced flat base surface used for terrain LOD.
   const eyeHeightWorldM = Math.max(0.001, terrainEyeWorldPosition.y);
   let focalLengthPixels = 1;
   if (renderer.xr.isPresenting && viewCamera instanceof THREE.ArrayCamera) {
@@ -409,23 +397,16 @@ function updatePresentation(): void {
   planetRoot.quaternion.copy(pose.earthToWorld);
   planetRoot.position.copy(pose.centre);
   planetRoot.scale.setScalar(state.displayRadiusM);
-  planetRoot.position.y -= radialWorldMetresForKilometres(
-    groundLevelElevationM / 1_000,
-    state.displayRadiusM,
-    state.radialMultiplier,
-  );
   const view = terrainViewMetrics();
   document.body.dataset.displayScale = state.displayRadiusM.toFixed(2);
-  document.body.dataset.groundLevelElevation =
-    groundLevelElevationM.toFixed(1);
-  terrain.update(
-    coordinates.latitudeDegrees,
-    coordinates.longitudeDegrees,
-    state.displayRadiusM,
-    state.radialMultiplier,
-    view.eyeHeightWorldM,
-    view.focalLengthPixels,
-  );
+  terrain.update({
+    latitudeDegrees: coordinates.latitudeDegrees,
+    longitudeDegrees: coordinates.longitudeDegrees,
+    displayRadiusM: state.displayRadiusM,
+    radialMultiplier: state.radialMultiplier,
+    observerHeightWorldM: view.eyeHeightWorldM,
+    focalLengthPixels: view.focalLengthPixels,
+  });
   atmosphere.update(state.radialMultiplier);
   coordinatesReadout.textContent = formatCoordinates(
     coordinates.latitudeDegrees,
@@ -723,7 +704,6 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
     void voiceAgent.toggle();
   }
   if (intent.reset) resetPlanet();
-  if (intent.resetGroundLevel) resetGroundLevel();
 }
 
 function updateDesktopControls(deltaSeconds: number): void {
@@ -967,11 +947,14 @@ function render(nowMs: number): void {
 }
 
 window.addEventListener("beforeunload", () => {
+  terrain.dispose();
   handPanel.dispose();
   handPanelRuntime.dispose();
 });
 
 updatePresentation();
+setTileOverlayVisible(false);
+setTextureTileOverlayVisible(false);
 loadingState.hidden = true;
 errorState.hidden = true;
 aircraftLayer.visible = false;
