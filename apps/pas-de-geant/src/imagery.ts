@@ -34,8 +34,9 @@ import {
   type ImageryProvider,
 } from "./imagery-provider.js";
 import {
-  normalizeTileTarget,
-  type TileTarget,
+  normalizeTileLayoutTarget,
+  tileLayoutTargetNeedsSubmission,
+  type TileLayoutTarget,
 } from "./tile-layout-source.js";
 import type {
   TileProvider,
@@ -48,6 +49,7 @@ import {
   type TileIdentity,
 } from "./tile-transition-planner.js";
 import { TileWorkerScheduler } from "./tile-worker-scheduler.js";
+import { summarizeTilePlannerSnapshot } from "./tile-planner-state.js";
 import {
   DEFAULT_TILE_DEBUG_CONTROLS,
   demandedPayloadTiles,
@@ -138,6 +140,18 @@ export interface ImageryCoordinateBounds {
   readonly east: number;
   readonly north: number;
   readonly south: number;
+}
+
+/** Geographic topology target; imagery source clamping remains downstream. */
+export function imageryTargetForView(
+  view: Pick<ImageryView, "latitudeDegrees" | "longitudeDegrees">,
+  maxZoom: number,
+): TileLayoutTarget {
+  return normalizeTileLayoutTarget({
+    maxZoom,
+    latitudeDegrees: view.latitudeDegrees,
+    longitudeDegrees: view.longitudeDegrees,
+  });
 }
 
 /** Earth-fixed normalized Web Mercator bounds for one terrain mesh. */
@@ -376,6 +390,24 @@ export class ScheduledImageryProvider
       this.queuedJobs.push(job);
     }
     job.consumers.add(request.id);
+    if (job.state === "active") {
+      // This request joined a source fetch that had already started. Defer the
+      // phase notification until request() has returned its cancellation
+      // handle, and suppress it if either the request or shared job completed
+      // or was cancelled first.
+      const joinedJob = job;
+      queueMicrotask(() => {
+        const activeRequest = this.requests.get(request.id);
+        if (
+          activeRequest !== request ||
+          !request.active ||
+          this.jobs.get(sourceKey) !== joinedJob ||
+          joinedJob.state !== "active" ||
+          !joinedJob.consumers.has(request.id)
+        ) return;
+        observer({ phase: "in-flight" });
+      });
+    }
     this.pumpJobs();
     return {
       requestId: request.id,
@@ -739,6 +771,11 @@ interface PoolMigration {
   readonly pool: ImageryPool;
   readonly root: ImageryTreeNode;
   readonly demandedKeys: ReadonlySet<string>;
+  /** Candidate mappings are separate so the visible tree cannot be disturbed. */
+  readonly slots: Map<string, number>;
+  readonly uploadedRevisions: Map<string, number>;
+  /** A larger backing texture must be swapped in at publication time. */
+  readonly replacesActivePool: boolean;
 }
 
 interface ImageryTreeTextures {
@@ -797,7 +834,59 @@ export function imageryMigrationReady(
   return true;
 }
 
-function initialSnapshot(target: TileTarget): SchedulerSnapshot<TileTarget> {
+export interface ImageryPoolMigrationPlan {
+  readonly slots: Map<string, number>;
+  readonly uploadedRevisions: Map<string, number>;
+  readonly requiredAdditionalSlots: number;
+}
+
+/**
+ * Grow only by the slots this transition cannot stage in the current pool.
+ * The current capacity is a floor, so a smaller later cut never causes churn.
+ */
+export function imageryPoolGrowthCapacity(
+  activeCapacity: number,
+  demandedCount: number,
+  requiredAdditionalSlots: number,
+): number {
+  return Math.max(
+    activeCapacity,
+    demandedCount,
+    activeCapacity + requiredAdditionalSlots,
+  );
+}
+
+/**
+ * Retain valid layers in their existing slots. A page whose mip revision
+ * changed receives a new slot, leaving the visible generation untouched until
+ * the candidate tree is published.
+ */
+export function planImageryPoolMigration(
+  activeSlots: ReadonlyMap<string, number>,
+  activeUploadedRevisions: ReadonlyMap<string, number>,
+  demanded: Iterable<string>,
+  revisions: ReadonlyMap<string, number>,
+): ImageryPoolMigrationPlan {
+  const slots = new Map<string, number>();
+  const uploadedRevisions = new Map<string, number>();
+  let requiredAdditionalSlots = 0;
+  for (const key of demanded) {
+    const revision = revisions.get(key) ?? 0;
+    const slot = activeSlots.get(key);
+    const uploaded = activeUploadedRevisions.get(key) ?? 0;
+    if (slot !== undefined && uploaded >= revision && revision > 0) {
+      slots.set(key, slot);
+      uploadedRevisions.set(key, uploaded);
+    } else {
+      requiredAdditionalSlots += 1;
+    }
+  }
+  return { slots, uploadedRevisions, requiredAdditionalSlots };
+}
+
+function initialSnapshot(
+  target: TileLayoutTarget,
+): SchedulerSnapshot<TileLayoutTarget> {
   return {
     revision: -1,
     target,
@@ -831,8 +920,8 @@ export class ImageryVirtualTexture {
   private readonly tileSize: number;
   private readonly paddedSize: number;
   private readonly unsubscribe?: () => void;
-  private snapshot: SchedulerSnapshot<TileTarget>;
-  private target: TileTarget;
+  private snapshot: SchedulerSnapshot<TileLayoutTarget>;
+  private target: TileLayoutTarget;
   private desiredZoom: number | undefined;
   private desiredSourceKeySet = new Set<string>();
   private nextPoolGeneration = 1;
@@ -870,16 +959,7 @@ export class ImageryVirtualTexture {
           tilePixels: imageryProvider.tileSize,
         })
       : 0;
-    const point = mercatorPointForImagery(
-      initialView.latitudeDegrees,
-      initialView.longitudeDegrees,
-      zoom,
-    );
-    this.target = normalizeTileTarget({
-      z: zoom,
-      x: Math.floor(point.x),
-      y: Math.floor(point.y),
-    });
+    this.target = imageryTargetForView(initialView, zoom);
     this.snapshot = initialSnapshot(this.target);
     this.tileSize = imageryProvider?.tileSize ?? 1;
     this.paddedSize = this.tileSize + IMAGERY_GUTTER_PIXELS * 2;
@@ -999,21 +1079,8 @@ export class ImageryVirtualTexture {
         this.debugControls.screenPixelsPerSourcePixel,
       maxTopologyZoom: this.debugControls.maxZoom,
     });
-    const point = mercatorPointForImagery(
-      view.latitudeDegrees,
-      view.longitudeDegrees,
-      zoom,
-    );
-    const target = normalizeTileTarget({
-      z: zoom,
-      x: Math.floor(point.x),
-      y: Math.floor(point.y),
-    });
-    if (
-      target.z !== this.target.z ||
-      target.x !== this.target.x ||
-      target.y !== this.target.y
-    ) {
+    const target = imageryTargetForView(view, zoom);
+    if (tileLayoutTargetNeedsSubmission(this.target, target)) {
       this.target = target;
       this.scheduler.updateTarget(target);
     }
@@ -1046,7 +1113,48 @@ export class ImageryVirtualTexture {
   }
 
   getTargetZoom(): number {
-    return this.target.z;
+    return this.target.maxZoom;
+  }
+
+  getPlannerState() {
+    const payloadRequests = this.scheduler?.debugState ?? {
+      transition_owned: { requested: 0, in_flight: 0, total_outstanding: 0 },
+      residency_hydration: {
+        requested: 0,
+        in_flight: 0,
+        total_outstanding: 0,
+      },
+      total: { requested: 0, in_flight: 0, total_outstanding: 0 },
+      resident_payload_count: 0,
+      demanded_payload_count: 0,
+      target_submission: { pending: false, in_flight: false },
+    };
+    const provider = this.provider?.metrics;
+    const metrics = this.getMetrics();
+    return {
+      recalculation_enabled: this.debugControls.recalculationEnabled,
+      effective_target: { ...this.target },
+      ...summarizeTilePlannerSnapshot(this.snapshot),
+      payload_tile_requests: payloadRequests,
+      source_jobs: {
+        queued: provider?.queued ?? 0,
+        in_flight: provider?.inFlight ?? 0,
+      },
+      residency: {
+        hot_tile_count: this.hotKeys.size,
+        classified_warm_tile_count: this.warmKeys.size,
+        demanded_payload_tile_count:
+          payloadRequests.demanded_payload_count,
+        committed_topology_tile_count: this.snapshot.committedCut.length,
+        view_distance_enabled: this.debugControls.viewDistanceEnabled,
+        delta_zoom_cap: this.debugControls.deltaZoomCap,
+      },
+      imagery_uploads: {
+        active_layer_count: metrics.activeLayerCount,
+        migration_active: this.migration !== undefined,
+        migration_layer_count: metrics.migrationLayerCount,
+      },
+    };
   }
 
   processPendingUploads(): void {
@@ -1081,14 +1189,18 @@ export class ImageryVirtualTexture {
       warmTileCount: this.warmKeys.size,
       recordCount: this.records.size,
       activeLayerCount: this.activePool.layers,
-      migrationLayerCount: this.migration?.pool.layers ?? 0,
+      migrationLayerCount: this.migration?.replacesActivePool
+        ? this.migration.pool.layers
+        : 0,
       requestTotal: provider?.requestTotal ?? 0,
       sourceLoadTotal: provider?.sourceLoadTotal ?? 0,
       decodeTotal: provider?.decodeTotal ?? 0,
       uploadTotal: this.uploadTotal,
       estimatedCpuBytes: this.records.size * mipBytesPerLayer,
       estimatedGpuBytes:
-        (this.activePool.layers + (this.migration?.pool.layers ?? 0)) *
+        (this.activePool.layers + (this.migration?.replacesActivePool
+          ? this.migration.pool.layers
+          : 0)) *
         mipBytesPerLayer,
       residencyClassificationTotal: this.residencyClassificationTotal,
       hotResidencyClassificationTotal: this.hotResidencyClassificationTotal,
@@ -1104,7 +1216,9 @@ export class ImageryVirtualTexture {
     this.activeTreeTextures.nodes.dispose();
     this.activeTreeTextures.images.dispose();
     this.activePool.texture.dispose();
-    this.migration?.pool.texture.dispose();
+    if (this.migration?.replacesActivePool) {
+      this.migration.pool.texture.dispose();
+    }
     this.stagingTexture.dispose();
     this.records.clear();
   }
@@ -1206,8 +1320,7 @@ export class ImageryVirtualTexture {
     // changes remain in desiredRoot and become the following generation.
     if (this.migration) {
       this.uploadPendingChains(
-        this.migration.pool,
-        this.migration.demandedKeys,
+        this.migration,
         MAX_UPLOADS_PER_FRAME,
       );
       if (this.migrationComplete()) this.promoteMigration();
@@ -1217,10 +1330,10 @@ export class ImageryVirtualTexture {
 
     const candidateRoot = this.readyCandidateRoot();
     const candidateKeys = imageryTreeSourceKeys(candidateRoot);
-    const expectedLayers = Math.max(1, candidateKeys.size);
-    const activeEncoding = expectedLayers === this.activePool.layers
-      ? this.encodeTreeForPool(candidateRoot, this.activePool)
-      : undefined;
+    const activeEncoding = this.encodeTreeForPool(
+      candidateRoot,
+      this.activePool,
+    );
 
     if (activeEncoding) {
       if (candidateRoot !== this.committedRoot) {
@@ -1237,8 +1350,7 @@ export class ImageryVirtualTexture {
     this.startMigration(candidateRoot, candidateKeys);
     const migration = this.migration!;
     this.uploadPendingChains(
-      migration.pool,
-      migration.demandedKeys,
+      migration,
       MAX_UPLOADS_PER_FRAME,
     );
     if (this.migrationComplete()) this.promoteMigration();
@@ -1307,30 +1419,57 @@ export class ImageryVirtualTexture {
     root: ImageryTreeNode,
     demanded: Set<string>,
   ): void {
-    // Size from this tree alone. The old generation remains independently
-    // resident until this exact candidate is complete and published.
-    const requiredLayers = Math.max(1, demanded.size);
-    const pool = this.createPool(requiredLayers);
+    const revisions = new Map<string, number>();
     for (const key of demanded) {
+      revisions.set(key, this.records.get(key)?.revision ?? 0);
+    }
+    const retained = planImageryPoolMigration(
+      this.activePool.slots,
+      this.activePool.uploadedRevisions,
+      demanded,
+      revisions,
+    );
+    const replacesActivePool = retained.requiredAdditionalSlots >
+      this.activePool.freeSlots.length;
+    // DataArrayTexture storage cannot grow in place. Preserve the existing
+    // capacity and add only the slots this candidate could not stage there.
+    const pool = replacesActivePool
+      ? this.createPool(imageryPoolGrowthCapacity(
+          this.activePool.layers,
+          Math.max(1, demanded.size),
+          retained.requiredAdditionalSlots,
+        ))
+      : this.activePool;
+    const slots = replacesActivePool
+      ? new Map<string, number>()
+      : retained.slots;
+    const uploadedRevisions = replacesActivePool
+      ? new Map<string, number>()
+      : retained.uploadedRevisions;
+    for (const key of demanded) {
+      if (slots.has(key)) continue;
       const slot = pool.freeSlots.pop();
       if (slot === undefined) {
-        pool.texture.dispose();
+        if (replacesActivePool) pool.texture.dispose();
         throw new Error("The candidate imagery pool does not match its tree.");
       }
-      pool.slots.set(key, slot);
+      slots.set(key, slot);
     }
     this.migration = {
       pool,
       root,
       demandedKeys: new Set(demanded),
+      slots,
+      uploadedRevisions,
+      replacesActivePool,
     };
   }
 
   private uploadPendingChains(
-    pool: ImageryPool,
-    demanded: ReadonlySet<string>,
+    migration: PoolMigration,
     budget: number,
   ): number {
+    const { pool, demandedKeys: demanded } = migration;
     let uploaded = 0;
     const visited = new Set<string>();
     const upload = (key: string): void => {
@@ -1339,15 +1478,51 @@ export class ImageryVirtualTexture {
       const record = this.records.get(key);
       if (!record?.mipLevels || record.mipRevision === 0) return;
       if (record.mipRevision !== record.revision) return;
-      if ((pool.uploadedRevisions.get(key) ?? 0) >= record.mipRevision) return;
-      const slot = pool.slots.get(key);
+      let slot = migration.slots.get(key);
       if (slot === undefined) return;
+      // A stitch may remip a retained page after this candidate started. Do
+      // not overwrite the visible layer: give the candidate a fresh slot.
+      if (
+        !migration.replacesActivePool &&
+        slot === pool.slots.get(key) &&
+        (pool.uploadedRevisions.get(key) ?? 0) < record.mipRevision
+      ) {
+        const replacement = pool.freeSlots.pop();
+        if (replacement === undefined) {
+          this.restartMigration(migration);
+          return;
+        }
+        slot = replacement;
+        migration.slots.set(key, slot);
+        migration.uploadedRevisions.delete(key);
+      }
+      if ((migration.uploadedRevisions.get(key) ?? 0) >= record.mipRevision) {
+        return;
+      }
       if (!this.uploadMipChain(pool, slot, record.mipLevels)) return;
-      pool.uploadedRevisions.set(key, record.mipRevision);
+      migration.uploadedRevisions.set(key, record.mipRevision);
       uploaded += 1;
     };
-    for (const key of demanded) upload(key);
+    for (const key of demanded) {
+      upload(key);
+      if (this.migration !== migration) return uploaded;
+    }
     return uploaded;
+  }
+
+  private restartMigration(migration: PoolMigration): void {
+    if (this.migration !== migration) return;
+    if (migration.replacesActivePool) {
+      migration.pool.texture.dispose();
+    } else {
+      migration.pool.freeSlots.length = 0;
+      const activeSlots = new Set(migration.pool.slots.values());
+      for (let slot = migration.pool.layers - 1; slot >= 0; slot -= 1) {
+        if (!activeSlots.has(slot)) migration.pool.freeSlots.push(slot);
+      }
+    }
+    this.migration = undefined;
+    this.startMigration(migration.root, new Set(migration.demandedKeys));
   }
 
   private uploadMipChain(
@@ -1383,11 +1558,11 @@ export class ImageryVirtualTexture {
       this.snapshot.committedCut.length === 0
     ) return;
     const hotSignature = hotResidencySignature(
-      this.target.z,
+      this.target.maxZoom,
       this.residencyInput,
     );
     const warmSignature = warmResidencySignature(
-      this.target.z,
+      this.target.maxZoom,
       this.residencyInput,
       this.overheadPercent,
     );
@@ -1421,7 +1596,7 @@ export class ImageryVirtualTexture {
     if (warmNeedsClassification) {
       const eligible = eligiblePayloadTiles(
         workingTiles,
-        this.target.z,
+        this.target.maxZoom,
         this.debugControls.deltaZoomCap,
       );
       const warm = this.debugControls.viewDistanceEnabled
@@ -1437,7 +1612,7 @@ export class ImageryVirtualTexture {
     }
     const eligible = eligiblePayloadTiles(
       workingTiles,
-      this.target.z,
+      this.target.maxZoom,
       this.debugControls.deltaZoomCap,
     );
     const hot = eligible.filter((tile) =>
@@ -1449,7 +1624,7 @@ export class ImageryVirtualTexture {
     }
     const demanded = demandedPayloadTiles(
       workingTiles,
-      this.target.z,
+      this.target.maxZoom,
       this.debugControls.deltaZoomCap,
       this.debugControls.viewDistanceEnabled,
       this.warmKeys,
@@ -1463,14 +1638,14 @@ export class ImageryVirtualTexture {
     if (
       !imageryMigrationReady(
         migration.demandedKeys,
-        migration.pool.uploadedRevisions,
+        migration.uploadedRevisions,
       )
     ) return false;
     for (const key of migration.demandedKeys) {
       const revision = this.records.get(key)?.revision;
       if (
         revision === undefined ||
-        (migration.pool.uploadedRevisions.get(key) ?? 0) < revision
+        (migration.uploadedRevisions.get(key) ?? 0) < revision
       ) return false;
     }
     return true;
@@ -1479,13 +1654,31 @@ export class ImageryVirtualTexture {
   private promoteMigration(): void {
     const migration = this.migration;
     if (!migration) return;
-    const encoding = this.encodeTreeForPool(migration.root, migration.pool);
+    const encoding = this.encodeTreeForPool(
+      migration.root,
+      migration.pool,
+      migration.slots,
+      migration.uploadedRevisions,
+    );
     if (!encoding) return;
     const textures = this.createTreeTextures(encoding);
     const previousPool = this.activePool;
     this.migration = undefined;
+    migration.pool.slots.clear();
+    migration.pool.uploadedRevisions.clear();
+    for (const [key, slot] of migration.slots) {
+      migration.pool.slots.set(key, slot);
+    }
+    for (const [key, revision] of migration.uploadedRevisions) {
+      migration.pool.uploadedRevisions.set(key, revision);
+    }
+    migration.pool.freeSlots.length = 0;
+    const retainedSlots = new Set(migration.slots.values());
+    for (let slot = migration.pool.layers - 1; slot >= 0; slot -= 1) {
+      if (!retainedSlots.has(slot)) migration.pool.freeSlots.push(slot);
+    }
     this.publishTree(migration.root, textures, migration.pool);
-    previousPool.texture.dispose();
+    if (migration.replacesActivePool) previousPool.texture.dispose();
   }
 
   private refreshDesiredTree(): void {
@@ -1532,14 +1725,16 @@ export class ImageryVirtualTexture {
   private encodeTreeForPool(
     root: ImageryTreeNode,
     pool: ImageryPool,
+    slots = pool.slots,
+    uploadedRevisions = pool.uploadedRevisions,
   ): EncodedImageryTree | undefined {
     return encodeImageryTree(
       root,
       pool.generation,
       (image) => {
         const record = this.records.get(image);
-        const layer = pool.slots.get(image);
-        const revision = pool.uploadedRevisions.get(image);
+        const layer = slots.get(image);
+        const revision = uploadedRevisions.get(image);
         if (
           !record ||
           layer === undefined ||

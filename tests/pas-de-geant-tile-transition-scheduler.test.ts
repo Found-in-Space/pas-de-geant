@@ -110,6 +110,61 @@ describe("Deterministic fake tile provider", () => {
 });
 
 describe("Tile transition scheduler", () => {
+  it("does not replan or advance the revision when a target keeps the requested cut", () => {
+    const base = uniformCut(1);
+    const provider = new FakeTileProvider({ latencyMs: 10, jitterMs: 0 });
+    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
+      "first-position",
+      new FixtureLayoutSource({
+        "first-position": base,
+        "nearby-position": [...base].reverse(),
+      }),
+      provider,
+    );
+    const before = scheduler.snapshot;
+    const events: SchedulerEvent[] = [];
+    scheduler.subscribe(eventCollector(events));
+
+    expect(scheduler.updateTarget("nearby-position")).toBe(false);
+
+    expect(scheduler.snapshot.revision).toBe(before.revision);
+    expect(scheduler.snapshot.target).toBe("nearby-position");
+    expect(scheduler.snapshot.requestedCut).toEqual(before.requestedCut);
+    expect(scheduler.snapshot.graph).toBe(before.graph);
+    expect(events).toEqual([]);
+  });
+
+  it("keeps an active transition intact when a target retains its requested cut", () => {
+    const base = uniformCut(1);
+    const desired = refine(base, { z: 1, x: 0, y: 0 });
+    const provider = new FakeTileProvider({ latencyMs: 100, jitterMs: 0 });
+    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
+      "base",
+      new FixtureLayoutSource({
+        base,
+        desired,
+        "nearby-desired": [...desired].reverse(),
+      }),
+      provider,
+    );
+
+    expect(scheduler.updateTarget("desired")).toBe(true);
+    const before = scheduler.snapshot;
+    const requirementIds = before.requirements.map(({ requestId }) => requestId);
+    const events: SchedulerEvent[] = [];
+    scheduler.subscribe(eventCollector(events));
+
+    expect(scheduler.updateTarget("nearby-desired")).toBe(false);
+
+    expect(scheduler.snapshot.revision).toBe(before.revision);
+    expect(scheduler.snapshot.target).toBe("nearby-desired");
+    expect(scheduler.snapshot.graph).toBe(before.graph);
+    expect(scheduler.snapshot.requirements.map(({ requestId }) => requestId)).toEqual(
+      requirementIds,
+    );
+    expect(events).toEqual([]);
+  });
+
   it("hydrates the initial committed fallback without changing its cut", () => {
     const base = uniformCut(1);
     const provider = new FakeTileProvider({ latencyMs: 10, jitterMs: 0 });

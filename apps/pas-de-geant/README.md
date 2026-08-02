@@ -134,10 +134,18 @@ terrain, textures, or both. A delta-z of 3 retains the four payload bands from
 z through z-3 without changing the complete mixed-LOD tile topology. Disabling
 view distance loads the full eligible current tile onion.
 
-Recalculation can also be frozen to inspect the current world selection while
-rendering and already-started tile work continue. Re-enabling it immediately
-applies the latest view. The guide reads the controls before reporting them and
-returns the effective terrain and texture target zooms after each change.
+Terrain and texture recalculation can be frozen independently to inspect one
+current world selection while the other continues following the view. For
+example, ask “freeze terrain recalculation” or “resume texture recalculation.”
+Rendering and already-started tile work continue while frozen; re-enabling a
+pipeline immediately applies the latest view. The guide reads the controls
+before reporting them and returns the effective terrain and texture target
+zooms after each change.
+
+Ask “what is the tile planner waiting for?” or “are texture tiles still
+loading?” to read planner and scheduler state. The report separates topology
+requirements, tile-payload bridge requests, and provider source fetch jobs;
+source fetches may be fewer because several tile requests can share one source.
 
 ## Other layers
 

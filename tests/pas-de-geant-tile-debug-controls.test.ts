@@ -14,6 +14,7 @@ import {
   withTileDeltaZoomCap,
   withTileMaxZoom,
   withTilePixelRatio,
+  withTileRecalculation,
   withTileViewDistance,
 } from "../apps/pas-de-geant/src/tile-debug-controls.js";
 
@@ -27,6 +28,7 @@ describe("tile debug controls", () => {
         max_zoom: null,
         view_distance_enabled: true,
         delta_zoom_cap: null,
+        recalculation_enabled: true,
         effective_target_zoom: 12,
       },
       textures: {
@@ -34,11 +36,41 @@ describe("tile debug controls", () => {
         max_zoom: null,
         view_distance_enabled: true,
         delta_zoom_cap: null,
+        recalculation_enabled: true,
         effective_target_zoom: 15,
       },
       view_overhead_percent: 25,
-      recalculation_enabled: true,
     });
+  });
+
+  it("freezes and re-enables terrain and textures independently", () => {
+    let controls = createTileDebugControls();
+    controls = withTileRecalculation(
+      controls,
+      parseTileRecalculationArguments({
+        target: "terrain",
+        enabled: false,
+      }),
+    );
+    expect(controls.terrain.recalculationEnabled).toBe(false);
+    expect(controls.textures.recalculationEnabled).toBe(true);
+
+    controls = withTileRecalculation(
+      controls,
+      parseTileRecalculationArguments({
+        target: "textures",
+        enabled: false,
+      }),
+    );
+    controls = withTileRecalculation(
+      controls,
+      parseTileRecalculationArguments({
+        target: "terrain",
+        enabled: true,
+      }),
+    );
+    expect(controls.terrain.recalculationEnabled).toBe(true);
+    expect(controls.textures.recalculationEnabled).toBe(false);
   });
 
   it("updates only the explicitly selected pipelines and can clear caps", () => {
@@ -130,7 +162,10 @@ describe("tile debug controls", () => {
     expect(() => parseTileViewOverheadArguments({
       overhead_percent: -0.1,
     })).toThrow("nonnegative");
-    expect(() => parseTileRecalculationArguments({ enabled: "false" }))
+    expect(() => parseTileRecalculationArguments({
+      target: "textures",
+      enabled: "false",
+    }))
       .toThrow("boolean");
   });
 

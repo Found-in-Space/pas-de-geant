@@ -13,13 +13,13 @@ export interface TilePipelineDebugControls {
   readonly maxZoom: number | null;
   readonly viewDistanceEnabled: boolean;
   readonly deltaZoomCap: number | null;
+  readonly recalculationEnabled: boolean;
 }
 
 export interface TileDebugControls {
   readonly terrain: TilePipelineDebugControls;
   readonly textures: TilePipelineDebugControls;
   readonly overheadPercent: number;
-  readonly recalculationEnabled: boolean;
 }
 
 export interface TileDebugControlsReadback {
@@ -28,6 +28,7 @@ export interface TileDebugControlsReadback {
     readonly max_zoom: number | null;
     readonly view_distance_enabled: boolean;
     readonly delta_zoom_cap: number | null;
+    readonly recalculation_enabled: boolean;
     readonly effective_target_zoom: number;
   };
   readonly textures: {
@@ -35,10 +36,10 @@ export interface TileDebugControlsReadback {
     readonly max_zoom: number | null;
     readonly view_distance_enabled: boolean;
     readonly delta_zoom_cap: number | null;
+    readonly recalculation_enabled: boolean;
     readonly effective_target_zoom: number;
   };
   readonly view_overhead_percent: number;
-  readonly recalculation_enabled: boolean;
 }
 
 const DEFAULT_TERRAIN_CONTROLS: TilePipelineDebugControls = Object.freeze({
@@ -46,6 +47,7 @@ const DEFAULT_TERRAIN_CONTROLS: TilePipelineDebugControls = Object.freeze({
   maxZoom: null,
   viewDistanceEnabled: true,
   deltaZoomCap: null,
+  recalculationEnabled: true,
 });
 
 const DEFAULT_TEXTURE_CONTROLS: TilePipelineDebugControls = Object.freeze({
@@ -53,13 +55,13 @@ const DEFAULT_TEXTURE_CONTROLS: TilePipelineDebugControls = Object.freeze({
   maxZoom: null,
   viewDistanceEnabled: true,
   deltaZoomCap: null,
+  recalculationEnabled: true,
 });
 
 export const DEFAULT_TILE_DEBUG_CONTROLS: TileDebugControls = Object.freeze({
   terrain: DEFAULT_TERRAIN_CONTROLS,
   textures: DEFAULT_TEXTURE_CONTROLS,
   overheadPercent: 25,
-  recalculationEnabled: true,
 });
 
 export function createTileDebugControls(): TileDebugControls {
@@ -67,7 +69,6 @@ export function createTileDebugControls(): TileDebugControls {
     terrain: { ...DEFAULT_TERRAIN_CONTROLS },
     textures: { ...DEFAULT_TEXTURE_CONTROLS },
     overheadPercent: DEFAULT_TILE_DEBUG_CONTROLS.overheadPercent,
-    recalculationEnabled: DEFAULT_TILE_DEBUG_CONTROLS.recalculationEnabled,
   };
 }
 
@@ -192,8 +193,14 @@ export function parseTileViewOverheadArguments(value: unknown): number {
   return overhead;
 }
 
-export function parseTileRecalculationArguments(value: unknown): boolean {
-  return boolean(record(value).enabled, "enabled");
+export function parseTileRecalculationArguments(
+  value: unknown,
+): TileViewDistanceArguments {
+  const argumentsValue = record(value);
+  return {
+    target: target(argumentsValue.target),
+    enabled: boolean(argumentsValue.enabled, "enabled"),
+  };
 }
 
 function updateTargets(
@@ -254,6 +261,16 @@ export function withTileDeltaZoomCap(
   }));
 }
 
+export function withTileRecalculation(
+  controls: TileDebugControls,
+  argumentsValue: TileViewDistanceArguments,
+): TileDebugControls {
+  return updateTargets(controls, argumentsValue.target, (pipeline) => ({
+    ...pipeline,
+    recalculationEnabled: argumentsValue.enabled,
+  }));
+}
+
 export function eligiblePayloadTiles(
   tiles: readonly TileIdentity[],
   finestTargetZoom: number,
@@ -297,12 +314,12 @@ export function tileDebugControlsReadback(
     max_zoom: value.maxZoom,
     view_distance_enabled: value.viewDistanceEnabled,
     delta_zoom_cap: value.deltaZoomCap,
+    recalculation_enabled: value.recalculationEnabled,
     effective_target_zoom: effectiveTargetZoom,
   });
   return {
     terrain: pipeline(controls.terrain, effectiveTerrainTargetZoom),
     textures: pipeline(controls.textures, effectiveTextureTargetZoom),
     view_overhead_percent: controls.overheadPercent,
-    recalculation_enabled: controls.recalculationEnabled,
   };
 }

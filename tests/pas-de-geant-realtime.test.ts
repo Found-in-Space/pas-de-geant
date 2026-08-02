@@ -222,7 +222,14 @@ describe("Pas de Géant Realtime voice agent", () => {
         model: string;
         instructions: string;
         audio: { input: { turn_detection: { type: string } } };
-        tools: Array<{ name: string; description: string }>;
+        tools: Array<{
+          name: string;
+          description: string;
+          parameters: {
+            required?: string[];
+            properties?: { target?: { enum?: string[] } };
+          };
+        }>;
       };
     };
     expect(configuration.session.model).toBe("gpt-realtime-2.1");
@@ -233,6 +240,7 @@ describe("Pas de Géant Realtime voice agent", () => {
       "get_user_location",
       "set_user_location",
       "get_tile_debug_controls",
+      "get_tile_planner_state",
       "set_tile_pixel_ratio",
       "set_tile_max_zoom",
       "set_tile_view_distance",
@@ -246,12 +254,36 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.instructions).toContain(
       "leave all unrelated controls unchanged",
     );
+    expect(configuration.session.instructions).toContain(
+      "call get_tile_planner_state",
+    );
+    expect(configuration.session.instructions).toContain(
+      "must not be conflated",
+    );
+    expect(configuration.session.instructions).toContain(
+      "report planner failures",
+    );
+    expect(configuration.session.tools.find(
+      ({ name }) => name === "get_tile_planner_state",
+    )?.description).toContain("source jobs are distinct layers");
     expect(configuration.session.tools.find(
       ({ name }) => name === "set_tile_view_distance",
     )?.description).toContain("loads the full current tile onion");
     expect(configuration.session.tools.find(
       ({ name }) => name === "set_tile_delta_zoom_cap",
     )?.description).toContain("N+1 bands");
+    const recalculationTool = configuration.session.tools.find(
+      ({ name }) => name === "set_tile_recalculation",
+    );
+    expect(recalculationTool?.parameters.required).toEqual([
+      "target",
+      "enabled",
+    ]);
+    expect(recalculationTool?.parameters.properties?.target?.enum).toEqual([
+      "terrain",
+      "textures",
+      "both",
+    ]);
   });
 
   it("keeps the standard API key in the server-side client-secret request", async () => {

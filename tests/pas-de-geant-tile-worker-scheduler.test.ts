@@ -9,6 +9,14 @@ import {
 } from "../apps/pas-de-geant/src/tile-worker-scheduler.js";
 import type { TileProvider } from "../apps/pas-de-geant/src/tile-provider.js";
 
+function layoutTarget(
+  maxZoom: number,
+  latitudeDegrees = 0,
+  longitudeDegrees = 0,
+) {
+  return { maxZoom, latitudeDegrees, longitudeDegrees };
+}
+
 class FakeWorker implements TileSchedulerWorker {
   readonly commands: TileSchedulerCommand[] = [];
   onmessage: ((event: MessageEvent<TileSchedulerMessage>) => void) | null =
@@ -30,7 +38,7 @@ class FakeWorker implements TileSchedulerWorker {
 function snapshot(revision: number, committedCut = [{ z: 0, x: 0, y: 0 }]) {
   return {
     revision,
-    target: { z: 0, x: 0, y: 0 },
+    target: layoutTarget(0),
     committedCut,
     requestedCut: committedCut,
     graph: { retained: committedCut, groups: [], batches: [] },
@@ -39,6 +47,63 @@ function snapshot(revision: number, committedCut = [{ z: 0, x: 0, y: 0 }]) {
 }
 
 describe("Tile worker scheduler bridge", () => {
+  it("tracks requested and in-flight phases for transition and residency requests", () => {
+    const worker = new FakeWorker();
+    const observers = new Map<string, Parameters<TileProvider<unknown>["request"]>[1]>();
+    const provider: TileProvider<unknown> = {
+      request: (tile, observer) => {
+        observers.set(`${tile.z}/${tile.x}/${tile.y}`, observer);
+        return { requestId: observers.size, cancel() {} };
+      },
+    };
+    const scheduler = new TileWorkerScheduler(
+      layoutTarget(0),
+      { provider, createWorker: () => worker },
+    );
+
+    worker.emit({
+      kind: "resource-request",
+      tile: { z: 1, x: 0, y: 0 },
+      key: "1/0/0",
+      requestId: 7,
+    });
+    expect(scheduler.debugState.transition_owned).toEqual({
+      requested: 1,
+      in_flight: 0,
+      total_outstanding: 1,
+    });
+    observers.get("1/0/0")!({ phase: "in-flight" });
+    expect(scheduler.debugState.transition_owned).toEqual({
+      requested: 0,
+      in_flight: 1,
+      total_outstanding: 1,
+    });
+
+    const committed = { z: 0, x: 0, y: 0 };
+    worker.emit({ kind: "snapshot", snapshot: snapshot(1, [committed]) });
+    scheduler.updateResourceDemand([committed]);
+    expect(scheduler.debugState.residency_hydration).toEqual({
+      requested: 1,
+      in_flight: 0,
+      total_outstanding: 1,
+    });
+    observers.get("0/0/0")!({ phase: "in-flight" });
+    expect(scheduler.debugState).toMatchObject({
+      residency_hydration: {
+        requested: 0,
+        in_flight: 1,
+        total_outstanding: 1,
+      },
+      total: {
+        requested: 0,
+        in_flight: 1,
+        total_outstanding: 1,
+      },
+      demanded_payload_count: 1,
+    });
+    scheduler.dispose();
+  });
+
   it("starts hot hydration before the rest of the warm committed cut", () => {
     const worker = new FakeWorker();
     const requested: string[] = [];
@@ -53,7 +118,7 @@ describe("Tile worker scheduler bridge", () => {
       { z: 2, x: 1, y: 0 },
       { z: 2, x: 2, y: 0 },
     ];
-    const scheduler = new TileWorkerScheduler(warm[0]!, {
+    const scheduler = new TileWorkerScheduler(layoutTarget(2), {
       provider,
       createWorker: () => worker,
       hydrateInitialResources: false,
@@ -78,7 +143,7 @@ describe("Tile worker scheduler bridge", () => {
     const demanded = { z: 1, x: 0, y: 0 };
     const fallback = { z: 1, x: 1, y: 0 };
     const scheduler = new TileWorkerScheduler(
-      demanded,
+      layoutTarget(1),
       {
         provider,
         createWorker: () => worker,
@@ -110,7 +175,7 @@ describe("Tile worker scheduler bridge", () => {
       },
     };
     const scheduler = new TileWorkerScheduler(
-      { z: 0, x: 0, y: 0 },
+      layoutTarget(0),
       { provider, createWorker: () => worker },
     );
     const tile = { z: 0, x: 0, y: 0 };
@@ -141,39 +206,39 @@ describe("Tile worker scheduler bridge", () => {
       request: () => ({ requestId: 1, cancel() {} }),
     };
     const terrain = new TileWorkerScheduler(
-      { z: 8, x: 120, y: 80 },
+      layoutTarget(8, 46, 9),
       { provider, createWorker: () => terrainWorker },
     );
     const imagery = new TileWorkerScheduler(
-      { z: 11, x: 1_024, y: 700 },
+      layoutTarget(11, 46, 9),
       { provider, createWorker: () => imageryWorker },
     );
 
-    terrain.updateTarget({ z: 9, x: 241, y: 160 });
-    imagery.updateTarget({ z: 13, x: 4_100, y: 2_800 });
+    terrain.updateTarget(layoutTarget(9, 47, 10));
+    imagery.updateTarget(layoutTarget(13, 48, 11));
     await Promise.resolve();
     terrainWorker.emit({
       kind: "snapshot",
       snapshot: {
         ...snapshot(1, [{ z: 9, x: 241, y: 160 }]),
-        target: { z: 9, x: 241, y: 160 },
+        target: layoutTarget(9, 47, 10),
       },
     });
     imageryWorker.emit({
       kind: "snapshot",
       snapshot: {
         ...snapshot(1, [{ z: 13, x: 4_100, y: 2_800 }]),
-        target: { z: 13, x: 4_100, y: 2_800 },
+        target: layoutTarget(13, 48, 11),
       },
     });
 
     expect(terrainWorker.commands.at(-1)).toEqual({
       kind: "target",
-      target: { z: 9, x: 241, y: 160 },
+      target: layoutTarget(9, 47, 10),
     });
     expect(imageryWorker.commands.at(-1)).toEqual({
       kind: "target",
-      target: { z: 13, x: 4_100, y: 2_800 },
+      target: layoutTarget(13, 48, 11),
     });
     expect(terrain.snapshot.committedCut[0]?.z).toBe(9);
     expect(imagery.snapshot.committedCut[0]?.z).toBe(13);
@@ -187,33 +252,84 @@ describe("Tile worker scheduler bridge", () => {
       request: () => ({ requestId: 1, cancel() {} }),
     };
     const scheduler = new TileWorkerScheduler(
-      { z: 2, x: 0, y: 0 },
+      layoutTarget(2),
       {
         provider,
         createWorker: () => worker,
       },
     );
 
-    scheduler.updateTarget({ z: 2, x: 1, y: 0 });
-    scheduler.updateTarget({ z: 2, x: 2, y: 0 });
-    scheduler.updateTarget({ z: 2, x: 3, y: 0 });
+    scheduler.updateTarget(layoutTarget(2, 1, 0));
+    scheduler.updateTarget(layoutTarget(2, 2, 0));
+    scheduler.updateTarget(layoutTarget(2, 3, 0));
+    expect(scheduler.debugState.target_submission).toEqual({
+      pending: true,
+      in_flight: false,
+    });
     await Promise.resolve();
 
+    expect(scheduler.debugState.target_submission).toEqual({
+      pending: false,
+      in_flight: true,
+    });
+
     expect(worker.commands.filter(({ kind }) => kind === "target")).toEqual([
-      { kind: "target", target: { z: 2, x: 3, y: 0 } },
+      { kind: "target", target: layoutTarget(2, 3, 0) },
     ]);
-    scheduler.updateTarget({ z: 2, x: 0, y: 1 });
-    scheduler.updateTarget({ z: 2, x: 1, y: 1 });
+    scheduler.updateTarget(layoutTarget(2, 0, 1));
+    scheduler.updateTarget(layoutTarget(2, 1, 1));
+    expect(scheduler.debugState.target_submission).toEqual({
+      pending: true,
+      in_flight: true,
+    });
     await Promise.resolve();
     expect(
       worker.commands.filter(({ kind }) => kind === "target"),
     ).toHaveLength(1);
-    worker.emit({ kind: "target-applied" });
+    worker.emit({ kind: "target-applied", target: layoutTarget(2, 3, 0) });
     await Promise.resolve();
+    expect(scheduler.debugState.target_submission).toEqual({
+      pending: false,
+      in_flight: true,
+    });
     expect(worker.commands.filter(({ kind }) => kind === "target")).toEqual([
-      { kind: "target", target: { z: 2, x: 3, y: 0 } },
-      { kind: "target", target: { z: 2, x: 1, y: 1 } },
+      { kind: "target", target: layoutTarget(2, 3, 0) },
+      { kind: "target", target: layoutTarget(2, 1, 1) },
     ]);
+    worker.emit({ kind: "target-applied", target: layoutTarget(2, 1, 1) });
+    expect(scheduler.debugState.target_submission).toEqual({
+      pending: false,
+      in_flight: false,
+    });
+  });
+
+  it("records a no-op target acknowledgement without publishing a topology snapshot", async () => {
+    const worker = new FakeWorker();
+    const provider: TileProvider<unknown> = {
+      request: () => ({ requestId: 1, cancel() {} }),
+    };
+    const scheduler = new TileWorkerScheduler(
+      layoutTarget(2),
+      { provider, createWorker: () => worker },
+    );
+    let notifications = 0;
+    scheduler.subscribe(() => {
+      notifications += 1;
+    });
+
+    scheduler.updateTarget(layoutTarget(2, 1, 0));
+    await Promise.resolve();
+    worker.emit({
+      kind: "target-applied",
+      target: layoutTarget(2, 1, 0),
+    });
+
+    expect(scheduler.snapshot).toMatchObject({
+      revision: -1,
+      target: layoutTarget(2, 1, 0),
+    });
+    expect(notifications).toBe(1);
+    scheduler.dispose();
   });
 
   it("keeps resources on the main thread and ignores stale worker topology", () => {
@@ -226,7 +342,7 @@ describe("Tile worker scheduler bridge", () => {
       },
     };
     const scheduler = new TileWorkerScheduler(
-      { z: 0, x: 0, y: 0 },
+      layoutTarget(0),
       {
         provider,
         createWorker: () => worker,
@@ -289,7 +405,7 @@ describe("Tile worker scheduler bridge", () => {
       },
     };
     const scheduler = new TileWorkerScheduler(
-      { z: 0, x: 0, y: 0 },
+      layoutTarget(0),
       { provider, createWorker: () => worker },
     );
     worker.emit({
@@ -310,6 +426,33 @@ describe("Tile worker scheduler bridge", () => {
     });
   });
 
+  it("captures a synchronous provider in-flight phase on the provisional bridge request", () => {
+    const worker = new FakeWorker();
+    const provider: TileProvider<unknown> = {
+      request: (_tile, observer) => {
+        observer({ phase: "in-flight" });
+        return { requestId: 12, cancel() {} };
+      },
+    };
+    const scheduler = new TileWorkerScheduler(
+      layoutTarget(0),
+      { provider, createWorker: () => worker },
+    );
+    worker.emit({
+      kind: "resource-request",
+      tile: { z: 0, x: 0, y: 0 },
+      key: "0/0/0",
+      requestId: 4,
+    });
+
+    expect(scheduler.debugState.transition_owned).toEqual({
+      requested: 0,
+      in_flight: 1,
+      total_outstanding: 1,
+    });
+    scheduler.dispose();
+  });
+
   it("retries transient failures without assigning resource semantics to the bridge", () => {
     vi.useFakeTimers();
     try {
@@ -318,7 +461,7 @@ describe("Tile worker scheduler bridge", () => {
         request: () => ({ requestId: 1, cancel() {} }),
       };
       const scheduler = new TileWorkerScheduler(
-        { z: 0, x: 0, y: 0 },
+        layoutTarget(0),
         { provider, createWorker: () => worker, retryDelayMs: 250 },
       );
       worker.emit({

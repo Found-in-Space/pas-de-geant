@@ -13,20 +13,22 @@ import {
 } from "./imagery.js";
 import { observerTileZoom } from "./observer-tile-zoom.js";
 import {
-  normalizeTileTarget,
-  type TileTarget,
+  normalizeTileLayoutTarget,
+  tileLayoutTargetNeedsSubmission,
+  type TileLayoutTarget,
 } from "./tile-layout-source.js";
 import {
   ElevationTileProvider,
   type ElevationTileResource,
 } from "./elevation-tile-provider.js";
-import { mercatorPoint, tileBounds } from "./tile-onion-core.js";
+import { tileBounds } from "./tile-onion-core.js";
 import {
   tileIdentityKey,
   type TileIdentity,
 } from "./tile-transition-planner.js";
 import type { SchedulerSnapshot } from "./tile-transition-scheduler.js";
 import { TileWorkerScheduler } from "./tile-worker-scheduler.js";
+import { summarizeTilePlannerSnapshot } from "./tile-planner-state.js";
 import {
   createTileDebugControls,
   DEFAULT_TERRAIN_SCREEN_PIXELS_PER_SOURCE_PIXEL,
@@ -36,6 +38,7 @@ import {
   withTileDeltaZoomCap,
   withTileMaxZoom,
   withTilePixelRatio,
+  withTileRecalculation,
   withTileViewDistance,
   type TileDebugControls,
   type TileDebugControlsReadback,
@@ -164,7 +167,7 @@ export function terrainTargetForView(
     readonly targetScreenPixelsPerSourcePixel?: number;
     readonly maxTopologyZoom?: number | null;
   } = {},
-): TileTarget {
+): TileLayoutTarget {
   const selectedZoom = observerTileZoom({
     observerHeightMeters: flatSurfaceObserverHeightMetres(
       view.observerHeightWorldM,
@@ -181,15 +184,10 @@ export function terrainTargetForView(
       options.maxTopologyZoom === null
     ? selectedZoom
     : Math.min(selectedZoom, Math.max(0, Math.floor(options.maxTopologyZoom)));
-  const point = mercatorPoint(
-    view.latitudeDegrees,
-    view.longitudeDegrees,
-    zoom,
-  );
-  return normalizeTileTarget({
-    z: zoom,
-    x: Math.floor(point.x),
-    y: Math.floor(point.y),
+  return normalizeTileLayoutTarget({
+    maxZoom: zoom,
+    latitudeDegrees: view.latitudeDegrees,
+    longitudeDegrees: view.longitudeDegrees,
   });
 }
 
@@ -508,8 +506,8 @@ export class TerrainSurface {
   private readonly emptyTexture: THREE.DataTexture;
   private readonly sharedUniforms: Record<string, THREE.IUniform>;
   private readonly unsubscribe: () => void;
-  private snapshot: SchedulerSnapshot<TileTarget>;
-  private currentTarget: TileTarget;
+  private snapshot: SchedulerSnapshot<TileLayoutTarget>;
+  private currentTarget: TileLayoutTarget;
   private hotKeys = new Set<string>();
   private warmKeys = new Set<string>();
   private residencyInput: ViewResidencyInput;
@@ -615,20 +613,21 @@ export class TerrainSurface {
       view.radialMultiplier / (EARTH_MEAN_RADIUS_KM * 1_000);
     this.sharedUniforms.normalizedSkirtDepth!.value =
       SKIRT_DEPTH_WORLD_METRES / view.displayRadiusM;
-    if (!this.debugControls.recalculationEnabled) {
+    if (this.debugControls.textures.recalculationEnabled) {
+      this.imagery.update({
+        displayRadiusM: view.displayRadiusM,
+        latitudeDegrees: view.latitudeDegrees,
+        longitudeDegrees: view.longitudeDegrees,
+      }, {
+        underfoot: view,
+        footprint: view.footprint,
+        displayRadiusM: view.displayRadiusM,
+        observerHeightWorldM: view.observerHeightWorldM,
+      });
+    } else {
       this.imagery.processPendingUploads();
-      return;
     }
-    this.imagery.update({
-      displayRadiusM: view.displayRadiusM,
-      latitudeDegrees: view.latitudeDegrees,
-      longitudeDegrees: view.longitudeDegrees,
-    }, {
-      underfoot: view,
-      footprint: view.footprint,
-      displayRadiusM: view.displayRadiusM,
-      observerHeightWorldM: view.observerHeightWorldM,
-    });
+    if (!this.debugControls.terrain.recalculationEnabled) return;
     this.residencyInput = {
       underfoot: view,
       footprint: view.footprint,
@@ -641,11 +640,7 @@ export class TerrainSurface {
         this.debugControls.terrain.screenPixelsPerSourcePixel,
       maxTopologyZoom: this.debugControls.terrain.maxZoom,
     });
-    if (
-      target.z !== this.currentTarget.z ||
-      target.x !== this.currentTarget.x ||
-      target.y !== this.currentTarget.y
-    ) {
+    if (tileLayoutTargetNeedsSubmission(this.currentTarget, target)) {
       this.currentTarget = target;
       this.scheduler.updateTarget(target);
     }
@@ -694,9 +689,38 @@ export class TerrainSurface {
   getTileDebugControls(): TileDebugControlsReadback {
     return tileDebugControlsReadback(
       this.debugControls,
-      this.currentTarget.z,
+      this.currentTarget.maxZoom,
       this.imagery.getTargetZoom(),
     );
+  }
+
+  getTilePlannerState() {
+    const payloadRequests = this.scheduler.debugState;
+    const provider = this.provider.metrics;
+    return {
+      terrain: {
+        recalculation_enabled:
+          this.debugControls.terrain.recalculationEnabled,
+        effective_target: { ...this.currentTarget },
+        ...summarizeTilePlannerSnapshot(this.snapshot),
+        payload_tile_requests: payloadRequests,
+        source_jobs: {
+          queued: provider.queued,
+          in_flight: provider.inFlight,
+        },
+        residency: {
+          hot_tile_count: this.hotKeys.size,
+          classified_warm_tile_count: this.warmKeys.size,
+          demanded_payload_tile_count:
+            payloadRequests.demanded_payload_count,
+          committed_topology_tile_count: this.snapshot.committedCut.length,
+          view_distance_enabled:
+            this.debugControls.terrain.viewDistanceEnabled,
+          delta_zoom_cap: this.debugControls.terrain.deltaZoomCap,
+        },
+      },
+      textures: this.imagery.getPlannerState(),
+    };
   }
 
   setTilePixelRatio(
@@ -735,11 +759,12 @@ export class TerrainSurface {
     );
   }
 
-  setTileRecalculation(enabled: boolean): TileDebugControlsReadback {
-    return this.setDebugControls({
-      ...this.debugControls,
-      recalculationEnabled: enabled,
-    });
+  setTileRecalculation(
+    argumentsValue: TileViewDistanceArguments,
+  ): TileDebugControlsReadback {
+    return this.setDebugControls(
+      withTileRecalculation(this.debugControls, argumentsValue),
+    );
   }
 
   retryFailed(): void {
@@ -804,11 +829,11 @@ export class TerrainSurface {
       this.snapshot.committedCut.length === 0
     ) return;
     const hotSignature = hotResidencySignature(
-      this.currentTarget.z,
+      this.currentTarget.maxZoom,
       this.residencyInput,
     );
     const warmSignature = warmResidencySignature(
-      this.currentTarget.z,
+      this.currentTarget.maxZoom,
       this.residencyInput,
       this.debugControls.overheadPercent,
     );
@@ -842,7 +867,7 @@ export class TerrainSurface {
     if (warmNeedsClassification) {
       const eligible = eligiblePayloadTiles(
         workingTiles,
-        this.currentTarget.z,
+        this.currentTarget.maxZoom,
         this.debugControls.terrain.deltaZoomCap,
       );
       const warm = this.debugControls.terrain.viewDistanceEnabled
@@ -858,7 +883,7 @@ export class TerrainSurface {
     }
     const eligible = eligiblePayloadTiles(
       workingTiles,
-      this.currentTarget.z,
+      this.currentTarget.maxZoom,
       this.debugControls.terrain.deltaZoomCap,
     );
     const hot = eligible.filter((tile) =>
@@ -870,7 +895,7 @@ export class TerrainSurface {
     }
     const demanded = demandedPayloadTiles(
       workingTiles,
-      this.currentTarget.z,
+      this.currentTarget.maxZoom,
       this.debugControls.terrain.deltaZoomCap,
       this.debugControls.terrain.viewDistanceEnabled,
       this.warmKeys,
@@ -889,8 +914,8 @@ export class TerrainSurface {
       controls.textures,
       controls.overheadPercent,
     );
-    if (controls.recalculationEnabled) this.update(this.latestView);
-    else this.applyResidency();
+    this.update(this.latestView);
+    if (!controls.terrain.recalculationEnabled) this.applyResidency();
     return this.getTileDebugControls();
   }
 

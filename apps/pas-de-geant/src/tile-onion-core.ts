@@ -5,7 +5,7 @@ export const WGS84_B_KM = 6_356.752314245;
 
 export const TILE_ONION_FINE_SIZE = 8;
 export const TILE_ONION_ANCHOR_STRIDE = 4;
-const TILE_ONION_FINE_MARGIN = 2;
+export const TILE_ONION_FINE_MARGIN = 2;
 
 export interface TileAddress {
   z: number;

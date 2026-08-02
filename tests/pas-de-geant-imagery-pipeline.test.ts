@@ -8,6 +8,9 @@ import {
   ScheduledImageryProvider,
   imageryLayerUploadPlan,
   imageryMigrationReady,
+  imageryPoolGrowthCapacity,
+  imageryTargetForView,
+  planImageryPoolMigration,
   type ImageryWorkerPort,
 } from "../apps/pas-de-geant/src/imagery.js";
 import {
@@ -188,6 +191,55 @@ describe("independent photographic imagery pipeline", () => {
     expect(imageryMigrationReady(demand, uploads)).toBe(true);
   });
 
+  it("reuses retained layers and stages only incoming or changed pages", () => {
+    const plan = planImageryPoolMigration(
+      new Map([
+        ["retained", 5],
+        ["changed", 6],
+        ["outgoing", 7],
+      ]),
+      new Map([
+        ["retained", 3],
+        ["changed", 2],
+        ["outgoing", 4],
+      ]),
+      ["retained", "changed", "incoming"],
+      new Map([
+        ["retained", 3],
+        ["changed", 4],
+        ["incoming", 1],
+      ]),
+    );
+
+    // The existing valid page keeps its slot and upload revision, so it is
+    // absent from the upload work. Changed and incoming pages need fresh
+    // slots, keeping the currently visible mapping valid until publication.
+    expect(plan.slots).toEqual(new Map([["retained", 5]]));
+    expect(plan.uploadedRevisions).toEqual(new Map([["retained", 3]]));
+    expect(plan.requiredAdditionalSlots).toBe(2);
+    expect(imageryMigrationReady(
+      ["retained", "changed", "incoming"],
+      plan.uploadedRevisions,
+    )).toBe(false);
+    plan.uploadedRevisions.set("changed", 4);
+    plan.uploadedRevisions.set("incoming", 1);
+    expect(imageryMigrationReady(
+      ["retained", "changed", "incoming"],
+      plan.uploadedRevisions,
+    )).toBe(true);
+  });
+
+  it("grows pool capacity only by unstaged demand and never shrinks", () => {
+    // The active capacity remains the growth floor, with only the unstaged
+    // demand added as slack in the separately prepared replacement pool.
+    expect(imageryPoolGrowthCapacity(1, 5, 5)).toBe(6);
+
+    // A later overlapping transition adds room for only its two incoming or
+    // changed pages; a smaller fully retained cut keeps existing capacity.
+    expect(imageryPoolGrowthCapacity(6, 5, 2)).toBe(8);
+    expect(imageryPoolGrowthCapacity(8, 3, 0)).toBe(8);
+  });
+
   it("traverses a mixed global cut by normalized Mercator UV, including the antimeridian", () => {
     const cut: TileIdentity[] = [
       { z: 1, x: 1, y: 0 },
@@ -246,7 +298,40 @@ describe("independent photographic imagery pipeline", () => {
       tilePixels: 512,
     });
 
-    expect(imageryZoom).toBeGreaterThan(terrain.z);
+    expect(imageryZoom).toBeGreaterThan(terrain.maxZoom);
+    expect(imageryTargetForView(view, imageryZoom)).toEqual({
+      maxZoom: imageryZoom,
+      latitudeDegrees: view.latitudeDegrees,
+      longitudeDegrees: view.longitudeDegrees,
+    });
+    expect(terrain).toMatchObject({
+      latitudeDegrees: view.latitudeDegrees,
+      longitudeDegrees: view.longitudeDegrees,
+    });
+  });
+
+  it("keeps actual polar coordinates while terrain and imagery select independent zooms", () => {
+    const view = {
+      latitudeDegrees: 89,
+      longitudeDegrees: -138,
+      displayRadiusM: 1_000,
+      radialMultiplier: 1,
+      observerHeightWorldM: 1.65,
+      focalLengthPixels: 250,
+      footprint: [],
+    };
+    const terrain = terrainTargetForView(view, 512);
+    const imagery = imageryTargetForView(view, terrain.maxZoom + 3);
+
+    expect(terrain).toMatchObject({
+      latitudeDegrees: 89,
+      longitudeDegrees: -138,
+    });
+    expect(imagery).toEqual({
+      maxZoom: terrain.maxZoom + 3,
+      latitudeDegrees: 89,
+      longitudeDegrees: -138,
+    });
   });
 
   it("selects imagery z from native provider texel density", () => {
@@ -346,11 +431,11 @@ describe("independent photographic imagery pipeline", () => {
       targetScreenPixelsPerSourcePixel: 2,
     });
 
-    expect(coarse.z).toBe(dense.z - 1);
+    expect(coarse.maxZoom).toBe(dense.maxZoom - 1);
     expect(terrainTargetForView(view, 512, {
       targetScreenPixelsPerSourcePixel: 1,
       maxTopologyZoom: 6,
-    }).z).toBe(6);
+    }).maxZoom).toBe(6);
   });
 
   it("keeps tree depth independent from a provider-capped source zoom", () => {
@@ -725,6 +810,58 @@ describe("independent photographic imagery pipeline", () => {
       });
     });
     expect(loads).toBe(2);
+    scheduled.dispose();
+  });
+
+  it("marks a consumer joining an active shared source fetch as in-flight", async () => {
+    let loads = 0;
+    let resolveLoad!: (blob: Blob) => void;
+    const provider: ImageryProvider = {
+      id: "active-join-fixture",
+      attribution: "fixture",
+      tileSize: 512,
+      minZoom: 0,
+      maxZoom: 2,
+      load: async () => {
+        loads += 1;
+        return await new Promise<Blob>((resolve) => {
+          resolveLoad = resolve;
+        });
+      },
+    };
+    const scheduled = new ScheduledImageryProvider(
+      provider,
+      async () => new Uint8Array([1, 2, 3, 4]),
+    );
+    const firstPhases: string[] = [];
+    const secondPhases: string[] = [];
+    const firstComplete = new Promise<void>((resolve) => {
+      scheduled.request({ z: 4, x: 0, y: 0 }, (result) => {
+        firstPhases.push(result.phase);
+        if (result.phase === "response") resolve();
+      });
+    });
+    const secondComplete = new Promise<void>((resolve) => {
+      scheduled.request({ z: 4, x: 1, y: 0 }, (result) => {
+        secondPhases.push(result.phase);
+        if (result.phase === "response") resolve();
+      });
+    });
+
+    expect(loads).toBe(1);
+    expect(firstPhases).toEqual(["in-flight"]);
+    expect(secondPhases).toEqual([]);
+    await Promise.resolve();
+    expect(secondPhases).toEqual(["in-flight"]);
+
+    resolveLoad(new Blob(["shared"], { type: "image/png" }));
+    await Promise.all([firstComplete, secondComplete]);
+    expect(firstPhases).toEqual(["in-flight", "response"]);
+    expect(secondPhases).toEqual(["in-flight", "response"]);
+    expect(scheduled.metrics).toMatchObject({
+      requestTotal: 2,
+      sourceLoadTotal: 1,
+    });
     scheduled.dispose();
   });
 

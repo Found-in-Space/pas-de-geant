@@ -647,6 +647,9 @@ const voiceAgent = new RealtimeVoiceAgent({
     get_tile_debug_controls() {
       return terrain.getTileDebugControls();
     },
+    get_tile_planner_state() {
+      return terrain.getTilePlannerState();
+    },
     set_tile_pixel_ratio(argumentsValue) {
       return terrain.setTilePixelRatio(
         parseTilePixelRatioArguments(argumentsValue),

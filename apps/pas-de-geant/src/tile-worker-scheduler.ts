@@ -1,4 +1,7 @@
-import type { TileTarget } from "./tile-layout-source.js";
+import {
+  normalizeTileLayoutTarget,
+  type TileLayoutTarget,
+} from "./tile-layout-source.js";
 import {
   tileIdentityKey,
   type TileIdentity,
@@ -33,7 +36,35 @@ export interface TileWorkerSchedulerOptions<Resource> {
   readonly initialResourceDemand?: Iterable<TileIdentity>;
 }
 
-function initialSnapshot(target: TileTarget): SchedulerSnapshot<TileTarget> {
+export interface TileWorkerSchedulerRequestCounts {
+  readonly requested: number;
+  readonly in_flight: number;
+  readonly total_outstanding: number;
+}
+
+export interface TileWorkerSchedulerDebugState {
+  readonly transition_owned: TileWorkerSchedulerRequestCounts;
+  readonly residency_hydration: TileWorkerSchedulerRequestCounts;
+  readonly total: TileWorkerSchedulerRequestCounts;
+  readonly resident_payload_count: number;
+  readonly demanded_payload_count: number | null;
+  readonly target_submission: {
+    readonly pending: boolean;
+    readonly in_flight: boolean;
+  };
+}
+
+interface ActiveBridgeRequest {
+  readonly requestId: number;
+  readonly tile: TileIdentity;
+  readonly workerOwned: boolean;
+  phase: "requested" | "in-flight";
+  handle?: TileRequestHandle;
+}
+
+function initialSnapshot(
+  target: TileLayoutTarget,
+): SchedulerSnapshot<TileLayoutTarget> {
   return Object.freeze({
     revision: -1,
     target: Object.freeze({ ...target }),
@@ -55,33 +86,26 @@ function initialSnapshot(target: TileTarget): SchedulerSnapshot<TileTarget> {
 export class TileWorkerScheduler<Resource> {
   private readonly worker: TileSchedulerWorker;
   private readonly listeners = new Set<
-    (snapshot: SchedulerSnapshot<TileTarget>, event?: SchedulerEvent) => void
+    (snapshot: SchedulerSnapshot<TileLayoutTarget>, event?: SchedulerEvent) => void
   >();
-  private readonly requests = new Map<
-    string,
-    {
-      readonly requestId: number;
-      readonly tile: TileIdentity;
-      readonly workerOwned: boolean;
-      handle?: TileRequestHandle;
-    }
-  >();
+  private readonly requests = new Map<string, ActiveBridgeRequest>();
   private readonly resources = new Map<string, Resource>();
   private demandedResources: ReadonlySet<string> | undefined;
   private priorityResources: ReadonlySet<string> = new Set();
   private nextDirectRequestId = -1;
-  private pendingTarget: TileTarget | undefined;
+  private pendingTarget: TileLayoutTarget | undefined;
   private targetInFlight = false;
   private targetFlushQueued = false;
   private disposed = false;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
-  private snapshotValue: SchedulerSnapshot<TileTarget>;
+  private snapshotValue: SchedulerSnapshot<TileLayoutTarget>;
 
   constructor(
-    initialTarget: TileTarget,
+    initialTarget: TileLayoutTarget,
     private readonly options: TileWorkerSchedulerOptions<Resource>,
   ) {
-    this.snapshotValue = initialSnapshot(initialTarget);
+    const normalizedInitialTarget = normalizeTileLayoutTarget(initialTarget);
+    this.snapshotValue = initialSnapshot(normalizedInitialTarget);
     if (options.initialResourceDemand) {
       this.demandedResources = new Set(
         [...options.initialResourceDemand].map(tileIdentityKey),
@@ -95,18 +119,56 @@ export class TileWorkerScheduler<Resource> {
     this.worker.onmessage = (event) => this.handleMessage(event.data);
     this.worker.postMessage({
       kind: "initialize",
-      target: initialTarget,
+      target: normalizedInitialTarget,
       hydrateInitialResources: options.hydrateInitialResources ?? false,
     });
   }
 
-  get snapshot(): SchedulerSnapshot<TileTarget> {
+  get snapshot(): SchedulerSnapshot<TileLayoutTarget> {
     return this.snapshotValue;
+  }
+
+  get debugState(): TileWorkerSchedulerDebugState {
+    const counts = (workerOwned: boolean): TileWorkerSchedulerRequestCounts => {
+      let requested = 0;
+      let inFlight = 0;
+      for (const request of this.requests.values()) {
+        if (request.workerOwned !== workerOwned) continue;
+        if (request.phase === "in-flight") inFlight += 1;
+        else requested += 1;
+      }
+      return {
+        requested,
+        in_flight: inFlight,
+        total_outstanding: requested + inFlight,
+      };
+    };
+    const transitionOwned = counts(true);
+    const residencyHydration = counts(false);
+    return {
+      transition_owned: transitionOwned,
+      residency_hydration: residencyHydration,
+      total: {
+        requested:
+          transitionOwned.requested + residencyHydration.requested,
+        in_flight:
+          transitionOwned.in_flight + residencyHydration.in_flight,
+        total_outstanding:
+          transitionOwned.total_outstanding +
+          residencyHydration.total_outstanding,
+      },
+      resident_payload_count: this.resources.size,
+      demanded_payload_count: this.demandedResources?.size ?? null,
+      target_submission: {
+        pending: this.pendingTarget !== undefined,
+        in_flight: this.targetInFlight,
+      },
+    };
   }
 
   subscribe(
     listener: (
-      snapshot: SchedulerSnapshot<TileTarget>,
+      snapshot: SchedulerSnapshot<TileLayoutTarget>,
       event?: SchedulerEvent,
     ) => void,
   ): () => void {
@@ -161,8 +223,17 @@ export class TileWorkerScheduler<Resource> {
     this.options.provider.updatePriority?.(priority);
   }
 
-  updateTarget(target: TileTarget): void {
-    this.pendingTarget = target;
+  updateTarget(target: TileLayoutTarget): void {
+    const normalized = normalizeTileLayoutTarget(target);
+    if (
+      this.pendingTarget &&
+      this.sameTarget(this.pendingTarget, normalized)
+    ) return;
+    if (
+      !this.targetInFlight &&
+      this.sameTarget(this.snapshotValue.target, normalized)
+    ) return;
+    this.pendingTarget = normalized;
     this.flushTarget();
   }
 
@@ -190,6 +261,12 @@ export class TileWorkerScheduler<Resource> {
     if (message.kind === "resource-cancel")
       return this.cancelResource(message.key, message.requestId);
     if (message.kind === "target-applied") {
+      if (!this.sameTarget(this.snapshotValue.target, message.target)) {
+        this.snapshotValue = Object.freeze({
+          ...this.snapshotValue,
+          target: Object.freeze({ ...message.target }),
+        });
+      }
       this.targetInFlight = false;
       this.flushTarget();
       return;
@@ -211,6 +288,15 @@ export class TileWorkerScheduler<Resource> {
       listener(this.snapshotValue, message.event);
   }
 
+  private sameTarget(
+    first: TileLayoutTarget,
+    second: TileLayoutTarget,
+  ): boolean {
+    return first.maxZoom === second.maxZoom &&
+      first.latitudeDegrees === second.latitudeDegrees &&
+      first.longitudeDegrees === second.longitudeDegrees;
+  }
+
   private requestResource(
     message: Extract<TileSchedulerMessage, { kind: "resource-request" }>,
   ): void {
@@ -225,21 +311,18 @@ export class TileWorkerScheduler<Resource> {
     }
     const old = this.requests.get(message.key);
     old?.handle?.cancel();
-    const provisional: {
-      readonly requestId: number;
-      readonly tile: TileIdentity;
-      readonly workerOwned: boolean;
-      handle?: TileRequestHandle;
-    } = {
+    const provisional: ActiveBridgeRequest = {
       requestId: message.requestId,
       tile: message.tile,
       workerOwned: true,
+      phase: "requested",
     };
     this.requests.set(message.key, provisional);
     const handle = this.options.provider.request(message.tile, (result) => {
       const active = this.requests.get(message.key);
       if (!active || active.requestId !== message.requestId || this.disposed)
         return;
+      if (result.phase === "in-flight") active.phase = "in-flight";
       if (result.phase === "response")
         this.resources.set(message.key, result.resource);
       this.worker.postMessage({
@@ -267,17 +350,20 @@ export class TileWorkerScheduler<Resource> {
 
   private requestDirectHydration(tile: TileIdentity, key: string): void {
     const requestId = this.nextDirectRequestId--;
-    const provisional: {
-      readonly requestId: number;
-      readonly tile: TileIdentity;
-      readonly workerOwned: boolean;
-      handle?: TileRequestHandle;
-    } = { requestId, tile, workerOwned: false };
+    const provisional: ActiveBridgeRequest = {
+      requestId,
+      tile,
+      workerOwned: false,
+      phase: "requested",
+    };
     this.requests.set(key, provisional);
     const handle = this.options.provider.request(tile, (result) => {
       const active = this.requests.get(key);
       if (!active || active.requestId !== requestId || this.disposed) return;
-      if (result.phase === "in-flight") return;
+      if (result.phase === "in-flight") {
+        active.phase = "in-flight";
+        return;
+      }
       this.requests.delete(key);
       if (result.phase === "response") {
         this.resources.set(key, result.resource);
@@ -337,7 +423,12 @@ export class TileWorkerScheduler<Resource> {
   }
 
   private flushTarget(): void {
-    if (this.targetInFlight || this.targetFlushQueued || this.disposed) return;
+    if (
+      this.pendingTarget === undefined ||
+      this.targetInFlight ||
+      this.targetFlushQueued ||
+      this.disposed
+    ) return;
     this.targetFlushQueued = true;
     queueMicrotask(() => {
       this.targetFlushQueued = false;

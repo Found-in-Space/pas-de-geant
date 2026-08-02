@@ -37,6 +37,11 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
         "travel, or teleport to a place and you know reasonable coordinates, use " +
         "set_user_location. Be clear when coordinates are approximate. For tile " +
         "debugging, call get_tile_debug_controls before reporting current values. " +
+        "For questions about tile loading, replanning, waiting, queued or " +
+        "in-flight work, transition completion, or scheduler health, call " +
+        "get_tile_planner_state. Tile payload requests and provider source " +
+        "fetches are different layers and their counts must not be conflated. " +
+        "Always report planner failures when the failed count is nonzero. " +
         "Use the narrow mutation tool matching the requested change, leave all " +
         "unrelated controls unchanged, and after a mutation report the actual " +
         "state returned by the tool.",
@@ -90,6 +95,13 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
           name: "get_tile_debug_controls",
           description:
             "Read every current terrain and texture tile-debug control, including effective target zooms.",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+        {
+          type: "function",
+          name: "get_tile_planner_state",
+          description:
+            "Read terrain and texture planner, transition, payload-request, source-fetch, and residency state. Use this for loading progress, queued or in-flight work, completion, failures, and scheduler health. Tile payload requests and shared provider source jobs are distinct layers.",
           parameters: { type: "object", properties: {}, additionalProperties: false },
         },
         {
@@ -187,11 +199,17 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
           type: "function",
           name: "set_tile_recalculation",
           description:
-            "Enable or freeze terrain and texture target/residency recalculation. Disabled preserves the current world selection while rendering and in-flight work continue.",
+            "Enable or freeze target and residency recalculation for terrain, textures, or both. A frozen pipeline preserves its current selection while rendering and in-flight work continue.",
           parameters: {
             type: "object",
-            properties: { enabled: { type: "boolean" } },
-            required: ["enabled"],
+            properties: {
+              target: {
+                type: "string",
+                enum: ["terrain", "textures", "both"],
+              },
+              enabled: { type: "boolean" },
+            },
+            required: ["target", "enabled"],
             additionalProperties: false,
           },
         },

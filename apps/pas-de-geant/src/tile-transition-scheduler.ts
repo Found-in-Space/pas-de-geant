@@ -203,11 +203,38 @@ export class TileTransitionScheduler<Target, Resource> {
     for (const listener of this.listeners) listener(snapshot, event);
   }
 
-  updateTarget(target: Target): void {
-    this.targetValue = immutableTarget(target);
-    this.requested = this.indexCut(this.layoutSource.calculate(this.targetValue));
+  /**
+   * Applies a target only when it produces a different requested cut.
+   *
+   * Observers move within a layout's coverage far more often than they cross a
+   * layout boundary. Updating only the target in that case avoids a graph
+   * rebuild, revision advance, and topology snapshot with no visible effect.
+   * Returns whether the requested cut changed.
+   */
+  updateTarget(target: Target): boolean {
+    const nextTarget = immutableTarget(target);
+    const nextRequested = this.indexCut(this.layoutSource.calculate(nextTarget));
+    if (this.cutsEqual(this.requested, nextRequested)) {
+      this.targetValue = nextTarget;
+      return false;
+    }
+
+    this.targetValue = nextTarget;
+    this.requested = nextRequested;
     this.revisionValue += 1;
     this.replan();
+    return true;
+  }
+
+  private cutsEqual(
+    first: ReadonlyMap<string, TileIdentity>,
+    second: ReadonlyMap<string, TileIdentity>,
+  ): boolean {
+    if (first.size !== second.size) return false;
+    for (const key of first.keys()) {
+      if (!second.has(key)) return false;
+    }
+    return true;
   }
 
   retryFailed(tile?: TileIdentity): void {

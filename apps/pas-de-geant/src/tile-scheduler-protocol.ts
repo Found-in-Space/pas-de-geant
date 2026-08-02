@@ -1,4 +1,4 @@
-import type { TileTarget } from "./tile-layout-source.js";
+import type { TileLayoutTarget } from "./tile-layout-source.js";
 import type {
   SchedulerEvent,
   SchedulerSnapshot,
@@ -9,10 +9,10 @@ import type { TileProviderResult } from "./tile-provider.js";
 export type TileSchedulerCommand =
   | {
       readonly kind: "initialize";
-      readonly target: TileTarget;
+      readonly target: TileLayoutTarget;
       readonly hydrateInitialResources: boolean;
     }
-  | { readonly kind: "target"; readonly target: TileTarget }
+  | { readonly kind: "target"; readonly target: TileLayoutTarget }
   | { readonly kind: "retry" }
   | {
       readonly kind: "resource-result";
@@ -24,11 +24,11 @@ export type TileSchedulerCommand =
 export type TileSchedulerMessage =
   | {
       readonly kind: "snapshot";
-      readonly snapshot: SchedulerSnapshot<TileTarget>;
+      readonly snapshot: SchedulerSnapshot<TileLayoutTarget>;
       readonly event?: SchedulerEvent;
     }
   | { readonly kind: "event"; readonly event: SchedulerEvent }
-  | { readonly kind: "target-applied" }
+  | { readonly kind: "target-applied"; readonly target: TileLayoutTarget }
   | {
       readonly kind: "resource-request";
       readonly tile: TileIdentity;

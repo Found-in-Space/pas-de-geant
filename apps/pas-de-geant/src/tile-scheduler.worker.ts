@@ -2,7 +2,7 @@
 
 import {
   TileOnionLayoutSource,
-  type TileTarget,
+  type TileLayoutTarget,
 } from "./tile-layout-source.js";
 import {
   tileIdentityKey,
@@ -61,7 +61,7 @@ class MainThreadResourceProvider implements TileProvider<undefined> {
   }
 }
 
-let scheduler: TileTransitionScheduler<TileTarget, undefined> | undefined;
+let scheduler: TileTransitionScheduler<TileLayoutTarget, undefined> | undefined;
 let provider: MainThreadResourceProvider | undefined;
 
 function post(message: TileSchedulerMessage): void {
@@ -90,9 +90,9 @@ scope.onmessage = ({ data }: MessageEvent<TileSchedulerCommand>) => {
   }
   if (!scheduler || !provider) return;
   if (data.kind === "target") {
-    scheduler.updateTarget(data.target);
-    post({ kind: "snapshot", snapshot: scheduler.snapshot });
-    post({ kind: "target-applied" });
+    const changed = scheduler.updateTarget(data.target);
+    if (changed) post({ kind: "snapshot", snapshot: scheduler.snapshot });
+    post({ kind: "target-applied", target: data.target });
   }
   if (data.kind === "retry") scheduler.retryFailed();
   if (data.kind === "resource-result")
