@@ -124,6 +124,21 @@ The local server also performs cached OpenStreetMap Nominatim reverse lookups
 for the guide. The upstream endpoint can be replaced with
 `PAS_DE_GEANT_GEOCODER_URL`.
 
+### Voice research tools
+
+The guide can look up external facts without sending arbitrary URLs from the
+headset. It uses English Wikipedia for stable background questions (for
+example, “What is plate tectonics?”) and live web search for current, recent,
+or niche questions (for example, “Search the web for today’s Alpine weather”).
+A more specific follow-up causes a new, narrower lookup.
+
+The voice session still requires the server-only `OPENAI_API_KEY`. Wikipedia
+needs no additional upstream API key, while live web search reuses the OpenAI
+key already configured for Realtime; it is never exposed to browser code.
+Search results appear in a compact Research area with linked source titles,
+while the voice guide speaks the substantive answer and never reads the source
+URLs aloud.
+
 ### Voice tile-debug controls
 
 The voice guide can read and tune the terrain and photographic tile pipelines

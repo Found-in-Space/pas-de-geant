@@ -34,6 +34,12 @@ import {
 } from "./hand-panel.js";
 import { directionOnHandPanel } from "./hand-panel-orientation.js";
 import {
+  parseKnowledgeSearchArguments,
+  searchWeb,
+  searchWikipedia,
+  type KnowledgeSource,
+} from "./external-knowledge.js";
+import {
   configuredXyzImageryProvider,
 } from "./imagery-provider.js";
 import { imageryConfiguration } from "./imagery-configuration.js";
@@ -114,7 +120,38 @@ const aircraftReadout = element<HTMLElement>("aircraft-readout");
 const resetButton = element<HTMLButtonElement>("reset-button");
 const aircraftToggle = element<HTMLInputElement>("aircraft-toggle");
 const imageryAttribution = element<HTMLElement>("imagery-attribution");
+const researchRegion = element<HTMLElement>("research-region");
+const researchAnswer = element<HTMLParagraphElement>("research-answer");
+const researchSources = element<HTMLUListElement>("research-sources");
 const initialLocationPromise = resolveInitialLocation();
+
+function clearResearch(): void {
+  researchAnswer.textContent = "";
+  researchSources.replaceChildren();
+  researchRegion.hidden = true;
+}
+
+function showResearch(answer: string, sources: readonly KnowledgeSource[]): void {
+  researchAnswer.textContent = answer;
+  const links = sources.flatMap((source) => {
+    try {
+      const url = new URL(source.url);
+      if (url.protocol !== "https:") return [];
+      const anchor = document.createElement("a");
+      anchor.href = url.href;
+      anchor.textContent = source.title;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      const item = document.createElement("li");
+      item.append(anchor);
+      return [item];
+    } catch {
+      return [];
+    }
+  });
+  researchSources.replaceChildren(...links);
+  researchRegion.hidden = false;
+}
 
 let renderer: THREE.WebGLRenderer;
 try {
@@ -647,6 +684,23 @@ const voiceAgent = new RealtimeVoiceAgent({
         latitude_degrees: coordinates.latitudeDegrees,
         longitude_degrees: coordinates.longitudeDegrees,
       };
+    },
+    async search_wikipedia(argumentsValue) {
+      const { query } = parseKnowledgeSearchArguments(argumentsValue);
+      clearResearch();
+      const result = await searchWikipedia(query);
+      showResearch(
+        result.results[0]?.summary ?? "No Wikipedia summary was found.",
+        result.results,
+      );
+      return result;
+    },
+    async search_web(argumentsValue) {
+      const { query } = parseKnowledgeSearchArguments(argumentsValue);
+      clearResearch();
+      const result = await searchWeb(query);
+      showResearch(result.answer, result.sources);
+      return result;
     },
     get_tile_debug_controls() {
       return terrain.getTileDebugControls();

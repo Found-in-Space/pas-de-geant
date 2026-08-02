@@ -239,6 +239,8 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.tools.map((tool) => tool.name)).toEqual([
       "get_user_location",
       "set_user_location",
+      "search_wikipedia",
+      "search_web",
       "get_tile_debug_controls",
       "get_tile_planner_state",
       "set_tile_pixel_ratio",
@@ -263,6 +265,28 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.instructions).toContain(
       "report planner failures",
     );
+    expect(configuration.session.instructions).toContain(
+      "Use search_wikipedia for stable encyclopedic or background topics",
+    );
+    expect(configuration.session.instructions).toContain(
+      "Use search_web for current, recent, or niche information",
+    );
+    expect(configuration.session.instructions).toContain(
+      "Never claim to have browsed or searched unless you called one of these search tools",
+    );
+    expect(configuration.session.instructions).toContain(
+      "never read URLs aloud",
+    );
+    expect(configuration.session.instructions).toContain(
+      "If a follow-up needs more detail, run a narrower search",
+    );
+    for (const name of ["search_wikipedia", "search_web"]) {
+      const tool = configuration.session.tools.find((candidate) =>
+        candidate.name === name
+      );
+      expect(tool?.parameters.required).toEqual(["query"]);
+      expect(tool?.description).toContain("substantive");
+    }
     expect(configuration.session.tools.find(
       ({ name }) => name === "get_tile_planner_state",
     )?.description).toContain("source jobs are distinct layers");

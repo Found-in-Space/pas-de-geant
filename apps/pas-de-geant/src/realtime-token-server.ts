@@ -35,7 +35,15 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
         "close scales; do not invent a place when named_location is null. When " +
         "the user asks to go, move, " +
         "travel, or teleport to a place and you know reasonable coordinates, use " +
-        "set_user_location. Be clear when coordinates are approximate. For tile " +
+        "set_user_location. Be clear when coordinates are approximate. " +
+        "Use search_wikipedia for stable encyclopedic or background topics. Use " +
+        "search_web for current, recent, or niche information and whenever the " +
+        "user explicitly asks to browse or search the web. Never claim to have " +
+        "browsed or searched unless you called one of these search tools. After " +
+        "a search, speak the substantive answer in one or two sentences and " +
+        "optionally name one or two relevant source titles; never read URLs " +
+        "aloud. If a follow-up needs more detail, run a narrower search. Keep " +
+        "fetched external facts distinct from live app state. For tile " +
         "debugging, call get_tile_debug_controls before reporting current values. " +
         "For questions about tile loading, replanning, waiting, queued or " +
         "in-flight work, transition completion, or scheduler health, call " +
@@ -87,6 +95,42 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
               },
             },
             required: ["latitude_degrees", "longitude_degrees"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "search_wikipedia",
+          description:
+            "Search English Wikipedia for stable encyclopedic or background facts. Returns substantive article intro summaries plus quiet citation provenance.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                minLength: 1,
+                description: "A focused non-blank encyclopedic search query.",
+              },
+            },
+            required: ["query"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "search_web",
+          description:
+            "Search the live web for current, recent, or niche information. Returns a substantive concise answer with source-attributed evidence and quiet citation provenance.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                minLength: 1,
+                description: "A focused non-blank web search query.",
+              },
+            },
+            required: ["query"],
             additionalProperties: false,
           },
         },
