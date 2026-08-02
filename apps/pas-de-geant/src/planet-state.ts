@@ -260,7 +260,7 @@ export function applyRadialMultiplierRate(
 ): number {
   const next = multiplier + axis * unitsPerSecond * deltaSeconds;
   if (Math.abs(axis) < 0.12 && Math.abs(next - 1) < 0.08) return 1;
-  return next;
+  return Math.max(0, next);
 }
 
 export function apexError(
