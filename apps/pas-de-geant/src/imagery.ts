@@ -49,6 +49,13 @@ import {
 } from "./tile-transition-planner.js";
 import { TileWorkerScheduler } from "./tile-worker-scheduler.js";
 import {
+  DEFAULT_TILE_DEBUG_CONTROLS,
+  demandedPayloadTiles,
+  eligiblePayloadTiles,
+  tileTopologySelectionChanged,
+  type TilePipelineDebugControls,
+} from "./tile-debug-controls.js";
+import {
   classifyHotResidency,
   classifyWarmResidency,
   hotResidencySignature,
@@ -840,6 +847,10 @@ export class ImageryVirtualTexture {
   private residencyClassificationTotal = 0;
   private hotResidencyClassificationTotal = 0;
   private warmResidencyClassificationTotal = 0;
+  private debugControls: TilePipelineDebugControls = {
+    ...DEFAULT_TILE_DEBUG_CONTROLS.textures,
+  };
+  private overheadPercent = DEFAULT_TILE_DEBUG_CONTROLS.overheadPercent;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -984,6 +995,9 @@ export class ImageryVirtualTexture {
       maxZoom: this.provider.source.maxZoom,
       tilePixels: this.provider.source.tileSize,
       previousZoom: this.desiredZoom,
+      targetScreenPixelsPerSourcePixel:
+        this.debugControls.screenPixelsPerSourcePixel,
+      maxTopologyZoom: this.debugControls.maxZoom,
     });
     const point = mercatorPointForImagery(
       view.latitudeDegrees,
@@ -1011,6 +1025,31 @@ export class ImageryVirtualTexture {
       observerHeightWorldM: 0,
     };
     this.applyResidency();
+    this.processUploads();
+  }
+
+  setDebugControls(
+    controls: TilePipelineDebugControls,
+    overheadPercent: number,
+  ): void {
+    if (tileTopologySelectionChanged(this.debugControls, controls)) {
+      // A user-requested density/cap change is a new selection baseline, not
+      // camera jitter. Reusing the old z can otherwise let hysteresis swallow
+      // a deliberate one-level coarsening or keep a removed cap sticky.
+      this.desiredZoom = undefined;
+    }
+    this.debugControls = { ...controls };
+    this.overheadPercent = overheadPercent;
+    this.hotViewSignature = -1;
+    this.warmViewSignature = -1;
+    this.applyResidency();
+  }
+
+  getTargetZoom(): number {
+    return this.target.z;
+  }
+
+  processPendingUploads(): void {
     this.processUploads();
   }
 
@@ -1339,7 +1378,8 @@ export class ImageryVirtualTexture {
     if (
       !this.scheduler ||
       !this.residencyInput ||
-      this.residencyInput.footprint.length === 0 ||
+      (this.debugControls.viewDistanceEnabled &&
+        this.residencyInput.footprint.length === 0) ||
       this.snapshot.committedCut.length === 0
     ) return;
     const hotSignature = hotResidencySignature(
@@ -1349,6 +1389,7 @@ export class ImageryVirtualTexture {
     const warmSignature = warmResidencySignature(
       this.target.z,
       this.residencyInput,
+      this.overheadPercent,
     );
     const hotNeedsClassification =
       hotSignature !== this.hotViewSignature ||
@@ -1378,23 +1419,40 @@ export class ImageryVirtualTexture {
     }
     let warmChanged = false;
     if (warmNeedsClassification) {
-      const warm = classifyWarmResidency(
+      const eligible = eligiblePayloadTiles(
         workingTiles,
-        this.residencyInput,
-        this.warmKeys,
+        this.target.z,
+        this.debugControls.deltaZoomCap,
       );
+      const warm = this.debugControls.viewDistanceEnabled
+        ? classifyWarmResidency(
+            eligible,
+            this.residencyInput,
+            this.warmKeys,
+            this.overheadPercent,
+          )
+        : new Set(eligible.map((tile) => tileIdentityKey(tile)));
       warmChanged = !sameResidencyKeys(this.warmKeys, warm);
       this.warmKeys = new Set(warm);
     }
-    const hot = workingTiles.filter((tile) =>
-      this.hotKeys.has(tileIdentityKey(tile)),
+    const eligible = eligiblePayloadTiles(
+      workingTiles,
+      this.target.z,
+      this.debugControls.deltaZoomCap,
+    );
+    const hot = eligible.filter((tile) =>
+      this.hotKeys.has(tileIdentityKey(tile))
     );
     if (!warmChanged) {
       this.scheduler.updateResourcePriority(hot);
       return;
     }
-    const demanded = workingTiles.filter((tile) =>
-      this.warmKeys.has(tileIdentityKey(tile)),
+    const demanded = demandedPayloadTiles(
+      workingTiles,
+      this.target.z,
+      this.debugControls.deltaZoomCap,
+      this.debugControls.viewDistanceEnabled,
+      this.warmKeys,
     );
     this.scheduler.updateResourceDemand(demanded, hot);
   }

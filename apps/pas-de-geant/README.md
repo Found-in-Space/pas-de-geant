@@ -124,6 +124,21 @@ The local server also performs cached OpenStreetMap Nominatim reverse lookups
 for the guide. The upstream endpoint can be replaced with
 `PAS_DE_GEANT_GEOCODER_URL`.
 
+### Voice tile-debug controls
+
+The voice guide can read and tune the terrain and photographic tile pipelines
+while the app is running. Ask it to change screen pixels per source pixel, set
+or clear a topology max-z, enable or disable the warm view-distance buffer,
+change its overhead percentage, or set or clear a payload delta-z cap for
+terrain, textures, or both. A delta-z of 3 retains the four payload bands from
+z through z-3 without changing the complete mixed-LOD tile topology. Disabling
+view distance loads the full eligible current tile onion.
+
+Recalculation can also be frozen to inspect the current world selection while
+rendering and already-started tile work continue. Re-enabling it immediately
+applies the latest view. The guide reads the controls before reporting them and
+returns the effective terrain and texture target zooms after each change.
+
 ## Other layers
 
 The celestial sphere loads the default Found in Space SkyKit catalogue and

@@ -35,7 +35,11 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
         "close scales; do not invent a place when named_location is null. When " +
         "the user asks to go, move, " +
         "travel, or teleport to a place and you know reasonable coordinates, use " +
-        "set_user_location. Be clear when coordinates are approximate.",
+        "set_user_location. Be clear when coordinates are approximate. For tile " +
+        "debugging, call get_tile_debug_controls before reporting current values. " +
+        "Use the narrow mutation tool matching the requested change, leave all " +
+        "unrelated controls unchanged, and after a mutation report the actual " +
+        "state returned by the tool.",
       audio: {
         input: {
           noise_reduction: { type: "near_field" },
@@ -78,6 +82,116 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
               },
             },
             required: ["latitude_degrees", "longitude_degrees"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "get_tile_debug_controls",
+          description:
+            "Read every current terrain and texture tile-debug control, including effective target zooms.",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+        {
+          type: "function",
+          name: "set_tile_pixel_ratio",
+          description:
+            "Set screen pixels per source pixel for terrain, textures, or both. Larger values select coarser topology.",
+          parameters: {
+            type: "object",
+            properties: {
+              target: {
+                type: "string",
+                enum: ["terrain", "textures", "both"],
+              },
+              screen_pixels_per_source_pixel: {
+                type: "number",
+                exclusiveMinimum: 0,
+              },
+            },
+            required: ["target", "screen_pixels_per_source_pixel"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_tile_max_zoom",
+          description:
+            "Enable a topology maximum zoom for terrain, textures, or both, or disable it to restore the uncapped default.",
+          parameters: {
+            type: "object",
+            properties: {
+              target: {
+                type: "string",
+                enum: ["terrain", "textures", "both"],
+              },
+              enabled: { type: "boolean" },
+              max_zoom: { type: "integer", minimum: 0 },
+            },
+            required: ["target", "enabled"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_tile_view_distance",
+          description:
+            "Enable warm view-distance buffering for terrain, textures, or both. Setting enabled=false loads the full current tile onion instead of only the buffered view region.",
+          parameters: {
+            type: "object",
+            properties: {
+              target: {
+                type: "string",
+                enum: ["terrain", "textures", "both"],
+              },
+              enabled: { type: "boolean" },
+            },
+            required: ["target", "enabled"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_tile_view_overhead",
+          description:
+            "Set the nonnegative percentage added to eye height for warm view-distance buffering in both pipelines.",
+          parameters: {
+            type: "object",
+            properties: {
+              overhead_percent: { type: "number", minimum: 0 },
+            },
+            required: ["overhead_percent"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_tile_delta_zoom_cap",
+          description:
+            "Enable a payload delta-zoom cap for terrain, textures, or both, or disable it. A delta N loads N+1 bands: finest z through z-N; for example N=3 loads z, z-1, z-2, and z-3.",
+          parameters: {
+            type: "object",
+            properties: {
+              target: {
+                type: "string",
+                enum: ["terrain", "textures", "both"],
+              },
+              enabled: { type: "boolean" },
+              delta_zoom: { type: "integer", minimum: 0 },
+            },
+            required: ["target", "enabled"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_tile_recalculation",
+          description:
+            "Enable or freeze terrain and texture target/residency recalculation. Disabled preserves the current world selection while rendering and in-flight work continue.",
+          parameters: {
+            type: "object",
+            properties: { enabled: { type: "boolean" } },
+            required: ["enabled"],
             additionalProperties: false,
           },
         },

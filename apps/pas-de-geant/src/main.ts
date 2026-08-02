@@ -64,6 +64,14 @@ import {
 } from "./realtime-agent.js";
 import { TerrainSurface } from "./terrain-surface.js";
 import {
+  parseTileDeltaZoomCapArguments,
+  parseTileMaxZoomArguments,
+  parseTilePixelRatioArguments,
+  parseTileRecalculationArguments,
+  parseTileViewDistanceArguments,
+  parseTileViewOverheadArguments,
+} from "./tile-debug-controls.js";
+import {
   intersectEllipsoidRay,
   type GeographicPoint,
 } from "./view-residency.js";
@@ -635,6 +643,39 @@ const voiceAgent = new RealtimeVoiceAgent({
         latitude_degrees: coordinates.latitudeDegrees,
         longitude_degrees: coordinates.longitudeDegrees,
       };
+    },
+    get_tile_debug_controls() {
+      return terrain.getTileDebugControls();
+    },
+    set_tile_pixel_ratio(argumentsValue) {
+      return terrain.setTilePixelRatio(
+        parseTilePixelRatioArguments(argumentsValue),
+      );
+    },
+    set_tile_max_zoom(argumentsValue) {
+      return terrain.setTileMaxZoom(
+        parseTileMaxZoomArguments(argumentsValue),
+      );
+    },
+    set_tile_view_distance(argumentsValue) {
+      return terrain.setTileViewDistance(
+        parseTileViewDistanceArguments(argumentsValue),
+      );
+    },
+    set_tile_view_overhead(argumentsValue) {
+      return terrain.setTileViewOverhead(
+        parseTileViewOverheadArguments(argumentsValue),
+      );
+    },
+    set_tile_delta_zoom_cap(argumentsValue) {
+      return terrain.setTileDeltaZoomCap(
+        parseTileDeltaZoomCapArguments(argumentsValue),
+      );
+    },
+    set_tile_recalculation(argumentsValue) {
+      return terrain.setTileRecalculation(
+        parseTileRecalculationArguments(argumentsValue),
+      );
     },
   },
 });

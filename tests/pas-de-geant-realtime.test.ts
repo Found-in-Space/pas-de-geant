@@ -220,8 +220,9 @@ describe("Pas de Géant Realtime voice agent", () => {
     const configuration = realtimeSessionConfiguration() as {
       session: {
         model: string;
+        instructions: string;
         audio: { input: { turn_detection: { type: string } } };
-        tools: Array<{ name: string }>;
+        tools: Array<{ name: string; description: string }>;
       };
     };
     expect(configuration.session.model).toBe("gpt-realtime-2.1");
@@ -231,7 +232,26 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.tools.map((tool) => tool.name)).toEqual([
       "get_user_location",
       "set_user_location",
+      "get_tile_debug_controls",
+      "set_tile_pixel_ratio",
+      "set_tile_max_zoom",
+      "set_tile_view_distance",
+      "set_tile_view_overhead",
+      "set_tile_delta_zoom_cap",
+      "set_tile_recalculation",
     ]);
+    expect(configuration.session.instructions).toContain(
+      "call get_tile_debug_controls before reporting current values",
+    );
+    expect(configuration.session.instructions).toContain(
+      "leave all unrelated controls unchanged",
+    );
+    expect(configuration.session.tools.find(
+      ({ name }) => name === "set_tile_view_distance",
+    )?.description).toContain("loads the full current tile onion");
+    expect(configuration.session.tools.find(
+      ({ name }) => name === "set_tile_delta_zoom_cap",
+    )?.description).toContain("N+1 bands");
   });
 
   it("keeps the standard API key in the server-side client-secret request", async () => {

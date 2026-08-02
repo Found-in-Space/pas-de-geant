@@ -21,6 +21,23 @@ describe("view-local tile residency", () => {
       12,
     );
     expect(expanded).toBeGreaterThan(unexpanded);
+    expect(warmHorizonRadians(1_000, 2, 0)).toBeCloseTo(unexpanded, 12);
+  });
+
+  it("includes runtime overhead in warm classification invalidation", () => {
+    const input = {
+      underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
+      footprint: [{ latitudeDegrees: 0, longitudeDegrees: 0 }],
+      displayRadiusM: 1_000,
+      observerHeightWorldM: 1.65,
+    };
+
+    expect(warmResidencySignature(8, input, 0)).not.toBe(
+      warmResidencySignature(8, input, 25),
+    );
+    expect(warmHorizonRadians(1_000, 1.65, 100)).toBeGreaterThan(
+      warmHorizonRadians(1_000, 1.65, 0),
+    );
   });
 
   it("keeps warm horizon coverage orientation-independent in every bearing", () => {

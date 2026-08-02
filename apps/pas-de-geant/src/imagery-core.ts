@@ -16,9 +16,12 @@ export interface ImageryView {
 
 export interface ImageryZoomOptions extends ImageryView {
   readonly minZoom: number;
+  /** Provider source maximum; deliberately does not cap topology zoom. */
   readonly maxZoom: number;
   readonly tilePixels: number;
   readonly previousZoom?: number;
+  readonly targetScreenPixelsPerSourcePixel?: number;
+  readonly maxTopologyZoom?: number | null;
 }
 
 export function imageryKey(address: ImageryAddress): string {
@@ -81,7 +84,8 @@ export function renderedImageryTileWidthM(
 export function selectImageryZoom(options: ImageryZoomOptions): number {
   const minZoom = Math.max(0, Math.floor(options.minZoom));
   const targetWidth =
-    Math.max(1, options.tilePixels) * IMAGERY_TARGET_METRES_PER_TEXEL;
+    Math.max(1, options.tilePixels) * IMAGERY_TARGET_METRES_PER_TEXEL *
+    (options.targetScreenPixelsPerSourcePixel ?? 1);
   let zoom =
     options.previousZoom === undefined
       ? Math.max(
@@ -110,7 +114,10 @@ export function selectImageryZoom(options: ImageryZoomOptions): number {
     zoom -= 1;
     width *= 2;
   }
-  return zoom;
+  return options.maxTopologyZoom === undefined ||
+      options.maxTopologyZoom === null
+    ? zoom
+    : Math.min(zoom, Math.max(0, Math.floor(options.maxTopologyZoom)));
 }
 
 export function ancestorAtZoom(

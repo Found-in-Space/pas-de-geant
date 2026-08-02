@@ -28,6 +28,22 @@ import {
 import type { SchedulerSnapshot } from "./tile-transition-scheduler.js";
 import { TileWorkerScheduler } from "./tile-worker-scheduler.js";
 import {
+  createTileDebugControls,
+  DEFAULT_TERRAIN_SCREEN_PIXELS_PER_SOURCE_PIXEL,
+  demandedPayloadTiles,
+  eligiblePayloadTiles,
+  tileDebugControlsReadback,
+  withTileDeltaZoomCap,
+  withTileMaxZoom,
+  withTilePixelRatio,
+  withTileViewDistance,
+  type TileDebugControls,
+  type TileDebugControlsReadback,
+  type TileOptionalZoomArguments,
+  type TilePixelRatioArguments,
+  type TileViewDistanceArguments,
+} from "./tile-debug-controls.js";
+import {
   EARTH_MEAN_RADIUS_KM,
   WGS84_A_KM,
   WGS84_B_KM,
@@ -45,7 +61,8 @@ import {
 const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 const SKIRT_DEPTH_WORLD_METRES = 0.02;
 /** Geometry LOD density; deliberately independent from imagery texel density. */
-export const TERRAIN_TARGET_SCREEN_PIXELS_PER_ELEVATION_PIXEL = 2;
+export const TERRAIN_TARGET_SCREEN_PIXELS_PER_ELEVATION_PIXEL =
+  DEFAULT_TERRAIN_SCREEN_PIXELS_PER_SOURCE_PIXEL;
 
 export interface TerrainSurfaceView {
   readonly latitudeDegrees: number;
@@ -143,8 +160,12 @@ export function flatSurfaceObserverHeightMetres(
 export function terrainTargetForView(
   view: TerrainSurfaceView,
   tilePixels: number,
+  options: {
+    readonly targetScreenPixelsPerSourcePixel?: number;
+    readonly maxTopologyZoom?: number | null;
+  } = {},
 ): TileTarget {
-  const zoom = observerTileZoom({
+  const selectedZoom = observerTileZoom({
     observerHeightMeters: flatSurfaceObserverHeightMetres(
       view.observerHeightWorldM,
       view.displayRadiusM,
@@ -153,8 +174,13 @@ export function terrainTargetForView(
     projectedFocalLengthPixels: view.focalLengthPixels,
     tilePixels,
     targetScreenPixelsPerSourcePixel:
+      options.targetScreenPixelsPerSourcePixel ??
       TERRAIN_TARGET_SCREEN_PIXELS_PER_ELEVATION_PIXEL,
   }).zoom;
+  const zoom = options.maxTopologyZoom === undefined ||
+      options.maxTopologyZoom === null
+    ? selectedZoom
+    : Math.min(selectedZoom, Math.max(0, Math.floor(options.maxTopologyZoom)));
   const point = mercatorPoint(
     view.latitudeDegrees,
     view.longitudeDegrees,
@@ -494,9 +520,12 @@ export class TerrainSurface {
   private residencyClassificationTotal = 0;
   private hotResidencyClassificationTotal = 0;
   private warmResidencyClassificationTotal = 0;
+  private debugControls: TileDebugControls = createTileDebugControls();
+  private latestView: TerrainSurfaceView;
 
   constructor(options: TerrainSurfaceOptions) {
     this.renderer = options.renderer;
+    this.latestView = options.initialView;
     this.group.name = "terrain-surface";
     options.baseTexture.wrapS = THREE.RepeatWrapping;
     options.baseTexture.wrapT = THREE.ClampToEdgeWrapping;
@@ -513,6 +542,11 @@ export class TerrainSurface {
     this.currentTarget = terrainTargetForView(
       options.initialView,
       this.provider.tilePixels,
+      {
+        targetScreenPixelsPerSourcePixel:
+          this.debugControls.terrain.screenPixelsPerSourcePixel,
+        maxTopologyZoom: this.debugControls.terrain.maxZoom,
+      },
     );
     this.residencyInput = {
       underfoot: options.initialView,
@@ -576,10 +610,15 @@ export class TerrainSurface {
   }
 
   update(view: TerrainSurfaceView): void {
+    this.latestView = view;
     this.sharedUniforms.normalizedRadialMetres!.value =
       view.radialMultiplier / (EARTH_MEAN_RADIUS_KM * 1_000);
     this.sharedUniforms.normalizedSkirtDepth!.value =
       SKIRT_DEPTH_WORLD_METRES / view.displayRadiusM;
+    if (!this.debugControls.recalculationEnabled) {
+      this.imagery.processPendingUploads();
+      return;
+    }
     this.imagery.update({
       displayRadiusM: view.displayRadiusM,
       latitudeDegrees: view.latitudeDegrees,
@@ -597,7 +636,11 @@ export class TerrainSurface {
       observerHeightWorldM: view.observerHeightWorldM,
     };
     this.applyResidency();
-    const target = terrainTargetForView(view, this.provider.tilePixels);
+    const target = terrainTargetForView(view, this.provider.tilePixels, {
+      targetScreenPixelsPerSourcePixel:
+        this.debugControls.terrain.screenPixelsPerSourcePixel,
+      maxTopologyZoom: this.debugControls.terrain.maxZoom,
+    });
     if (
       target.z !== this.currentTarget.z ||
       target.x !== this.currentTarget.x ||
@@ -646,6 +689,57 @@ export class TerrainSurface {
 
   setTextureTileOverlayVisible(visible: boolean): void {
     this.sharedUniforms.textureOverlayVisible!.value = visible ? 1 : 0;
+  }
+
+  getTileDebugControls(): TileDebugControlsReadback {
+    return tileDebugControlsReadback(
+      this.debugControls,
+      this.currentTarget.z,
+      this.imagery.getTargetZoom(),
+    );
+  }
+
+  setTilePixelRatio(
+    argumentsValue: TilePixelRatioArguments,
+  ): TileDebugControlsReadback {
+    return this.setDebugControls(
+      withTilePixelRatio(this.debugControls, argumentsValue),
+    );
+  }
+
+  setTileMaxZoom(
+    argumentsValue: TileOptionalZoomArguments,
+  ): TileDebugControlsReadback {
+    return this.setDebugControls(
+      withTileMaxZoom(this.debugControls, argumentsValue),
+    );
+  }
+
+  setTileViewDistance(
+    argumentsValue: TileViewDistanceArguments,
+  ): TileDebugControlsReadback {
+    return this.setDebugControls(
+      withTileViewDistance(this.debugControls, argumentsValue),
+    );
+  }
+
+  setTileViewOverhead(overheadPercent: number): TileDebugControlsReadback {
+    return this.setDebugControls({ ...this.debugControls, overheadPercent });
+  }
+
+  setTileDeltaZoomCap(
+    argumentsValue: TileOptionalZoomArguments,
+  ): TileDebugControlsReadback {
+    return this.setDebugControls(
+      withTileDeltaZoomCap(this.debugControls, argumentsValue),
+    );
+  }
+
+  setTileRecalculation(enabled: boolean): TileDebugControlsReadback {
+    return this.setDebugControls({
+      ...this.debugControls,
+      recalculationEnabled: enabled,
+    });
   }
 
   retryFailed(): void {
@@ -705,7 +799,8 @@ export class TerrainSurface {
 
   private applyResidency(): void {
     if (
-      this.residencyInput.footprint.length === 0 ||
+      (this.debugControls.terrain.viewDistanceEnabled &&
+        this.residencyInput.footprint.length === 0) ||
       this.snapshot.committedCut.length === 0
     ) return;
     const hotSignature = hotResidencySignature(
@@ -715,6 +810,7 @@ export class TerrainSurface {
     const warmSignature = warmResidencySignature(
       this.currentTarget.z,
       this.residencyInput,
+      this.debugControls.overheadPercent,
     );
     const hotNeedsClassification =
       hotSignature !== this.hotViewSignature ||
@@ -744,26 +840,58 @@ export class TerrainSurface {
     }
     let warmChanged = false;
     if (warmNeedsClassification) {
-      const warm = classifyWarmResidency(
+      const eligible = eligiblePayloadTiles(
         workingTiles,
-        this.residencyInput,
-        this.warmKeys,
+        this.currentTarget.z,
+        this.debugControls.terrain.deltaZoomCap,
       );
+      const warm = this.debugControls.terrain.viewDistanceEnabled
+        ? classifyWarmResidency(
+            eligible,
+            this.residencyInput,
+            this.warmKeys,
+            this.debugControls.overheadPercent,
+          )
+        : new Set(eligible.map((tile) => tileIdentityKey(tile)));
       warmChanged = !sameResidencyKeys(this.warmKeys, warm);
       this.warmKeys = new Set(warm);
     }
-    const hot = workingTiles.filter((tile) =>
-      this.hotKeys.has(tileIdentityKey(tile)),
+    const eligible = eligiblePayloadTiles(
+      workingTiles,
+      this.currentTarget.z,
+      this.debugControls.terrain.deltaZoomCap,
+    );
+    const hot = eligible.filter((tile) =>
+      this.hotKeys.has(tileIdentityKey(tile))
     );
     if (!warmChanged) {
       this.scheduler.updateResourcePriority(hot);
       return;
     }
-    const demanded = workingTiles.filter((tile) =>
-      this.warmKeys.has(tileIdentityKey(tile)),
+    const demanded = demandedPayloadTiles(
+      workingTiles,
+      this.currentTarget.z,
+      this.debugControls.terrain.deltaZoomCap,
+      this.debugControls.terrain.viewDistanceEnabled,
+      this.warmKeys,
     );
     this.scheduler.updateResourceDemand(demanded, hot);
     this.provider.retainSourceTiles(demanded);
+  }
+
+  private setDebugControls(
+    controls: TileDebugControls,
+  ): TileDebugControlsReadback {
+    this.debugControls = controls;
+    this.hotViewSignature = -1;
+    this.warmViewSignature = -1;
+    this.imagery.setDebugControls(
+      controls.textures,
+      controls.overheadPercent,
+    );
+    if (controls.recalculationEnabled) this.update(this.latestView);
+    else this.applyResidency();
+    return this.getTileDebugControls();
   }
 
   private createTileMesh(tile: TileIdentity): SurfaceMesh {

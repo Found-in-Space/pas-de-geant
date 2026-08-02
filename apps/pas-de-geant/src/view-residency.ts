@@ -18,11 +18,12 @@ const NORMALIZED_WGS84_POLAR_RADIUS = 6_356.752314245 / 6_371.0088;
 export function warmHorizonRadians(
   displayRadiusM: number,
   observerHeightWorldM: number,
+  overheadPercent = 25,
 ): number {
   const baseRadius = Math.max(0.001, displayRadiusM) *
     NORMALIZED_WGS84_POLAR_RADIUS;
   const effectiveHeight = Math.max(0, observerHeightWorldM) *
-    WARM_HORIZON_HEIGHT_MULTIPLIER;
+    (1 + Math.max(0, overheadPercent) / 100);
   return Math.acos(baseRadius / (baseRadius + effectiveHeight));
 }
 
@@ -262,10 +263,11 @@ export function classifyViewResidency(
   cut: readonly TileIdentity[],
   input: ViewResidencyInput,
   previousWarm: ReadonlySet<string> = new Set(),
+  overheadPercent = 25,
 ): ViewResidencySets {
   return {
     hot: classifyHotResidency(cut, input),
-    warm: classifyWarmResidency(cut, input, previousWarm),
+    warm: classifyWarmResidency(cut, input, previousWarm, overheadPercent),
   };
 }
 
@@ -292,6 +294,7 @@ export function classifyWarmResidency(
   cut: readonly TileIdentity[],
   input: ViewResidencyInput,
   previousWarm: ReadonlySet<string> = new Set(),
+  overheadPercent = 25,
 ): ReadonlySet<string> {
   const warm = new Set<string>();
   const maximumZoom = cut.reduce(
@@ -304,6 +307,7 @@ export function classifyWarmResidency(
   const horizon = warmHorizonRadians(
     input.displayRadiusM,
     input.observerHeightWorldM,
+    overheadPercent,
   );
   const warmGuard = finestTileSpan * 2 * Math.PI * 3;
   const releaseGuard = finestTileSpan * 2 * Math.PI * 4;
@@ -361,6 +365,7 @@ export function hotResidencySignature(
 export function warmResidencySignature(
   zoom: number,
   input: ViewResidencyInput,
+  overheadPercent = 25,
 ): number {
   const width = 2 ** Math.max(0, zoom + 1);
   let signature = includePointInSignature(
@@ -371,7 +376,7 @@ export function warmResidencySignature(
   const baseRadius = Math.max(0.001, input.displayRadiusM) *
     NORMALIZED_WGS84_POLAR_RADIUS;
   const heightRatio = Math.max(0, input.observerHeightWorldM) *
-    WARM_HORIZON_HEIGHT_MULTIPLIER / baseRadius;
+    (1 + Math.max(0, overheadPercent) / 100) / baseRadius;
   // Relative bins avoid cut scans from millimetre-scale headset noise at high
   // zoom while remaining scale-independent and tracking meaningful crouching.
   const heightRatioBin = heightRatio === 0
@@ -385,9 +390,11 @@ export function warmResidencySignature(
 export function viewResidencySignature(
   zoom: number,
   input: ViewResidencyInput,
+  overheadPercent = 25,
 ): number {
   return Math.imul(
-    hotResidencySignature(zoom, input) ^ warmResidencySignature(zoom, input),
+    hotResidencySignature(zoom, input) ^
+      warmResidencySignature(zoom, input, overheadPercent),
     16_777_619,
   ) >>> 0;
 }

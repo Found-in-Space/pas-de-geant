@@ -32,6 +32,11 @@ import {
 } from "../apps/pas-de-geant/src/imagery-tree.js";
 import { ImageryRequestError, type ImageryProvider } from "../apps/pas-de-geant/src/imagery-provider.js";
 import { terrainTargetForView } from "../apps/pas-de-geant/src/terrain-surface.js";
+import {
+  createTileDebugControls,
+  tileTopologySelectionChanged,
+  withTilePixelRatio,
+} from "../apps/pas-de-geant/src/tile-debug-controls.js";
 import { TileTransitionScheduler } from "../apps/pas-de-geant/src/tile-transition-scheduler.js";
 import type { TileIdentity } from "../apps/pas-de-geant/src/tile-transition-planner.js";
 
@@ -258,6 +263,94 @@ describe("independent photographic imagery pipeline", () => {
 
     expect(zoom256).toBe(zoom512 + 1);
     expect(zoom1024).toBe(zoom512 - 1);
+  });
+
+  it("coarsens one topology zoom when the requested screen-pixel ratio doubles", () => {
+    const common = {
+      displayRadiusM: 1_000,
+      latitudeDegrees: 46,
+      longitudeDegrees: 9,
+      minZoom: 0,
+      maxZoom: 1,
+      tilePixels: 512,
+    };
+    const dense = selectImageryZoom({
+      ...common,
+      targetScreenPixelsPerSourcePixel: 1,
+    });
+    const coarse = selectImageryZoom({
+      ...common,
+      targetScreenPixelsPerSourcePixel: 2,
+    });
+
+    expect(coarse).toBe(dense - 1);
+    expect(dense).toBeGreaterThan(common.maxZoom);
+    expect(selectImageryZoom({
+      ...common,
+      maxTopologyZoom: 7,
+    })).toBe(7);
+  });
+
+  it("rebases texture hysteresis after a dynamic density change", () => {
+    const common = {
+      displayRadiusM: 3.2353562342649442,
+      latitudeDegrees: 46,
+      longitudeDegrees: 9,
+      minZoom: 0,
+      maxZoom: 22,
+      tilePixels: 512,
+    };
+    const ratioOne = createTileDebugControls().textures;
+    const ratioTwo = withTilePixelRatio(
+      createTileDebugControls(),
+      { target: "textures", screenPixelsPerSourcePixel: 2 },
+    ).textures;
+    const initialZoom = selectImageryZoom({
+      ...common,
+      targetScreenPixelsPerSourcePixel:
+        ratioOne.screenPixelsPerSourcePixel,
+    });
+
+    expect(initialZoom).toBe(2);
+    expect(selectImageryZoom({
+      ...common,
+      targetScreenPixelsPerSourcePixel:
+        ratioTwo.screenPixelsPerSourcePixel,
+      previousZoom: initialZoom,
+    })).toBe(2);
+    expect(tileTopologySelectionChanged(ratioOne, ratioTwo)).toBe(true);
+    expect(selectImageryZoom({
+      ...common,
+      targetScreenPixelsPerSourcePixel:
+        ratioTwo.screenPixelsPerSourcePixel,
+      previousZoom: tileTopologySelectionChanged(ratioOne, ratioTwo)
+        ? undefined
+        : initialZoom,
+    })).toBe(1);
+  });
+
+  it("applies terrain density and topology caps independently from elevation source zoom", () => {
+    const view = {
+      latitudeDegrees: 46,
+      longitudeDegrees: 9,
+      displayRadiusM: 1_000,
+      radialMultiplier: 1,
+      observerHeightWorldM: 1.65,
+      focalLengthPixels: 250,
+      footprint: [],
+    };
+    const dense = terrainTargetForView(view, 512, {
+      targetScreenPixelsPerSourcePixel: 1,
+    });
+    const coarse = terrainTargetForView(view, 512, {
+      targetScreenPixelsPerSourcePixel: 2,
+    });
+
+    expect(coarse.z).toBe(dense.z - 1);
+    expect(terrainTargetForView(view, 512, {
+      targetScreenPixelsPerSourcePixel: 1,
+      maxTopologyZoom: 6,
+    }).z).toBe(6);
   });
 
   it("keeps tree depth independent from a provider-capped source zoom", () => {
