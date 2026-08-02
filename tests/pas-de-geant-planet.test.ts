@@ -2,6 +2,7 @@ import { Vector2 } from "three";
 import { describe, expect, it } from "vitest";
 import {
   INITIAL_DISPLAY_RADIUS_M,
+  applyRadialMultiplierRate,
   apexError,
   contactFrame,
   coordinatesForFrame,
@@ -12,6 +13,12 @@ import {
 } from "../apps/pas-de-geant/src/planet-state.js";
 
 describe("Pas de Géant rolling-planet regressions", () => {
+  it("does not allow the radial multiplier to become negative", () => {
+    expect(applyRadialMultiplierRate(0.1, -1, 1)).toBe(0);
+    expect(applyRadialMultiplierRate(0, -1, 1)).toBe(0);
+    expect(applyRadialMultiplierRate(0, 1, 1)).toBe(3);
+  });
+
   it("rolls continuously across the antimeridian and over a pole", () => {
     let frame = contactFrame(0, 179.9);
     frame = rollContactFrame(
