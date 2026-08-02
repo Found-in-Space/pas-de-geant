@@ -509,7 +509,11 @@ function updatePresentation(): void {
     focalLengthPixels: view.focalLengthPixels,
     footprint: view.footprint,
   });
-  atmosphere.update(state.radialMultiplier);
+  atmosphere.update({
+    displayRadiusM: state.displayRadiusM,
+    radialMultiplier: state.radialMultiplier,
+    observerHeightWorldM: view.eyeHeightWorldM,
+  });
   coordinatesReadout.textContent = formatCoordinates(
     coordinates.latitudeDegrees,
     coordinates.longitudeDegrees,

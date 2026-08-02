@@ -4,12 +4,31 @@ import {
   contactFrame,
   geodeticSurfaceEcefKm,
   normalizedRadialOffsetForKilometres,
+  radialWorldMetresForKilometres,
 } from "./planet-state.js";
 
 export const ATMOSPHERE_TOP_KM = 100;
 
 const WIDTH_SEGMENTS = 96;
 const HEIGHT_SEGMENTS = 48;
+
+export interface AtmosphereView {
+  readonly displayRadiusM: number;
+  readonly radialMultiplier: number;
+  readonly observerHeightWorldM: number;
+}
+
+export function observerIsOutsideAtmosphere(
+  view: AtmosphereView,
+): boolean {
+  const atmosphereHeightWorldM = radialWorldMetresForKilometres(
+    ATMOSPHERE_TOP_KM,
+    view.displayRadiusM,
+    view.radialMultiplier,
+  );
+  return view.radialMultiplier > 0 &&
+    view.observerHeightWorldM > atmosphereHeightWorldM;
+}
 
 export function atmosphereSurfacePoint(
   latitudeDegrees: number,
@@ -122,12 +141,12 @@ export class AtmosphereLayer {
     this.mesh.frustumCulled = false;
   }
 
-  update(radialMultiplier: number): void {
-    this.mesh.visible = radialMultiplier > 0;
+  update(view: AtmosphereView): void {
+    this.mesh.visible = observerIsOutsideAtmosphere(view);
     this.mesh.material.uniforms.normalizedAtmosphereOffset!.value =
       normalizedRadialOffsetForKilometres(
         ATMOSPHERE_TOP_KM,
-        radialMultiplier,
+        view.radialMultiplier,
       );
   }
 }
