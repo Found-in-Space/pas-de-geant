@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { createReverseGeocodeMiddleware } from "./src/location-context-server.js";
 import { createRealtimeTokenMiddleware } from "./src/realtime-token-server.js";
 import { createExternalKnowledgeMiddleware } from "./src/external-knowledge-server.js";
+import { createSatelliteFeedMiddleware } from "./src/satellite-feed-server.js";
 
 export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, ".", "PAS_DE_GEANT_");
@@ -14,6 +15,7 @@ export default defineConfig(({ mode }) => {
     process.env.PAS_DE_GEANT_GEOCODER_URL ||
       serverEnvironment.PAS_DE_GEANT_GEOCODER_URL,
   );
+  const satelliteFeedMiddleware = createSatelliteFeedMiddleware();
   return {
     plugins: [
       {
@@ -22,11 +24,13 @@ export default defineConfig(({ mode }) => {
           server.middlewares.use(realtimeTokenMiddleware);
           server.middlewares.use(reverseGeocodeMiddleware);
           server.middlewares.use(externalKnowledgeMiddleware);
+          server.middlewares.use(satelliteFeedMiddleware);
         },
         configurePreviewServer(server) {
           server.middlewares.use(realtimeTokenMiddleware);
           server.middlewares.use(reverseGeocodeMiddleware);
           server.middlewares.use(externalKnowledgeMiddleware);
+          server.middlewares.use(satelliteFeedMiddleware);
         },
       },
     ],

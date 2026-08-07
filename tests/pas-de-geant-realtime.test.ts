@@ -304,6 +304,7 @@ describe("Pas de Géant Realtime voice agent", () => {
             properties?: {
               target?: { enum?: string[] };
               mode?: { enum?: string[] };
+              group?: { enum?: string[] };
             };
           };
         }>;
@@ -318,6 +319,7 @@ describe("Pas de Géant Realtime voice agent", () => {
       "set_user_location",
       "get_view_direction",
       "set_view_direction",
+      "set_satellite_group_visibility",
       "search_wikipedia",
       "search_web",
       "get_aircraft_display",
@@ -345,6 +347,9 @@ describe("Pas de Géant Realtime voice agent", () => {
     );
     expect(configuration.session.instructions).toContain(
       "set_aircraft_display to turn either one on or off",
+    );
+    expect(configuration.session.instructions).toContain(
+      "These are three independent groups",
     );
     expect(configuration.session.instructions).toContain(
       "call get_tile_planner_state",
@@ -408,6 +413,15 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.tools.find(
       ({ name }) => name === "set_tile_delta_zoom_cap",
     )?.description).toContain("N+1 bands");
+    const satelliteTool = configuration.session.tools.find(
+      ({ name }) => name === "set_satellite_group_visibility",
+    );
+    expect(satelliteTool?.parameters.required).toEqual(["group", "enabled"]);
+    expect(satelliteTool?.parameters.properties?.group?.enum).toEqual([
+      "brightest",
+      "space_stations",
+      "science_education",
+    ]);
     const recalculationTool = configuration.session.tools.find(
       ({ name }) => name === "set_tile_recalculation",
     );

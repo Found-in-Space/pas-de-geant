@@ -134,9 +134,9 @@ describe("Pas de Géant controller regressions", () => {
     expect(intent.radialAxis).toBeGreaterThan(0);
   });
 
-  it("does not clamp global scale or radial amplification", () => {
+  it("keeps global scale unbounded and radial amplification non-negative", () => {
     expect(applyLogarithmicScale(1, -1, 10)).toBeLessThan(1);
     expect(applyRadialMultiplierRate(20, 1, 1)).toBeGreaterThan(20);
-    expect(applyRadialMultiplierRate(0, -1, 1)).toBeLessThan(0);
+    expect(applyRadialMultiplierRate(0, -1, 1)).toBe(0);
   });
 });

@@ -182,7 +182,7 @@ input {
 .research-region {
   position: fixed;
   z-index: 8;
-  top: 260px;
+  top: 328px;
   left: 28px;
   width: min(320px, calc(100vw - 56px));
   padding: 12px 14px;
@@ -304,17 +304,18 @@ input {
   left: 28px;
 }
 
-.aircraft-options {
+.tracking-options {
   position: fixed;
   z-index: 9;
   bottom: 28px;
   left: 155px;
   display: flex;
-  gap: 6px;
   pointer-events: auto;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.aircraft-option {
+.tracking-option {
   display: flex;
   min-height: 41px;
   align-items: center;
@@ -329,13 +330,13 @@ input {
   backdrop-filter: blur(12px);
 }
 
-.aircraft-option:hover,
-.aircraft-option:focus-within {
+.tracking-option:hover,
+.tracking-option:focus-within {
   border-color: rgb(119 221 241 / 78%);
   color: white;
 }
 
-.aircraft-option input {
+.tracking-option input {
   width: 15px;
   height: 15px;
   margin: 0;
@@ -428,7 +429,7 @@ footer {
   }
 
   .research-region {
-    top: 245px;
+    top: 312px;
     left: 18px;
     width: min(290px, calc(100vw - 36px));
   }
@@ -446,9 +447,10 @@ footer {
     left: 18px;
   }
 
-  .aircraft-options {
+  .tracking-options {
     bottom: 66px;
     left: 18px;
+    max-width: calc(100vw - 36px);
   }
 
   footer {
