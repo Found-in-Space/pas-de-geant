@@ -63,6 +63,7 @@ import {
 
 const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 const SKIRT_DEPTH_WORLD_METRES = 0.02;
+const TRANSIENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
 /** Geometry LOD density; deliberately independent from imagery texel density. */
 export const TERRAIN_TARGET_SCREEN_PIXELS_PER_ELEVATION_PIXEL =
   DEFAULT_TERRAIN_SCREEN_PIXELS_PER_SOURCE_PIXEL;
@@ -556,6 +557,7 @@ export class TerrainSurface {
       provider: this.provider,
       hydrateInitialResources: false,
       retryDelayMs: 5_000,
+      retryMaxDelayMs: TRANSIENT_RETRY_MAX_DELAY_MS,
       initialResourceDemand: [],
     });
     this.snapshot = this.scheduler.snapshot;

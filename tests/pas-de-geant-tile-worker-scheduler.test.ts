@@ -484,4 +484,61 @@ describe("Tile worker scheduler bridge", () => {
       vi.useRealTimers();
     }
   });
+
+  it("backs off failed residency rounds and resets after demand succeeds", () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      const observers: Array<Parameters<TileProvider<string>["request"]>[1]> = [];
+      const provider: TileProvider<string> = {
+        request: (_tile, observer) => {
+          observers.push(observer);
+          return { requestId: observers.length, cancel() {} };
+        },
+      };
+      const scheduler = new TileWorkerScheduler(
+        layoutTarget(0),
+        {
+          provider,
+          createWorker: () => worker,
+          retryDelayMs: 250,
+          retryMaxDelayMs: 1_000,
+        },
+      );
+      const first = { z: 1, x: 0, y: 0 };
+      const second = { z: 1, x: 1, y: 0 };
+      worker.emit({
+        kind: "snapshot",
+        snapshot: snapshot(1, [first, second]),
+      });
+      scheduler.updateResourceDemand([first]);
+
+      observers[0]!({ phase: "failure", reason: "offline" });
+      expect(scheduler.debugState.retry).toEqual({
+        failed_rounds: 0,
+        scheduled_delay_ms: 250,
+      });
+      scheduler.updateResourceDemand([second]);
+      expect(observers).toHaveLength(1);
+      vi.advanceTimersByTime(250);
+      expect(observers).toHaveLength(2);
+
+      observers[1]!({ phase: "failure", reason: "still offline" });
+      expect(scheduler.debugState.retry).toEqual({
+        failed_rounds: 1,
+        scheduled_delay_ms: 500,
+      });
+      vi.advanceTimersByTime(500);
+      expect(observers).toHaveLength(3);
+
+      observers[2]!({ phase: "response", resource: "loaded" });
+      expect(scheduler.debugState.retry).toEqual({
+        failed_rounds: 0,
+        scheduled_delay_ms: null,
+      });
+      scheduler.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -4,6 +4,7 @@ import {
   selectImageryZoom,
 } from "../apps/pas-de-geant/src/imagery-core.js";
 import {
+  ImageryFineTileGate,
   ImageryWorkerClient,
   ScheduledImageryProvider,
   imageryLayerUploadPlan,
@@ -73,6 +74,43 @@ function reconcileForTest(
 }
 
 describe("independent photographic imagery pipeline", () => {
+  it("loads one coarser imagery level while moving, then refines after settling", () => {
+    const initial = {
+      displayRadiusM: 1_000,
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+    };
+    const gate = new ImageryFineTileGate(initial);
+
+    expect(gate.targetZoom(initial, 13, 0, 0)).toBe(13);
+    const moved = { ...initial, longitudeDegrees: 0.01 };
+    expect(gate.targetZoom(moved, 13, 0, 100)).toBe(12);
+    expect(gate.targetZoom(moved, 13, 0, 849)).toBe(12);
+    expect(gate.targetZoom(moved, 13, 0, 850)).toBe(13);
+  });
+
+  it("accumulates slow travel instead of treating each small step as stillness", () => {
+    const initial = {
+      displayRadiusM: 1_000,
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+    };
+    const gate = new ImageryFineTileGate(initial);
+
+    expect(gate.targetZoom(
+      { ...initial, longitudeDegrees: 0.003 },
+      13,
+      0,
+      100,
+    )).toBe(13);
+    expect(gate.targetZoom(
+      { ...initial, longitudeDegrees: 0.006 },
+      13,
+      0,
+      200,
+    )).toBe(12);
+  });
+
   it("builds a complete padded mip chain with averaged pixels through 1 x 1", () => {
     const base = new Uint8Array([
       0, 10, 20, 255, 20, 30, 40, 255, 40, 50, 60, 255, 60, 70, 80, 255,
@@ -890,17 +928,63 @@ describe("independent photographic imagery pipeline", () => {
     const fillers = Array.from({ length: 5 }, (_, index) =>
       scheduled.request({ z: 3, x: index + 1, y: 2 }, () => {}),
     );
-    const queued = scheduled.request({ z: 3, x: 7, y: 7 }, () => {});
+    const cancelledQueued = scheduled.request(
+      { z: 3, x: 6, y: 7 },
+      () => {},
+    );
+    const nextQueued = scheduled.request({ z: 3, x: 7, y: 7 }, () => {});
 
     expect(started).toHaveLength(6);
+    cancelledQueued.cancel();
     first.cancel();
     expect(started[0]!.aborted).toBe(false);
     shared.cancel();
     expect(started[0]!.aborted).toBe(true);
-    queued.cancel();
-    await Promise.resolve();
-    expect(started).toHaveLength(6);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(started).toHaveLength(7);
+    nextQueued.cancel();
     for (const handle of fillers) handle.cancel();
+    scheduled.dispose();
+  });
+
+  it("does not start planned imagery jobs after a systemic failure", async () => {
+    const pending: Array<{
+      resolve(blob: Blob): void;
+      reject(error: unknown): void;
+    }> = [];
+    const failures: number[] = [];
+    const provider: ImageryProvider = {
+      id: "systemic-failure-fixture",
+      attribution: "fixture",
+      tileSize: 512,
+      minZoom: 3,
+      maxZoom: 3,
+      load: async () =>
+        await new Promise<Blob>((resolve, reject) => {
+          pending.push({ resolve, reject });
+        }),
+    };
+    const scheduled = new ScheduledImageryProvider(
+      provider,
+      async () => new Uint8Array([1, 2, 3, 4]),
+    );
+    for (let index = 0; index < 8; index += 1) {
+      scheduled.request({ z: 3, x: index, y: 0 }, (result) => {
+        if (result.phase === "failure") failures.push(index);
+      });
+    }
+
+    expect(pending).toHaveLength(6);
+    pending[0]!.reject(new TypeError("Failed to fetch"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(pending).toHaveLength(6);
+    expect(scheduled.metrics).toMatchObject({ queued: 0, sourceLoadTotal: 6 });
+    expect(failures).toEqual(expect.arrayContaining([0, 6, 7]));
+    for (const load of pending.slice(1)) load.resolve(
+      new Blob(["image"], { type: "image/png" }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
     scheduled.dispose();
   });
 

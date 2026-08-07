@@ -78,6 +78,19 @@ export { normalizedMercatorYForLatitude } from "./imagery-core.js";
 const IMAGERY_GUTTER_PIXELS = 8;
 const MAX_CONCURRENT_REQUESTS = 6;
 const MAX_UPLOADS_PER_FRAME = 2;
+const FINE_IMAGERY_SETTLE_MS = 750;
+const IMAGERY_MOVEMENT_THRESHOLD_M = 0.1;
+const TRANSIENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
+
+function shouldStopQueuedImagery(error: unknown): boolean {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError"
+  ) return false;
+  return !(error instanceof ImageryRequestError) || error.kind === "transient";
+}
 
 export function stitchImageryGutter(
   pixels: Uint8Array,
@@ -140,6 +153,70 @@ export interface ImageryCoordinateBounds {
   readonly east: number;
   readonly north: number;
   readonly south: number;
+}
+
+function surfaceMovementM(
+  first: Pick<ImageryView, "latitudeDegrees" | "longitudeDegrees">,
+  second: ImageryView,
+): number {
+  const radians = Math.PI / 180;
+  const firstLatitude = first.latitudeDegrees * radians;
+  const secondLatitude = second.latitudeDegrees * radians;
+  const latitudeDelta = secondLatitude - firstLatitude;
+  const rawLongitudeDelta =
+    (second.longitudeDegrees - first.longitudeDegrees) * radians;
+  const longitudeDelta =
+    ((rawLongitudeDelta + Math.PI) % (Math.PI * 2) + Math.PI * 2) %
+      (Math.PI * 2) - Math.PI;
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(firstLatitude) * Math.cos(secondLatitude) *
+      Math.sin(longitudeDelta / 2) ** 2;
+  const angle = 2 * Math.atan2(
+    Math.sqrt(Math.max(0, haversine)),
+    Math.sqrt(Math.max(0, 1 - haversine)),
+  );
+  return angle * Math.max(0.001, second.displayRadiusM);
+}
+
+/** Holds back only the finest imagery level while the observer is moving. */
+export class ImageryFineTileGate {
+  private anchor?: Pick<ImageryView, "latitudeDegrees" | "longitudeDegrees">;
+  private lastMovementMs: number | undefined;
+
+  constructor(initialView?: ImageryView) {
+    if (initialView) this.anchor = {
+      latitudeDegrees: initialView.latitudeDegrees,
+      longitudeDegrees: initialView.longitudeDegrees,
+    };
+  }
+
+  targetZoom(
+    view: ImageryView,
+    desiredZoom: number,
+    minimumZoom: number,
+    nowMs: number,
+  ): number {
+    if (!this.anchor) {
+      this.anchor = {
+        latitudeDegrees: view.latitudeDegrees,
+        longitudeDegrees: view.longitudeDegrees,
+      };
+    } else if (
+      surfaceMovementM(this.anchor, view) >= IMAGERY_MOVEMENT_THRESHOLD_M
+    ) {
+      this.anchor = {
+        latitudeDegrees: view.latitudeDegrees,
+        longitudeDegrees: view.longitudeDegrees,
+      };
+      this.lastMovementMs = nowMs;
+    }
+    const settling = this.lastMovementMs !== undefined &&
+      Math.max(0, nowMs - this.lastMovementMs) < FINE_IMAGERY_SETTLE_MS;
+    return settling
+      ? Math.max(minimumZoom, desiredZoom - 1)
+      : desiredZoom;
+  }
 }
 
 /** Geographic topology target; imagery source clamping remains downstream. */
@@ -475,7 +552,12 @@ export class ScheduledImageryProvider
       void this.loadSource(job.sourceTile, job.controller.signal)
         .then(
           (result) => this.completeJob(job, result),
-          (error: unknown) => this.failJob(job, error),
+          (error: unknown) => {
+            this.failJob(job, error);
+            if (shouldStopQueuedImagery(error)) {
+              this.failQueuedJobs(error);
+            }
+          },
         )
         .finally(() => {
           this.activeJobCount -= 1;
@@ -524,6 +606,12 @@ export class ScheduledImageryProvider
           : {}),
       });
     }
+  }
+
+  /** A systemic failure should not drain planned work into the same outage. */
+  private failQueuedJobs(error: unknown): void {
+    const queued = this.queuedJobs.splice(0);
+    for (const job of queued) this.failJob(job, error);
   }
 
   private async loadSource(
@@ -923,6 +1011,7 @@ export class ImageryVirtualTexture {
   private snapshot: SchedulerSnapshot<TileLayoutTarget>;
   private target: TileLayoutTarget;
   private desiredZoom: number | undefined;
+  private readonly fineTileGate: ImageryFineTileGate;
   private desiredSourceKeySet = new Set<string>();
   private nextPoolGeneration = 1;
   private hotKeys = new Set<string>();
@@ -959,6 +1048,7 @@ export class ImageryVirtualTexture {
           tilePixels: imageryProvider.tileSize,
         })
       : 0;
+    this.fineTileGate = new ImageryFineTileGate(initialView);
     this.target = imageryTargetForView(initialView, zoom);
     this.snapshot = initialSnapshot(this.target);
     this.tileSize = imageryProvider?.tileSize ?? 1;
@@ -1020,6 +1110,7 @@ export class ImageryVirtualTexture {
         provider: this.provider,
         hydrateInitialResources: false,
         retryDelayMs: 5_000,
+        retryMaxDelayMs: TRANSIENT_RETRY_MAX_DELAY_MS,
         initialResourceDemand: [],
       });
       this.snapshot = this.scheduler.snapshot;
@@ -1079,12 +1170,18 @@ export class ImageryVirtualTexture {
         this.debugControls.screenPixelsPerSourcePixel,
       maxTopologyZoom: this.debugControls.maxZoom,
     });
-    const target = imageryTargetForView(view, zoom);
+    this.desiredZoom = zoom;
+    const targetZoom = this.fineTileGate.targetZoom(
+      view,
+      zoom,
+      this.provider.source.minZoom,
+      performance.now(),
+    );
+    const target = imageryTargetForView(view, targetZoom);
     if (tileLayoutTargetNeedsSubmission(this.target, target)) {
       this.target = target;
       this.scheduler.updateTarget(target);
     }
-    this.desiredZoom = zoom;
     this.residencyInput = residencyInput ?? {
       underfoot: view,
       footprint: [],

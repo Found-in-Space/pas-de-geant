@@ -30,8 +30,10 @@ export interface TileWorkerSchedulerOptions<Resource> {
   readonly createWorker?: () => TileSchedulerWorker;
   readonly hydrateInitialResources?: boolean;
   readonly provider: TileProvider<Resource>;
-  /** Optional retry cadence for transient provider failures. */
+  /** Base retry cadence for transient provider failures. */
   readonly retryDelayMs?: number;
+  /** When set above the base cadence, failed retry rounds back off to this. */
+  readonly retryMaxDelayMs?: number;
   /** Demand known before the worker can emit its initial hydration requests. */
   readonly initialResourceDemand?: Iterable<TileIdentity>;
 }
@@ -51,6 +53,10 @@ export interface TileWorkerSchedulerDebugState {
   readonly target_submission: {
     readonly pending: boolean;
     readonly in_flight: boolean;
+  };
+  readonly retry: {
+    readonly failed_rounds: number;
+    readonly scheduled_delay_ms: number | null;
   };
 }
 
@@ -98,6 +104,8 @@ export class TileWorkerScheduler<Resource> {
   private targetFlushQueued = false;
   private disposed = false;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  private retryAttempt = 0;
+  private retryScheduledDelayMs: number | undefined;
   private snapshotValue: SchedulerSnapshot<TileLayoutTarget>;
 
   constructor(
@@ -163,6 +171,10 @@ export class TileWorkerScheduler<Resource> {
         pending: this.pendingTarget !== undefined,
         in_flight: this.targetInFlight,
       },
+      retry: {
+        failed_rounds: this.retryAttempt,
+        scheduled_delay_ms: this.retryScheduledDelayMs ?? null,
+      },
     };
   }
 
@@ -214,6 +226,7 @@ export class TileWorkerScheduler<Resource> {
       changed = true;
     }
     this.hydrateDemandedCommitted();
+    this.resetRetryIfSatisfied();
     if (changed) this.notifyResourceChange();
   }
 
@@ -251,6 +264,7 @@ export class TileWorkerScheduler<Resource> {
     this.resources.clear();
     this.listeners.clear();
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
+    this.retryScheduledDelayMs = undefined;
     this.worker.terminate();
   }
 
@@ -309,6 +323,18 @@ export class TileWorkerScheduler<Resource> {
       });
       return;
     }
+    if (this.retryTimer !== undefined) {
+      this.worker.postMessage({
+        kind: "resource-result",
+        key: message.key,
+        requestId: message.requestId,
+        result: {
+          phase: "failure",
+          reason: "Tile provider retry backoff is active.",
+        },
+      });
+      return;
+    }
     const old = this.requests.get(message.key);
     old?.handle?.cancel();
     const provisional: ActiveBridgeRequest = {
@@ -323,8 +349,10 @@ export class TileWorkerScheduler<Resource> {
       if (!active || active.requestId !== message.requestId || this.disposed)
         return;
       if (result.phase === "in-flight") active.phase = "in-flight";
-      if (result.phase === "response")
+      if (result.phase === "response") {
         this.resources.set(message.key, result.resource);
+        this.resetRetryIfSatisfied();
+      }
       this.worker.postMessage({
         kind: "resource-result",
         key: message.key,
@@ -367,6 +395,7 @@ export class TileWorkerScheduler<Resource> {
       this.requests.delete(key);
       if (result.phase === "response") {
         this.resources.set(key, result.resource);
+        this.resetRetryIfSatisfied();
         this.notifyResourceChange();
       } else {
         this.scheduleRetry();
@@ -386,7 +415,7 @@ export class TileWorkerScheduler<Resource> {
   }
 
   private hydrateDemandedCommitted(): void {
-    if (!this.demandedResources) return;
+    if (!this.demandedResources || this.retryTimer !== undefined) return;
     const demandedResources = this.demandedResources;
     const hydrate = (tile: TileIdentity): void => {
       const key = tileIdentityKey(tile);
@@ -441,11 +470,40 @@ export class TileWorkerScheduler<Resource> {
   }
 
   private scheduleRetry(): void {
-    const delay = this.options.retryDelayMs;
-    if (delay === undefined || delay < 0 || this.retryTimer !== undefined) return;
+    const baseDelay = this.options.retryDelayMs;
+    if (
+      baseDelay === undefined ||
+      baseDelay < 0 ||
+      this.retryTimer !== undefined
+    ) return;
+    const configuredMaximum = this.options.retryMaxDelayMs;
+    const maximumDelay = configuredMaximum === undefined ||
+        !Number.isFinite(configuredMaximum)
+      ? baseDelay
+      : Math.max(baseDelay, configuredMaximum);
+    const delay = Math.min(
+      maximumDelay,
+      baseDelay * 2 ** Math.min(this.retryAttempt, 52),
+    );
+    this.retryScheduledDelayMs = delay;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;
+      this.retryScheduledDelayMs = undefined;
+      this.retryAttempt += 1;
       if (!this.disposed) this.retryFailed();
     }, delay);
+  }
+
+  private resetRetryIfSatisfied(): void {
+    if (
+      this.demandedResources &&
+      [...this.demandedResources].some((key) => !this.resources.has(key))
+    ) return;
+    this.retryAttempt = 0;
+    this.retryScheduledDelayMs = undefined;
+    if (this.retryTimer !== undefined) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = undefined;
+    }
   }
 }
