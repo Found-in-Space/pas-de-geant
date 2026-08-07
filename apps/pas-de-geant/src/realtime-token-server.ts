@@ -30,9 +30,19 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
         "step at a time. After using a tool, summarize only the result the user " +
         "needs. The position shown by the app is the place under " +
         "the user’s feet. Use get_user_location before answering questions that " +
-        "depend on the current position. Its result may include a named_location " +
-        "with country-level detail at wide globe scales and locality detail at " +
-        "close scales; do not invent a place when named_location is null. When " +
+        "depend on the current position. Its latitude_degrees and " +
+        "longitude_degrees are the authoritative high-precision live app " +
+        "position in WGS 84. named_location is a detailed but approximate " +
+        "reverse-geocode of the nearest mapped feature; do not replace the live " +
+        "coordinates with values inferred from its label, and do not invent a " +
+        "place when named_location is null. Use get_view_direction before " +
+        "reporting the current compass heading. Use set_view_direction with " +
+        "mode relative for requests such as look right, left, or behind: positive " +
+        "degrees turn clockwise/right and negative degrees turn left. Treat an " +
+        "unqualified look right or left as a 90-degree turn and behind as 180 " +
+        "degrees. Use mode " +
+        "absolute for compass directions and requests such as rotate view to 270 " +
+        "degrees, where 0 is north, 90 east, 180 south, and 270 west. When " +
         "the user asks to go, move, " +
         "travel, or teleport to a place and you know reasonable coordinates, use " +
         "set_user_location. Be clear when coordinates are approximate. " +
@@ -69,8 +79,9 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
           type: "function",
           name: "get_user_location",
           description:
-            "Read the coordinates, display scale, and scale-appropriate named " +
-            "location currently under the user’s feet.",
+            "Read the authoritative high-precision WGS 84 coordinates, display " +
+            "scale, and detailed approximate reverse-geocoded place context " +
+            "currently under the user’s feet.",
           parameters: { type: "object", properties: {}, additionalProperties: false },
         },
         {
@@ -95,6 +106,37 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
               },
             },
             required: ["latitude_degrees", "longitude_degrees"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "get_view_direction",
+          description:
+            "Read the direction the user is looking as a compass heading in degrees clockwise from geographic north.",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+        {
+          type: "function",
+          name: "set_view_direction",
+          description:
+            "Rotate the virtual world around the user. Use absolute to face a compass heading (0 north, 90 east, 180 south, 270 west), or relative to turn by signed degrees (positive clockwise/right, negative left).",
+          parameters: {
+            type: "object",
+            properties: {
+              mode: {
+                type: "string",
+                enum: ["absolute", "relative"],
+                description:
+                  "Whether degrees is a compass heading or a signed relative turn.",
+              },
+              degrees: {
+                type: "number",
+                description:
+                  "Compass heading for absolute mode, or signed clockwise turn for relative mode.",
+              },
+            },
+            required: ["mode", "degrees"],
             additionalProperties: false,
           },
         },

@@ -61,8 +61,8 @@ import {
 } from "./planet-state.js";
 import { resolveInitialLocation } from "./initial-location.js";
 import {
+  AGENT_LOCATION_DETAIL,
   fetchNamedLocationContext,
-  locationDetailForDisplayRadius,
 } from "./location-context.js";
 import {
   parseLocationToolArguments,
@@ -88,6 +88,14 @@ import {
   intersectEllipsoidRay,
   type GeographicPoint,
 } from "./view-residency.js";
+import {
+  geographicTravelFromWorld,
+  geographicViewHeadingDegrees,
+  normalizeHeadingDegrees,
+  parseViewDirectionToolArguments,
+  viewHeadingDegreesFromQuaternion,
+  worldRotationForViewDirection,
+} from "./view-direction.js";
 
 interface PasDeGeantDebugApi {
   help(): Record<string, string>;
@@ -423,14 +431,19 @@ const headsetFloorPosition = new THREE.Vector2();
 const xrHeadPosition = new THREE.Vector3();
 const xrViewQuaternion = new THREE.Quaternion();
 const desktopTravel = new THREE.Vector2();
+const geographicTravel = new THREE.Vector2();
 const keys = new Set<string>();
 const buttonLatch = freshButtonLatch();
+const worldRotationQuaternion = new THREE.Quaternion();
+const worldRotationPivot = new THREE.Vector3();
+const worldUp = new THREE.Vector3(0, 1, 0);
 let handPanelVisible = true;
 let handPanelNorthDirection: HandPanelDirection = { x: 0, y: -1 };
 let pointerActive = false;
 let pointerX = 0;
 let pointerY = 0;
 let yaw = 0;
+let worldRotationRadians = 0;
 const benchmarkPitch = Number(benchmarkParameters.get("benchmarkPitch"));
 let pitch = Number.isFinite(benchmarkPitch)
   ? Math.max(-1.35, Math.min(1.1, benchmarkPitch))
@@ -462,6 +475,45 @@ function setUserLocation(
   previousXrHead = null;
   updatePresentation();
   return coordinatesForFrame(state.contact);
+}
+
+const viewDirectionQuaternion = new THREE.Quaternion();
+
+function viewWorldHeadingDegrees(): number {
+  const viewCamera = renderer.xr.isPresenting
+    ? renderer.xr.getCamera()
+    : camera;
+  viewCamera.updateWorldMatrix(true, false);
+  viewCamera.getWorldQuaternion(viewDirectionQuaternion);
+  return viewHeadingDegreesFromQuaternion(viewDirectionQuaternion);
+}
+
+function viewDirectionState(): Record<string, unknown> {
+  const viewWorldHeading = viewWorldHeadingDegrees();
+  return {
+    heading_degrees: geographicViewHeadingDegrees(
+      viewWorldHeading,
+      worldRotationRadians,
+    ),
+    reference: "clockwise from geographic north",
+  };
+}
+
+function setViewDirection(argumentsValue: unknown): Record<string, unknown> {
+  const command = parseViewDirectionToolArguments(argumentsValue);
+  const viewWorldHeading = viewWorldHeadingDegrees();
+  worldRotationRadians = worldRotationForViewDirection(
+    worldRotationRadians,
+    viewWorldHeading,
+    command,
+  );
+  updatePresentation();
+  return {
+    ok: true,
+    mode: command.mode,
+    requested_degrees: command.degrees,
+    ...viewDirectionState(),
+  };
 }
 
 function setTileOverlayVisible(visible: boolean): void {
@@ -584,8 +636,20 @@ function terrainViewMetrics(): {
 function updatePresentation(): void {
   const coordinates = coordinatesForFrame(state.contact);
   const pose = solvePlanetPose(state, headsetFloorPosition);
-  planetRoot.quaternion.copy(pose.earthToWorld);
-  planetRoot.position.copy(pose.centre);
+  worldRotationQuaternion.setFromAxisAngle(worldUp, worldRotationRadians);
+  worldRotationPivot.set(
+    headsetFloorPosition.x,
+    0,
+    headsetFloorPosition.y,
+  );
+  planetRoot.quaternion
+    .copy(pose.earthToWorld)
+    .premultiply(worldRotationQuaternion);
+  planetRoot.position
+    .copy(pose.centre)
+    .sub(worldRotationPivot)
+    .applyQuaternion(worldRotationQuaternion)
+    .add(worldRotationPivot);
   planetRoot.scale.setScalar(state.displayRadiusM);
   const view = terrainViewMetrics();
   document.body.dataset.displayScale = state.displayRadiusM.toFixed(2);
@@ -711,17 +775,19 @@ const voiceAgent = new RealtimeVoiceAgent({
   tools: {
     async get_user_location() {
       const coordinates = coordinatesForFrame(state.contact);
-      const detail = locationDetailForDisplayRadius(state.displayRadiusM);
       const namedLocation = await fetchNamedLocationContext(
         coordinates.latitudeDegrees,
         coordinates.longitudeDegrees,
-        detail,
+        AGENT_LOCATION_DETAIL,
       );
       return {
         latitude_degrees: coordinates.latitudeDegrees,
         longitude_degrees: coordinates.longitudeDegrees,
+        coordinate_reference_system: "WGS 84",
+        coordinate_source: "live app position under the user’s feet",
         display_scale_factor: state.displayRadiusM,
-        location_detail: detail,
+        location_detail: AGENT_LOCATION_DETAIL,
+        named_location_is_approximate: namedLocation !== undefined,
         named_location: namedLocation ?? null,
       };
     },
@@ -736,6 +802,12 @@ const voiceAgent = new RealtimeVoiceAgent({
         latitude_degrees: coordinates.latitudeDegrees,
         longitude_degrees: coordinates.longitudeDegrees,
       };
+    },
+    get_view_direction() {
+      return viewDirectionState();
+    },
+    set_view_direction(argumentsValue) {
+      return setViewDirection(argumentsValue);
     },
     async search_wikipedia(argumentsValue) {
       const { query } = parseKnowledgeSearchArguments(argumentsValue);
@@ -909,7 +981,11 @@ function updatePhysicalWalking(): void {
     if (displacement.length() < 0.4) {
       state.contact = rollContactFrame(
         state.contact,
-        displacement,
+        geographicTravelFromWorld(
+          displacement,
+          worldRotationRadians,
+          geographicTravel,
+        ),
         state.displayRadiusM,
       );
     }
@@ -928,7 +1004,11 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
   if (travel.lengthSq() > 0) {
     state.contact = rollContactFrame(
       state.contact,
-      travel,
+      geographicTravelFromWorld(
+        travel,
+        worldRotationRadians,
+        geographicTravel,
+      ),
       state.displayRadiusM,
     );
   }
@@ -969,7 +1049,11 @@ function updateDesktopControls(deltaSeconds: number): void {
       );
     state.contact = rollContactFrame(
       state.contact,
-      travel,
+      geographicTravelFromWorld(
+        travel,
+        worldRotationRadians,
+        geographicTravel,
+      ),
       state.displayRadiusM,
     );
   }
@@ -1181,6 +1265,7 @@ interface BenchmarkRestoreState {
   readonly radialMultiplier: number;
   readonly pitchRadians: number;
   readonly yawRadians: number;
+  readonly worldRotationRadians: number;
   readonly tileControls: TileDebugControlsReadback;
   readonly tileOverlayVisible: boolean;
   readonly textureTileOverlayVisible: boolean;
@@ -1216,7 +1301,14 @@ function debugControlState(): Record<string, unknown> {
     location: coordinates,
     displayRadiusM: state.displayRadiusM,
     radialMultiplier: state.radialMultiplier,
-    view: { pitchRadians: pitch, yawRadians: yaw },
+    view: {
+      pitchRadians: pitch,
+      yawRadians: yaw,
+      worldRotationRadians,
+      worldRotationDegrees: normalizeHeadingDegrees(
+        worldRotationRadians * 180 / Math.PI,
+      ),
+    },
     tileControls: terrain.getTileDebugControls(),
     overlays: {
       terrain: tileOverlayVisible,
@@ -1347,6 +1439,7 @@ function captureBenchmarkRestoreState(): BenchmarkRestoreState {
     radialMultiplier: state.radialMultiplier,
     pitchRadians: pitch,
     yawRadians: yaw,
+    worldRotationRadians,
     tileControls: terrain.getTileDebugControls(),
     tileOverlayVisible,
     textureTileOverlayVisible,
@@ -1478,6 +1571,7 @@ const debugApi: PasDeGeantDebugApi = {
     state.radialMultiplier = radialMultiplier;
     pitch = 0;
     yaw = 0;
+    worldRotationRadians = 0;
     camera.rotation.set(0, 0, 0);
     terrain.setTilePixelRatio({
       target: "terrain",
@@ -1524,6 +1618,7 @@ const debugApi: PasDeGeantDebugApi = {
     state.radialMultiplier = restore.radialMultiplier;
     pitch = restore.pitchRadians;
     yaw = restore.yawRadians;
+    worldRotationRadians = restore.worldRotationRadians;
     camera.rotation.set(pitch, yaw, 0);
     applyTileControlReadback(restore.tileControls);
     setTileOverlayVisible(restore.tileOverlayVisible);

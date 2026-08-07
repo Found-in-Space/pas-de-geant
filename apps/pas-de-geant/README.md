@@ -187,6 +187,18 @@ The local server also performs cached OpenStreetMap Nominatim reverse lookups
 for the guide. The upstream endpoint can be replaced with
 `PAS_DE_GEANT_GEOCODER_URL`.
 
+Location questions give the guide the unrounded live WGS 84 latitude and
+longitude underfoot, plus an address-level reverse lookup with mapped feature,
+road, neighbourhood, locality, region, country, and water details when
+available. The coordinates remain authoritative because the nearest mapped
+feature returned by reverse geocoding is approximate.
+
+The guide can also rotate the virtual world around the observer. For example,
+say “look right”, “look left”, “look behind”, “face west”, or “rotate the view
+to 270 degrees”. Absolute headings use compass bearings clockwise from north;
+relative turns keep controller travel and physical walking aligned with the
+rotated world.
+
 ### Voice research tools
 
 The guide can look up external facts without sending arbitrary URLs from the

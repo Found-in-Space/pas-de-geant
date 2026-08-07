@@ -1,19 +1,25 @@
-export type LocationContextDetail = "country" | "locality";
+export type LocationContextDetail = "address";
 
 export interface NamedLocationContext {
+  display_name?: string;
+  name?: string;
+  category?: string;
+  feature_type?: string;
+  house_number?: string;
+  road?: string;
+  neighbourhood?: string;
+  suburb?: string;
+  district?: string;
+  postcode?: string;
+  county?: string;
   country?: string;
   country_code?: string;
   region?: string;
   locality?: string;
+  water?: string;
 }
 
-export const LOCALITY_DETAIL_SCALE = 1_000;
-
-export function locationDetailForDisplayRadius(
-  displayRadiusM: number,
-): LocationContextDetail {
-  return displayRadiusM < LOCALITY_DETAIL_SCALE ? "country" : "locality";
-}
+export const AGENT_LOCATION_DETAIL: LocationContextDetail = "address";
 
 export async function fetchNamedLocationContext(
   latitudeDegrees: number,

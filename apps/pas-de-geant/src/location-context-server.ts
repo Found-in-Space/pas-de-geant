@@ -13,6 +13,17 @@ const GEOCODER_USER_AGENT =
 const MINIMUM_REQUEST_INTERVAL_MS = 1_000;
 
 interface NominatimAddress {
+  house_number?: string;
+  road?: string;
+  pedestrian?: string;
+  footway?: string;
+  cycleway?: string;
+  neighbourhood?: string;
+  quarter?: string;
+  suburb?: string;
+  city_district?: string;
+  borough?: string;
+  postcode?: string;
   country?: string;
   country_code?: string;
   region?: string;
@@ -24,9 +35,17 @@ interface NominatimAddress {
   town?: string;
   village?: string;
   hamlet?: string;
+  ocean?: string;
+  sea?: string;
+  water?: string;
 }
 
 interface NominatimResponse {
+  name?: string;
+  display_name?: string;
+  category?: string;
+  type?: string;
+  addresstype?: string;
   address?: NominatimAddress;
 }
 
@@ -61,7 +80,7 @@ export function parseReverseGeocodeRequest(
   if (
     latitudeDegrees === undefined ||
     longitudeDegrees === undefined ||
-    (detail !== "country" && detail !== "locality")
+    detail !== "address"
   ) {
     return undefined;
   }
@@ -76,9 +95,9 @@ export async function requestReverseGeocode(
   const url = new URL(geocoderUrl);
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("addressdetails", "1");
-  url.searchParams.set("layer", "address");
+  url.searchParams.set("layer", "address,poi,natural,manmade");
   url.searchParams.set("accept-language", "en");
-  url.searchParams.set("zoom", request.detail === "country" ? "3" : "12");
+  url.searchParams.set("zoom", "18");
   url.searchParams.set("lat", String(request.latitudeDegrees));
   url.searchParams.set("lon", String(request.longitudeDegrees));
   const response = await fetchImplementation(url, {
@@ -89,26 +108,40 @@ export async function requestReverseGeocode(
   });
   if (!response.ok) return undefined;
   const payload = (await response.json()) as NominatimResponse;
-  const address = payload.address;
-  if (!address?.country) return undefined;
+  const address = payload.address ?? {};
   const result: NamedLocationContext = {
+    display_name: payload.display_name,
+    name: payload.name,
+    category: payload.category,
+    feature_type: payload.addresstype ?? payload.type,
+    house_number: address.house_number,
+    road:
+      address.road ??
+      address.pedestrian ??
+      address.footway ??
+      address.cycleway,
+    neighbourhood: address.neighbourhood ?? address.quarter,
+    suburb: address.suburb,
+    district: address.city_district ?? address.borough,
+    postcode: address.postcode,
+    county: address.county,
     country: address.country,
     country_code: address.country_code?.toUpperCase(),
-  };
-  if (request.detail === "locality") {
-    result.region =
+    region:
       address.state ??
       address.region ??
-      address.state_district ??
-      address.county;
-    result.locality =
+      address.state_district,
+    locality:
       address.city ??
       address.town ??
       address.village ??
       address.municipality ??
-      address.hamlet;
-  }
-  return result;
+      address.hamlet,
+    water: address.ocean ?? address.sea ?? address.water,
+  };
+  return Object.values(result).some((value) => value !== undefined)
+    ? result
+    : undefined;
 }
 
 function requestHost(request: IncomingMessage): string | undefined {
@@ -118,15 +151,6 @@ function requestHost(request: IncomingMessage): string | undefined {
       ?.split(",")[0]
       ?.trim() ?? request.headers.host
   );
-}
-
-function roundedRequest(request: ReverseGeocodeRequest): ReverseGeocodeRequest {
-  const decimals = request.detail === "country" ? 1 : 2;
-  return {
-    ...request,
-    latitudeDegrees: Number(request.latitudeDegrees.toFixed(decimals)),
-    longitudeDegrees: Number(request.longitudeDegrees.toFixed(decimals)),
-  };
 }
 
 export function createReverseGeocodeMiddleware(
@@ -187,12 +211,11 @@ export function createReverseGeocodeMiddleware(
       response.end(JSON.stringify({ error: "Invalid location query." }));
       return;
     }
-    const lookup = roundedRequest(parsed);
-    const cacheKey = JSON.stringify(lookup);
+    const cacheKey = JSON.stringify(parsed);
     try {
       let result = cache.get(cacheKey);
       if (result === undefined) {
-        result = (await scheduleLookup(lookup)) ?? null;
+        result = (await scheduleLookup(parsed)) ?? null;
         cache.set(cacheKey, result);
       }
       if (!result) {

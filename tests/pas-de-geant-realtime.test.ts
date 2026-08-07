@@ -1,12 +1,10 @@
+import { Euler, Quaternion, Vector2 } from "three";
 import { describe, expect, it, vi } from "vitest";
 import {
   parseLocationToolArguments,
   RealtimeVoiceAgent,
   type RealtimeAgentStatus,
 } from "../apps/pas-de-geant/src/realtime-agent.js";
-import {
-  locationDetailForDisplayRadius,
-} from "../apps/pas-de-geant/src/location-context.js";
 import {
   parseReverseGeocodeRequest,
   requestReverseGeocode,
@@ -16,6 +14,13 @@ import {
   realtimeSessionConfiguration,
   requestRealtimeClientSecret,
 } from "../apps/pas-de-geant/src/realtime-token-server.js";
+import {
+  geographicTravelFromWorld,
+  geographicViewHeadingDegrees,
+  parseViewDirectionToolArguments,
+  viewHeadingDegreesFromQuaternion,
+  worldRotationForViewDirection,
+} from "../apps/pas-de-geant/src/view-direction.js";
 
 function createRealtimeEventHarness(
   tools: ConstructorParameters<typeof RealtimeVoiceAgent>[0]["tools"] = {},
@@ -47,37 +52,44 @@ function createRealtimeEventHarness(
 }
 
 describe("Pas de Géant Realtime voice agent", () => {
-  it("uses country detail below 1000x and locality detail from 1000x", () => {
-    expect(locationDetailForDisplayRadius(999.99)).toBe("country");
-    expect(locationDetailForDisplayRadius(1_000)).toBe("locality");
-  });
-
-  it("validates and resolves scale-appropriate reverse geocoding", async () => {
+  it("validates and resolves precise, descriptive reverse geocoding", async () => {
     expect(
       parseReverseGeocodeRequest(
-        new URL("http://local/api/location/reverse?lat=52.37&lon=4.9&detail=locality"),
+        new URL("http://local/api/location/reverse?lat=52.370216123&lon=4.895168456&detail=address"),
       ),
     ).toEqual({
-      latitudeDegrees: 52.37,
-      longitudeDegrees: 4.9,
-      detail: "locality",
+      latitudeDegrees: 52.370216123,
+      longitudeDegrees: 4.895168456,
+      detail: "address",
     });
     expect(
       parseReverseGeocodeRequest(
-        new URL("http://local/api/location/reverse?lat=91&lon=4.9&detail=locality"),
+        new URL("http://local/api/location/reverse?lat=91&lon=4.9&detail=address"),
       ),
     ).toBeUndefined();
 
     let capturedUrl = "";
     let capturedHeaders: HeadersInit | undefined;
     const result = await requestReverseGeocode(
-      { latitudeDegrees: 52.37, longitudeDegrees: 4.9, detail: "locality" },
+      {
+        latitudeDegrees: 52.370216123,
+        longitudeDegrees: 4.895168456,
+        detail: "address",
+      },
       async (input, init) => {
         capturedUrl = String(input);
         capturedHeaders = init?.headers;
         return new Response(
           JSON.stringify({
+            name: "Dam Square",
+            display_name:
+              "Dam Square, Centrum, Amsterdam, North Holland, Netherlands",
+            category: "place",
+            addresstype: "square",
             address: {
+              road: "Dam",
+              neighbourhood: "Burgwallen Nieuwe Zijde",
+              postcode: "1012 JS",
               city: "Amsterdam",
               state: "North Holland",
               country: "Netherlands",
@@ -87,15 +99,32 @@ describe("Pas de Géant Realtime voice agent", () => {
         );
       },
     );
-    expect(new URL(capturedUrl).searchParams.get("zoom")).toBe("12");
+    const lookupUrl = new URL(capturedUrl);
+    expect(lookupUrl.searchParams.get("zoom")).toBe("18");
+    expect(lookupUrl.searchParams.get("lat")).toBe("52.370216123");
+    expect(lookupUrl.searchParams.get("lon")).toBe("4.895168456");
+    expect(lookupUrl.searchParams.get("layer")).toContain("natural");
     expect(capturedHeaders).toMatchObject({
       "User-Agent": expect.stringContaining("Pas-de-Geant"),
     });
     expect(result).toEqual({
+      display_name:
+        "Dam Square, Centrum, Amsterdam, North Holland, Netherlands",
+      name: "Dam Square",
+      category: "place",
+      feature_type: "square",
+      house_number: undefined,
+      road: "Dam",
+      neighbourhood: "Burgwallen Nieuwe Zijde",
+      suburb: undefined,
+      district: undefined,
+      postcode: "1012 JS",
+      county: undefined,
       country: "Netherlands",
       country_code: "NL",
       region: "North Holland",
       locality: "Amsterdam",
+      water: undefined,
     });
   });
 
@@ -112,6 +141,51 @@ describe("Pas de Géant Realtime voice agent", () => {
         longitude_degrees: 2.3522,
       }),
     ).toThrow("Latitude");
+  });
+
+  it("maps absolute and relative voice turns onto geographic headings", () => {
+    expect(parseViewDirectionToolArguments({
+      mode: "relative",
+      degrees: 90,
+    })).toEqual({ mode: "relative", degrees: 90 });
+    expect(() => parseViewDirectionToolArguments({
+      mode: "sideways",
+      degrees: 90,
+    })).toThrow("mode");
+
+    const headsetQuaternion = new Quaternion().setFromEuler(
+      new Euler(-0.6, -Math.PI / 2, 0, "YXZ"),
+    );
+    const headsetWorldHeading = viewHeadingDegreesFromQuaternion(
+      headsetQuaternion,
+    );
+    expect(headsetWorldHeading).toBeCloseTo(90);
+
+    let worldRotation = worldRotationForViewDirection(
+      0,
+      headsetWorldHeading,
+      { mode: "absolute", degrees: 270 },
+    );
+    expect(
+      geographicViewHeadingDegrees(headsetWorldHeading, worldRotation),
+    ).toBeCloseTo(270);
+    worldRotation = worldRotationForViewDirection(
+      worldRotation,
+      headsetWorldHeading,
+      { mode: "relative", degrees: 90 },
+    );
+    expect(
+      geographicViewHeadingDegrees(headsetWorldHeading, worldRotation),
+    ).toBeCloseTo(0);
+  });
+
+  it("keeps travel aligned with the world after a voice rotation", () => {
+    const geographicTravel = geographicTravelFromWorld(
+      new Vector2(-1, 0),
+      Math.PI / 2,
+    );
+    expect(geographicTravel.x).toBeCloseTo(0);
+    expect(geographicTravel.y).toBeCloseTo(-1);
   });
 
   it("serializes a tool continuation behind a VAD-created response", async () => {
@@ -227,7 +301,10 @@ describe("Pas de Géant Realtime voice agent", () => {
           description: string;
           parameters: {
             required?: string[];
-            properties?: { target?: { enum?: string[] } };
+            properties?: {
+              target?: { enum?: string[] };
+              mode?: { enum?: string[] };
+            };
           };
         }>;
       };
@@ -239,6 +316,8 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.tools.map((tool) => tool.name)).toEqual([
       "get_user_location",
       "set_user_location",
+      "get_view_direction",
+      "set_view_direction",
       "search_wikipedia",
       "search_web",
       "get_tile_debug_controls",
@@ -280,6 +359,17 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.instructions).toContain(
       "If a follow-up needs more detail, run a narrower search",
     );
+    const viewDirectionTool = configuration.session.tools.find(
+      ({ name }) => name === "set_view_direction",
+    );
+    expect(viewDirectionTool?.parameters.required).toEqual([
+      "mode",
+      "degrees",
+    ]);
+    expect(viewDirectionTool?.parameters.properties?.mode?.enum).toEqual([
+      "absolute",
+      "relative",
+    ]);
     for (const name of ["search_wikipedia", "search_web"]) {
       const tool = configuration.session.tools.find((candidate) =>
         candidate.name === name
