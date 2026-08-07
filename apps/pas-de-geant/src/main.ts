@@ -62,6 +62,7 @@ import {
   applyRadialMultiplierRate,
   coordinatesForFrame,
   EARTH_MEAN_RADIUS_KM,
+  geodeticSurfaceEcefKm,
   horizontalWorldMetresForKilometres,
   initialPlanetState,
   INITIAL_DISPLAY_RADIUS_M,
@@ -329,6 +330,24 @@ scene.add(planetRoot);
 
 const celestialSphere = new CelestialSphere();
 scene.add(celestialSphere.object3d);
+const textureLoader = new THREE.TextureLoader();
+textureLoader.load(
+  `${import.meta.env.BASE_URL}lroc-color-2k.jpg`,
+  (texture) => {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.anisotropy = Math.min(
+      4,
+      renderer.capabilities.getMaxAnisotropy(),
+    );
+    celestialSphere.setMoonTexture(texture);
+  },
+  undefined,
+  (error) => {
+    console.warn("LRO Moon texture is unavailable:", error);
+  },
+);
 document.body.dataset.starStatus = "loading";
 document.body.dataset.starCount = "0";
 void celestialSphere.load().then((result) => {
@@ -339,7 +358,7 @@ void celestialSphere.load().then((result) => {
   }
 });
 
-const blueMarbleTexture = await new THREE.TextureLoader().loadAsync(
+const blueMarbleTexture = await textureLoader.loadAsync(
   `${import.meta.env.BASE_URL}bluemarble-2048.png`,
 );
 blueMarbleTexture.colorSpace = THREE.SRGBColorSpace;
@@ -2138,6 +2157,7 @@ if (import.meta.env.DEV || benchmarkParameters.get("debug") === "1") {
 }
 
 const cameraWorldPosition = new THREE.Vector3();
+const celestialObserverAppEcefKm = new THREE.Vector3();
 function render(nowMs: number): void {
   const applicationStartMs = performance.now();
   const xrFrameRate = renderer.xr.getSession()?.frameRate;
@@ -2171,10 +2191,20 @@ function render(nowMs: number): void {
     ? renderer.xr.getCamera()
     : camera;
   viewCamera.getWorldPosition(cameraWorldPosition);
+  const observerCoordinates = coordinatesForFrame(state.contact);
+  geodeticSurfaceEcefKm(
+    observerCoordinates.latitudeDegrees,
+    observerCoordinates.longitudeDegrees,
+    celestialObserverAppEcefKm,
+  ).addScaledVector(
+    state.contact.upEcef,
+    cameraWorldPosition.y / 1_000,
+  );
   celestialSphere.update(
     planetRoot.quaternion,
     cameraWorldPosition,
     utcMilliseconds,
+    celestialObserverAppEcefKm,
   );
   updateHandPanel(nowMs);
   if (renderingEnabled) renderer.render(scene, camera);
@@ -2192,6 +2222,7 @@ window.addEventListener("beforeunload", () => {
   }
   for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
   terrain.dispose();
+  celestialSphere.dispose();
   handPanel.dispose();
   handPanelRuntime.dispose();
 });

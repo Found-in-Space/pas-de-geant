@@ -140,6 +140,7 @@ export function earthToWorldQuaternion(frame: ContactFrame): Quaternion {
 export function geodeticSurfaceEcefKm(
   latitudeDegrees: number,
   longitudeDegrees: number,
+  target = new Vector3(),
 ): Vector3 {
   const latitude = latitudeDegrees * Math.PI / 180;
   const longitude = longitudeDegrees * Math.PI / 180;
@@ -150,7 +151,7 @@ export function geodeticSurfaceEcefKm(
   const primeVerticalRadius =
     WGS84_A_KM /
     Math.sqrt(1 - eccentricitySquared * sineLatitude * sineLatitude);
-  return new Vector3(
+  return target.set(
     primeVerticalRadius * cosineLatitude * Math.cos(longitude),
     primeVerticalRadius * (1 - eccentricitySquared) * sineLatitude,
     -primeVerticalRadius * cosineLatitude * Math.sin(longitude),
