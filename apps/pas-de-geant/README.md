@@ -165,23 +165,25 @@ The URL and attribution are required together. Source tiles retain their
 native dimensions, requests never exceed the provider maximum zoom, and deep
 draw levels crop the corresponding source ancestor.
 
-When the configured source is MapTiler `satellite-v2`, the two photographic
-tile paths can be compared without changing the environment or duplicating its
-API key:
+When the configured source is MapTiler `satellite-v2`, the application uses
+MapTiler Satellite Plain's 256 px raster endpoint by default while preserving
+the configured key and attribution:
 
-- `?imageryVariant=maptiler-512` explicitly selects the configured 512 px raw
-  source and is equivalent to omitting the parameter;
-- `?imageryVariant=maptiler-256` derives MapTiler Satellite Plain's 256 px
-  raster endpoint while preserving the configured key and attribution.
+- the default and `?imageryVariant=maptiler-256` use 256 px raster tiles;
+- `?imageryVariant=maptiler-512` remains available as an explicit diagnostic
+  override for the configured 512 px raw source.
 
 For example, compare
 `http://127.0.0.1:4197/?imageryVariant=maptiler-512` with
 `http://127.0.0.1:4197/?imageryVariant=maptiler-256`. The photographic tile
 onion remains 8 by 8 in both cases. Its source-pixel size is supplied to the
 existing imagery zoom selector, and each variant has a distinct provider and
-request URL so their pages cannot share cache identity. The launch page also
-provides large A/B links beside the Enter VR button, so the variant can be
-selected without editing the URL.
+request URL so their pages cannot share cache identity.
+
+Successful MapTiler imagery responses are retained in a per-user browser cache
+so revisiting an area or reloading the page does not request the same tile
+again. Cache Storage failure falls back to the provider without blocking
+imagery.
 
 Mapterhorn publishes its endpoint and source-level attribution at
 <https://mapterhorn.com/data-access/> and

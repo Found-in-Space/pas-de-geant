@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  mapTilerImageryVariantUrl,
   selectedMapTilerImageryVariant,
   selectImageryVariant,
-  supportsMapTilerImageryVariants,
 } from "../apps/pas-de-geant/src/imagery-variants.js";
 import type { XyzImageryConfiguration } from "../apps/pas-de-geant/src/imagery-provider.js";
 
@@ -17,7 +15,7 @@ const configuredMapTiler: XyzImageryConfiguration = {
   maxZoom: 22,
 };
 
-describe("imagery A/B configuration", () => {
+describe("imagery tile-size configuration", () => {
   it("derives the 256 px MapTiler variant without losing credentials or coverage", () => {
     const selected = selectImageryVariant(
       configuredMapTiler,
@@ -32,7 +30,6 @@ describe("imagery A/B configuration", () => {
       maxZoom: configuredMapTiler.maxZoom,
     });
     expect(selected.id).not.toBe(configuredMapTiler.id);
-    expect(supportsMapTilerImageryVariants(configuredMapTiler)).toBe(true);
     expect(decodeURIComponent(selectedUrl.pathname)).toBe(
       "/maps/satellite-v4/256/{z}/{x}/{y}.jpg",
     );
@@ -41,10 +38,8 @@ describe("imagery A/B configuration", () => {
     );
   });
 
-  it("leaves the configured provider intact for A, unknown values, and unrelated XYZ sources", () => {
+  it("keeps 512 as an explicit override and leaves unrelated sources intact", () => {
     expect(selectImageryVariant(configuredMapTiler, "maptiler-512"))
-      .toBe(configuredMapTiler);
-    expect(selectImageryVariant(configuredMapTiler, "future-experiment"))
       .toBe(configuredMapTiler);
 
     const unrelated = {
@@ -52,23 +47,14 @@ describe("imagery A/B configuration", () => {
       urlTemplate: "https://imagery.example/{z}/{x}/{y}.jpg?key=test-key",
     };
     expect(selectImageryVariant(unrelated, "maptiler-256")).toBe(unrelated);
-    expect(supportsMapTilerImageryVariants(unrelated)).toBe(false);
+    expect(selectImageryVariant(unrelated, null)).toBe(unrelated);
   });
 
-  it("builds clickable variants without discarding other launch options", () => {
-    const currentUrl =
-      "https://example.test/?benchmarkScale=120&imageryVariant=maptiler-512#launch";
-    const targetUrl = new URL(
-      mapTilerImageryVariantUrl(currentUrl, "maptiler-256"),
-    );
-
-    expect(targetUrl.searchParams.get("benchmarkScale")).toBe("120");
-    expect(targetUrl.searchParams.get("imageryVariant")).toBe("maptiler-256");
-    expect(targetUrl.hash).toBe("#launch");
-    expect(selectedMapTilerImageryVariant(null)).toBe("maptiler-512");
-    expect(selectedMapTilerImageryVariant("unexpected")).toBe("maptiler-512");
-    expect(selectedMapTilerImageryVariant("maptiler-256")).toBe(
+  it("defaults missing and unknown selections to 256 px", () => {
+    expect(selectedMapTilerImageryVariant(null)).toBe("maptiler-256");
+    expect(selectedMapTilerImageryVariant("unexpected")).toBe(
       "maptiler-256",
     );
+    expect(selectImageryVariant(configuredMapTiler, null).tileSize).toBe(256);
   });
 });

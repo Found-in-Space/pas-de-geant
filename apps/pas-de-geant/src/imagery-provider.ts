@@ -32,6 +32,24 @@ export interface XyzImageryConfiguration {
   maxZoom?: number;
 }
 
+export const MAPTILER_IMAGERY_CACHE_NAME =
+  "pas-de-geant-maptiler-imagery-v1";
+
+export interface ImageryResponseCache {
+  match(request: RequestInfo | URL): Promise<Response | undefined>;
+  put(request: RequestInfo | URL, response: Response): Promise<void>;
+  delete(request: RequestInfo | URL): Promise<boolean>;
+}
+
+export interface ImageryCacheStorage {
+  open(cacheName: string): Promise<ImageryResponseCache>;
+}
+
+export interface XyzImageryProviderOptions {
+  cacheStorage?: ImageryCacheStorage | null;
+  fetcher?: typeof fetch;
+}
+
 declare global {
   interface Window {
     __PAS_DE_GEANT_IMAGERY_CONFIG__?: XyzImageryConfiguration;
@@ -50,6 +68,47 @@ export class ImageryRequestError extends Error {
   }
 }
 
+function browserCacheStorage(): ImageryCacheStorage | null {
+  return typeof caches === "undefined" ? null : caches;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function abortError(): Error {
+  if (typeof DOMException === "function") {
+    return new DOMException("The imagery request was aborted.", "AbortError");
+  }
+  const error = new Error("The imagery request was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+function ensureNotAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw abortError();
+}
+
+function isMapTilerUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname === "api.maptiler.com";
+  } catch {
+    return false;
+  }
+}
+
+async function imageBlob(response: Response): Promise<Blob> {
+  const blob = await response.blob();
+  if (blob.size === 0 || !blob.type.toLowerCase().startsWith("image/")) {
+    throw new ImageryRequestError(
+      "The imagery response is not an image.",
+      "malformed",
+    );
+  }
+  return blob;
+}
+
 export class XyzImageryProvider implements ImageryProvider {
   readonly id: string;
   readonly attribution: string;
@@ -57,7 +116,10 @@ export class XyzImageryProvider implements ImageryProvider {
   readonly minZoom: number;
   readonly maxZoom: number;
 
-  constructor(private readonly configuration: XyzImageryConfiguration) {
+  constructor(
+    private readonly configuration: XyzImageryConfiguration,
+    private readonly options: XyzImageryProviderOptions = {},
+  ) {
     if (
       !configuration.urlTemplate.includes("{z}") ||
       !configuration.urlTemplate.includes("{x}") ||
@@ -98,7 +160,35 @@ export class XyzImageryProvider implements ImageryProvider {
       .replaceAll("{z}", String(address.z))
       .replaceAll("{x}", String(address.x))
       .replaceAll("{y}", String(address.y));
-    const response = await fetch(url, {
+    const cacheStorage = this.options.cacheStorage === undefined
+      ? browserCacheStorage()
+      : this.options.cacheStorage;
+    let cache: ImageryResponseCache | undefined;
+    if (cacheStorage && isMapTilerUrl(url)) {
+      try {
+        cache = await cacheStorage.open(MAPTILER_IMAGERY_CACHE_NAME);
+        ensureNotAborted(signal);
+        const cached = await cache.match(url);
+        ensureNotAborted(signal);
+        if (cached?.ok) {
+          try {
+            const blob = await imageBlob(cached);
+            ensureNotAborted(signal);
+            return blob;
+          } catch (error) {
+            if (isAbortError(error)) throw error;
+            await cache.delete(url);
+          }
+        } else if (cached) {
+          await cache.delete(url);
+        }
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+        cache = undefined;
+      }
+    }
+
+    const response = await (this.options.fetcher ?? fetch)(url, {
       cache: "default",
       mode: "cors",
       signal,
@@ -110,12 +200,16 @@ export class XyzImageryProvider implements ImageryProvider {
         response.status,
       );
     }
-    const blob = await response.blob();
-    if (!blob.type.toLowerCase().startsWith("image/")) {
-      throw new ImageryRequestError(
-        "The imagery response is not an image.",
-        "malformed",
-      );
+    const responseForCache = cache ? response.clone() : undefined;
+    const blob = await imageBlob(response);
+    ensureNotAborted(signal);
+    if (cache && responseForCache) {
+      try {
+        await cache.put(url, responseForCache);
+        ensureNotAborted(signal);
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+      }
     }
     return blob;
   }

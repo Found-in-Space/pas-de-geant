@@ -26,27 +26,12 @@ function configuredMapTilerSatelliteUrl(
   }
 }
 
-export function supportsMapTilerImageryVariants(
-  configuration: XyzImageryConfiguration,
-): boolean {
-  return configuredMapTilerSatelliteUrl(configuration) !== undefined;
-}
-
 export function selectedMapTilerImageryVariant(
   requestedVariant: string | null | undefined,
 ): MapTilerImageryVariant {
-  return requestedVariant === MAPTILER_256_VARIANT
-    ? MAPTILER_256_VARIANT
-    : MAPTILER_512_VARIANT;
-}
-
-export function mapTilerImageryVariantUrl(
-  currentUrl: string | URL,
-  variant: MapTilerImageryVariant,
-): string {
-  const targetUrl = new URL(String(currentUrl));
-  targetUrl.searchParams.set(MAPTILER_IMAGERY_VARIANT_PARAMETER, variant);
-  return targetUrl.href;
+  return requestedVariant === MAPTILER_512_VARIANT
+    ? MAPTILER_512_VARIANT
+    : MAPTILER_256_VARIANT;
 }
 
 /**
@@ -58,7 +43,9 @@ export function selectImageryVariant(
   configuration: XyzImageryConfiguration,
   requestedVariant: string | null | undefined,
 ): XyzImageryConfiguration {
-  if (requestedVariant !== MAPTILER_256_VARIANT) return configuration;
+  if (
+    selectedMapTilerImageryVariant(requestedVariant) !== MAPTILER_256_VARIANT
+  ) return configuration;
 
   const configuredUrl = configuredMapTilerSatelliteUrl(configuration);
   if (!configuredUrl) return configuration;

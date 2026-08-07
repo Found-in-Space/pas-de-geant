@@ -49,13 +49,8 @@ import {
   imageryConfiguration,
 } from "./imagery-configuration.js";
 import {
-  mapTilerImageryVariantUrl,
-  MAPTILER_256_VARIANT,
-  MAPTILER_512_VARIANT,
   MAPTILER_IMAGERY_VARIANT_PARAMETER,
-  selectedMapTilerImageryVariant,
   selectImageryVariant,
-  supportsMapTilerImageryVariants,
 } from "./imagery-variants.js";
 import {
   applyLogarithmicScale,
@@ -189,26 +184,6 @@ const element = <T extends HTMLElement>(id: string): T => {
 
 const sceneRoot = element<HTMLDivElement>("scene-root");
 const benchmarkParameters = new URLSearchParams(window.location.search);
-const imageryVariantSelector = element<HTMLElement>(
-  "imagery-variant-selector",
-);
-const activeImageryVariant = selectedMapTilerImageryVariant(
-  benchmarkParameters.get(MAPTILER_IMAGERY_VARIANT_PARAMETER),
-);
-for (const link of document.querySelectorAll<HTMLAnchorElement>(
-  "[data-imagery-variant]",
-)) {
-  const variant = link.dataset.imageryVariant;
-  if (variant !== MAPTILER_512_VARIANT && variant !== MAPTILER_256_VARIANT) {
-    continue;
-  }
-  link.href = mapTilerImageryVariantUrl(window.location.href, variant);
-  if (variant === activeImageryVariant) {
-    link.setAttribute("aria-current", "page");
-  } else {
-    link.removeAttribute("aria-current");
-  }
-}
 const vrSlot = element<HTMLDivElement>("vr-slot");
 const loadingState = element<HTMLDivElement>("loading-state");
 const errorState = element<HTMLDivElement>("error-state");
@@ -372,9 +347,6 @@ blueMarbleTexture.anisotropy = Math.min(
 );
 
 const baseImageryConfiguration = imageryConfiguration();
-const imageryVariantsAvailable = baseImageryConfiguration !== undefined &&
-  supportsMapTilerImageryVariants(baseImageryConfiguration);
-imageryVariantSelector.hidden = !imageryVariantsAvailable;
 const selectedImageryConfiguration = baseImageryConfiguration
   ? selectImageryVariant(
       baseImageryConfiguration,
