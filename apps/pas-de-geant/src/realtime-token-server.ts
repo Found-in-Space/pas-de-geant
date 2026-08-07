@@ -53,7 +53,10 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
         "a search, speak the substantive answer in one or two sentences and " +
         "optionally name one or two relevant source titles; never read URLs " +
         "aloud. If a follow-up needs more detail, run a narrower search. Keep " +
-        "fetched external facts distinct from live app state. For tile " +
+        "fetched external facts distinct from live app state. Use " +
+        "get_aircraft_display before reporting whether live aircraft symbols " +
+        "or radar labels are enabled. Use set_aircraft_display to turn either " +
+        "one on or off without changing the other. For tile " +
         "debugging, call get_tile_debug_controls before reporting current values. " +
         "For questions about tile loading, replanning, waiting, queued or " +
         "in-flight work, transition completion, or scheduler health, call " +
@@ -173,6 +176,31 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
               },
             },
             required: ["query"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "get_aircraft_display",
+          description:
+            "Read whether live aircraft symbols and radar-style information labels are enabled, plus the current nearby aircraft count.",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+        {
+          type: "function",
+          name: "set_aircraft_display",
+          description:
+            "Turn live aircraft symbols or their radar-style information labels on or off without changing the other display setting.",
+          parameters: {
+            type: "object",
+            properties: {
+              target: {
+                type: "string",
+                enum: ["aircraft", "labels"],
+              },
+              enabled: { type: "boolean" },
+            },
+            required: ["target", "enabled"],
             additionalProperties: false,
           },
         },

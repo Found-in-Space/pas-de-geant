@@ -320,6 +320,8 @@ describe("Pas de Géant Realtime voice agent", () => {
       "set_view_direction",
       "search_wikipedia",
       "search_web",
+      "get_aircraft_display",
+      "set_aircraft_display",
       "get_tile_debug_controls",
       "get_tile_planner_state",
       "set_tile_pixel_ratio",
@@ -334,6 +336,15 @@ describe("Pas de Géant Realtime voice agent", () => {
     );
     expect(configuration.session.instructions).toContain(
       "leave all unrelated controls unchanged",
+    );
+    expect(configuration.session.instructions).toContain(
+      "authoritative high-precision live app position",
+    );
+    expect(configuration.session.instructions).toContain(
+      "positive degrees turn clockwise/right",
+    );
+    expect(configuration.session.instructions).toContain(
+      "set_aircraft_display to turn either one on or off",
     );
     expect(configuration.session.instructions).toContain(
       "call get_tile_planner_state",
@@ -380,6 +391,17 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.tools.find(
       ({ name }) => name === "get_tile_planner_state",
     )?.description).toContain("source jobs are distinct layers");
+    const aircraftDisplayTool = configuration.session.tools.find(
+      ({ name }) => name === "set_aircraft_display",
+    );
+    expect(aircraftDisplayTool?.parameters.required).toEqual([
+      "target",
+      "enabled",
+    ]);
+    expect(aircraftDisplayTool?.parameters.properties?.target?.enum).toEqual([
+      "aircraft",
+      "labels",
+    ]);
     expect(configuration.session.tools.find(
       ({ name }) => name === "set_tile_view_distance",
     )?.description).toContain("loads the full current tile onion");

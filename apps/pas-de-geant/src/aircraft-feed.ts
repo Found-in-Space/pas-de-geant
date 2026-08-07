@@ -8,12 +8,16 @@ const EARTH_RADIUS_NM = 3_440.065;
 export interface TrackedAircraft {
   id: string;
   callsign: string;
+  aircraftType?: string;
   latitudeDegrees: number;
   longitudeDegrees: number;
   altitudeFt: number;
   groundSpeedKt: number;
   trackDegrees: number;
+  headingDegrees: number;
   trackRateDegreesPerSecond: number;
+  rollDegrees?: number;
+  verticalRateFeetPerMinute: number;
   sampledAtMs: number;
 }
 
@@ -80,22 +84,31 @@ export function parseAirplanesLive(
     if (altitudeValue === undefined || raw.alt_baro === "ground") continue;
 
     const seenSeconds = Math.max(0, finiteNumber(raw.seen_pos) ?? 0);
+    const trackDegrees =
+      finiteNumber(raw.track) ??
+      finiteNumber(raw.true_heading) ??
+      finiteNumber(raw.mag_heading) ??
+      0;
     parsed.push({
       id: id.toUpperCase(),
       callsign:
         trimmedString(raw.flight) ??
         trimmedString(raw.r) ??
         id.toUpperCase(),
+      aircraftType: trimmedString(raw.t),
       latitudeDegrees,
       longitudeDegrees,
       altitudeFt: altitudeValue,
       groundSpeedKt: Math.max(0, finiteNumber(raw.gs) ?? 0),
-      trackDegrees:
-        finiteNumber(raw.track) ??
+      trackDegrees,
+      headingDegrees:
         finiteNumber(raw.true_heading) ??
         finiteNumber(raw.mag_heading) ??
-        0,
+        trackDegrees,
       trackRateDegreesPerSecond: finiteNumber(raw.track_rate) ?? 0,
+      rollDegrees: finiteNumber(raw.roll),
+      verticalRateFeetPerMinute:
+        finiteNumber(raw.baro_rate) ?? finiteNumber(raw.geom_rate) ?? 0,
       sampledAtMs: receivedAtMs - seenSeconds * 1_000,
     });
   }
@@ -116,8 +129,19 @@ export function extrapolateAircraft(
   const finalTrack =
     aircraft.trackDegrees +
     aircraft.trackRateDegreesPerSecond * elapsedSeconds;
+  const finalHeading =
+    aircraft.headingDegrees +
+    aircraft.trackRateDegreesPerSecond * elapsedSeconds;
+  const finalAltitude =
+    aircraft.altitudeFt +
+    aircraft.verticalRateFeetPerMinute * elapsedSeconds / 60;
   if (elapsedSeconds === 0 || aircraft.groundSpeedKt === 0) {
-    return { ...aircraft, trackDegrees: normalizeDegrees(finalTrack) };
+    return {
+      ...aircraft,
+      altitudeFt: finalAltitude,
+      trackDegrees: normalizeDegrees(finalTrack),
+      headingDegrees: normalizeDegrees(finalHeading),
+    };
   }
 
   const meanTrack =
@@ -149,7 +173,9 @@ export function extrapolateAircraft(
     latitudeDegrees: nextLatitude * 180 / Math.PI,
     longitudeDegrees:
       ((nextLongitude * 180 / Math.PI + 180) % 360 + 360) % 360 - 180,
+    altitudeFt: finalAltitude,
     trackDegrees: normalizeDegrees(finalTrack),
+    headingDegrees: normalizeDegrees(finalHeading),
   };
 }
 

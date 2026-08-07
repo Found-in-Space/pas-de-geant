@@ -304,11 +304,17 @@ input {
   left: 28px;
 }
 
-.aircraft-option {
+.aircraft-options {
   position: fixed;
   z-index: 9;
   bottom: 28px;
   left: 155px;
+  display: flex;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.aircraft-option {
   display: flex;
   min-height: 41px;
   align-items: center;
@@ -440,7 +446,7 @@ footer {
     left: 18px;
   }
 
-  .aircraft-option {
+  .aircraft-options {
     bottom: 66px;
     left: 18px;
   }

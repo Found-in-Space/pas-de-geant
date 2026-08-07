@@ -89,10 +89,16 @@
       <button id="reset-button" class="utility-button reset-button" type="button">
         Reset view
       </button>
-      <label class="aircraft-option">
-        <input id="aircraft-toggle" type="checkbox">
-        <span>Live aircraft</span>
-      </label>
+      <div class="aircraft-options" aria-label="Live aircraft display">
+        <label class="aircraft-option">
+          <input id="aircraft-toggle" type="checkbox">
+          <span>Aircraft</span>
+        </label>
+        <label class="aircraft-option">
+          <input id="aircraft-labels-toggle" type="checkbox">
+          <span>Labels</span>
+        </label>
+      </div>
 
       <div id="loading-state" class="loading-state" role="status" aria-live="polite">
         <div class="loading-globe" aria-hidden="true"></div>

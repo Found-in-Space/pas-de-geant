@@ -16,7 +16,10 @@ import {
   fetchAirplanesLive,
 } from "./aircraft-feed.js";
 import { AircraftLayer } from "./aircraft-layer.js";
-import { shouldPollAircraft } from "./aircraft-lifecycle.js";
+import {
+  parseAircraftDisplayArguments,
+  shouldPollAircraft,
+} from "./aircraft-lifecycle.js";
 import { AtmosphereLayer } from "./atmosphere.js";
 import {
   controllerIntent,
@@ -205,6 +208,9 @@ const radialReadout = element<HTMLElement>("radial-readout");
 const aircraftReadout = element<HTMLElement>("aircraft-readout");
 const resetButton = element<HTMLButtonElement>("reset-button");
 const aircraftToggle = element<HTMLInputElement>("aircraft-toggle");
+const aircraftLabelsToggle = element<HTMLInputElement>(
+  "aircraft-labels-toggle",
+);
 const imageryAttribution = element<HTMLElement>("imagery-attribution");
 const researchRegion = element<HTMLElement>("research-region");
 const researchAnswer = element<HTMLParagraphElement>("research-answer");
@@ -496,6 +502,7 @@ let pitch = Number.isFinite(benchmarkPitch)
   : -0.55;
 camera.rotation.set(pitch, yaw, 0);
 let aircraftEnabled = false;
+let aircraftLabelsEnabled = false;
 let vrSessionActive = false;
 let aircraftCount = 0;
 let aircraftPollTimer: number | undefined;
@@ -872,6 +879,18 @@ const voiceAgent = new RealtimeVoiceAgent({
       showResearch(result.answer, result.sources);
       return result;
     },
+    get_aircraft_display() {
+      return aircraftDisplayState();
+    },
+    set_aircraft_display(argumentsValue) {
+      const display = parseAircraftDisplayArguments(argumentsValue);
+      if (display.target === "aircraft") {
+        setAircraftEnabled(display.enabled);
+      } else {
+        setAircraftLabelsEnabled(display.enabled);
+      }
+      return { ok: true, ...aircraftDisplayState() };
+    },
     get_tile_debug_controls() {
       return terrain.getTileDebugControls();
     },
@@ -1181,7 +1200,7 @@ function stopAircraftPolling(): void {
 function scheduleAircraftPoll(delayMs: number): void {
   if (
     !shouldPollAircraft({
-      enabled: aircraftEnabled,
+      enabled: aircraftEnabled || aircraftLabelsEnabled,
       vrSessionActive,
       documentVisible: !document.hidden,
       requestActive: false,
@@ -1198,7 +1217,7 @@ function scheduleAircraftPoll(delayMs: number): void {
 
 async function pollAircraft(): Promise<void> {
   if (!shouldPollAircraft({
-    enabled: aircraftEnabled,
+    enabled: aircraftEnabled || aircraftLabelsEnabled,
     vrSessionActive,
     documentVisible: !document.hidden,
     requestActive: aircraftRequest !== undefined,
@@ -1230,15 +1249,29 @@ async function pollAircraft(): Promise<void> {
   }
 }
 
-function setAircraftEnabled(enabled: boolean): void {
-  aircraftEnabled = enabled;
-  aircraftToggle.checked = enabled;
-  aircraftLayer.visible = enabled && vrSessionActive;
-  if (enabled && vrSessionActive) {
+function aircraftDisplayState(): Record<string, unknown> {
+  return {
+    aircraft_enabled: aircraftEnabled,
+    labels_enabled: aircraftLabelsEnabled,
+    vr_session_active: vrSessionActive,
+    aircraft_count: aircraftCount,
+  };
+}
+
+function syncAircraftDisplay(): void {
+  const displayEnabled = aircraftEnabled || aircraftLabelsEnabled;
+  aircraftLayer.symbolsVisible = aircraftEnabled;
+  aircraftLayer.labelsVisible = aircraftLabelsEnabled;
+  aircraftLayer.visible = displayEnabled && vrSessionActive;
+  document.body.dataset.aircraftEnabled = String(aircraftEnabled);
+  document.body.dataset.aircraftLabelsEnabled = String(
+    aircraftLabelsEnabled,
+  );
+  if (displayEnabled && vrSessionActive) {
     aircraftReadout.textContent =
       aircraftCount > 0 ? `${aircraftCount} nearby · cached` : "Connecting…";
     scheduleAircraftPoll(0);
-  } else if (enabled) {
+  } else if (displayEnabled) {
     stopAircraftPolling();
     aircraftReadout.textContent = "Ready for VR";
   } else {
@@ -1247,8 +1280,23 @@ function setAircraftEnabled(enabled: boolean): void {
   }
 }
 
+function setAircraftEnabled(enabled: boolean): void {
+  aircraftEnabled = enabled;
+  aircraftToggle.checked = enabled;
+  syncAircraftDisplay();
+}
+
+function setAircraftLabelsEnabled(enabled: boolean): void {
+  aircraftLabelsEnabled = enabled;
+  aircraftLabelsToggle.checked = enabled;
+  syncAircraftDisplay();
+}
+
 aircraftToggle.addEventListener("change", () => {
   setAircraftEnabled(aircraftToggle.checked);
+});
+aircraftLabelsToggle.addEventListener("change", () => {
+  setAircraftLabelsEnabled(aircraftLabelsToggle.checked);
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
@@ -1262,11 +1310,7 @@ const vrButton = VRButton.createButton(renderer);
 vrSlot.append(vrButton);
 renderer.xr.addEventListener("sessionstart", () => {
   vrSessionActive = true;
-  aircraftLayer.visible = aircraftEnabled;
-  if (aircraftEnabled) {
-    aircraftReadout.textContent = "Connecting…";
-    scheduleAircraftPoll(0);
-  }
+  syncAircraftDisplay();
   camera.position.set(0, 0, 0);
   camera.rotation.set(0, 0, 0);
   previousXrHead = null;
@@ -1282,7 +1326,7 @@ renderer.xr.addEventListener("sessionend", () => {
   handPanel.enabled = false;
   stopAircraftPolling();
   aircraftLayer.visible = false;
-  aircraftReadout.textContent = aircraftEnabled
+  aircraftReadout.textContent = aircraftEnabled || aircraftLabelsEnabled
     ? "Ready for VR"
     : "Off · optional";
   camera.position.set(0, 1.65, 0);
@@ -1904,4 +1948,5 @@ loadingState.hidden = true;
 errorState.hidden = true;
 aircraftLayer.visible = false;
 setAircraftEnabled(false);
+setAircraftLabelsEnabled(false);
 renderer.setAnimationLoop(render);

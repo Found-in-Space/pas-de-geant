@@ -5,7 +5,10 @@ import {
   parseAirplanesLive,
   type TrackedAircraft,
 } from "../apps/pas-de-geant/src/aircraft-feed.js";
-import { shouldPollAircraft } from "../apps/pas-de-geant/src/aircraft-lifecycle.js";
+import {
+  parseAircraftDisplayArguments,
+  shouldPollAircraft,
+} from "../apps/pas-de-geant/src/aircraft-lifecycle.js";
 
 describe("Pas de Géant aircraft regressions", () => {
   it("does not poll outside a visible, opted-in VR session", () => {
@@ -62,7 +65,11 @@ describe("Pas de Géant aircraft regressions", () => {
               alt_geom: 33_000,
               gs: 430,
               track: 91,
+              true_heading: 94,
               track_rate: 0.25,
+              roll: -4.5,
+              baro_rate: 1_200,
+              t: "B738",
               seen_pos: 1.5,
             },
             {
@@ -80,12 +87,16 @@ describe("Pas de Géant aircraft regressions", () => {
       {
         id: "484ABC",
         callsign: "KLM123",
+        aircraftType: "B738",
         latitudeDegrees: -33.86,
         longitudeDegrees: 151.2,
         altitudeFt: 32_000,
         groundSpeedKt: 430,
         trackDegrees: 91,
+        headingDegrees: 94,
         trackRateDegreesPerSecond: 0.25,
+        rollDegrees: -4.5,
+        verticalRateFeetPerMinute: 1_200,
         sampledAtMs: 8_500,
       },
     ]);
@@ -100,15 +111,34 @@ describe("Pas de Géant aircraft regressions", () => {
       altitudeFt: 10_000,
       groundSpeedKt: 360,
       trackDegrees: 90,
+      headingDegrees: 90,
       trackRateDegreesPerSecond: 1,
+      verticalRateFeetPerMinute: 600,
       sampledAtMs: 0,
     };
     const moving = extrapolateAircraft(aircraft, 10_000);
     expect(moving.longitudeDegrees).toBeGreaterThan(0);
     expect(moving.latitudeDegrees).toBeLessThan(0);
     expect(moving.trackDegrees).toBeCloseTo(100);
+    expect(moving.headingDegrees).toBeCloseTo(100);
+    expect(moving.altitudeFt).toBeCloseTo(10_100);
     expect(extrapolateAircraft(aircraft, 60_000)).toEqual(
       extrapolateAircraft(aircraft, AIRCRAFT_EXTRAPOLATION_LIMIT_MS),
     );
+  });
+
+  it("validates independent aircraft and label voice controls", () => {
+    expect(parseAircraftDisplayArguments({
+      target: "labels",
+      enabled: true,
+    })).toEqual({ target: "labels", enabled: true });
+    expect(() => parseAircraftDisplayArguments({
+      target: "traffic",
+      enabled: true,
+    })).toThrow("target");
+    expect(() => parseAircraftDisplayArguments({
+      target: "aircraft",
+      enabled: "yes",
+    })).toThrow("boolean");
   });
 });
