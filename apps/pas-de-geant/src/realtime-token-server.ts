@@ -36,6 +36,10 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
         "the user asks to go, move, " +
         "travel, or teleport to a place and you know reasonable coordinates, use " +
         "set_user_location. Be clear when coordinates are approximate. " +
+        "Use set_satellite_group_visibility when the user asks to show, hide, " +
+        "turn on, or turn off the brightest satellites, space stations, or " +
+        "science and education satellites. These are three independent groups, " +
+        "so change only the requested group. " +
         "Use search_wikipedia for stable encyclopedic or background topics. Use " +
         "search_web for current, recent, or niche information and whenever the " +
         "user explicitly asks to browse or search the web. Never claim to have " +
@@ -95,6 +99,28 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
               },
             },
             required: ["latitude_degrees", "longitude_degrees"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_satellite_group_visibility",
+          description:
+            "Turn one satellite group on or off without changing either of the other satellite groups.",
+          parameters: {
+            type: "object",
+            properties: {
+              group: {
+                type: "string",
+                enum: [
+                  "brightest",
+                  "space_stations",
+                  "science_education",
+                ],
+              },
+              enabled: { type: "boolean" },
+            },
+            required: ["group", "enabled"],
             additionalProperties: false,
           },
         },

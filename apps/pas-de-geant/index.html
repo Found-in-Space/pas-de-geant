@@ -40,6 +40,10 @@
           <span>Live aircraft</span>
           <strong id="aircraft-readout">Off · optional</strong>
         </div>
+        <div>
+          <span>Satellites</span>
+          <strong id="satellite-readout">All groups off</strong>
+        </div>
       </section>
 
       <section
@@ -69,10 +73,24 @@
       <button id="reset-button" class="utility-button reset-button" type="button">
         Reset view
       </button>
-      <label class="aircraft-option">
-        <input id="aircraft-toggle" type="checkbox">
-        <span>Live aircraft</span>
-      </label>
+      <div class="tracking-options" aria-label="Optional tracked objects">
+        <label class="tracking-option">
+          <input id="aircraft-toggle" type="checkbox">
+          <span>Live aircraft</span>
+        </label>
+        <label class="tracking-option satellite-visual-option">
+          <input id="satellite-visual-toggle" type="checkbox">
+          <span>Brightest satellites</span>
+        </label>
+        <label class="tracking-option satellite-stations-option">
+          <input id="satellite-stations-toggle" type="checkbox">
+          <span>Space stations</span>
+        </label>
+        <label class="tracking-option satellite-science-option">
+          <input id="satellite-science-education-toggle" type="checkbox">
+          <span>Science / education</span>
+        </label>
+      </div>
 
       <div id="loading-state" class="loading-state" role="status" aria-live="polite">
         <div class="loading-globe" aria-hidden="true"></div>
@@ -90,7 +108,8 @@
         Copernicus GLO-30 ·
         Imagery: embedded NASA Blue Marble<span id="imagery-attribution"></span>
         · Stars: Found in Space SkyKit,
-        Gaia DR3 / Hipparcos · Aircraft: Airplanes.live · Approximate
+        Gaia DR3 / Hipparcos · Aircraft: Airplanes.live · Satellites:
+        <a href="https://celestrak.org/">CelesTrak</a> · Approximate
         location: <a href="https://www.geojs.io/">GeoJS</a> · Named locations:
         <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>
       </footer>

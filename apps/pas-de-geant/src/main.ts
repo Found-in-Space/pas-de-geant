@@ -85,6 +85,16 @@ import {
   summarizeResourceTimings,
 } from "./runtime-debug.js";
 import {
+  fetchSatelliteGroup,
+  SATELLITE_REFRESH_INTERVAL_MS,
+} from "./satellite-feed.js";
+import {
+  parseSatelliteVisibilityArguments,
+  SATELLITE_GROUPS,
+  type SatelliteGroupId,
+} from "./satellite-groups.js";
+import { SatelliteLayer } from "./satellite-layer.js";
+import {
   intersectEllipsoidRay,
   type GeographicPoint,
 } from "./view-residency.js";
@@ -164,8 +174,16 @@ const coordinatesReadout = element<HTMLElement>("coordinates");
 const scaleReadout = element<HTMLElement>("scale-readout");
 const radialReadout = element<HTMLElement>("radial-readout");
 const aircraftReadout = element<HTMLElement>("aircraft-readout");
+const satelliteReadout = element<HTMLElement>("satellite-readout");
 const resetButton = element<HTMLButtonElement>("reset-button");
 const aircraftToggle = element<HTMLInputElement>("aircraft-toggle");
+const satelliteToggles: Record<SatelliteGroupId, HTMLInputElement> = {
+  visual: element<HTMLInputElement>("satellite-visual-toggle"),
+  stations: element<HTMLInputElement>("satellite-stations-toggle"),
+  "science-education": element<HTMLInputElement>(
+    "satellite-science-education-toggle",
+  ),
+};
 const imageryAttribution = element<HTMLElement>("imagery-attribution");
 const researchRegion = element<HTMLElement>("research-region");
 const researchAnswer = element<HTMLParagraphElement>("research-answer");
@@ -322,6 +340,8 @@ const terrain = new TerrainSurface({
 planetRoot.add(terrain.group);
 const aircraftLayer = new AircraftLayer();
 planetRoot.add(aircraftLayer.group);
+const satelliteLayer = new SatelliteLayer();
+planetRoot.add(satelliteLayer.group);
 
 const atmosphere = new AtmosphereLayer();
 planetRoot.add(atmosphere.mesh);
@@ -441,6 +461,45 @@ let vrSessionActive = false;
 let aircraftCount = 0;
 let aircraftPollTimer: number | undefined;
 let aircraftRequest: AbortController | undefined;
+
+interface SatelliteGroupRuntime {
+  enabled: boolean;
+  count: number;
+  fetchedAtMs: number;
+  request?: AbortController;
+  loadPromise?: Promise<SatelliteGroupControlState>;
+  refreshTimer?: number;
+  unavailable: boolean;
+}
+
+interface SatelliteGroupControlState {
+  readonly group: SatelliteGroupId;
+  readonly enabled: boolean;
+  readonly visible: boolean;
+  readonly status: "off" | "ready" | "loading" | "loaded" | "unavailable";
+  readonly count: number;
+}
+
+const satelliteGroups: Record<SatelliteGroupId, SatelliteGroupRuntime> = {
+  visual: {
+    enabled: false,
+    count: 0,
+    fetchedAtMs: 0,
+    unavailable: false,
+  },
+  stations: {
+    enabled: false,
+    count: 0,
+    fetchedAtMs: 0,
+    unavailable: false,
+  },
+  "science-education": {
+    enabled: false,
+    count: 0,
+    fetchedAtMs: 0,
+    unavailable: false,
+  },
+};
 
 function resetPlanet(): void {
   state = initialPlanetState(
@@ -736,6 +795,11 @@ const voiceAgent = new RealtimeVoiceAgent({
         latitude_degrees: coordinates.latitudeDegrees,
         longitude_degrees: coordinates.longitudeDegrees,
       };
+    },
+    async set_satellite_group_visibility(argumentsValue) {
+      const { group, enabled } =
+        parseSatelliteVisibilityArguments(argumentsValue);
+      return await setSatelliteGroupEnabled(group, enabled);
     },
     async search_wikipedia(argumentsValue) {
       const { query } = parseKnowledgeSearchArguments(argumentsValue);
@@ -1120,11 +1184,193 @@ function setAircraftEnabled(enabled: boolean): void {
 aircraftToggle.addEventListener("change", () => {
   setAircraftEnabled(aircraftToggle.checked);
 });
+
+function satelliteGroupControlState(
+  group: SatelliteGroupId,
+): SatelliteGroupControlState {
+  const runtime = satelliteGroups[group];
+  let status: SatelliteGroupControlState["status"];
+  if (!runtime.enabled) status = "off";
+  else if (runtime.request) status = "loading";
+  else if (runtime.unavailable) status = "unavailable";
+  else if (!vrSessionActive) status = "ready";
+  else status = runtime.fetchedAtMs > 0 ? "loaded" : "ready";
+  return {
+    group,
+    enabled: runtime.enabled,
+    visible: satelliteLayer.groupVisible(group),
+    status,
+    count: runtime.count,
+  };
+}
+
+function updateSatelliteReadout(): void {
+  const enabled = SATELLITE_GROUPS.filter(
+    ({ id }) => satelliteGroups[id].enabled,
+  );
+  const loading = enabled.filter(({ id }) => satelliteGroups[id].request);
+  const unavailable = enabled.filter(
+    ({ id }) => satelliteGroups[id].unavailable,
+  );
+  const count = enabled.reduce(
+    (total, { id }) => total + satelliteGroups[id].count,
+    0,
+  );
+  if (enabled.length === 0) {
+    satelliteReadout.textContent = "All groups off";
+  } else if (!vrSessionActive) {
+    satelliteReadout.textContent =
+      `${enabled.length} ${enabled.length === 1 ? "group" : "groups"} · ready for VR`;
+  } else if (loading.length > 0) {
+    satelliteReadout.textContent = `${loading.length} loading…`;
+  } else if (unavailable.length > 0 && count === 0) {
+    satelliteReadout.textContent = "Unavailable";
+  } else if (unavailable.length > 0) {
+    satelliteReadout.textContent = `${count} tracked · stale`;
+  } else {
+    satelliteReadout.textContent =
+      `${count} tracked · ${enabled.length} ${enabled.length === 1 ? "group" : "groups"}`;
+  }
+  document.body.dataset.satelliteCount = String(count);
+  for (const { id } of SATELLITE_GROUPS) {
+    document.body.setAttribute(
+      `data-satellite-${id}-enabled`,
+      String(satelliteGroups[id].enabled),
+    );
+    document.body.setAttribute(
+      `data-satellite-${id}-count`,
+      String(satelliteGroups[id].count),
+    );
+  }
+}
+
+function stopSatelliteGroup(group: SatelliteGroupId): void {
+  const runtime = satelliteGroups[group];
+  if (runtime.refreshTimer !== undefined) {
+    window.clearTimeout(runtime.refreshTimer);
+    runtime.refreshTimer = undefined;
+  }
+  runtime.request?.abort();
+}
+
+function scheduleSatelliteRefresh(group: SatelliteGroupId): void {
+  const runtime = satelliteGroups[group];
+  if (
+    !runtime.enabled ||
+    !vrSessionActive ||
+    document.hidden ||
+    runtime.request ||
+    runtime.unavailable ||
+    runtime.fetchedAtMs <= 0
+  ) {
+    return;
+  }
+  if (runtime.refreshTimer !== undefined) {
+    window.clearTimeout(runtime.refreshTimer);
+  }
+  const delayMs = Math.max(
+    0,
+    runtime.fetchedAtMs + SATELLITE_REFRESH_INTERVAL_MS - Date.now(),
+  );
+  runtime.refreshTimer = window.setTimeout(() => {
+    runtime.refreshTimer = undefined;
+    void loadSatelliteGroup(group, true);
+  }, delayMs);
+}
+
+function loadSatelliteGroup(
+  group: SatelliteGroupId,
+  force = false,
+): Promise<SatelliteGroupControlState> {
+  const runtime = satelliteGroups[group];
+  if (
+    !runtime.enabled ||
+    !vrSessionActive ||
+    document.hidden
+  ) {
+    updateSatelliteReadout();
+    return Promise.resolve(satelliteGroupControlState(group));
+  }
+  if (runtime.loadPromise) return runtime.loadPromise;
+  if (
+    !force &&
+    runtime.fetchedAtMs > 0 &&
+    Date.now() - runtime.fetchedAtMs < SATELLITE_REFRESH_INTERVAL_MS
+  ) {
+    scheduleSatelliteRefresh(group);
+    updateSatelliteReadout();
+    return Promise.resolve(satelliteGroupControlState(group));
+  }
+
+  const request = new AbortController();
+  runtime.request = request;
+  runtime.unavailable = false;
+  updateSatelliteReadout();
+  const promise = (async (): Promise<SatelliteGroupControlState> => {
+    try {
+      const payload = await fetchSatelliteGroup(group, request.signal);
+      if (runtime.request !== request) return satelliteGroupControlState(group);
+      runtime.count = satelliteLayer.setSatellites(group, payload.satellites);
+      runtime.fetchedAtMs = payload.fetchedAtMs;
+      runtime.unavailable = false;
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        runtime.unavailable = true;
+        console.warn(
+          `Satellite ${group} update failed:`,
+          error,
+        );
+      }
+    } finally {
+      if (runtime.request === request) runtime.request = undefined;
+      runtime.loadPromise = undefined;
+      scheduleSatelliteRefresh(group);
+      updateSatelliteReadout();
+      if (
+        request.signal.aborted &&
+        runtime.enabled &&
+        vrSessionActive &&
+        !document.hidden
+      ) {
+        queueMicrotask(() => void loadSatelliteGroup(group));
+      }
+    }
+    return satelliteGroupControlState(group);
+  })();
+  runtime.loadPromise = promise;
+  return promise;
+}
+
+async function setSatelliteGroupEnabled(
+  group: SatelliteGroupId,
+  enabled: boolean,
+): Promise<SatelliteGroupControlState> {
+  const runtime = satelliteGroups[group];
+  runtime.enabled = enabled;
+  satelliteToggles[group].checked = enabled;
+  satelliteLayer.setGroupVisible(group, enabled && vrSessionActive);
+  if (!enabled) {
+    stopSatelliteGroup(group);
+    updateSatelliteReadout();
+    return satelliteGroupControlState(group);
+  }
+  updateSatelliteReadout();
+  return await loadSatelliteGroup(group);
+}
+
+for (const { id } of SATELLITE_GROUPS) {
+  satelliteToggles[id].addEventListener("change", () => {
+    void setSatelliteGroupEnabled(id, satelliteToggles[id].checked);
+  });
+}
+
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopAircraftPolling();
+    for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
   } else {
     scheduleAircraftPoll(0);
+    for (const { id } of SATELLITE_GROUPS) void loadSatelliteGroup(id);
   }
 });
 
@@ -1133,6 +1379,12 @@ vrSlot.append(vrButton);
 renderer.xr.addEventListener("sessionstart", () => {
   vrSessionActive = true;
   aircraftLayer.visible = aircraftEnabled;
+  for (const { id } of SATELLITE_GROUPS) {
+    const enabled = satelliteGroups[id].enabled;
+    satelliteLayer.setGroupVisible(id, enabled);
+    if (enabled) void loadSatelliteGroup(id);
+  }
+  updateSatelliteReadout();
   if (aircraftEnabled) {
     aircraftReadout.textContent = "Connecting…";
     scheduleAircraftPoll(0);
@@ -1152,6 +1404,11 @@ renderer.xr.addEventListener("sessionend", () => {
   handPanel.enabled = false;
   stopAircraftPolling();
   aircraftLayer.visible = false;
+  for (const { id } of SATELLITE_GROUPS) {
+    stopSatelliteGroup(id);
+    satelliteLayer.setGroupVisible(id, false);
+  }
+  updateSatelliteReadout();
   aircraftReadout.textContent = aircraftEnabled
     ? "Ready for VR"
     : "Off · optional";
@@ -1720,6 +1977,11 @@ function render(nowMs: number): void {
     state.displayRadiusM,
     state.radialMultiplier,
   );
+  satelliteLayer.update(
+    utcMilliseconds,
+    state.displayRadiusM,
+    state.radialMultiplier,
+  );
   const viewCamera = renderer.xr.isPresenting
     ? renderer.xr.getCamera()
     : camera;
@@ -1743,6 +2005,7 @@ window.addEventListener("beforeunload", () => {
   if (benchmarkMetricsTimer !== undefined) {
     window.clearInterval(benchmarkMetricsTimer);
   }
+  for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
   terrain.dispose();
   handPanel.dispose();
   handPanelRuntime.dispose();
@@ -1763,4 +2026,9 @@ loadingState.hidden = true;
 errorState.hidden = true;
 aircraftLayer.visible = false;
 setAircraftEnabled(false);
+for (const { id } of SATELLITE_GROUPS) {
+  satelliteLayer.setGroupVisible(id, false);
+  satelliteToggles[id].checked = false;
+}
+updateSatelliteReadout();
 renderer.setAnimationLoop(render);

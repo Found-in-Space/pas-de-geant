@@ -234,6 +234,12 @@ frame. Catalogue failure leaves an empty sky without blocking the surface.
 Live Airplanes.live traffic is opt-in and only polls during an immersive VR
 session. Leaving VR, hiding the page, or disabling the layer stops requests.
 
+CelesTrak satellite tracking is also opt-in. The 100 brightest, space-station,
+and combined science/education groups can be enabled independently from the
+page or by asking the voice guide. Orbital elements are cached for CelesTrak's
+two-hour update interval, while SGP4 propagation moves the markers locally.
+Satellite altitude uses the same radial multiplier as terrain and aircraft.
+
 ## Validation
 
 ```sh
