@@ -21,6 +21,9 @@ import {
   celestialToWorldQuaternion,
 } from "../apps/pas-de-geant/src/celestial-sphere.js";
 import {
+  parseCelestialVisibilityArguments,
+} from "../apps/pas-de-geant/src/celestial-visibility.js";
+import {
   contactFrame,
   earthToWorldQuaternion,
   geodeticSurfaceEcefKm,
@@ -291,7 +294,57 @@ describe("Pas de Géant celestial-sphere regressions", () => {
     expect(
       magnitudes.getX(CELESTIAL_PLANET_NAMES.indexOf("Neptune")),
     ).toBeCloseTo(neptune.apparentMagnitude + 5, 5);
+
+    expect(sphere.getVisibility().all_enabled).toBe(true);
+    sphere.setVisibility("sun_and_moon", false);
+    expect(
+      sphere.object3d.getObjectByName("celestial-sun")?.visible,
+    ).toBe(false);
+    expect(
+      sphere.object3d.getObjectByName("celestial-moon")?.visible,
+    ).toBe(false);
+
+    sphere.setVisibility("planets", false);
+    for (let index = 0; index < magnitudes.count; index += 1) {
+      expect(magnitudes.getX(index)).toBe(100);
+    }
+    expect(sphere.getPlanetAnchor("Jupiter").position.length()).toBeCloseTo(
+      520,
+      4,
+    );
+
+    const jupiterVisibility = sphere.setVisibility("jupiter", true);
+    expect(jupiterVisibility.planets.jupiter).toBe(true);
+    expect(jupiterVisibility.planets.mars).toBe(false);
+    expect(jupiterVisibility.all_planets_enabled).toBe(false);
+    expect(
+      magnitudes.getX(CELESTIAL_PLANET_NAMES.indexOf("Jupiter")),
+    ).toBeCloseTo(jupiter.apparentMagnitude + 5, 5);
+    expect(
+      magnitudes.getX(CELESTIAL_PLANET_NAMES.indexOf("Mars")),
+    ).toBe(100);
+
+    expect(sphere.setVisibility("all", true).all_enabled).toBe(true);
     sphere.dispose();
+  });
+
+  it("validates individual and grouped celestial voice controls", () => {
+    expect(parseCelestialVisibilityArguments({
+      target: "saturn",
+      enabled: false,
+    })).toEqual({ target: "saturn", enabled: false });
+    expect(parseCelestialVisibilityArguments({
+      target: "planets",
+      enabled: true,
+    })).toEqual({ target: "planets", enabled: true });
+    expect(() => parseCelestialVisibilityArguments({
+      target: "stars",
+      enabled: true,
+    })).toThrow("target");
+    expect(() => parseCelestialVisibilityArguments({
+      target: "moon",
+      enabled: "yes",
+    })).toThrow("boolean");
   });
 
   it("refreshes slow ephemerides independently of frame updates", () => {

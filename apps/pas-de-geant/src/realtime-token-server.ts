@@ -50,6 +50,11 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
         "turn on, or turn off the brightest satellites, space stations, or " +
         "science and education satellites. These are three independent groups, " +
         "so change only the requested group. " +
+        "Use get_celestial_visibility before reporting which Solar System " +
+        "bodies are shown. Use set_celestial_visibility to show or hide the " +
+        "Sun, Moon, any named planet, the Sun and Moon together, all planets, " +
+        "or all Solar System bodies. These controls do not affect the background " +
+        "star catalogue; change only the requested body or group. " +
         "Use search_wikipedia for stable encyclopedic or background topics. Use " +
         "search_web for current, recent, or niche information and whenever the " +
         "user explicitly asks to browse or search the web. Never claim to have " +
@@ -166,6 +171,44 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
               enabled: { type: "boolean" },
             },
             required: ["group", "enabled"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "get_celestial_visibility",
+          description:
+            "Read which Solar System sky objects are currently shown: the Sun, Moon, and each planet.",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+        {
+          type: "function",
+          name: "set_celestial_visibility",
+          description:
+            "Show or hide one Solar System body or a celestial group without changing the background stars.",
+          parameters: {
+            type: "object",
+            properties: {
+              target: {
+                type: "string",
+                enum: [
+                  "sun",
+                  "moon",
+                  "mercury",
+                  "venus",
+                  "mars",
+                  "jupiter",
+                  "saturn",
+                  "uranus",
+                  "neptune",
+                  "sun_and_moon",
+                  "planets",
+                  "all",
+                ],
+              },
+              enabled: { type: "boolean" },
+            },
+            required: ["target", "enabled"],
             additionalProperties: false,
           },
         },

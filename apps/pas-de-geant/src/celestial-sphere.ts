@@ -17,6 +17,13 @@ import {
   createDefaultThreeStarFieldMaterialProfile,
 } from "@found-in-space/three-star-field";
 import * as THREE from "three";
+import {
+  CELESTIAL_PLANET_VISIBILITY_TARGETS,
+  isCelestialPlanetVisibilityTarget,
+  type CelestialPlanetVisibilityTarget,
+  type CelestialVisibilityState,
+  type CelestialVisibilityTarget,
+} from "./celestial-visibility.js";
 
 export const CELESTIAL_SPHERE_RADIUS_M = 520;
 export const CELESTIAL_LIMITING_MAGNITUDE = 6.5;
@@ -165,6 +172,10 @@ class CelestialPlanetField {
     new Float32Array(CELESTIAL_PLANETS.length).fill(100),
     1,
   );
+  private readonly absoluteMagnitudes = new Float64Array(
+    CELESTIAL_PLANETS.length,
+  ).fill(100);
+  private readonly enabled = CELESTIAL_PLANETS.map(() => true);
   private readonly positionsJ2000Au = CELESTIAL_PLANETS.map(
     () => new THREE.Vector3(),
   );
@@ -238,7 +249,8 @@ class CelestialPlanetField {
         planet.positionJ2000Au.z,
       );
       // Every point is one shader parsec away, so mAbs = mApp + 5.
-      this.magnitudeAttribute.setX(index, planet.apparentMagnitude + 5);
+      this.absoluteMagnitudes[index] = planet.apparentMagnitude + 5;
+      this.syncMagnitude(index);
     }
     this.magnitudeAttribute.needsUpdate = true;
   }
@@ -262,6 +274,24 @@ class CelestialPlanetField {
 
   getAnchor(name: CelestialPlanetName): THREE.Object3D {
     return this.anchors[CELESTIAL_PLANET_NAMES.indexOf(name)]!;
+  }
+
+  setVisible(name: CelestialPlanetName, visible: boolean): void {
+    const index = CELESTIAL_PLANET_NAMES.indexOf(name);
+    this.enabled[index] = visible;
+    this.syncMagnitude(index);
+    this.magnitudeAttribute.needsUpdate = true;
+  }
+
+  isVisible(name: CelestialPlanetName): boolean {
+    return this.enabled[CELESTIAL_PLANET_NAMES.indexOf(name)]!;
+  }
+
+  private syncMagnitude(index: number): void {
+    this.magnitudeAttribute.setX(
+      index,
+      this.enabled[index] ? this.absoluteMagnitudes[index]! : 100,
+    );
   }
 
   dispose(): void {
@@ -399,6 +429,45 @@ class CelestialBodies {
 
   getPlanetAnchor(name: CelestialPlanetName): THREE.Object3D {
     return this.planets.getAnchor(name);
+  }
+
+  getVisibility(): CelestialVisibilityState {
+    const planets = Object.fromEntries(
+      CELESTIAL_PLANET_VISIBILITY_TARGETS.map((target, index) => [
+        target,
+        this.planets.isVisible(CELESTIAL_PLANET_NAMES[index]!),
+      ]),
+    ) as Record<CelestialPlanetVisibilityTarget, boolean>;
+    const allPlanetsEnabled = Object.values(planets).every(Boolean);
+    return {
+      sun_enabled: this.sun.visible,
+      moon_enabled: this.moon.visible,
+      planets,
+      all_planets_enabled: allPlanetsEnabled,
+      all_enabled:
+        this.sun.visible && this.moon.visible && allPlanetsEnabled,
+    };
+  }
+
+  setVisibility(
+    target: CelestialVisibilityTarget,
+    enabled: boolean,
+  ): CelestialVisibilityState {
+    if (target === "sun" || target === "sun_and_moon" || target === "all") {
+      this.sun.visible = enabled;
+    }
+    if (target === "moon" || target === "sun_and_moon" || target === "all") {
+      this.moon.visible = enabled;
+    }
+    if (target === "planets" || target === "all") {
+      for (const name of CELESTIAL_PLANET_NAMES) {
+        this.planets.setVisible(name, enabled);
+      }
+    } else if (isCelestialPlanetVisibilityTarget(target)) {
+      const index = CELESTIAL_PLANET_VISIBILITY_TARGETS.indexOf(target);
+      this.planets.setVisible(CELESTIAL_PLANET_NAMES[index]!, enabled);
+    }
+    return this.getVisibility();
   }
 
   private updateMoonAttitude(ephemeris: CelestialBodyEphemeris): void {
@@ -648,6 +717,17 @@ export class CelestialSphere {
 
   getPlanetAnchor(name: CelestialPlanetName): THREE.Object3D {
     return this.bodies.getPlanetAnchor(name);
+  }
+
+  getVisibility(): CelestialVisibilityState {
+    return this.bodies.getVisibility();
+  }
+
+  setVisibility(
+    target: CelestialVisibilityTarget,
+    enabled: boolean,
+  ): CelestialVisibilityState {
+    return this.bodies.setVisibility(target, enabled);
   }
 
   update(

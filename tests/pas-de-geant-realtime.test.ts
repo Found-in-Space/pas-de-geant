@@ -320,6 +320,8 @@ describe("Pas de Géant Realtime voice agent", () => {
       "get_view_direction",
       "set_view_direction",
       "set_satellite_group_visibility",
+      "get_celestial_visibility",
+      "set_celestial_visibility",
       "search_wikipedia",
       "search_web",
       "get_aircraft_display",
@@ -350,6 +352,12 @@ describe("Pas de Géant Realtime voice agent", () => {
     );
     expect(configuration.session.instructions).toContain(
       "These are three independent groups",
+    );
+    expect(configuration.session.instructions).toContain(
+      "set_celestial_visibility to show or hide the Sun, Moon",
+    );
+    expect(configuration.session.instructions).toContain(
+      "do not affect the background star catalogue",
     );
     expect(configuration.session.instructions).toContain(
       "call get_tile_planner_state",
@@ -421,6 +429,27 @@ describe("Pas de Géant Realtime voice agent", () => {
       "brightest",
       "space_stations",
       "science_education",
+    ]);
+    const celestialTool = configuration.session.tools.find(
+      ({ name }) => name === "set_celestial_visibility",
+    );
+    expect(celestialTool?.parameters.required).toEqual([
+      "target",
+      "enabled",
+    ]);
+    expect(celestialTool?.parameters.properties?.target?.enum).toEqual([
+      "sun",
+      "moon",
+      "mercury",
+      "venus",
+      "mars",
+      "jupiter",
+      "saturn",
+      "uranus",
+      "neptune",
+      "sun_and_moon",
+      "planets",
+      "all",
     ]);
     const recalculationTool = configuration.session.tools.find(
       ({ name }) => name === "set_tile_recalculation",

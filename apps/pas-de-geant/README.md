@@ -261,7 +261,9 @@ source fetches may be fewer because several tile requests can share one source.
 
 The celestial sphere loads the default Found in Space SkyKit catalogue and
 uses Astronomy Engine to rotate J2000 directions into the current Earth-fixed
-frame. Catalogue failure leaves an empty sky without blocking the surface.
+frame. Catalogue failure leaves an empty sky without blocking the surface. The
+voice guide can show or hide the Sun, Moon, each planet, all planets, or all
+Solar System bodies without changing the background star catalogue.
 
 Live Airplanes.live traffic is opt-in and only polls during an immersive VR
 session. Leaving VR, hiding the page, or disabling the layer stops requests.

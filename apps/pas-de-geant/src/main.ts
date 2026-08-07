@@ -28,6 +28,9 @@ import {
 } from "./controller-input.js";
 import { CelestialSphere } from "./celestial-sphere.js";
 import {
+  parseCelestialVisibilityArguments,
+} from "./celestial-visibility.js";
+import {
   createHandPanelRoot,
   formatCoordinates,
   HAND_PANEL_SURFACE,
@@ -916,6 +919,18 @@ const voiceAgent = new RealtimeVoiceAgent({
       const { group, enabled } =
         parseSatelliteVisibilityArguments(argumentsValue);
       return await setSatelliteGroupEnabled(group, enabled);
+    },
+    get_celestial_visibility() {
+      return celestialSphere.getVisibility();
+    },
+    set_celestial_visibility(argumentsValue) {
+      const { target, enabled } =
+        parseCelestialVisibilityArguments(argumentsValue);
+      return {
+        ok: true,
+        target,
+        ...celestialSphere.setVisibility(target, enabled),
+      };
     },
     async search_wikipedia(argumentsValue) {
       const { query } = parseKnowledgeSearchArguments(argumentsValue);
