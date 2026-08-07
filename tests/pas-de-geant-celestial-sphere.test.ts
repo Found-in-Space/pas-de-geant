@@ -278,6 +278,7 @@ describe("Pas de Géant celestial-sphere regressions", () => {
         `celestial-planet-${name.toLowerCase()}-anchor`,
       );
       expect(anchor.position.length()).toBeCloseTo(520, 4);
+      expect(anchor.userData.celestialPlanet.name).toBe(name);
     }
 
     const observer = ObserverVector(
@@ -296,17 +297,27 @@ describe("Pas de Géant celestial-sphere regressions", () => {
         .distanceTo(expectedJupiterDirection),
     ).toBeLessThan(2e-9);
 
-    const cores = sphere.object3d.getObjectByName(
-      "celestial-planet-cores",
-    ) as THREE.Points<THREE.BufferGeometry>;
-    const magnitudes = cores.geometry.getAttribute("magAbs");
-    expect(magnitudes.count).toBe(CELESTIAL_PLANET_NAMES.length);
+    const jupiterSprite = sphere.object3d.getObjectByName(
+      "celestial-planet-jupiter",
+    ) as THREE.Sprite;
+    const neptuneSprite = sphere.object3d.getObjectByName(
+      "celestial-planet-neptune",
+    ) as THREE.Sprite;
+    const sun = sphere.object3d.getObjectByName("celestial-sun")!;
+    expect(jupiterSprite.visible).toBe(true);
+    expect(neptuneSprite.visible).toBe(false);
+    expect(jupiterSprite.material.blending).toBe(THREE.NormalBlending);
+    expect(jupiterSprite.material.opacity).toBeLessThan(1);
+    expect(jupiterSprite.material.opacity).toBeGreaterThan(
+      neptuneSprite.material.opacity,
+    );
+    expect(jupiterSprite.scale.x).toBeLessThan(sun.scale.x);
     expect(
-      magnitudes.getX(CELESTIAL_PLANET_NAMES.indexOf("Jupiter")),
-    ).toBeCloseTo(jupiter.apparentMagnitude + 5, 5);
+      (jupiterSprite.material.map as THREE.DataTexture).isDataTexture,
+    ).toBe(true);
     expect(
-      magnitudes.getX(CELESTIAL_PLANET_NAMES.indexOf("Neptune")),
-    ).toBeCloseTo(neptune.apparentMagnitude + 5, 5);
+      sphere.object3d.getObjectByName("celestial-planet-cores"),
+    ).toBeUndefined();
 
     expect(sphere.getVisibility().all_enabled).toBe(true);
     sphere.setVisibility("sun_and_moon", false);
@@ -318,8 +329,12 @@ describe("Pas de Géant celestial-sphere regressions", () => {
     ).toBe(false);
 
     sphere.setVisibility("planets", false);
-    for (let index = 0; index < magnitudes.count; index += 1) {
-      expect(magnitudes.getX(index)).toBe(100);
+    for (const name of CELESTIAL_PLANET_NAMES) {
+      expect(
+        sphere.object3d.getObjectByName(
+          `celestial-planet-${name.toLowerCase()}`,
+        )?.visible,
+      ).toBe(false);
     }
     expect(sphere.getPlanetAnchor("Jupiter").position.length()).toBeCloseTo(
       520,
@@ -331,13 +346,15 @@ describe("Pas de Géant celestial-sphere regressions", () => {
     expect(jupiterVisibility.planets.mars).toBe(false);
     expect(jupiterVisibility.all_planets_enabled).toBe(false);
     expect(
-      magnitudes.getX(CELESTIAL_PLANET_NAMES.indexOf("Jupiter")),
-    ).toBeCloseTo(jupiter.apparentMagnitude + 5, 5);
+      sphere.object3d.getObjectByName("celestial-planet-jupiter")?.visible,
+    ).toBe(true);
     expect(
-      magnitudes.getX(CELESTIAL_PLANET_NAMES.indexOf("Mars")),
-    ).toBe(100);
+      sphere.object3d.getObjectByName("celestial-planet-mars")?.visible,
+    ).toBe(false);
 
     expect(sphere.setVisibility("all", true).all_enabled).toBe(true);
+    expect(jupiterSprite.visible).toBe(true);
+    expect(neptuneSprite.visible).toBe(false);
     sphere.dispose();
   });
 
