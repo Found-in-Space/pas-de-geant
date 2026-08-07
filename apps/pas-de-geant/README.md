@@ -26,6 +26,69 @@ adb reverse tcp:4197 tcp:4197
 
 Then open `http://localhost:4197` in the headset.
 
+### Quest runtime diagnostics
+
+Development builds expose `window.pasDeGeantDebug` to the Quest Browser
+JavaScript console. A deployed build exposes it only when the page is opened
+with `?debug=1`. It can read the complete tile planner and runtime metrics and
+change the simulation without leaving VR:
+
+```js
+pasDeGeantDebug.help()
+pasDeGeantDebug.snapshot()
+pasDeGeantDebug.setLocation(45.88, 6.89)
+pasDeGeantDebug.setScale(80)
+pasDeGeantDebug.setRadialMultiplier(2)
+pasDeGeantDebug.setMaxZ("textures", 14)
+pasDeGeantDebug.setTilePixelRatio("textures", 1.5)
+```
+
+The runtime snapshot includes a rolling ten-second frame distribution,
+application CPU time, draw calls and primitives, Three.js resource counts,
+tile/source request-decode-upload-residency metrics, recent resource timing,
+WebGL capabilities, and browser heap. `mark(name)` retains a named snapshot;
+control changes and `clearMetrics()` start a clean frame window.
+
+For repeatable measurements, `beginBenchmark(options)` captures the live
+session, disables walking and controller-driven scale changes, resets the
+render/tile controls, and moves to an exact location. Let both planner queues
+reach zero, freeze them with `setTileRecalculation("both", false)`, then clear
+the metrics before sampling. `endBenchmark()` restores the captured location,
+scale, inputs, layers, and tile controls. A useful high-load, near-sea-level
+case is Pisa at scale 2500:
+
+```js
+pasDeGeantDebug.beginBenchmark({
+  latitudeDegrees: 43.722952,
+  longitudeDegrees: 10.396597,
+  displayRadiusM: 2500,
+  radialMultiplier: 1,
+})
+```
+
+The repository helper uses Meta Quest Developer Hub's bundled ADB, opens its
+Quest Browser DevTools socket, and combines the runtime snapshot with device
+GPU busy/clock, CPU clocks, browser-process memory, battery, and thermal data:
+
+```sh
+npm run quest:debug -- snapshot
+npm run quest:debug -- device
+npm run quest:debug -- call setLocation '[45.88,6.89]'
+npm run quest:debug -- call setMaxZ '["textures",14]'
+```
+
+Set `PAS_DE_GEANT_ADB` only if ADB is installed somewhere other than Meta
+Quest Developer Hub's standard macOS location. The helper forwards local port
+9222 to `chrome_devtools_remote`; Chrome can inspect the same endpoint at
+`http://127.0.0.1:9222`.
+
+`setRendering(false)` keeps simulation and tile work running but skips the
+Three.js render call, which separates main-thread simulation cost from render
+submission. If disabling rendering restores the target frame rate, compare
+framebuffer scale and layer visibility to distinguish fill cost from scene
+complexity. XR framebuffer scale must be changed after leaving VR and before
+re-entering; foveation can change during a session.
+
 ## Controls
 
 - Left stick: head-relative travel

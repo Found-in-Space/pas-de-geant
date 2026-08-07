@@ -50,6 +50,7 @@ import {
   EARTH_MEAN_RADIUS_KM,
   horizontalWorldMetresForKilometres,
   initialPlanetState,
+  INITIAL_DISPLAY_RADIUS_M,
   radialWorldMetresForKilometres,
   referenceDistanceForDisplayRadius,
   rollContactFrame,
@@ -76,14 +77,60 @@ import {
   parseTileRecalculationArguments,
   parseTileViewDistanceArguments,
   parseTileViewOverheadArguments,
+  type TileDebugControlsReadback,
+  type TileDebugTarget,
 } from "./tile-debug-controls.js";
+import {
+  FrameTelemetry,
+  summarizeResourceTimings,
+} from "./runtime-debug.js";
 import {
   intersectEllipsoidRay,
   type GeographicPoint,
 } from "./view-residency.js";
 
+interface PasDeGeantDebugApi {
+  help(): Record<string, string>;
+  snapshot(): Record<string, unknown>;
+  mark(name?: string): Record<string, unknown>;
+  marks(): Record<string, Record<string, unknown>>;
+  clearMetrics(): void;
+  beginBenchmark(options?: {
+    latitudeDegrees?: number;
+    longitudeDegrees?: number;
+    displayRadiusM?: number;
+    radialMultiplier?: number;
+  }): Record<string, unknown>;
+  endBenchmark(): Record<string, unknown>;
+  reset(): Record<string, unknown>;
+  setLocation(latitudeDegrees: number, longitudeDegrees: number): unknown;
+  setScale(displayRadiusM: number): Record<string, unknown>;
+  setRadialMultiplier(multiplier: number): Record<string, unknown>;
+  setView(view: {
+    pitchRadians?: number;
+    yawRadians?: number;
+  }): Record<string, unknown>;
+  setTilePixelRatio(target: TileDebugTarget, ratio: number): unknown;
+  setMaxZ(target: TileDebugTarget, zoom: number | null): unknown;
+  setDeltaZ(target: TileDebugTarget, zoom: number | null): unknown;
+  setViewDistance(target: TileDebugTarget, enabled: boolean): unknown;
+  setViewOverhead(percent: number): unknown;
+  setTileRecalculation(target: TileDebugTarget, enabled: boolean): unknown;
+  setOverlays(options: { terrain?: boolean; textures?: boolean }): unknown;
+  setRendering(enabled: boolean): Record<string, unknown>;
+  setInputEnabled(enabled: boolean): Record<string, unknown>;
+  setFoveation(value: number): Record<string, unknown>;
+  setFramebufferScale(value: number): Record<string, unknown>;
+  setDesktopPixelRatio(value: number): Record<string, unknown>;
+  setLayerVisibility(
+    layer: "terrain" | "atmosphere" | "stars" | "aircraft" | "hand-panel",
+    visible: boolean,
+  ): Record<string, unknown>;
+}
+
 declare global {
   interface Window {
+    pasDeGeantDebug?: PasDeGeantDebugApi;
     __PAS_DE_GEANT_ENABLE_TEST_HOOKS__?: boolean;
     __PAS_DE_GEANT_TEST_SET_SCALE__?: (displayRadiusM: number) => void;
     __PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__?: (visible: boolean) => void;
@@ -174,7 +221,8 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.35;
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType("local-floor");
-renderer.xr.setFramebufferScaleFactor(1);
+let xrFramebufferScaleFactor = 1;
+renderer.xr.setFramebufferScaleFactor(xrFramebufferScaleFactor);
 sceneRoot.append(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -366,6 +414,10 @@ let handPanelLastRedrawMs = -Infinity;
 let handPanelRedrawCount = 1;
 document.body.dataset.handPanelRedrawCount = String(handPanelRedrawCount);
 let previousFrameMs = performance.now();
+const frameTelemetry = new FrameTelemetry();
+let renderingEnabled = true;
+let simulationInputEnabled = true;
+let lastKnownXrFrameRate: number | undefined;
 let previousXrHead: THREE.Vector2 | null = null;
 const headsetFloorPosition = new THREE.Vector2();
 const xrHeadPosition = new THREE.Vector3();
@@ -373,7 +425,7 @@ const xrViewQuaternion = new THREE.Quaternion();
 const desktopTravel = new THREE.Vector2();
 const keys = new Set<string>();
 const buttonLatch = freshButtonLatch();
-const handPanelVisible = true;
+let handPanelVisible = true;
 let handPanelNorthDirection: HandPanelDirection = { x: 0, y: -1 };
 let pointerActive = false;
 let pointerX = 0;
@@ -1089,6 +1141,10 @@ renderer.xr.addEventListener("sessionstart", () => {
   camera.rotation.set(0, 0, 0);
   previousXrHead = null;
   renderer.xr.setFoveation(1);
+  const frameRate = renderer.xr.getSession()?.frameRate;
+  if (frameRate !== undefined && frameRate > 0) {
+    lastKnownXrFrameRate = frameRate;
+  }
 });
 renderer.xr.addEventListener("sessionend", () => {
   vrSessionActive = false;
@@ -1112,16 +1168,551 @@ window.addEventListener("resize", () => {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 });
 
+const debugDrawingBufferSize = new THREE.Vector2();
+const debugHeadWorldPosition = new THREE.Vector3();
+const debugMarks = new Map<string, Record<string, unknown>>();
+
+interface BenchmarkRestoreState {
+  readonly coordinates: {
+    readonly latitudeDegrees: number;
+    readonly longitudeDegrees: number;
+  };
+  readonly displayRadiusM: number;
+  readonly radialMultiplier: number;
+  readonly pitchRadians: number;
+  readonly yawRadians: number;
+  readonly tileControls: TileDebugControlsReadback;
+  readonly tileOverlayVisible: boolean;
+  readonly textureTileOverlayVisible: boolean;
+  readonly renderingEnabled: boolean;
+  readonly simulationInputEnabled: boolean;
+  readonly foveation: number | undefined;
+  readonly layers: {
+    readonly terrain: boolean;
+    readonly atmosphere: boolean;
+    readonly stars: boolean;
+    readonly aircraft: boolean;
+    readonly handPanel: boolean;
+  };
+}
+
+let benchmarkRestoreState: BenchmarkRestoreState | undefined;
+
+function finiteDebugNumber(value: number, name: string): number {
+  if (!Number.isFinite(value)) throw new Error(`${name} must be finite.`);
+  return value;
+}
+
+function debugTileTarget(target: TileDebugTarget): TileDebugTarget {
+  if (target !== "terrain" && target !== "textures" && target !== "both") {
+    throw new Error("target must be terrain, textures, or both.");
+  }
+  return target;
+}
+
+function debugControlState(): Record<string, unknown> {
+  const coordinates = coordinatesForFrame(state.contact);
+  return {
+    location: coordinates,
+    displayRadiusM: state.displayRadiusM,
+    radialMultiplier: state.radialMultiplier,
+    view: { pitchRadians: pitch, yawRadians: yaw },
+    tileControls: terrain.getTileDebugControls(),
+    overlays: {
+      terrain: tileOverlayVisible,
+      textures: textureTileOverlayVisible,
+    },
+    renderingEnabled,
+    simulationInputEnabled,
+    benchmarkActive: benchmarkRestoreState !== undefined,
+    foveation: renderer.xr.getFoveation() ?? null,
+    xrFramebufferScaleFactor,
+    desktopPixelRatio: renderer.getPixelRatio(),
+    layers: {
+      terrain: terrain.group.visible,
+      atmosphere: atmosphere.mesh.visible,
+      stars: celestialSphere.object3d.visible,
+      aircraft: aircraftLayer.group.visible,
+      handPanel: handPanelVisible,
+    },
+  };
+}
+
+function debugRendererSnapshot(): Record<string, unknown> {
+  renderer.getDrawingBufferSize(debugDrawingBufferSize);
+  const gl = renderer.getContext();
+  const rendererInfo = gl.getExtension("WEBGL_debug_renderer_info");
+  const session = renderer.xr.getSession();
+  return {
+    xr: {
+      presenting: renderer.xr.isPresenting,
+      frameRate: session?.frameRate ?? null,
+      lastKnownFrameRate: lastKnownXrFrameRate ?? null,
+      supportedFrameRates: session?.supportedFrameRates
+        ? Array.from(session.supportedFrameRates)
+        : [],
+      foveation: renderer.xr.getFoveation() ?? null,
+      framebufferScaleFactor: xrFramebufferScaleFactor,
+    },
+    drawingBuffer: {
+      width: debugDrawingBufferSize.x,
+      height: debugDrawingBufferSize.y,
+      pixelRatio: renderer.getPixelRatio(),
+    },
+    draw: { ...renderer.info.render },
+    memory: {
+      ...renderer.info.memory,
+      programs: renderer.info.programs?.length ?? 0,
+    },
+    gpu: {
+      vendor: rendererInfo
+        ? gl.getParameter(rendererInfo.UNMASKED_VENDOR_WEBGL) as string
+        : gl.getParameter(gl.VENDOR) as string,
+      renderer: rendererInfo
+        ? gl.getParameter(rendererInfo.UNMASKED_RENDERER_WEBGL) as string
+        : gl.getParameter(gl.RENDERER) as string,
+      timerQueries: gl.getExtension("EXT_disjoint_timer_query_webgl2") !== null,
+      maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE) as number,
+      maxArrayTextureLayers: typeof WebGL2RenderingContext !== "undefined" &&
+          gl instanceof WebGL2RenderingContext
+        ? gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) as number
+        : null,
+    },
+  };
+}
+
+function debugBrowserSnapshot(): Record<string, unknown> {
+  const browserPerformance = performance as Performance & {
+    memory?: {
+      readonly jsHeapSizeLimit: number;
+      readonly totalJSHeapSize: number;
+      readonly usedJSHeapSize: number;
+    };
+  };
+  const browserNavigator = navigator as Navigator & {
+    readonly deviceMemory?: number;
+  };
+  return {
+    userAgent: navigator.userAgent,
+    hardwareConcurrency: navigator.hardwareConcurrency,
+    deviceMemoryGiB: browserNavigator.deviceMemory ?? null,
+    visibility: document.visibilityState,
+    screen: {
+      width: screen.width,
+      height: screen.height,
+      devicePixelRatio: window.devicePixelRatio,
+    },
+    jsHeap: browserPerformance.memory
+      ? {
+          limitBytes: browserPerformance.memory.jsHeapSizeLimit,
+          totalBytes: browserPerformance.memory.totalJSHeapSize,
+          usedBytes: browserPerformance.memory.usedJSHeapSize,
+        }
+      : null,
+  };
+}
+
+function debugSnapshot(): Record<string, unknown> {
+  const sessionFrameRate = renderer.xr.getSession()?.frameRate;
+  if (sessionFrameRate !== undefined && sessionFrameRate > 0) {
+    lastKnownXrFrameRate = sessionFrameRate;
+  }
+  return {
+    capturedAt: new Date().toISOString(),
+    controls: debugControlState(),
+    frame: frameTelemetry.snapshot(
+      sessionFrameRate && sessionFrameRate > 0
+        ? sessionFrameRate
+        : lastKnownXrFrameRate,
+    ),
+    renderer: debugRendererSnapshot(),
+    terrain: terrain.getMetrics(),
+    planner: terrain.getTilePlannerState(),
+    resourcesByHostLast30Seconds: summarizeResourceTimings(
+      performance.getEntriesByType("resource") as PerformanceResourceTiming[],
+      performance.now(),
+    ),
+    browser: debugBrowserSnapshot(),
+    imagery: {
+      provider: photographicImageryProvider?.id ?? "blue-marble",
+      tileSize: photographicImageryProvider?.tileSize ?? 0,
+    },
+  };
+}
+
+function captureBenchmarkRestoreState(): BenchmarkRestoreState {
+  return {
+    coordinates: coordinatesForFrame(state.contact),
+    displayRadiusM: state.displayRadiusM,
+    radialMultiplier: state.radialMultiplier,
+    pitchRadians: pitch,
+    yawRadians: yaw,
+    tileControls: terrain.getTileDebugControls(),
+    tileOverlayVisible,
+    textureTileOverlayVisible,
+    renderingEnabled,
+    simulationInputEnabled,
+    foveation: renderer.xr.getFoveation(),
+    layers: {
+      terrain: terrain.group.visible,
+      atmosphere: atmosphere.mesh.visible,
+      stars: celestialSphere.object3d.visible,
+      aircraft: aircraftLayer.group.visible,
+      handPanel: handPanelVisible,
+    },
+  };
+}
+
+function setSimulationInputEnabled(enabled: boolean): void {
+  if (!enabled && renderer.xr.isPresenting) {
+    renderer.xr.getCamera().getWorldPosition(debugHeadWorldPosition);
+    headsetFloorPosition.set(debugHeadWorldPosition.x, debugHeadWorldPosition.z);
+  }
+  simulationInputEnabled = enabled;
+  previousXrHead = null;
+  updatePresentation();
+}
+
+function applyTileControlReadback(controls: TileDebugControlsReadback): void {
+  terrain.setTileRecalculation({ target: "both", enabled: false });
+  terrain.setTilePixelRatio({
+    target: "terrain",
+    screenPixelsPerSourcePixel:
+      controls.terrain.screen_pixels_per_source_pixel,
+  });
+  terrain.setTilePixelRatio({
+    target: "textures",
+    screenPixelsPerSourcePixel:
+      controls.textures.screen_pixels_per_source_pixel,
+  });
+  terrain.setTileMaxZoom({
+    target: "terrain",
+    value: controls.terrain.max_zoom,
+  });
+  terrain.setTileMaxZoom({
+    target: "textures",
+    value: controls.textures.max_zoom,
+  });
+  terrain.setTileViewDistance({
+    target: "terrain",
+    enabled: controls.terrain.view_distance_enabled,
+  });
+  terrain.setTileViewDistance({
+    target: "textures",
+    enabled: controls.textures.view_distance_enabled,
+  });
+  terrain.setTileDeltaZoomCap({
+    target: "terrain",
+    value: controls.terrain.delta_zoom_cap,
+  });
+  terrain.setTileDeltaZoomCap({
+    target: "textures",
+    value: controls.textures.delta_zoom_cap,
+  });
+  terrain.setTileViewOverhead(controls.view_overhead_percent);
+  terrain.setTileRecalculation({
+    target: "terrain",
+    enabled: controls.terrain.recalculation_enabled,
+  });
+  terrain.setTileRecalculation({
+    target: "textures",
+    enabled: controls.textures.recalculation_enabled,
+  });
+}
+
+const debugApi: PasDeGeantDebugApi = {
+  help() {
+    return {
+      snapshot: "snapshot() — controls, frames, renderer, tiles, network, browser",
+      marks: "mark(name?), marks(), clearMetrics()",
+      benchmark: "beginBenchmark(options?), then freeze with setTileRecalculation(\"both\", false) once planner work is zero; endBenchmark() restores the captured session",
+      position: "setLocation(lat, lon), setScale(radiusM), setRadialMultiplier(value), setView({pitchRadians?, yawRadians?}), reset()",
+      tiles: "setTilePixelRatio(target, ratio), setMaxZ(target, z|null), setDeltaZ(target, z|null), setViewDistance(target, enabled), setViewOverhead(percent), setTileRecalculation(target, enabled)",
+      rendering: "setRendering(enabled), setInputEnabled(enabled), setFoveation(0..1), setFramebufferScale(value), setDesktopPixelRatio(value)",
+      layers: "setOverlays({terrain?, textures?}), setLayerVisibility(name, visible)",
+      targets: 'tile target: "terrain", "textures", or "both"',
+    };
+  },
+  snapshot: debugSnapshot,
+  mark(name = "default") {
+    const snapshot = debugSnapshot();
+    debugMarks.set(name, snapshot);
+    return snapshot;
+  },
+  marks() {
+    return Object.fromEntries(debugMarks);
+  },
+  clearMetrics() {
+    frameTelemetry.clear();
+    performance.clearResourceTimings();
+    debugMarks.clear();
+  },
+  beginBenchmark(options = {}) {
+    const latitudeDegrees = finiteDebugNumber(
+      options.latitudeDegrees ?? 43.722952,
+      "latitudeDegrees",
+    );
+    const longitudeDegrees = finiteDebugNumber(
+      options.longitudeDegrees ?? 10.396597,
+      "longitudeDegrees",
+    );
+    const displayRadiusM = finiteDebugNumber(
+      options.displayRadiusM ?? INITIAL_DISPLAY_RADIUS_M,
+      "displayRadiusM",
+    );
+    const radialMultiplier = finiteDebugNumber(
+      options.radialMultiplier ?? 1,
+      "radialMultiplier",
+    );
+    if (displayRadiusM <= 0) {
+      throw new Error("displayRadiusM must be positive.");
+    }
+    if (radialMultiplier < 0) {
+      throw new Error("radialMultiplier must be nonnegative.");
+    }
+    benchmarkRestoreState ??= captureBenchmarkRestoreState();
+    setSimulationInputEnabled(false);
+    terrain.setTileRecalculation({ target: "both", enabled: false });
+    setUserLocation(latitudeDegrees, longitudeDegrees);
+    state.displayRadiusM = displayRadiusM;
+    state.radialMultiplier = radialMultiplier;
+    pitch = 0;
+    yaw = 0;
+    camera.rotation.set(0, 0, 0);
+    terrain.setTilePixelRatio({
+      target: "terrain",
+      screenPixelsPerSourcePixel: 2,
+    });
+    terrain.setTilePixelRatio({
+      target: "textures",
+      screenPixelsPerSourcePixel: 1,
+    });
+    terrain.setTileMaxZoom({ target: "both", value: null });
+    terrain.setTileDeltaZoomCap({ target: "both", value: null });
+    terrain.setTileViewDistance({ target: "both", enabled: true });
+    terrain.setTileViewOverhead(25);
+    setTileOverlayVisible(false);
+    setTextureTileOverlayVisible(false);
+    renderingEnabled = true;
+    terrain.group.visible = true;
+    celestialSphere.object3d.visible = true;
+    aircraftLayer.group.visible = false;
+    handPanelVisible = false;
+    handPanel.enabled = false;
+    renderer.xr.setFoveation(1);
+    updatePresentation();
+    terrain.setTileRecalculation({ target: "both", enabled: true });
+    frameTelemetry.clear();
+    performance.clearResourceTimings();
+    debugMarks.clear();
+    return {
+      preset: "fixed-location-defaults",
+      ...debugControlState(),
+    };
+  },
+  endBenchmark() {
+    const restore = benchmarkRestoreState;
+    if (!restore) return debugControlState();
+    benchmarkRestoreState = undefined;
+    simulationInputEnabled = false;
+    terrain.setTileRecalculation({ target: "both", enabled: false });
+    setUserLocation(
+      restore.coordinates.latitudeDegrees,
+      restore.coordinates.longitudeDegrees,
+    );
+    state.displayRadiusM = restore.displayRadiusM;
+    state.radialMultiplier = restore.radialMultiplier;
+    pitch = restore.pitchRadians;
+    yaw = restore.yawRadians;
+    camera.rotation.set(pitch, yaw, 0);
+    applyTileControlReadback(restore.tileControls);
+    setTileOverlayVisible(restore.tileOverlayVisible);
+    setTextureTileOverlayVisible(restore.textureTileOverlayVisible);
+    renderingEnabled = restore.renderingEnabled;
+    terrain.group.visible = restore.layers.terrain;
+    atmosphere.mesh.visible = restore.layers.atmosphere;
+    celestialSphere.object3d.visible = restore.layers.stars;
+    aircraftLayer.group.visible = restore.layers.aircraft;
+    handPanelVisible = restore.layers.handPanel;
+    if (restore.foveation !== undefined) {
+      renderer.xr.setFoveation(restore.foveation);
+    }
+    setSimulationInputEnabled(restore.simulationInputEnabled);
+    frameTelemetry.clear();
+    return debugControlState();
+  },
+  reset() {
+    resetPlanet();
+    frameTelemetry.clear();
+    return debugControlState();
+  },
+  setLocation(latitudeDegrees, longitudeDegrees) {
+    return setUserLocation(
+      finiteDebugNumber(latitudeDegrees, "latitudeDegrees"),
+      finiteDebugNumber(longitudeDegrees, "longitudeDegrees"),
+    );
+  },
+  setScale(displayRadiusM) {
+    const value = finiteDebugNumber(displayRadiusM, "displayRadiusM");
+    if (value <= 0) throw new Error("displayRadiusM must be positive.");
+    state.displayRadiusM = value;
+    updatePresentation();
+    return debugControlState();
+  },
+  setRadialMultiplier(multiplier) {
+    const value = finiteDebugNumber(multiplier, "multiplier");
+    if (value < 0) throw new Error("multiplier must be nonnegative.");
+    state.radialMultiplier = value;
+    updatePresentation();
+    return debugControlState();
+  },
+  setView(view) {
+    if (view.pitchRadians !== undefined) {
+      pitch = finiteDebugNumber(view.pitchRadians, "pitchRadians");
+    }
+    if (view.yawRadians !== undefined) {
+      yaw = finiteDebugNumber(view.yawRadians, "yawRadians");
+    }
+    camera.rotation.set(pitch, yaw, 0);
+    updatePresentation();
+    return debugControlState();
+  },
+  setTilePixelRatio(target, ratio) {
+    const value = finiteDebugNumber(ratio, "ratio");
+    if (value <= 0) throw new Error("ratio must be positive.");
+    return terrain.setTilePixelRatio({
+      target: debugTileTarget(target),
+      screenPixelsPerSourcePixel: value,
+    });
+  },
+  setMaxZ(target, zoom) {
+    if (zoom !== null && (!Number.isInteger(zoom) || zoom < 0)) {
+      throw new Error("zoom must be a nonnegative integer or null.");
+    }
+    return terrain.setTileMaxZoom({ target: debugTileTarget(target), value: zoom });
+  },
+  setDeltaZ(target, zoom) {
+    if (zoom !== null && (!Number.isInteger(zoom) || zoom < 0)) {
+      throw new Error("zoom must be a nonnegative integer or null.");
+    }
+    return terrain.setTileDeltaZoomCap({
+      target: debugTileTarget(target),
+      value: zoom,
+    });
+  },
+  setViewDistance(target, enabled) {
+    return terrain.setTileViewDistance({
+      target: debugTileTarget(target),
+      enabled,
+    });
+  },
+  setViewOverhead(percent) {
+    const value = finiteDebugNumber(percent, "percent");
+    if (value < 0) throw new Error("percent must be nonnegative.");
+    return terrain.setTileViewOverhead(value);
+  },
+  setTileRecalculation(target, enabled) {
+    return terrain.setTileRecalculation({
+      target: debugTileTarget(target),
+      enabled,
+    });
+  },
+  setOverlays(options) {
+    if (options.terrain !== undefined) {
+      setTileOverlayVisible(options.terrain);
+    }
+    if (options.textures !== undefined) {
+      setTextureTileOverlayVisible(options.textures);
+    }
+    return debugControlState().overlays;
+  },
+  setRendering(enabled) {
+    renderingEnabled = enabled;
+    frameTelemetry.clear();
+    return debugControlState();
+  },
+  setInputEnabled(enabled) {
+    setSimulationInputEnabled(enabled);
+    frameTelemetry.clear();
+    return debugControlState();
+  },
+  setFoveation(value) {
+    const foveation = finiteDebugNumber(value, "foveation");
+    if (foveation < 0 || foveation > 1) {
+      throw new Error("foveation must be between 0 and 1.");
+    }
+    renderer.xr.setFoveation(foveation);
+    frameTelemetry.clear();
+    return debugControlState();
+  },
+  setFramebufferScale(value) {
+    const scale = finiteDebugNumber(value, "framebufferScale");
+    if (scale <= 0) throw new Error("framebufferScale must be positive.");
+    if (renderer.xr.isPresenting) {
+      throw new Error("Framebuffer scale can only change outside an XR session. Exit VR, set it, then re-enter VR.");
+    }
+    xrFramebufferScaleFactor = scale;
+    renderer.xr.setFramebufferScaleFactor(scale);
+    frameTelemetry.clear();
+    return debugControlState();
+  },
+  setDesktopPixelRatio(value) {
+    const ratio = finiteDebugNumber(value, "pixelRatio");
+    if (ratio <= 0) throw new Error("pixelRatio must be positive.");
+    renderer.setPixelRatio(ratio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    frameTelemetry.clear();
+    return debugControlState();
+  },
+  setLayerVisibility(layer, visible) {
+    switch (layer) {
+      case "terrain":
+        terrain.group.visible = visible;
+        break;
+      case "atmosphere":
+        atmosphere.mesh.visible = visible;
+        break;
+      case "stars":
+        celestialSphere.object3d.visible = visible;
+        break;
+      case "aircraft":
+        aircraftLayer.group.visible = visible;
+        break;
+      case "hand-panel":
+        handPanelVisible = visible;
+        if (!visible) handPanel.enabled = false;
+        break;
+      default:
+        throw new Error(`Unknown layer: ${String(layer)}.`);
+    }
+    frameTelemetry.clear();
+    return debugControlState();
+  },
+};
+
+if (import.meta.env.DEV || benchmarkParameters.get("debug") === "1") {
+  window.pasDeGeantDebug = debugApi;
+  console.info("Pas de Géant runtime controls: window.pasDeGeantDebug.help()");
+}
+
 const cameraWorldPosition = new THREE.Vector3();
 function render(nowMs: number): void {
+  const applicationStartMs = performance.now();
+  const xrFrameRate = renderer.xr.getSession()?.frameRate;
+  if (xrFrameRate !== undefined && xrFrameRate > 0) {
+    lastKnownXrFrameRate = xrFrameRate;
+  }
   const utcMilliseconds = Date.now();
-  const deltaSeconds = Math.min(0.05, (nowMs - previousFrameMs) / 1000);
+  const intervalMs = nowMs - previousFrameMs;
+  const deltaSeconds = Math.min(0.05, intervalMs / 1000);
   previousFrameMs = nowMs;
-  if (renderer.xr.isPresenting) {
-    updatePhysicalWalking();
-    updateXrControls(deltaSeconds, nowMs);
-  } else {
-    updateDesktopControls(deltaSeconds);
+  if (simulationInputEnabled) {
+    if (renderer.xr.isPresenting) {
+      updatePhysicalWalking();
+      updateXrControls(deltaSeconds, nowMs);
+    } else {
+      updateDesktopControls(deltaSeconds);
+    }
   }
   updatePresentation();
   aircraftLayer.update(
@@ -1139,7 +1730,13 @@ function render(nowMs: number): void {
     utcMilliseconds,
   );
   updateHandPanel(nowMs);
-  renderer.render(scene, camera);
+  if (renderingEnabled) renderer.render(scene, camera);
+  frameTelemetry.record(
+    nowMs,
+    intervalMs,
+    performance.now() - applicationStartMs,
+    renderingEnabled,
+  );
 }
 
 window.addEventListener("beforeunload", () => {
