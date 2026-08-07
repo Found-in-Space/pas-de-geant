@@ -13,6 +13,8 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
   CELESTIAL_EPHEMERIS_STEP_MS,
+  CELESTIAL_LIMITING_MAGNITUDE,
+  CELESTIAL_PLANET_NAMES,
   CelestialSphere,
   type CelestialBodyEphemeris,
   calculateCelestialBodyEphemeris,
@@ -218,6 +220,80 @@ describe("Pas de Géant celestial-sphere regressions", () => {
     sphere.dispose();
   });
 
+  it("renders visible planets by magnitude while retaining every anchor", () => {
+    const at = new Date("2026-08-07T12:00:00.000Z");
+    const ephemeris = calculateCelestialBodyEphemeris(at);
+    expect(ephemeris.planets.map(({ name }) => name)).toEqual(
+      CELESTIAL_PLANET_NAMES,
+    );
+
+    const jupiter = ephemeris.planets.find(
+      ({ name }) => name === "Jupiter",
+    )!;
+    const neptune = ephemeris.planets.find(
+      ({ name }) => name === "Neptune",
+    )!;
+    expect(jupiter.apparentMagnitude).toBeLessThanOrEqual(
+      CELESTIAL_LIMITING_MAGNITUDE,
+    );
+    expect(neptune.apparentMagnitude).toBeGreaterThan(
+      CELESTIAL_LIMITING_MAGNITUDE,
+    );
+
+    const latitude = 43;
+    const longitude = -3;
+    const heightMeters = 1.65;
+    const frame = contactFrame(latitude, longitude);
+    const observerAppEcefKm = geodeticSurfaceEcefKm(
+      latitude,
+      longitude,
+    ).addScaledVector(frame.upEcef, heightMeters / 1_000);
+    const sphere = new CelestialSphere();
+    sphere.update(
+      earthToWorldQuaternion(frame),
+      new THREE.Vector3(0, heightMeters, 0),
+      at.getTime(),
+      observerAppEcefKm,
+    );
+
+    for (const name of CELESTIAL_PLANET_NAMES) {
+      const anchor = sphere.getPlanetAnchor(name);
+      expect(anchor.name).toBe(
+        `celestial-planet-${name.toLowerCase()}-anchor`,
+      );
+      expect(anchor.position.length()).toBeCloseTo(520, 4);
+    }
+
+    const observer = ObserverVector(
+      at,
+      new Observer(latitude, longitude, heightMeters),
+      false,
+    );
+    const jupiterPosition = GeoVector(Body.Jupiter, at, true);
+    const expectedJupiterDirection = new THREE.Vector3(
+      jupiterPosition.x - observer.x,
+      jupiterPosition.y - observer.y,
+      jupiterPosition.z - observer.z,
+    ).normalize();
+    expect(
+      sphere.getPlanetAnchor("Jupiter").position.clone().normalize()
+        .distanceTo(expectedJupiterDirection),
+    ).toBeLessThan(2e-9);
+
+    const cores = sphere.object3d.getObjectByName(
+      "celestial-planet-cores",
+    ) as THREE.Points<THREE.BufferGeometry>;
+    const magnitudes = cores.geometry.getAttribute("magAbs");
+    expect(magnitudes.count).toBe(CELESTIAL_PLANET_NAMES.length);
+    expect(
+      magnitudes.getX(CELESTIAL_PLANET_NAMES.indexOf("Jupiter")),
+    ).toBeCloseTo(jupiter.apparentMagnitude + 5, 5);
+    expect(
+      magnitudes.getX(CELESTIAL_PLANET_NAMES.indexOf("Neptune")),
+    ).toBeCloseTo(neptune.apparentMagnitude + 5, 5);
+    sphere.dispose();
+  });
+
   it("refreshes slow ephemerides independently of frame updates", () => {
     const fixedEphemeris: CelestialBodyEphemeris = {
       sunDirectionJ2000: { x: 1, y: 0, z: 0 },
@@ -229,6 +305,11 @@ describe("Pas de Géant celestial-sphere regressions", () => {
       moonLibrationLatitudeDeg: 0,
       moonLibrationLongitudeDeg: 0,
       moonNorthPoleJ2000: { x: 0, y: 0, z: 1 },
+      planets: CELESTIAL_PLANET_NAMES.map((name, index) => ({
+        name,
+        positionJ2000Au: { x: index + 1, y: 1, z: 1 },
+        apparentMagnitude: index,
+      })),
     };
     let ephemerisCalls = 0;
     const sphere = new CelestialSphere(

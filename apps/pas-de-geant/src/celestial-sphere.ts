@@ -2,6 +2,7 @@ import {
   Body,
   GeoMoon,
   GeoVector,
+  Illumination,
   KM_PER_AU,
   Libration,
   MakeTime,
@@ -22,6 +23,19 @@ export const CELESTIAL_LIMITING_MAGNITUDE = 6.5;
 export const CELESTIAL_TIME_STEP_MS = 1_000;
 export const CELESTIAL_EPHEMERIS_STEP_MS = 60_000;
 
+export const CELESTIAL_PLANET_NAMES = [
+  "Mercury",
+  "Venus",
+  "Mars",
+  "Jupiter",
+  "Saturn",
+  "Uranus",
+  "Neptune",
+] as const;
+
+export type CelestialPlanetName =
+  (typeof CELESTIAL_PLANET_NAMES)[number];
+
 const ORIGIN_EPSILON_PC = 1e-9;
 const SUN_RADIUS_KM = 695_700;
 const MOON_RADIUS_KM = 1_737.4;
@@ -31,6 +45,19 @@ const GEOCENTRIC_OBSERVER_APP_ECEF_KM = new THREE.Vector3();
 const APP_ECEF_FROM_STANDARD_ECEF = new THREE.Quaternion()
   .setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
   .normalize();
+const CELESTIAL_PLANETS: ReadonlyArray<{
+  name: CelestialPlanetName;
+  body: Body;
+  displayTemperatureK: number;
+}> = [
+  { name: "Mercury", body: Body.Mercury, displayTemperatureK: 5_500 },
+  { name: "Venus", body: Body.Venus, displayTemperatureK: 5_000 },
+  { name: "Mars", body: Body.Mars, displayTemperatureK: 2_500 },
+  { name: "Jupiter", body: Body.Jupiter, displayTemperatureK: 4_500 },
+  { name: "Saturn", body: Body.Saturn, displayTemperatureK: 4_000 },
+  { name: "Uranus", body: Body.Uranus, displayTemperatureK: 9_000 },
+  { name: "Neptune", body: Body.Neptune, displayTemperatureK: 12_000 },
+];
 
 export interface CelestialStarSource {
   positionPc: {
@@ -57,6 +84,12 @@ export type CelestialCatalogLoadResult =
   | { status: "ready"; count: number }
   | { status: "unavailable"; count: 0; error: unknown };
 
+export interface CelestialPlanetEphemeris {
+  name: CelestialPlanetName;
+  positionJ2000Au: { x: number; y: number; z: number };
+  apparentMagnitude: number;
+}
+
 export interface CelestialBodyEphemeris {
   sunDirectionJ2000: { x: number; y: number; z: number };
   moonDirectionJ2000: { x: number; y: number; z: number };
@@ -67,6 +100,7 @@ export interface CelestialBodyEphemeris {
   moonLibrationLatitudeDeg: number;
   moonLibrationLongitudeDeg: number;
   moonNorthPoleJ2000: { x: number; y: number; z: number };
+  planets: readonly CelestialPlanetEphemeris[];
 }
 
 export type CelestialEphemerisProvider = (
@@ -104,11 +138,143 @@ export function calculateCelestialBodyEphemeris(
       y: moonAxis.north.y,
       z: moonAxis.north.z,
     },
+    planets: CELESTIAL_PLANETS.map(({ name, body }) => {
+      const position = GeoVector(body, at, true);
+      return {
+        name,
+        positionJ2000Au: {
+          x: position.x,
+          y: position.y,
+          z: position.z,
+        },
+        apparentMagnitude: Illumination(body, at).mag,
+      };
+    }),
   };
+}
+
+class CelestialPlanetField {
+  readonly object3d = new THREE.Group();
+
+  private readonly geometry = new THREE.BufferGeometry();
+  private readonly positionAttribute = new THREE.Float32BufferAttribute(
+    new Float32Array(CELESTIAL_PLANETS.length * 3),
+    3,
+  );
+  private readonly magnitudeAttribute = new THREE.Float32BufferAttribute(
+    new Float32Array(CELESTIAL_PLANETS.length).fill(100),
+    1,
+  );
+  private readonly positionsJ2000Au = CELESTIAL_PLANETS.map(
+    () => new THREE.Vector3(),
+  );
+  private readonly anchors = CELESTIAL_PLANETS.map(
+    () => new THREE.Object3D(),
+  );
+  private readonly topocentricPosition = new THREE.Vector3();
+  private readonly materialProfile =
+    createDefaultThreeStarFieldMaterialProfile({
+      observerPosition: { x: 0, y: 0, z: 0 },
+      coordinateUnitsPerParsec: CELESTIAL_SPHERE_RADIUS_M,
+      limitingMagnitude: CELESTIAL_LIMITING_MAGNITUDE,
+      renderScale: 1,
+    });
+
+  constructor() {
+    this.object3d.name = "celestial-planets";
+    this.geometry.setAttribute("position", this.positionAttribute);
+    this.geometry.setAttribute(
+      "teff_log8",
+      new THREE.BufferAttribute(
+        Uint8Array.from(
+          CELESTIAL_PLANETS,
+          ({ displayTemperatureK }) =>
+            encodedTemperatureK(displayTemperatureK),
+        ),
+        1,
+        true,
+      ),
+    );
+    this.geometry.setAttribute("magAbs", this.magnitudeAttribute);
+
+    this.materialProfile.material.depthTest = true;
+    this.materialProfile.material.depthWrite = false;
+    const cores = new THREE.Points(
+      this.geometry,
+      this.materialProfile.material,
+    );
+    cores.name = "celestial-planet-cores";
+    cores.frustumCulled = false;
+    this.object3d.add(cores);
+
+    if (this.materialProfile.haloMaterial) {
+      this.materialProfile.haloMaterial.depthTest = true;
+      this.materialProfile.haloMaterial.depthWrite = false;
+      const halos = new THREE.Points(
+        this.geometry,
+        this.materialProfile.haloMaterial,
+      );
+      halos.name = "celestial-planet-halos";
+      halos.frustumCulled = false;
+      this.object3d.add(halos);
+    }
+
+    for (let index = 0; index < CELESTIAL_PLANETS.length; index += 1) {
+      const definition = CELESTIAL_PLANETS[index]!;
+      const anchor = this.anchors[index]!;
+      anchor.name =
+        `celestial-planet-${definition.name.toLowerCase()}-anchor`;
+      this.object3d.add(anchor);
+    }
+  }
+
+  updateEphemeris(planets: readonly CelestialPlanetEphemeris[]): void {
+    for (const planet of planets) {
+      const index = CELESTIAL_PLANET_NAMES.indexOf(planet.name);
+      if (index < 0) continue;
+      this.positionsJ2000Au[index]!.set(
+        planet.positionJ2000Au.x,
+        planet.positionJ2000Au.y,
+        planet.positionJ2000Au.z,
+      );
+      // Every point is one shader parsec away, so mAbs = mApp + 5.
+      this.magnitudeAttribute.setX(index, planet.apparentMagnitude + 5);
+    }
+    this.magnitudeAttribute.needsUpdate = true;
+  }
+
+  updateObserver(observerJ2000Au: THREE.Vector3): void {
+    for (let index = 0; index < CELESTIAL_PLANETS.length; index += 1) {
+      this.topocentricPosition
+        .subVectors(this.positionsJ2000Au[index]!, observerJ2000Au)
+        .normalize()
+        .multiplyScalar(CELESTIAL_SPHERE_RADIUS_M);
+      this.positionAttribute.setXYZ(
+        index,
+        this.topocentricPosition.x,
+        this.topocentricPosition.y,
+        this.topocentricPosition.z,
+      );
+      this.anchors[index]!.position.copy(this.topocentricPosition);
+    }
+    this.positionAttribute.needsUpdate = true;
+  }
+
+  getAnchor(name: CelestialPlanetName): THREE.Object3D {
+    return this.anchors[CELESTIAL_PLANET_NAMES.indexOf(name)]!;
+  }
+
+  dispose(): void {
+    this.object3d.remove(...this.object3d.children);
+    this.geometry.dispose();
+    this.materialProfile.dispose?.();
+  }
 }
 
 class CelestialBodies {
   readonly object3d = new THREE.Group();
+
+  private readonly planets = new CelestialPlanetField();
 
   private readonly sunTexture = createSunTexture();
   private readonly sunMaterial = new THREE.SpriteMaterial({
@@ -156,7 +322,7 @@ class CelestialBodies {
     this.sun.frustumCulled = false;
     this.moon.name = "celestial-moon";
     this.moon.frustumCulled = false;
-    this.object3d.add(this.sun, this.moon);
+    this.object3d.add(this.planets.object3d, this.sun, this.moon);
   }
 
   setMoonTexture(texture: THREE.Texture): void {
@@ -176,6 +342,7 @@ class CelestialBodies {
         new Date(utcMilliseconds),
       );
       this.updateMoonAttitude(this.ephemeris);
+      this.planets.updateEphemeris(this.ephemeris.planets);
       this.nextEphemerisUpdateMs =
         utcMilliseconds + CELESTIAL_EPHEMERIS_STEP_MS;
     }
@@ -186,6 +353,7 @@ class CelestialBodies {
       .copy(observerAppEcefKm)
       .applyQuaternion(appEcefToJ2000)
       .divideScalar(KM_PER_AU);
+    this.planets.updateObserver(this.observerJ2000Au);
     this.sunJ2000Au.set(
       ephemeris.sunDirectionJ2000.x * ephemeris.sunDistanceAu,
       ephemeris.sunDirectionJ2000.y * ephemeris.sunDistanceAu,
@@ -227,6 +395,10 @@ class CelestialBodies {
     );
 
     this.object3d.visible = true;
+  }
+
+  getPlanetAnchor(name: CelestialPlanetName): THREE.Object3D {
+    return this.planets.getAnchor(name);
   }
 
   private updateMoonAttitude(ephemeris: CelestialBodyEphemeris): void {
@@ -294,7 +466,8 @@ class CelestialBodies {
   }
 
   dispose(): void {
-    this.object3d.remove(this.sun, this.moon);
+    this.object3d.remove(this.planets.object3d, this.sun, this.moon);
+    this.planets.dispose();
     this.sunTexture.dispose();
     this.sunMaterial.dispose();
     this.moonGeometry.dispose();
@@ -473,6 +646,10 @@ export class CelestialSphere {
     this.bodies.setMoonTexture(texture);
   }
 
+  getPlanetAnchor(name: CelestialPlanetName): THREE.Object3D {
+    return this.bodies.getPlanetAnchor(name);
+  }
+
   update(
     earthToWorld: THREE.Quaternion,
     cameraWorldPosition: THREE.Vector3,
@@ -556,20 +733,24 @@ function encodedTemperature(star: CelestialStarSource): number {
     );
   }
   if (Number.isFinite(star.temperatureK)) {
-    const temperatureK = THREE.MathUtils.clamp(
-      star.temperatureK as number,
-      2_000,
-      50_000,
-    );
-    return Math.round(
-      THREE.MathUtils.clamp(
-        Math.log(temperatureK / 2_000) / Math.log(25) * 255,
-        0,
-        254,
-      ),
-    );
+    return encodedTemperatureK(star.temperatureK as number);
   }
   return 255;
+}
+
+function encodedTemperatureK(temperatureK: number): number {
+  const clampedTemperatureK = THREE.MathUtils.clamp(
+    temperatureK,
+    2_000,
+    50_000,
+  );
+  return Math.round(
+    THREE.MathUtils.clamp(
+      Math.log(clampedTemperatureK / 2_000) / Math.log(25) * 255,
+      0,
+      254,
+    ),
+  );
 }
 
 function normalizedDirection(
