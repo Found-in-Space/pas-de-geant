@@ -1689,6 +1689,7 @@ function debugRendererSnapshot(): Record<string, unknown> {
   const rendererInfo = gl.getExtension("WEBGL_debug_renderer_info");
   const session = renderer.xr.getSession();
   return {
+    threeRevision: THREE.REVISION,
     xr: {
       presenting: renderer.xr.isPresenting,
       frameRate: session?.frameRate ?? null,

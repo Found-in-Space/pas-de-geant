@@ -10,6 +10,9 @@ import {
   Vector,
 } from "astronomy-engine";
 import * as THREE from "three";
+import {
+  createDefaultThreeStarFieldMaterialProfile,
+} from "@found-in-space/three-star-field";
 import { describe, expect, it } from "vitest";
 import {
   CELESTIAL_EPHEMERIS_STEP_MS,
@@ -32,6 +35,16 @@ import {
 } from "../apps/pas-de-geant/src/planet-state.js";
 
 describe("Pas de Géant celestial-sphere regressions", () => {
+  it("shares one Three runtime with the star-field renderer", () => {
+    const profile = createDefaultThreeStarFieldMaterialProfile();
+    try {
+      expect(profile.material).toBeInstanceOf(THREE.Material);
+      expect(profile.haloMaterial).toBeInstanceOf(THREE.Material);
+    } finally {
+      profile.dispose?.();
+    }
+  });
+
   it("agrees with Astronomy Engine's J2000-to-horizon transform", () => {
     const at = new Date("2026-08-12T17:45:46.794Z");
     const latitude = 40;
