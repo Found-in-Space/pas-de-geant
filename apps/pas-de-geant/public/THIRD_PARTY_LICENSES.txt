@@ -8,6 +8,18 @@ NASA imagery must not be used to imply NASA endorsement. NASA identifiers and
 insignia are not included in this application.
 
 
+NASA LUNAR RECONNAISSANCE ORBITER IMAGERY
+
+The bundled Moon texture is NASA Scientific Visualization Studio's natural
+color global mosaic. It is based on Lunar Reconnaissance Orbiter Camera data
+and was prepared by Ernie Wright (USRA):
+https://svs.gsfc.nasa.gov/4720/
+
+NASA content is generally not subject to copyright in the United States.
+NASA imagery must not be used to imply NASA endorsement. NASA identifiers and
+insignia are not included in this application.
+
+
 MAPTERHORN TERRAIN TILES AND COPERNICUS GLO-30
 
 Local land detail is requested at runtime from Mapterhorn's public global
