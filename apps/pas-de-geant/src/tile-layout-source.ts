@@ -4,6 +4,8 @@ import {
   WEB_MERCATOR_MAX_LATITUDE,
   calculateTileOnionPlan,
   mercatorPoint,
+  tileOnionAnchorOrigin,
+  wrapTileX,
   wrapLongitude,
   type TileOnionState,
 } from "./tile-onion-core.js";
@@ -33,9 +35,9 @@ export function normalizeTileLayoutTarget(
 
 /**
  * Returns whether a view change warrants another worker plan. Normal movement
- * is gated by the underfoot tile so per-frame coordinate noise does not create
- * worker traffic. Boundary movement remains geographic because latitude and
- * the last stable longitude are planner inputs there.
+ * is gated by the stride-four onion anchor so movement within the stable fine
+ * patch does not create worker traffic. Boundary movement remains geographic
+ * because latitude and the last stable longitude are planner inputs there.
  */
 export function tileLayoutTargetNeedsSubmission(
   previousSourceTarget: TileLayoutTarget,
@@ -50,7 +52,7 @@ export function tileLayoutTargetNeedsSubmission(
   ) return false;
 
   const width = 2 ** next.maxZoom;
-  const normalTile = (target: TileLayoutTarget) => {
+  const normalAnchor = (target: TileLayoutTarget) => {
     if (Math.abs(target.latitudeDegrees) > WEB_MERCATOR_MAX_LATITUDE) {
       return undefined;
     }
@@ -65,12 +67,16 @@ export function tileLayoutTargetNeedsSubmission(
       (y < TILE_ONION_FINE_MARGIN ||
         y > width - TILE_ONION_FINE_MARGIN - 1)
     ) return undefined;
-    return { x: Math.floor(point.x), y };
+    if (width < TILE_ONION_FINE_SIZE) return { x: 0, y: 0 };
+    return {
+      x: wrapTileX(tileOnionAnchorOrigin(Math.floor(point.x)), target.maxZoom),
+      y: tileOnionAnchorOrigin(y),
+    };
   };
-  const previousTile = normalTile(previous);
-  const nextTile = normalTile(next);
-  return !previousTile || !nextTile ||
-    previousTile.x !== nextTile.x || previousTile.y !== nextTile.y;
+  const previousAnchor = normalAnchor(previous);
+  const nextAnchor = normalAnchor(next);
+  return !previousAnchor || !nextAnchor ||
+    previousAnchor.x !== nextAnchor.x || previousAnchor.y !== nextAnchor.y;
 }
 
 /**

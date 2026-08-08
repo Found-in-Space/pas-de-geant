@@ -84,6 +84,10 @@ const MAX_CONCURRENT_REQUESTS = 6;
 const MAX_UPLOADS_PER_FRAME = 2;
 const FINE_IMAGERY_SETTLE_MS = 750;
 const IMAGERY_MOVEMENT_THRESHOLD_M = 0.1;
+const FAST_IMAGERY_ENTER_MPS = 3;
+const FAST_IMAGERY_EXIT_MPS = 2.2;
+const FAST_IMAGERY_HOLD_MS = 250;
+const IMAGERY_VELOCITY_FILTER_MS = 180;
 const TRANSIENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
 
 function imageryFailureMetadata(
@@ -172,15 +176,16 @@ export interface ImageryCoordinateBounds {
 }
 
 function surfaceMovementM(
-  first: Pick<ImageryView, "latitudeDegrees" | "longitudeDegrees">,
+  firstLatitudeDegrees: number,
+  firstLongitudeDegrees: number,
   second: ImageryView,
 ): number {
   const radians = Math.PI / 180;
-  const firstLatitude = first.latitudeDegrees * radians;
+  const firstLatitude = firstLatitudeDegrees * radians;
   const secondLatitude = second.latitudeDegrees * radians;
   const latitudeDelta = secondLatitude - firstLatitude;
   const rawLongitudeDelta =
-    (second.longitudeDegrees - first.longitudeDegrees) * radians;
+    (second.longitudeDegrees - firstLongitudeDegrees) * radians;
   const longitudeDelta =
     ((rawLongitudeDelta + Math.PI) % (Math.PI * 2) + Math.PI * 2) %
       (Math.PI * 2) - Math.PI;
@@ -195,16 +200,40 @@ function surfaceMovementM(
   return angle * Math.max(0.001, second.displayRadiusM);
 }
 
-/** Holds back only the finest imagery level while the observer is moving. */
+export type ImageryMovementState = "still" | "moving" | "fast";
+
+/** Holds back fine imagery according to frame-rate-independent surface speed. */
 export class ImageryFineTileGate {
-  private anchor?: Pick<ImageryView, "latitudeDegrees" | "longitudeDegrees">;
+  private anchorLatitudeDegrees: number | undefined;
+  private anchorLongitudeDegrees = 0;
+  private sampleLatitudeDegrees: number | undefined;
+  private sampleLongitudeDegrees = 0;
+  private sampleTimeMs: number | undefined;
   private lastMovementMs: number | undefined;
+  private lastFastMs: number | undefined;
+  private filteredVelocityMps = 0;
+  private fast = false;
+  private stateValue: ImageryMovementState = "still";
+  private warmDemandDeferredValue = false;
 
   constructor(initialView?: ImageryView) {
-    if (initialView) this.anchor = {
-      latitudeDegrees: initialView.latitudeDegrees,
-      longitudeDegrees: initialView.longitudeDegrees,
-    };
+    if (!initialView) return;
+    this.anchorLatitudeDegrees = initialView.latitudeDegrees;
+    this.anchorLongitudeDegrees = initialView.longitudeDegrees;
+    this.sampleLatitudeDegrees = initialView.latitudeDegrees;
+    this.sampleLongitudeDegrees = initialView.longitudeDegrees;
+  }
+
+  get state(): ImageryMovementState {
+    return this.stateValue;
+  }
+
+  get velocityMps(): number {
+    return this.filteredVelocityMps;
+  }
+
+  get warmDemandDeferred(): boolean {
+    return this.warmDemandDeferredValue;
   }
 
   targetZoom(
@@ -213,25 +242,68 @@ export class ImageryFineTileGate {
     minimumZoom: number,
     nowMs: number,
   ): number {
-    if (!this.anchor) {
-      this.anchor = {
-        latitudeDegrees: view.latitudeDegrees,
-        longitudeDegrees: view.longitudeDegrees,
-      };
-    } else if (
-      surfaceMovementM(this.anchor, view) >= IMAGERY_MOVEMENT_THRESHOLD_M
-    ) {
-      this.anchor = {
-        latitudeDegrees: view.latitudeDegrees,
-        longitudeDegrees: view.longitudeDegrees,
-      };
+    if (this.anchorLatitudeDegrees === undefined) {
+      this.anchorLatitudeDegrees = view.latitudeDegrees;
+      this.anchorLongitudeDegrees = view.longitudeDegrees;
+    } else if (surfaceMovementM(
+      this.anchorLatitudeDegrees,
+      this.anchorLongitudeDegrees,
+      view,
+    ) >= IMAGERY_MOVEMENT_THRESHOLD_M) {
+      this.anchorLatitudeDegrees = view.latitudeDegrees;
+      this.anchorLongitudeDegrees = view.longitudeDegrees;
       this.lastMovementMs = nowMs;
     }
+
+    if (this.sampleLatitudeDegrees === undefined) {
+      this.sampleLatitudeDegrees = view.latitudeDegrees;
+      this.sampleLongitudeDegrees = view.longitudeDegrees;
+      this.sampleTimeMs = nowMs;
+    } else if (this.sampleTimeMs === undefined) {
+      this.sampleTimeMs = nowMs;
+      this.sampleLatitudeDegrees = view.latitudeDegrees;
+      this.sampleLongitudeDegrees = view.longitudeDegrees;
+    } else {
+      const elapsedMs = nowMs - this.sampleTimeMs;
+      if (elapsedMs > 0) {
+        const distanceM = surfaceMovementM(
+          this.sampleLatitudeDegrees,
+          this.sampleLongitudeDegrees,
+          view,
+        );
+        const instantaneousVelocityMps = distanceM * 1_000 / elapsedMs;
+        const filterWeight = 1 - Math.exp(
+          -elapsedMs / IMAGERY_VELOCITY_FILTER_MS,
+        );
+        this.filteredVelocityMps +=
+          (instantaneousVelocityMps - this.filteredVelocityMps) * filterWeight;
+        this.sampleTimeMs = nowMs;
+        this.sampleLatitudeDegrees = view.latitudeDegrees;
+        this.sampleLongitudeDegrees = view.longitudeDegrees;
+      }
+    }
+
+    this.fast = this.fast
+      ? this.filteredVelocityMps >= FAST_IMAGERY_EXIT_MPS
+      : this.filteredVelocityMps >= FAST_IMAGERY_ENTER_MPS;
+    if (this.fast) this.lastFastMs = nowMs;
+    const fastHolding = this.lastFastMs !== undefined &&
+      Math.max(0, nowMs - this.lastFastMs) < FAST_IMAGERY_HOLD_MS;
     const settling = this.lastMovementMs !== undefined &&
       Math.max(0, nowMs - this.lastMovementMs) < FINE_IMAGERY_SETTLE_MS;
-    return settling
-      ? Math.max(minimumZoom, desiredZoom - 1)
-      : desiredZoom;
+    this.stateValue = fastHolding ? "fast" : settling ? "moving" : "still";
+    if (this.stateValue === "fast") this.warmDemandDeferredValue = true;
+    else if (this.stateValue === "still") {
+      this.warmDemandDeferredValue = false;
+    }
+    return Math.max(
+      minimumZoom,
+      desiredZoom - (this.stateValue === "fast"
+        ? 2
+        : this.stateValue === "moving"
+        ? 1
+        : 0),
+    );
   }
 }
 
@@ -245,6 +317,18 @@ export function imageryTargetForView(
     latitudeDegrees: view.latitudeDegrees,
     longitudeDegrees: view.longitudeDegrees,
   });
+}
+
+export function imageryDemandForMovement(
+  fullDemand: readonly TileIdentity[],
+  hotKeys: ReadonlySet<string>,
+  warmDemandDeferred: boolean,
+  isResident: (tile: TileIdentity) => boolean,
+): readonly TileIdentity[] {
+  if (!warmDemandDeferred) return fullDemand;
+  return fullDemand.filter((tile) =>
+    hotKeys.has(tileIdentityKey(tile)) || isResident(tile)
+  );
 }
 
 /** Earth-fixed normalized Web Mercator bounds for one terrain mesh. */
@@ -413,6 +497,8 @@ interface SourceJob {
   hot: boolean;
   controller?: AbortController;
   probe?: boolean;
+  warmRamp?: boolean;
+  succeeded?: boolean;
 }
 
 /** Scheduler provider whose 404s resolve as no-data and whose failures are classified. */
@@ -429,6 +515,10 @@ export class ScheduledImageryProvider
   private requestTotal = 0;
   private sourceLoadTotal = 0;
   private decodeTotal = 0;
+  private sourceCancellationTotal = 0;
+  private warmRampActive = false;
+  private warmRampLimit = MAX_CONCURRENT_REQUESTS;
+  private warmRampInFlight = 0;
   private readonly circuit = new TileRequestCircuit();
   private lastCircuitError: unknown;
 
@@ -446,20 +536,33 @@ export class ScheduledImageryProvider
     requestTotal: number;
     sourceLoadTotal: number;
     decodeTotal: number;
+    sourceCancellationTotal: number;
     queued: number;
     inFlight: number;
+    warmRampActive: boolean;
+    warmRampLimit: number;
   } {
     return {
       requestTotal: this.requestTotal,
       sourceLoadTotal: this.sourceLoadTotal,
       decodeTotal: this.decodeTotal,
+      sourceCancellationTotal: this.sourceCancellationTotal,
       queued: this.queuedJobs.length,
       inFlight: this.activeJobCount,
+      warmRampActive: this.warmRampActive,
+      warmRampLimit: this.warmRampLimit,
     };
   }
 
   get retryDiagnostics() {
     return this.circuit.diagnostics;
+  }
+
+  /** Restores speculative warm traffic additively after fast travel. */
+  beginWarmRamp(): void {
+    this.warmRampActive = true;
+    this.warmRampLimit = 1;
+    this.pumpJobs();
   }
 
   request(
@@ -554,6 +657,7 @@ export class ScheduledImageryProvider
       if (index >= 0) this.queuedJobs.splice(index, 1);
     } else {
       this.circuit.recordCancellation(job.probe === true);
+      this.sourceCancellationTotal += 1;
       job.controller?.abort();
     }
   }
@@ -582,6 +686,12 @@ export class ScheduledImageryProvider
           this.queuedJobs[0]!.consumers.size === 0)
       ) this.queuedJobs.shift();
       if (this.queuedJobs.length === 0) return;
+      const next = this.queuedJobs[0]!;
+      if (
+        this.warmRampActive &&
+        !next.hot &&
+        this.warmRampInFlight >= this.warmRampLimit
+      ) return;
       const start = this.circuit.tryStart();
       if (!start) return;
       const job = this.queuedJobs.shift();
@@ -589,6 +699,8 @@ export class ScheduledImageryProvider
       if (!this.jobs.has(job.key) || job.consumers.size === 0) continue;
       job.state = "active";
       job.probe = start === "probe";
+      job.warmRamp = this.warmRampActive && !job.hot;
+      if (job.warmRamp) this.warmRampInFlight += 1;
       job.controller = new AbortController();
       this.activeJobCount += 1;
       this.sourceLoadTotal += 1;
@@ -612,6 +724,18 @@ export class ScheduledImageryProvider
         )
         .finally(() => {
           this.activeJobCount -= 1;
+          if (job.warmRamp) {
+            this.warmRampInFlight = Math.max(0, this.warmRampInFlight - 1);
+            if (job.succeeded) {
+              this.warmRampLimit = Math.min(
+                MAX_CONCURRENT_REQUESTS,
+                this.warmRampLimit + 1,
+              );
+              if (this.warmRampLimit >= MAX_CONCURRENT_REQUESTS) {
+                this.warmRampActive = false;
+              }
+            }
+          }
           this.pumpJobs();
         });
     }
@@ -620,6 +744,7 @@ export class ScheduledImageryProvider
   private completeJob(job: SourceJob, result: SourceResult): void {
     if (this.jobs.get(job.key) !== job) return;
     this.circuit.recordSuccess(job.probe === true);
+    job.succeeded = true;
     this.jobs.delete(job.key);
     for (const requestId of job.consumers) {
       const request = this.requests.get(requestId);
@@ -916,11 +1041,15 @@ interface ImageryPool {
 
 interface PoolMigration {
   readonly pool: ImageryPool;
-  readonly root: ImageryTreeNode;
-  readonly demandedKeys: ReadonlySet<string>;
+  root: ImageryTreeNode;
+  demandedKeys: ReadonlySet<string>;
   /** Candidate mappings are separate so the visible tree cannot be disturbed. */
   readonly slots: Map<string, number>;
   readonly uploadedRevisions: Map<string, number>;
+  pendingUploadKeys: string[];
+  pendingUploadSet: Set<string>;
+  pendingUploadHead: number;
+  remainingUploadCount: number;
   /** A larger backing texture must be swapped in at publication time. */
   readonly replacesActivePool: boolean;
 }
@@ -985,6 +1114,71 @@ export interface ImageryPoolMigrationPlan {
   readonly slots: Map<string, number>;
   readonly uploadedRevisions: Map<string, number>;
   readonly requiredAdditionalSlots: number;
+}
+
+export interface ImageryPoolMigrationRetargetPlan {
+  readonly slots: Map<string, number>;
+  readonly uploadedRevisions: Map<string, number>;
+  readonly releasedCandidateSlots: readonly number[];
+  readonly missingKeys: readonly string[];
+}
+
+export interface ImageryMigrationUploadDemandPlan {
+  readonly pendingKeys: string[];
+  readonly validReusedUploadCount: number;
+}
+
+/** Separates valid reused uploads from pages requiring current data. */
+export function planImageryMigrationUploadDemand(
+  demandedKeys: Iterable<string>,
+  uploadedRevisions: ReadonlyMap<string, number>,
+  requiredRevisions: ReadonlyMap<string, number>,
+): ImageryMigrationUploadDemandPlan {
+  const pending: string[] = [];
+  let validReusedUploadCount = 0;
+  for (const key of demandedKeys) {
+    const required = requiredRevisions.get(key) ?? 0;
+    if (required > 0 && (uploadedRevisions.get(key) ?? 0) >= required) {
+      validReusedUploadCount += 1;
+    } else pending.push(key);
+  }
+  return { pendingKeys: pending, validReusedUploadCount };
+}
+
+/** Retains staged intersection data without releasing visible pool slots. */
+export function planImageryPoolMigrationRetarget(
+  candidateSlots: ReadonlyMap<string, number>,
+  candidateUploadedRevisions: ReadonlyMap<string, number>,
+  visibleSlots: ReadonlyMap<string, number>,
+  nextDemand: ReadonlySet<string>,
+): ImageryPoolMigrationRetargetPlan {
+  const slots = new Map<string, number>();
+  const uploadedRevisions = new Map<string, number>();
+  const missingKeys: string[] = [];
+  for (const key of nextDemand) {
+    const slot = candidateSlots.get(key);
+    if (slot === undefined) {
+      missingKeys.push(key);
+      continue;
+    }
+    slots.set(key, slot);
+    const uploaded = candidateUploadedRevisions.get(key);
+    if (uploaded !== undefined) {
+      uploadedRevisions.set(key, uploaded);
+    }
+  }
+  const releasedCandidateSlots: number[] = [];
+  const visibleSlotNumbers = new Set(visibleSlots.values());
+  for (const [key, slot] of candidateSlots) {
+    if (nextDemand.has(key) || visibleSlotNumbers.has(slot)) continue;
+    releasedCandidateSlots.push(slot);
+  }
+  return {
+    slots,
+    uploadedRevisions,
+    releasedCandidateSlots,
+    missingKeys,
+  };
 }
 
 /**
@@ -1080,7 +1274,20 @@ export class ImageryVirtualTexture {
   private hotRevision = -2;
   private warmViewSignature = -1;
   private warmRevision = -2;
+  private residencyWarmDemandDeferred: boolean | undefined;
+  private movementState: ImageryMovementState = "still";
+  private warmDemandDeferred = false;
   private uploadTotal = 0;
+  private targetSubmissionTotal = 0;
+  private targetSubmissionSuppressedTotal = 0;
+  private lastObservedTargetLatitudeDegrees: number;
+  private lastObservedTargetLongitudeDegrees: number;
+  private deferredWarmTileOccurrenceTotal = 0;
+  private deferredWarmTileCount = 0;
+  private candidateDirty = true;
+  private migrationSupersededTotal = 0;
+  private migrationReusedUploadTotal = 0;
+  private migrationObsoleteUploadAvoidedTotal = 0;
   private residencyClassificationTotal = 0;
   private hotResidencyClassificationTotal = 0;
   private warmResidencyClassificationTotal = 0;
@@ -1109,6 +1316,8 @@ export class ImageryVirtualTexture {
       : 0;
     this.fineTileGate = new ImageryFineTileGate(initialView);
     this.target = imageryTargetForView(initialView, zoom);
+    this.lastObservedTargetLatitudeDegrees = this.target.latitudeDegrees;
+    this.lastObservedTargetLongitudeDegrees = this.target.longitudeDegrees;
     this.snapshot = initialSnapshot(this.target);
     this.tileSize = imageryProvider?.tileSize ?? 1;
     this.paddedSize = this.tileSize + IMAGERY_GUTTER_PIXELS * 2;
@@ -1236,11 +1445,25 @@ export class ImageryVirtualTexture {
       this.provider.source.minZoom,
       performance.now(),
     );
+    const wasWarmDemandDeferred = this.warmDemandDeferred;
+    this.movementState = this.fineTileGate.state;
+    this.warmDemandDeferred = this.fineTileGate.warmDemandDeferred;
+    if (wasWarmDemandDeferred && !this.warmDemandDeferred) {
+      this.provider.beginWarmRamp();
+    }
     const target = imageryTargetForView(view, targetZoom);
+    const observedCoordinatesChanged =
+      target.latitudeDegrees !== this.lastObservedTargetLatitudeDegrees ||
+      target.longitudeDegrees !== this.lastObservedTargetLongitudeDegrees;
     if (tileLayoutTargetNeedsSubmission(this.target, target)) {
       this.target = target;
+      this.targetSubmissionTotal += 1;
       this.scheduler.updateTarget(target);
+    } else if (observedCoordinatesChanged) {
+      this.targetSubmissionSuppressedTotal += 1;
     }
+    this.lastObservedTargetLatitudeDegrees = target.latitudeDegrees;
+    this.lastObservedTargetLongitudeDegrees = target.longitudeDegrees;
     this.residencyInput = residencyInput ?? {
       underfoot: view,
       footprint: [],
@@ -1309,6 +1532,23 @@ export class ImageryVirtualTexture {
         active_layer_count: metrics.activeLayerCount,
         migration_active: this.migration !== undefined,
         migration_layer_count: metrics.migrationLayerCount,
+        migration_superseded_total: this.migrationSupersededTotal,
+        migration_reused_upload_total: this.migrationReusedUploadTotal,
+        migration_obsolete_upload_avoided_total:
+          this.migrationObsoleteUploadAvoidedTotal,
+      },
+      movement: {
+        state: this.movementState,
+        surface_velocity_mps: this.fineTileGate.velocityMps,
+        warm_demand_deferred: this.warmDemandDeferred,
+        target_submission_total: this.targetSubmissionTotal,
+        target_submission_suppressed_total:
+          this.targetSubmissionSuppressedTotal,
+        deferred_warm_tile_count: this.deferredWarmTileCount,
+        deferred_warm_tile_occurrence_total:
+          this.deferredWarmTileOccurrenceTotal,
+        warm_ramp_active: provider?.warmRampActive ?? false,
+        warm_ramp_limit: provider?.warmRampLimit ?? MAX_CONCURRENT_REQUESTS,
       },
     };
   }
@@ -1333,6 +1573,19 @@ export class ImageryVirtualTexture {
     residencyClassificationTotal: number;
     hotResidencyClassificationTotal: number;
     warmResidencyClassificationTotal: number;
+    surfaceVelocityMps: number;
+    movementState: ImageryMovementState;
+    warmDemandDeferred: boolean;
+    targetSubmissionTotal: number;
+    targetSubmissionSuppressedTotal: number;
+    deferredWarmTileOccurrenceTotal: number;
+    deferredWarmTileCount: number;
+    sourceCancellationTotal: number;
+    warmRampActive: boolean;
+    warmRampLimit: number;
+    migrationSupersededTotal: number;
+    migrationReusedUploadTotal: number;
+    migrationObsoleteUploadAvoidedTotal: number;
   } {
     const provider = this.provider?.metrics;
     const mipBytesPerLayer = imageryMipDimensions(
@@ -1361,6 +1614,20 @@ export class ImageryVirtualTexture {
       residencyClassificationTotal: this.residencyClassificationTotal,
       hotResidencyClassificationTotal: this.hotResidencyClassificationTotal,
       warmResidencyClassificationTotal: this.warmResidencyClassificationTotal,
+      surfaceVelocityMps: this.fineTileGate.velocityMps,
+      movementState: this.movementState,
+      warmDemandDeferred: this.warmDemandDeferred,
+      targetSubmissionTotal: this.targetSubmissionTotal,
+      targetSubmissionSuppressedTotal: this.targetSubmissionSuppressedTotal,
+      deferredWarmTileOccurrenceTotal: this.deferredWarmTileOccurrenceTotal,
+      deferredWarmTileCount: this.deferredWarmTileCount,
+      sourceCancellationTotal: provider?.sourceCancellationTotal ?? 0,
+      warmRampActive: provider?.warmRampActive ?? false,
+      warmRampLimit: provider?.warmRampLimit ?? MAX_CONCURRENT_REQUESTS,
+      migrationSupersededTotal: this.migrationSupersededTotal,
+      migrationReusedUploadTotal: this.migrationReusedUploadTotal,
+      migrationObsoleteUploadAvoidedTotal:
+        this.migrationObsoleteUploadAvoidedTotal,
     };
   }
 
@@ -1472,17 +1739,27 @@ export class ImageryVirtualTexture {
   }
 
   private processUploads(): void {
-    // A candidate generation is immutable once upload begins. Later scheduler
-    // changes remain in desiredRoot and become the following generation.
     if (this.migration) {
+      if (this.candidateDirty) {
+        this.candidateDirty = false;
+        const candidateRoot = this.readyCandidateRoot();
+        this.retargetMigration(
+          this.migration,
+          candidateRoot,
+          imageryTreeSourceKeys(candidateRoot),
+        );
+        this.pruneRecords();
+      }
       this.uploadPendingChains(
         this.migration,
         MAX_UPLOADS_PER_FRAME,
       );
       if (this.migrationComplete()) this.promoteMigration();
-      this.pruneRecords();
       return;
     }
+
+    if (!this.candidateDirty) return;
+    this.candidateDirty = false;
 
     const candidateRoot = this.readyCandidateRoot();
     const candidateKeys = imageryTreeSourceKeys(candidateRoot);
@@ -1550,7 +1827,12 @@ export class ImageryVirtualTexture {
 
   private remip(record: PageRecord): void {
     const key = imageryKey(record.sourceTile);
+    const migration = this.migration;
+    const migrationWasSatisfied = migration?.demandedKeys.has(key) === true &&
+      record.revision > 0 &&
+      (migration.uploadedRevisions.get(key) ?? 0) >= record.revision;
     const revision = ++record.revision;
+    if (migrationWasSatisfied) migration.remainingUploadCount += 1;
     this.workerClient!.requestMip(
       key,
       revision,
@@ -1563,6 +1845,8 @@ export class ImageryVirtualTexture {
         record.mipLevels = levels.map((level, mip) =>
           mip === 0 ? { ...level, pixels: record.basePixels } : level,
         );
+        this.candidateDirty = true;
+        this.queueMigrationUpload(key);
       },
       () => {
         // Mipping is deterministic CPU work. A later stitch or source retry
@@ -1611,62 +1895,169 @@ export class ImageryVirtualTexture {
       }
       slots.set(key, slot);
     }
+    const uploadDemand = planImageryMigrationUploadDemand(
+      demanded,
+      uploadedRevisions,
+      revisions,
+    );
+    const pendingUploadKeys = uploadDemand.pendingKeys;
     this.migration = {
       pool,
       root,
       demandedKeys: new Set(demanded),
       slots,
       uploadedRevisions,
+      pendingUploadKeys,
+      pendingUploadSet: new Set(pendingUploadKeys),
+      pendingUploadHead: 0,
+      remainingUploadCount: pendingUploadKeys.length,
       replacesActivePool,
     };
+    this.candidateDirty = false;
   }
 
   private uploadPendingChains(
     migration: PoolMigration,
     budget: number,
   ): number {
-    const { pool, demandedKeys: demanded } = migration;
     let uploaded = 0;
-    const visited = new Set<string>();
-    const upload = (key: string): void => {
-      if (uploaded >= budget || visited.has(key)) return;
-      visited.add(key);
-      const record = this.records.get(key);
-      if (!record?.mipLevels || record.mipRevision === 0) return;
-      if (record.mipRevision !== record.revision) return;
-      let slot = migration.slots.get(key);
-      if (slot === undefined) return;
-      // A stitch may remip a retained page after this candidate started. Do
-      // not overwrite the visible layer: give the candidate a fresh slot.
-      if (
-        !migration.replacesActivePool &&
-        slot === pool.slots.get(key) &&
-        (pool.uploadedRevisions.get(key) ?? 0) < record.mipRevision
-      ) {
-        const replacement = pool.freeSlots.pop();
-        if (replacement === undefined) {
-          this.restartMigration(migration);
-          return;
-        }
-        slot = replacement;
-        migration.slots.set(key, slot);
-        migration.uploadedRevisions.delete(key);
-      }
-      if ((migration.uploadedRevisions.get(key) ?? 0) >= record.mipRevision) {
-        return;
-      }
-      if (!this.uploadMipChain(pool, slot, record.mipLevels)) return;
-      migration.uploadedRevisions.set(key, record.mipRevision);
-      uploaded += 1;
-    };
-    for (const key of demanded) {
-      upload(key);
+    let examined = 0;
+    while (
+      examined < budget &&
+      migration.pendingUploadHead < migration.pendingUploadKeys.length
+    ) {
+      const key = migration.pendingUploadKeys[migration.pendingUploadHead++]!;
+      migration.pendingUploadSet.delete(key);
+      examined += 1;
+      if (this.uploadMigrationKey(migration, key)) uploaded += 1;
       if (this.migration !== migration) return uploaded;
+    }
+    if (migration.pendingUploadHead === migration.pendingUploadKeys.length) {
+      migration.pendingUploadKeys.length = 0;
+      migration.pendingUploadHead = 0;
     }
     return uploaded;
   }
 
+  private uploadMigrationKey(
+    migration: PoolMigration,
+    key: string,
+  ): boolean {
+    const record = this.records.get(key);
+    if (!record?.mipLevels || record.mipRevision === 0) return false;
+    if (record.mipRevision !== record.revision) return false;
+    const pool = migration.pool;
+    let slot = migration.slots.get(key);
+    if (slot === undefined) return false;
+    // A stitch may remip a retained page after this candidate started. Do
+    // not overwrite the visible layer: give the candidate a fresh slot.
+    if (
+      !migration.replacesActivePool &&
+      slot === pool.slots.get(key) &&
+      (pool.uploadedRevisions.get(key) ?? 0) < record.mipRevision
+    ) {
+      const replacement = pool.freeSlots.pop();
+      if (replacement === undefined) {
+        this.restartMigration(migration);
+        return false;
+      }
+      slot = replacement;
+      migration.slots.set(key, slot);
+      migration.uploadedRevisions.delete(key);
+    }
+    if ((migration.uploadedRevisions.get(key) ?? 0) >= record.mipRevision) {
+      return false;
+    }
+    if (!this.uploadMipChain(pool, slot, record.mipLevels)) return false;
+    migration.uploadedRevisions.set(key, record.mipRevision);
+    migration.remainingUploadCount = Math.max(
+      0,
+      migration.remainingUploadCount - 1,
+    );
+    return true;
+  }
+
   private restartMigration(migration: PoolMigration): void {
+    if (this.migration !== migration) return;
+    this.abandonMigration(migration);
+    this.startMigration(migration.root, new Set(migration.demandedKeys));
+  }
+
+  private retargetMigration(
+    migration: PoolMigration,
+    root: ImageryTreeNode,
+    demanded: Set<string>,
+  ): void {
+    if (this.migration !== migration) return;
+    const demandChanged = !sameResidencyKeys(
+      migration.demandedKeys,
+      demanded,
+    );
+    if (!demandChanged && root === migration.root) return;
+    this.migrationSupersededTotal += 1;
+    let avoided = 0;
+    for (const key of migration.demandedKeys) {
+      if (demanded.has(key)) continue;
+      const requiredRevision = this.records.get(key)?.revision ?? 0;
+      if (
+        requiredRevision > 0 &&
+        (migration.uploadedRevisions.get(key) ?? 0) < requiredRevision
+      ) avoided += 1;
+    }
+    this.migrationObsoleteUploadAvoidedTotal += avoided;
+    const visibleSlots = migration.replacesActivePool
+      ? new Map<string, number>()
+      : this.activePool.slots;
+    const plan = planImageryPoolMigrationRetarget(
+      migration.slots,
+      migration.uploadedRevisions,
+      visibleSlots,
+      demanded,
+    );
+    if (
+      plan.missingKeys.length >
+        migration.pool.freeSlots.length + plan.releasedCandidateSlots.length
+    ) {
+      this.abandonMigration(migration);
+      this.startMigration(root, demanded);
+      return;
+    }
+    for (const slot of plan.releasedCandidateSlots) {
+      migration.pool.freeSlots.push(slot);
+    }
+    for (const key of plan.missingKeys) {
+      const slot = migration.pool.freeSlots.pop();
+      if (slot === undefined) {
+        throw new Error("The retargeted imagery pool lost a staging slot.");
+      }
+      plan.slots.set(key, slot);
+    }
+    migration.root = root;
+    migration.demandedKeys = new Set(demanded);
+    migration.slots.clear();
+    for (const [key, slot] of plan.slots) migration.slots.set(key, slot);
+    migration.uploadedRevisions.clear();
+    for (const [key, revision] of plan.uploadedRevisions) {
+      migration.uploadedRevisions.set(key, revision);
+    }
+    const requiredRevisions = new Map<string, number>();
+    for (const key of demanded) {
+      requiredRevisions.set(key, this.records.get(key)?.revision ?? 0);
+    }
+    const uploadDemand = planImageryMigrationUploadDemand(
+      demanded,
+      migration.uploadedRevisions,
+      requiredRevisions,
+    );
+    const pendingUploadKeys = uploadDemand.pendingKeys;
+    migration.pendingUploadKeys = pendingUploadKeys;
+    migration.pendingUploadSet = new Set(pendingUploadKeys);
+    migration.pendingUploadHead = 0;
+    migration.remainingUploadCount = pendingUploadKeys.length;
+    this.migrationReusedUploadTotal += uploadDemand.validReusedUploadCount;
+  }
+
+  private abandonMigration(migration: PoolMigration): void {
     if (this.migration !== migration) return;
     if (migration.replacesActivePool) {
       migration.pool.texture.dispose();
@@ -1678,7 +2069,19 @@ export class ImageryVirtualTexture {
       }
     }
     this.migration = undefined;
-    this.startMigration(migration.root, new Set(migration.demandedKeys));
+  }
+
+  private queueMigrationUpload(key: string): void {
+    const migration = this.migration;
+    const requiredRevision = this.records.get(key)?.revision ?? 0;
+    if (
+      !migration?.demandedKeys.has(key) ||
+      (requiredRevision > 0 &&
+        (migration.uploadedRevisions.get(key) ?? 0) >= requiredRevision) ||
+      migration.pendingUploadSet.has(key)
+    ) return;
+    migration.pendingUploadSet.add(key);
+    migration.pendingUploadKeys.push(key);
   }
 
   private uploadMipChain(
@@ -1727,12 +2130,16 @@ export class ImageryVirtualTexture {
       this.snapshot.revision !== this.hotRevision;
     const warmNeedsClassification =
       warmSignature !== this.warmViewSignature ||
-      this.snapshot.revision !== this.warmRevision;
+      this.snapshot.revision !== this.warmRevision ||
+      this.warmDemandDeferred !== this.residencyWarmDemandDeferred;
     if (!hotNeedsClassification && !warmNeedsClassification) return;
     this.hotViewSignature = hotSignature;
     this.hotRevision = this.snapshot.revision;
     this.warmViewSignature = warmSignature;
     this.warmRevision = this.snapshot.revision;
+    const warmDemandDeferralChanged =
+      this.warmDemandDeferred !== this.residencyWarmDemandDeferred;
+    this.residencyWarmDemandDeferred = this.warmDemandDeferred;
     this.residencyClassificationTotal += 1;
     if (hotNeedsClassification) this.hotResidencyClassificationTotal += 1;
     if (warmNeedsClassification) this.warmResidencyClassificationTotal += 1;
@@ -1749,12 +2156,12 @@ export class ImageryVirtualTexture {
       ));
     }
     let warmChanged = false;
+    const eligible = eligiblePayloadTiles(
+      workingTiles,
+      this.target.maxZoom,
+      this.debugControls.deltaZoomCap,
+    );
     if (warmNeedsClassification) {
-      const eligible = eligiblePayloadTiles(
-        workingTiles,
-        this.target.maxZoom,
-        this.debugControls.deltaZoomCap,
-      );
       const warm = this.debugControls.viewDistanceEnabled
         ? classifyWarmResidency(
             eligible,
@@ -1766,45 +2173,38 @@ export class ImageryVirtualTexture {
       warmChanged = !sameResidencyKeys(this.warmKeys, warm);
       this.warmKeys = new Set(warm);
     }
-    const eligible = eligiblePayloadTiles(
-      workingTiles,
-      this.target.maxZoom,
-      this.debugControls.deltaZoomCap,
-    );
     const hot = eligible.filter((tile) =>
       this.hotKeys.has(tileIdentityKey(tile))
     );
-    if (!warmChanged) {
+    if (
+      !warmChanged &&
+      !warmDemandDeferralChanged &&
+      !(this.warmDemandDeferred && hotNeedsClassification)
+    ) {
       this.scheduler.updateResourcePriority(hot);
       return;
     }
-    const demanded = demandedPayloadTiles(
+    const fullDemanded = demandedPayloadTiles(
       workingTiles,
       this.target.maxZoom,
       this.debugControls.deltaZoomCap,
       this.debugControls.viewDistanceEnabled,
       this.warmKeys,
     );
+    const demanded = imageryDemandForMovement(
+      fullDemanded,
+      this.hotKeys,
+      this.warmDemandDeferred,
+      (tile) => this.scheduler!.committedResource(tile) !== undefined,
+    );
+    this.deferredWarmTileCount = fullDemanded.length - demanded.length;
+    this.deferredWarmTileOccurrenceTotal += this.deferredWarmTileCount;
     this.scheduler.updateResourceDemand(demanded, hot);
   }
 
   private migrationComplete(): boolean {
     const migration = this.migration;
-    if (!migration) return false;
-    if (
-      !imageryMigrationReady(
-        migration.demandedKeys,
-        migration.uploadedRevisions,
-      )
-    ) return false;
-    for (const key of migration.demandedKeys) {
-      const revision = this.records.get(key)?.revision;
-      if (
-        revision === undefined ||
-        (migration.uploadedRevisions.get(key) ?? 0) < revision
-      ) return false;
-    }
-    return true;
+    return migration !== undefined && migration.remainingUploadCount === 0;
   }
 
   private promoteMigration(): void {
@@ -1859,6 +2259,7 @@ export class ImageryVirtualTexture {
       },
     );
     this.desiredSourceKeySet = keys;
+    this.candidateDirty = true;
   }
 
   private readyCandidateRoot(): ImageryTreeNode {

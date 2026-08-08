@@ -130,7 +130,7 @@ function normalizedZoom(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
-function anchorOrigin(tile: number): number {
+export function tileOnionAnchorOrigin(tile: number): number {
   return (
     Math.floor((tile - TILE_ONION_FINE_MARGIN) / TILE_ONION_ANCHOR_STRIDE) *
     TILE_ONION_ANCHOR_STRIDE
@@ -352,8 +352,8 @@ function normalPlanTarget(
       finestTiles,
     };
   }
-  const originX = anchorOrigin(Math.floor(point.x));
-  const originY = anchorOrigin(underfoot.y);
+  const originX = tileOnionAnchorOrigin(Math.floor(point.x));
+  const originY = tileOnionAnchorOrigin(underfoot.y);
   return {
     underfoot,
     anchor: {
@@ -383,7 +383,9 @@ function boundaryPlanTarget(
   const height = Math.min(TILE_ONION_FINE_SIZE, worldWidth);
   const point = mercatorPoint(0, longitudeDegrees, zoom);
   const originX =
-    worldWidth < TILE_ONION_FINE_SIZE ? 0 : anchorOrigin(Math.floor(point.x));
+    worldWidth < TILE_ONION_FINE_SIZE
+      ? 0
+      : tileOnionAnchorOrigin(Math.floor(point.x));
   const originY = mode === "north-boundary" ? 0 : worldWidth - height;
   return {
     anchor: { z: zoom, x: originX, y: originY, width, height },

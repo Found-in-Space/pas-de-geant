@@ -84,7 +84,7 @@ describe("Tile onion layout source", () => {
     expect(held).toEqual(before);
   });
 
-  it("keeps normal anchored movement stable and gates same-tile submissions", () => {
+  it("submits only when normal movement crosses the stride-four anchor", () => {
     const bounds = tileBounds({ z: 14, x: 8_000, y: 8_000 });
     const latitude = (bounds.north + bounds.south) / 2;
     const longitude = (bounds.west + bounds.east) / 2;
@@ -94,6 +94,10 @@ describe("Tile onion layout source", () => {
       latitude,
       longitude + (bounds.east - bounds.west),
     );
+    const nextAnchorTarget = target(
+      latitude,
+      longitude + 2 * (bounds.east - bounds.west),
+    );
     const layout = new TileOnionLayoutSource();
     const first = layout.calculate(firstTarget);
     const nextTile = layout.calculate(nextTileTarget);
@@ -102,9 +106,29 @@ describe("Tile onion layout source", () => {
     expect(tileLayoutTargetNeedsSubmission(firstTarget, sameTileTarget))
       .toBe(false);
     expect(tileLayoutTargetNeedsSubmission(firstTarget, nextTileTarget))
+      .toBe(false);
+    expect(tileLayoutTargetNeedsSubmission(firstTarget, nextAnchorTarget))
       .toBe(true);
     expect(nextTile).toEqual(first);
     expect(back).toEqual(first);
+  });
+
+  it("treats antimeridian-equivalent normal anchors as unchanged", () => {
+    expect(tileLayoutTargetNeedsSubmission(
+      target(0, 179.999, 14),
+      target(0, -179.999, 14),
+    )).toBe(false);
+  });
+
+  it("keeps geographic submissions active for boundary and polar motion", () => {
+    expect(tileLayoutTargetNeedsSubmission(
+      target(WEB_MERCATOR_MAX_LATITUDE + 0.1, 20, 14),
+      target(WEB_MERCATOR_MAX_LATITUDE + 0.2, 20.001, 14),
+    )).toBe(true);
+    expect(tileLayoutTargetNeedsSubmission(
+      target(90, 20, 14),
+      target(90, -160, 14),
+    )).toBe(true);
   });
 
   it("normalizes geographic targets without Mercator clamping", () => {

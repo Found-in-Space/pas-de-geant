@@ -7,11 +7,14 @@ import {
   ImageryFineTileGate,
   ImageryWorkerClient,
   ScheduledImageryProvider,
+  imageryDemandForMovement,
   imageryLayerUploadPlan,
   imageryMigrationReady,
   imageryPoolGrowthCapacity,
   imageryTargetForView,
+  planImageryMigrationUploadDemand,
   planImageryPoolMigration,
+  planImageryPoolMigrationRetarget,
   type ImageryWorkerPort,
 } from "../apps/pas-de-geant/src/imagery.js";
 import {
@@ -109,6 +112,132 @@ describe("independent photographic imagery pipeline", () => {
       0,
       200,
     )).toBe(12);
+  });
+
+  it("keeps sustained ordinary travel at one level coarser", () => {
+    const radius = 1_000;
+    const gate = new ImageryFineTileGate({
+      displayRadiusM: radius,
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+    });
+    gate.targetZoom({
+      displayRadiusM: radius,
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+    }, 14, 0, 0);
+    let longitudeDegrees = 0;
+    for (let timeMs = 100; timeMs <= 1_000; timeMs += 100) {
+      longitudeDegrees += 1.35 * 0.1 / radius * 180 / Math.PI;
+      expect(gate.targetZoom({
+        displayRadiusM: radius,
+        latitudeDegrees: 0,
+        longitudeDegrees,
+      }, 14, 0, timeMs)).toBe(13);
+    }
+    expect(gate.state).toBe("moving");
+    expect(gate.velocityMps).toBeLessThan(2);
+  });
+
+  it("uses fast hysteresis across irregular frames and restores detail in stages", () => {
+    const radius = 1_000;
+    const view = {
+      displayRadiusM: radius,
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+    };
+    const gate = new ImageryFineTileGate(view);
+    gate.targetZoom(view, 14, 0, 0);
+    let timeMs = 0;
+    let longitudeDegrees = 0;
+    const travel = (speedMps: number, elapsedMs: number): number => {
+      timeMs += elapsedMs;
+      longitudeDegrees += speedMps * elapsedMs / 1_000 / radius * 180 / Math.PI;
+      return gate.targetZoom({
+        ...view,
+        longitudeDegrees,
+      }, 14, 0, timeMs);
+    };
+
+    for (const elapsedMs of [40, 160, 75, 225, 50]) {
+      travel(4.2, elapsedMs);
+    }
+    expect(gate.state).toBe("fast");
+    expect(gate.velocityMps).toBeGreaterThan(3);
+    expect(travel(2.5, 200)).toBe(12);
+    expect(travel(2.5, 200)).toBe(12);
+
+    timeMs += 200;
+    expect(gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs))
+      .toBe(12);
+    timeMs += 60;
+    expect(gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs))
+      .toBe(13);
+    timeMs += 500;
+    expect(gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs))
+      .toBe(14);
+  });
+
+  it("keeps warm demand deferred through ordinary travel until stationary settling", () => {
+    const radius = 1_000;
+    const view = {
+      displayRadiusM: radius,
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+    };
+    const gate = new ImageryFineTileGate(view);
+    gate.targetZoom(view, 14, 0, 0);
+    let timeMs = 0;
+    let longitudeDegrees = 0;
+    const travel = (speedMps: number, elapsedMs: number): number => {
+      timeMs += elapsedMs;
+      longitudeDegrees += speedMps * elapsedMs / 1_000 / radius * 180 / Math.PI;
+      return gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs);
+    };
+
+    for (let sample = 0; sample < 6; sample += 1) travel(4.2, 100);
+    expect(gate.state).toBe("fast");
+    expect(gate.warmDemandDeferred).toBe(true);
+
+    for (let sample = 0; sample < 8; sample += 1) travel(1.35, 100);
+    expect(gate.state).toBe("moving");
+    expect(gate.warmDemandDeferred).toBe(true);
+    expect(imageryDemandForMovement(
+      [{ z: 3, x: 0, y: 0 }],
+      new Set(),
+      gate.warmDemandDeferred,
+      () => false,
+    )).toEqual([]);
+
+    timeMs += 749;
+    expect(gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs))
+      .toBe(13);
+    expect(gate.warmDemandDeferred).toBe(true);
+    timeMs += 1;
+    expect(gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs))
+      .toBe(14);
+    expect(gate.state).toBe("still");
+    expect(gate.warmDemandDeferred).toBe(false);
+  });
+
+  it("defers only new non-hot warm imagery while moving fast", () => {
+    const hot = { z: 3, x: 0, y: 0 };
+    const residentWarm = { z: 3, x: 1, y: 0 };
+    const newWarm = { z: 3, x: 2, y: 0 };
+    const full = [hot, residentWarm, newWarm];
+
+    expect(imageryDemandForMovement(
+      full,
+      new Set([tileKey(hot)]),
+      true,
+      (tile) => tileKey(tile) === tileKey(residentWarm),
+    )).toEqual([hot, residentWarm]);
+    expect(imageryDemandForMovement(
+      full,
+      new Set([tileKey(hot)]),
+      false,
+      () => false,
+    )).toBe(full);
   });
 
   it("builds a complete padded mip chain with averaged pixels through 1 x 1", () => {
@@ -276,6 +405,74 @@ describe("independent photographic imagery pipeline", () => {
     // changed pages; a smaller fully retained cut keeps existing capacity.
     expect(imageryPoolGrowthCapacity(6, 5, 2)).toBe(8);
     expect(imageryPoolGrowthCapacity(8, 3, 0)).toBe(8);
+  });
+
+  it("reuses partial uploads across repeated migration supersedes without releasing visible slots", () => {
+    const visible = new Map([
+      ["retained", 0],
+      ["visible-outgoing", 1],
+    ]);
+    const first = planImageryPoolMigrationRetarget(
+      new Map([
+        ["retained", 0],
+        ["visible-outgoing", 1],
+        ["staged", 2],
+        ["obsolete", 3],
+      ]),
+      new Map([
+        ["retained", 3],
+        ["staged", 1],
+      ]),
+      visible,
+      new Set(["retained", "staged", "incoming"]),
+    );
+    expect(first.releasedCandidateSlots).toEqual([3]);
+    expect(first.releasedCandidateSlots).not.toContain(1);
+    expect(first.missingKeys).toEqual(["incoming"]);
+    first.slots.set("incoming", 3);
+    first.uploadedRevisions.set("incoming", 1);
+
+    const second = planImageryPoolMigrationRetarget(
+      first.slots,
+      first.uploadedRevisions,
+      visible,
+      new Set(["retained", "incoming", "next"]),
+    );
+    expect(second.slots).toEqual(new Map([
+      ["retained", 0],
+      ["incoming", 3],
+    ]));
+    expect(second.uploadedRevisions).toEqual(new Map([
+      ["retained", 3],
+      ["incoming", 1],
+    ]));
+    expect(second.releasedCandidateSlots).toEqual([2]);
+  });
+
+  it("queues the one unsatisfied migration page ahead of many reused uploads", () => {
+    const reused = Array.from({ length: 256 }, (_, index) => `reused-${index}`);
+    const demanded = [...reused, "missing"];
+    const required = new Map(demanded.map((key) => [key, 4]));
+    const uploaded = new Map(reused.map((key) => [key, 4]));
+
+    expect(planImageryMigrationUploadDemand(
+      demanded,
+      uploaded,
+      required,
+    )).toEqual({
+      pendingKeys: ["missing"],
+      validReusedUploadCount: 256,
+    });
+
+    uploaded.set(reused[0]!, 3);
+    expect(planImageryMigrationUploadDemand(
+      demanded,
+      uploaded,
+      required,
+    )).toEqual({
+      pendingKeys: [reused[0], "missing"],
+      validReusedUploadCount: 255,
+    });
   });
 
   it("traverses a mixed global cut by normalized Mercator UV, including the antimeridian", () => {
@@ -940,10 +1137,55 @@ describe("independent photographic imagery pipeline", () => {
     expect(started[0]!.aborted).toBe(false);
     shared.cancel();
     expect(started[0]!.aborted).toBe(true);
+    expect(scheduled.metrics.sourceCancellationTotal).toBe(1);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(started).toHaveLength(7);
     nextQueued.cancel();
     for (const handle of fillers) handle.cancel();
+    scheduled.dispose();
+  });
+
+  it("ramps actual warm source starts while allowing hot work to preempt", async () => {
+    const pending = new Map<string, (blob: Blob) => void>();
+    const started: string[] = [];
+    const provider: ImageryProvider = {
+      id: "warm-ramp-fixture",
+      attribution: "fixture",
+      tileSize: 512,
+      minZoom: 3,
+      maxZoom: 3,
+      load: async (tile) => {
+        const key = tileKey(tile);
+        started.push(key);
+        return await new Promise<Blob>((resolve) => pending.set(key, resolve));
+      },
+    };
+    const scheduled = new ScheduledImageryProvider(
+      provider,
+      async () => new Uint8Array([1, 2, 3, 4]),
+    );
+    const hot = { z: 3, x: 7, y: 0 };
+    scheduled.updatePriority([hot]);
+    scheduled.beginWarmRamp();
+    for (let x = 0; x < 4; x += 1) {
+      scheduled.request({ z: 3, x, y: 0 }, () => {});
+    }
+    expect(started).toEqual(["3/0/0"]);
+
+    scheduled.request(hot, () => {});
+    expect(started).toEqual(["3/0/0", "3/7/0"]);
+    pending.get("3/0/0")!(new Blob(["warm"], { type: "image/png" }));
+    await vi.waitFor(() => expect(started).toHaveLength(4));
+    expect(started.slice(2).sort()).toEqual(["3/1/0", "3/2/0"]);
+    expect(scheduled.metrics).toMatchObject({
+      warmRampActive: true,
+      warmRampLimit: 2,
+      sourceLoadTotal: 4,
+    });
+
+    for (const key of started.slice(1)) {
+      pending.get(key)?.(new Blob(["image"], { type: "image/png" }));
+    }
     scheduled.dispose();
   });
 
