@@ -1,8 +1,19 @@
 import type { TileIdentity } from "./tile-transition-planner.js";
 import { retryAfterMilliseconds } from "./tile-request-circuit.js";
+import { tileProxyUrl } from "./tile-proxy.js";
 
-function mapterhornUrlForTile(address: TileIdentity): string {
-  return `https://tiles.mapterhorn.com/${address.z}/${address.x}/${address.y}.webp`;
+export const MAPTERHORN_ELEVATION_URL_TEMPLATE =
+  "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp";
+
+function elevationUrlForTile(
+  address: TileIdentity,
+  useProxy = import.meta.env.DEV,
+): string {
+  if (useProxy) return tileProxyUrl("elevation", address);
+  return MAPTERHORN_ELEVATION_URL_TEMPLATE
+    .replaceAll("{z}", String(address.z))
+    .replaceAll("{x}", String(address.x))
+    .replaceAll("{y}", String(address.y));
 }
 
 export const MAPTERHORN_ELEVATION_CACHE_NAME =
@@ -73,10 +84,13 @@ export async function loadCachedElevation(
   signal: AbortSignal,
   options: ElevationCacheOptions = {},
 ): Promise<CachedElevationPayload & { status: number }> {
-  const url = mapterhornUrlForTile(address);
+  const url = elevationUrlForTile(address);
   const fetcher = options.fetcher ?? fetch;
+  const proxied = import.meta.env.DEV;
   const cacheStorage =
-    options.cacheStorage === undefined
+    proxied
+      ? null
+      : options.cacheStorage === undefined
       ? browserCacheStorage()
       : options.cacheStorage;
   let cache: ElevationResponseCache | undefined;
@@ -129,7 +143,16 @@ export async function loadCachedElevation(
   }
   const responseForCache = cache ? response.clone() : undefined;
   const payload = await responsePayload(response, signal);
-  let cacheStatus: ElevationCacheStatus = cacheFailed
+  const proxyCacheStatus = response.headers.get(
+    "x-pas-de-geant-tile-cache",
+  );
+  let cacheStatus: ElevationCacheStatus = proxied
+    ? proxyCacheStatus === "HIT"
+      ? "hit"
+      : proxyCacheStatus === "MISS"
+      ? "stored"
+      : "unavailable"
+    : cacheFailed
     ? "error"
     : "unavailable";
   if (cache && responseForCache) {
@@ -147,10 +170,24 @@ export async function deleteCachedElevation(
   address: TileIdentity,
   cacheStorage: ElevationCacheStorage | null = browserCacheStorage(),
 ): Promise<"deleted" | "missing" | "unavailable" | "error"> {
+  if (import.meta.env.DEV) {
+    try {
+      const response = await fetch(tileProxyUrl("elevation", address), {
+        method: "DELETE",
+      });
+      return response.status === 204
+        ? "deleted"
+        : response.status === 404
+        ? "missing"
+        : "error";
+    } catch {
+      return "error";
+    }
+  }
   if (!cacheStorage) return "unavailable";
   try {
     const cache = await cacheStorage.open(MAPTERHORN_ELEVATION_CACHE_NAME);
-    return (await cache.delete(mapterhornUrlForTile(address)))
+    return (await cache.delete(elevationUrlForTile(address)))
       ? "deleted"
       : "missing";
   } catch {

@@ -192,10 +192,48 @@ onion remains 8 by 8 in both cases. Its source-pixel size is supplied to the
 existing imagery zoom selector, and each variant has a distinct provider and
 request URL so their pages cannot share cache identity.
 
-Successful MapTiler imagery responses are retained in a per-user browser cache
-so revisiting an area or reloading the page does not request the same tile
-again. Cache Storage failure falls back to the provider without blocking
-imagery.
+During local development, textures and elevation use the canonical same-origin
+route `/api/tiles/{provider}/{z}/{x}/{y}`. The server registry expands those
+coordinates through the selected provider's HTTP(S) URL template. Provider IDs
+not present in the registry return 404, so the endpoint cannot be used as an
+open forward proxy.
+
+The initial registry exposes `textures`, the diagnostic `textures-source`, and
+`elevation`. Each provider has its own request coalescing, throttle queue, and
+cache namespace below the repository's ignored `.cache/tiles` directory. By
+default, each queue permits two upstream requests at a time and spaces starts
+by 250 ms. A provider's `Retry-After` pauses only its own queue; rate-limit
+responses without that header use a five-second fallback. Production builds
+and previews keep the configured direct provider URLs.
+
+The development defaults can be tuned in `.env.local`:
+
+```sh
+PAS_DE_GEANT_TILE_PROXY_MAX_CONCURRENCY=2
+PAS_DE_GEANT_TILE_PROXY_MIN_INTERVAL_MS=250
+PAS_DE_GEANT_TILE_PROXY_DEFAULT_TTL_MS=86400000
+PAS_DE_GEANT_TILE_PROXY_UPSTREAM_BACKOFF_MS=5000
+PAS_DE_GEANT_TILE_PROXY_CACHE_DIRECTORY=../../.cache/tiles
+PAS_DE_GEANT_TILE_PROXY_CACHE_KEY_IGNORED_QUERY_PARAMETERS=key
+PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE=
+PAS_DE_GEANT_TILE_PROXY_TEXTURES_SCHEME=xyz
+PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_TEMPLATE=https://tiles.mapterhorn.com/{z}/{x}/{y}.webp
+PAS_DE_GEANT_TILE_PROXY_ELEVATION_SCHEME=xyz
+PAS_DE_GEANT_TILE_PROXY_PROVIDERS_JSON=
+```
+
+The fallback TTL applies only when an otherwise cacheable image response does
+not publish an explicit lifetime. `no-store` and `private` responses are never
+written to disk. The cache has no automatic size eviction; remove
+`.cache/tiles` manually when a clean development run is needed. The ignored
+query-parameter list keeps rotating credentials out of cache identity; set it
+to the parameter names used by the configured providers. URL templates may put
+`{z}`, `{x}`, and `{y}` in any order and may include extensions and query
+parameters. Set a provider's scheme to `tms` when its upstream Y axis is
+inverted. Additional provider IDs and per-provider overrides can be supplied as
+a JSON object in `PAS_DE_GEANT_TILE_PROXY_PROVIDERS_JSON`; each record accepts
+`urlTemplate`, `scheme`, and the throttle/cache settings shown above in
+camelCase.
 
 Mapterhorn publishes its endpoint and source-level attribution at
 <https://mapterhorn.com/data-access/> and

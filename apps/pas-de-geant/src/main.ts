@@ -56,6 +56,7 @@ import {
   MAPTILER_IMAGERY_VARIANT_PARAMETER,
   selectImageryVariant,
 } from "./imagery-variants.js";
+import { proxiedTileConfiguration } from "./tile-proxy.js";
 import {
   applyLogarithmicScale,
   applyRadialMultiplierRate,
@@ -357,9 +358,19 @@ const selectedImageryConfiguration = baseImageryConfiguration
       benchmarkParameters.get(MAPTILER_IMAGERY_VARIANT_PARAMETER),
     )
   : undefined;
+const runtimeImageryConfiguration = selectedImageryConfiguration
+  ? proxiedTileConfiguration(
+      selectedImageryConfiguration,
+      import.meta.env.DEV &&
+        Boolean(import.meta.env.VITE_IMAGERY_XYZ_TEMPLATE),
+      selectedImageryConfiguration === baseImageryConfiguration
+        ? "textures-source"
+        : "textures",
+    )
+  : undefined;
 const photographicImageryProvider =
   window.__PAS_DE_GEANT_IMAGERY_PROVIDER__ ??
-  configuredXyzImageryProvider(selectedImageryConfiguration);
+  configuredXyzImageryProvider(runtimeImageryConfiguration);
 document.body.dataset.imageryProvider =
   photographicImageryProvider?.id ?? "blue-marble";
 document.body.dataset.imageryTileSize = String(
