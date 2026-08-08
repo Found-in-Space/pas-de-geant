@@ -25,6 +25,7 @@ import {
   controllerIntent,
   freshButtonLatch,
   headRelativeTravel,
+  isHandTrackingInputSource,
 } from "./controller-input.js";
 import { CelestialSphere } from "./celestial-sphere.js";
 import {
@@ -1020,18 +1021,21 @@ const geographicNorthWorld = new THREE.Vector3();
 const xrControllerBindings = [0, 1].map((index) => ({
   controller: renderer.xr.getController(index),
   grip: renderer.xr.getControllerGrip(index),
-  connected: false,
+  controllerConnected: false,
   handedness: "none" as XRHandedness,
 }));
 
 for (const binding of xrControllerBindings) {
   binding.controller.addEventListener("connected", (event) => {
     const source = (event as THREE.Event & { data?: XRInputSource }).data;
-    binding.connected = true;
-    binding.handedness = source?.handedness ?? "none";
+    binding.controllerConnected =
+      source !== undefined && !isHandTrackingInputSource(source);
+    binding.handedness = binding.controllerConnected
+      ? (source?.handedness ?? "none")
+      : "none";
   });
   binding.controller.addEventListener("disconnected", () => {
-    binding.connected = false;
+    binding.controllerConnected = false;
     binding.handedness = "none";
   });
   scene.add(binding.controller);
@@ -1042,13 +1046,13 @@ function resolveHandPanelAnchorPose(): ThreeHostPose | undefined {
   const binding =
     xrControllerBindings.find(
       (candidate) =>
-        candidate.connected && candidate.handedness === "left",
+        candidate.controllerConnected && candidate.handedness === "left",
     ) ??
     xrControllerBindings.find(
       (candidate) =>
-        candidate.connected && candidate.handedness === "none",
+        candidate.controllerConnected && candidate.handedness === "none",
     ) ??
-    xrControllerBindings.find((candidate) => candidate.connected);
+    xrControllerBindings.find((candidate) => candidate.controllerConnected);
   if (!binding) return undefined;
   binding.grip.getWorldPosition(handPanelAnchorPosition);
   binding.grip.getWorldQuaternion(handPanelAnchorQuaternion);

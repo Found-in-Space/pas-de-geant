@@ -4,6 +4,7 @@ import {
   controllerIntent,
   freshButtonLatch,
   headRelativeTravel,
+  isHandTrackingInputSource,
 } from "../apps/pas-de-geant/src/controller-input.js";
 import {
   applyLogarithmicScale,
@@ -11,6 +12,23 @@ import {
 } from "../apps/pas-de-geant/src/planet-state.js";
 
 describe("Pas de Géant controller regressions", () => {
+  it("distinguishes controller input from articulated hand tracking", () => {
+    const controller = {
+      profiles: ["oculus-touch-v3"],
+    } as unknown as XRInputSource;
+    const profileOnlyHand = {
+      profiles: ["generic-hand-select"],
+    } as unknown as XRInputSource;
+    const jointTrackedHand = {
+      hand: {},
+      profiles: [],
+    } as unknown as XRInputSource;
+
+    expect(isHandTrackingInputSource(controller)).toBe(false);
+    expect(isHandTrackingInputSource(profileOnlyHand)).toBe(true);
+    expect(isHandTrackingInputSource(jointTrackedHand)).toBe(true);
+  });
+
   it("rotates travel with headset yaw while ignoring pitch", () => {
     const lookingEast = new THREE.Quaternion().setFromEuler(
       new THREE.Euler(-0.7, -Math.PI / 2, 0, "YXZ"),

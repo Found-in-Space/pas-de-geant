@@ -22,6 +22,18 @@ export interface ButtonLatch {
 /** Suppresses incidental perpendicular motion while using the right stick. */
 export const RIGHT_STICK_DEADZONE = 0.25;
 
+const HAND_INPUT_PROFILE = "generic-hand-select";
+
+/** Identifies articulated hand tracking even when the session omits joint poses. */
+export function isHandTrackingInputSource(
+  source: XRInputSource | undefined,
+): boolean {
+  return (
+    source?.hand != null ||
+    source?.profiles.includes(HAND_INPUT_PROFILE) === true
+  );
+}
+
 export function deadzone(value: number, threshold = 0.16): number {
   const magnitude = Math.abs(value);
   if (magnitude < threshold) return 0;
