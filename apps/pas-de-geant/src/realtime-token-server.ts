@@ -284,7 +284,7 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
           type: "function",
           name: "get_tile_planner_state",
           description:
-            "Read terrain and texture planner, transition, payload-request, source-fetch, and residency state. Use this for loading progress, queued or in-flight work, completion, failures, and scheduler health. Tile payload requests and shared provider source jobs are distinct layers.",
+            "Read terrain and texture planner, visibility-admission, payload-request, and source-fetch state. Use this for loading progress, queued or in-flight work, completion, failures, and scheduler health. Tile payload requests and shared provider source jobs are distinct layers.",
           parameters: { type: "object", properties: {}, additionalProperties: false },
         },
         {
@@ -329,60 +329,9 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
         },
         {
           type: "function",
-          name: "set_tile_view_distance",
-          description:
-            "Enable warm view-distance buffering for terrain, textures, or both. Setting enabled=false loads the full current tile onion instead of only the buffered view region.",
-          parameters: {
-            type: "object",
-            properties: {
-              target: {
-                type: "string",
-                enum: ["terrain", "textures", "both"],
-              },
-              enabled: { type: "boolean" },
-            },
-            required: ["target", "enabled"],
-            additionalProperties: false,
-          },
-        },
-        {
-          type: "function",
-          name: "set_tile_view_overhead",
-          description:
-            "Set the nonnegative percentage added to eye height for warm view-distance buffering in both pipelines.",
-          parameters: {
-            type: "object",
-            properties: {
-              overhead_percent: { type: "number", minimum: 0 },
-            },
-            required: ["overhead_percent"],
-            additionalProperties: false,
-          },
-        },
-        {
-          type: "function",
-          name: "set_tile_delta_zoom_cap",
-          description:
-            "Enable a payload delta-zoom cap for terrain, textures, or both, or disable it. A delta N loads N+1 bands: finest z through z-N; for example N=3 loads z, z-1, z-2, and z-3.",
-          parameters: {
-            type: "object",
-            properties: {
-              target: {
-                type: "string",
-                enum: ["terrain", "textures", "both"],
-              },
-              enabled: { type: "boolean" },
-              delta_zoom: { type: "integer", minimum: 0 },
-            },
-            required: ["target", "enabled"],
-            additionalProperties: false,
-          },
-        },
-        {
-          type: "function",
           name: "set_tile_recalculation",
           description:
-            "Enable or freeze target and residency recalculation for terrain, textures, or both. A frozen pipeline preserves its current selection while rendering and in-flight work continue.",
+            "Enable or freeze topology-target recalculation for terrain, textures, or both. Current visibility admission continues following the view so offscreen work is still deferred.",
           parameters: {
             type: "object",
             properties: {

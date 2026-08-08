@@ -39,11 +39,6 @@ export interface SchedulerSnapshot<Target> {
   readonly requirements: readonly TileRequirementSnapshot[];
 }
 
-export interface TileTransitionSchedulerOptions {
-  /** Load resources for the initial committed fallback cut without changing topology. */
-  readonly hydrateInitialResources?: boolean;
-}
-
 export type SchedulerEventKind =
   | "request"
   | "in-flight"
@@ -72,7 +67,7 @@ export interface SchedulerEvent {
 
 interface Requirement<Resource> {
   readonly tile: TileIdentity;
-  kind: "hydration" | "replacement";
+  kind: "committed" | "replacement";
   state: TileRequirementState;
   requestId: number;
   handle: TileRequestHandle;
@@ -106,6 +101,8 @@ export class TileTransitionScheduler<Target, Resource> {
   >();
   private readonly requirements = new Map<string, Requirement<Resource>>();
   private readonly committedResources = new Map<string, Resource | undefined>();
+  private readonly hydratedCommitted = new Set<string>();
+  private visiblePlannerCandidates = new Set<string>();
   private committed = new Map<string, TileIdentity>();
   private requested = new Map<string, TileIdentity>();
   private targetValue: Readonly<Target>;
@@ -113,15 +110,12 @@ export class TileTransitionScheduler<Target, Resource> {
   private revisionValue = 0;
   private nextEventSequence = 1;
   private changing = false;
-  private readonly hydrateCommittedResources: boolean;
 
   constructor(
     initialTarget: Target,
     private readonly layoutSource: LayoutSource<Target>,
     private readonly provider: TileProvider<Resource>,
-    options: TileTransitionSchedulerOptions = {},
   ) {
-    this.hydrateCommittedResources = options.hydrateInitialResources ?? false;
     this.targetValue = immutableTarget(initialTarget);
     const initialCut = layoutSource.calculate(this.targetValue);
     this.committed = this.indexCut(initialCut);
@@ -130,11 +124,6 @@ export class TileTransitionScheduler<Target, Resource> {
       this.committedResources.set(key, undefined);
     }
     this.graphValue = planTransition(this.committed.values(), this.requested.values());
-    if (this.hydrateCommittedResources) {
-      for (const tile of this.committed.values()) {
-        this.requestTile(tile, "hydration");
-      }
-    }
   }
 
   get snapshot(): SchedulerSnapshot<Target> {
@@ -180,6 +169,7 @@ export class TileTransitionScheduler<Target, Resource> {
     }
     this.requirements.clear();
     this.committedResources.clear();
+    this.hydratedCommitted.clear();
     this.listeners.clear();
   }
 
@@ -230,12 +220,47 @@ export class TileTransitionScheduler<Target, Resource> {
     return true;
   }
 
+  /**
+   * Restricts resource work to the visible subset of planner-owned topology.
+   *
+   * Candidate keys do not themselves create work. A visible committed tile may
+   * be hydrated, and a visible transition group activates its planner-authored
+   * batch plus the batch dependencies already declared by the planner.
+   */
+  updateVisibilityAdmission(
+    visibleTiles: Iterable<TileIdentity>,
+    revision = this.revisionValue,
+  ): boolean {
+    if (revision !== this.revisionValue) return false;
+    const plannerCandidates = this.plannerCandidateKeys();
+    const visible = new Set(
+      [...visibleTiles]
+        .map(tileIdentityKey)
+        .filter((key) => plannerCandidates.has(key)),
+    );
+    if (this.keysEqual(this.visiblePlannerCandidates, visible)) return false;
+    this.visiblePlannerCandidates = visible;
+    this.reconcileAdmission();
+    return true;
+  }
+
   private cutsEqual(
     first: ReadonlyMap<string, TileIdentity>,
     second: ReadonlyMap<string, TileIdentity>,
   ): boolean {
     if (first.size !== second.size) return false;
     for (const key of first.keys()) {
+      if (!second.has(key)) return false;
+    }
+    return true;
+  }
+
+  private keysEqual(
+    first: ReadonlySet<string>,
+    second: ReadonlySet<string>,
+  ): boolean {
+    if (first.size !== second.size) return false;
+    for (const key of first) {
       if (!second.has(key)) return false;
     }
     return true;
@@ -256,22 +281,81 @@ export class TileTransitionScheduler<Target, Resource> {
 
   private replan(): void {
     this.graphValue = planTransition(this.committed.values(), this.requested.values());
+    // Admission was classified against the previous planner revision. Even
+    // overlapping tile keys must remain deferred until the current revision
+    // is classified and admitted explicitly.
+    this.visiblePlannerCandidates.clear();
+    this.reconcileAdmission();
+  }
+
+  private plannerCandidateKeys(): ReadonlySet<string> {
+    const keys = new Set(this.committed.keys());
+    for (const group of this.graphValue.groups) {
+      for (const tile of group.before) keys.add(tileIdentityKey(tile));
+      for (const tile of group.after) keys.add(tileIdentityKey(tile));
+    }
+    return keys;
+  }
+
+  private restrictVisibilityToCurrentPlan(): void {
+    const plannerCandidates = this.plannerCandidateKeys();
+    this.visiblePlannerCandidates = new Set(
+      [...this.visiblePlannerCandidates].filter((key) =>
+        plannerCandidates.has(key)
+      ),
+    );
+  }
+
+  private admittedBatchIds(): ReadonlySet<string> {
+    const groupsById = new Map(
+      this.graphValue.groups.map((group) => [group.id, group] as const),
+    );
+    const batchesById = new Map(
+      this.graphValue.batches.map((batch) => [batch.id, batch] as const),
+    );
+    const admitted = new Set<string>();
+    const admit = (batchId: string): void => {
+      if (admitted.has(batchId)) return;
+      const batch = batchesById.get(batchId);
+      if (!batch) return;
+      admitted.add(batchId);
+      for (const dependency of batch.dependsOn) admit(dependency);
+    };
+    for (const batch of this.graphValue.batches) {
+      const visible = batch.groupIds.some((groupId) => {
+        const group = groupsById.get(groupId);
+        return group !== undefined && [...group.before, ...group.after].some(
+          (tile) => this.visiblePlannerCandidates.has(tileIdentityKey(tile)),
+        );
+      });
+      if (visible) admit(batch.id);
+    }
+    return admitted;
+  }
+
+  private reconcileAdmission(): void {
     const needed = new Map<
       string,
       { readonly tile: TileIdentity; readonly kind: Requirement<Resource>["kind"] }
     >();
-    if (this.hydrateCommittedResources) {
-      for (const [key, tile] of this.committed) {
-        if (this.committedResources.get(key) === undefined) {
-          needed.set(key, { tile, kind: "hydration" });
-        }
+    for (const [key, tile] of this.committed) {
+      if (
+        this.visiblePlannerCandidates.has(key) &&
+        !this.hydratedCommitted.has(key)
+      ) {
+        needed.set(key, { tile, kind: "committed" });
       }
     }
-    for (const group of this.graphValue.groups) {
-      for (const tile of group.after) {
-        const key = tileIdentityKey(tile);
-        if (!this.committed.has(key)) {
-          needed.set(key, { tile, kind: "replacement" });
+    const admittedBatchIds = this.admittedBatchIds();
+    for (const batch of this.graphValue.batches) {
+      if (!admittedBatchIds.has(batch.id)) continue;
+      for (const groupId of batch.groupIds) {
+        const group = this.groupById(groupId);
+        for (const tile of group.after) {
+          const key = tileIdentityKey(tile);
+          if (!this.committed.has(key)) {
+            needed.set(key, { tile, kind: "replacement" });
+          }
         }
       }
     }
@@ -359,8 +443,9 @@ export class TileTransitionScheduler<Target, Resource> {
     requirement.state = "ready";
     requirement.resource = result.resource;
     delete requirement.reason;
-    if (requirement.kind === "hydration" && this.committed.has(key)) {
+    if (requirement.kind === "committed" && this.committed.has(key)) {
       this.committedResources.set(key, result.resource);
+      this.hydratedCommitted.add(key);
       this.requirements.delete(key);
       this.notify("response", { tile: requirement.tile, requestId });
       return;
@@ -416,12 +501,14 @@ export class TileTransitionScheduler<Target, Resource> {
       const key = tileIdentityKey(tile);
       this.committed.delete(key);
       this.committedResources.delete(key);
+      this.hydratedCommitted.delete(key);
     }
     for (const tile of after) {
       const key = tileIdentityKey(tile);
       this.committed.set(key, tile);
       const requirement = this.requirements.get(key);
       this.committedResources.set(key, requirement?.resource);
+      this.hydratedCommitted.add(key);
       if (requirement) this.requirements.delete(key);
     }
     // Replan against the topology that now exists so the subsequent atomic
@@ -439,38 +526,7 @@ export class TileTransitionScheduler<Target, Resource> {
   }
 
   private reconcileAfterCommit(): void {
-    const needed = new Set(
-      this.graphValue.groups.flatMap((group) =>
-        group.after
-          .filter((tile) => !this.committed.has(tileIdentityKey(tile)))
-          .map(tileIdentityKey),
-      ),
-    );
-    for (const [key, requirement] of [...this.requirements]) {
-      if (needed.has(key)) continue;
-      if (requirement.state === "requested" || requirement.state === "in-flight") {
-        requirement.handle.cancel();
-        this.notify("cancellation", {
-          tile: requirement.tile,
-          requestId: requirement.requestId,
-          reason: "No longer required after atomic swap",
-        });
-      } else {
-        this.notify("discard", {
-          tile: requirement.tile,
-          requestId: requirement.requestId,
-          reason: "No longer required after atomic swap",
-        });
-      }
-      this.requirements.delete(key);
-    }
-    for (const group of this.graphValue.groups) {
-      for (const tile of group.after) {
-        const key = tileIdentityKey(tile);
-        if (!this.committed.has(key) && !this.requirements.has(key)) {
-          this.requestTile(tile, "replacement");
-        }
-      }
-    }
+    this.restrictVisibilityToCurrentPlan();
+    this.reconcileAdmission();
   }
 }

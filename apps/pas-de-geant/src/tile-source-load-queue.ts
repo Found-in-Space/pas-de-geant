@@ -17,9 +17,8 @@ export interface TileSourceLoadRequest<TSource> {
   /** Stable provider-local identity used to coalesce consumers. */
   readonly key: string;
   readonly source: TSource;
-  /** Larger values are admitted first within the same hot/cold class. */
+  /** Larger values are started first; priority never admits extra work. */
   readonly priority?: number;
-  readonly hot?: boolean;
 }
 
 export type TileSourceLoadEvent<TValue> =
@@ -52,13 +51,6 @@ export interface TileSourceFailureContext<TSource> {
   readonly signal: AbortSignal;
 }
 
-export interface TileSourceWarmRampOptions {
-  /** Concurrent speculative network jobs admitted when a ramp begins. */
-  readonly initialLimit?: number;
-  /** Added after each successful speculative network job. */
-  readonly increment?: number;
-}
-
 export interface TileSourceLoadQueueOptions<TSource, TValue> {
   readonly concurrency: number;
   /** Undefined is a miss. Cache errors are also treated as misses. */
@@ -75,9 +67,6 @@ export interface TileSourceLoadQueueOptions<TSource, TValue> {
     error: unknown,
     context: TileSourceFailureContext<TSource>,
   ) => TileRequestFailureMetadata;
-  readonly warmRamp?: TileSourceWarmRampOptions;
-  readonly initialReadyMs?: number;
-  readonly readyFilterWeight?: number;
   /** Monotonic clock used for readiness durations. */
   readonly now?: () => number;
   /** Epoch clock used by Retry-After/circuit admission. */
@@ -99,10 +88,6 @@ export interface TileSourceLoadQueueMetrics {
   readonly cacheActive: number;
   readonly networkActive: number;
   readonly networkAdmissionPaused: boolean;
-  readonly warmRampActive: boolean;
-  readonly warmRampLimit: number;
-  readonly estimatedReadyMs: number;
-  readonly successfulReadyTotal: number;
 }
 
 interface Consumer<TValue> {
@@ -119,24 +104,19 @@ interface SourceJob<TSource, TValue> {
   readonly sequence: number;
   state: TileSourceJobState;
   priority: number;
-  hot: boolean;
-  hotRank: number;
   peakConsumerCount: number;
   activeDurationMs: number;
   controller?: AbortController;
   probe?: boolean;
-  warmRamp?: boolean;
 }
-
-const DEFAULT_ESTIMATED_READY_MS = 750;
-const DEFAULT_READY_FILTER_WEIGHT = 0.15;
 
 /**
  * Provider-local, cache-first source scheduler shared by tile adapters.
  *
- * Demand is deliberately checked only when a cache miss reaches the network
- * queue. Active work owns its concurrency slot until its promise settles,
- * even when the final consumer cancels and the request is aborted.
+ * Every request is already admitted by the planner/scheduler. This queue
+ * coalesces and orders that work but never invents or expands demand. Active
+ * work owns its concurrency slot until its promise settles, even when the
+ * final consumer cancels and the request is aborted.
  */
 export class TileSourceLoadQueue<TSource, TValue> {
   private readonly circuit = new TileRequestCircuit();
@@ -148,21 +128,11 @@ export class TileSourceLoadQueue<TSource, TValue> {
   >();
   private readonly now: () => number;
   private readonly wallNow: () => number;
-  private readonly readyFilterWeight: number;
-  private readonly warmRampInitialLimit: number;
-  private readonly warmRampIncrement: number;
   private nextRequestId = 1;
   private nextSequence = 1;
   private disposed = false;
   private pumpScheduled = false;
-  private prioritySourceRanks = new Map<string, number>();
-  private demandedSourceKeys: ReadonlySet<string> | undefined;
   private networkAdmissionPaused = false;
-  private warmRampActive = false;
-  private warmRampLimit: number;
-  private warmRampInFlight = 0;
-  private estimatedReadyMsValue: number;
-  private successfulReadyTotal = 0;
   private requestTotal = 0;
   private sourceLoadTotal = 0;
   private cacheLookupTotal = 0;
@@ -181,13 +151,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
   ) {
     this.now = options.now ?? (() => performance.now());
     this.wallNow = options.wallNow ?? (() => Date.now());
-    this.readyFilterWeight =
-      options.readyFilterWeight ?? DEFAULT_READY_FILTER_WEIGHT;
-    this.estimatedReadyMsValue =
-      options.initialReadyMs ?? DEFAULT_ESTIMATED_READY_MS;
-    this.warmRampInitialLimit = options.warmRamp?.initialLimit ?? 1;
-    this.warmRampIncrement = options.warmRamp?.increment ?? 1;
-    this.warmRampLimit = options.concurrency;
   }
 
   get metrics(): TileSourceLoadQueueMetrics {
@@ -206,16 +169,7 @@ export class TileSourceLoadQueue<TSource, TValue> {
       cacheActive: this.cacheActiveCount,
       networkActive: this.networkActiveCount,
       networkAdmissionPaused: this.networkAdmissionPaused,
-      warmRampActive: this.warmRampActive,
-      warmRampLimit: this.warmRampLimit,
-      estimatedReadyMs: this.estimatedReadyMsValue,
-      successfulReadyTotal: this.successfulReadyTotal,
     });
-  }
-
-  /** Current successful cache/network readiness estimate without allocating. */
-  get estimatedReadyMs(): number {
-    return this.estimatedReadyMsValue;
   }
 
   get retryDiagnostics(): TileRequestCircuitDiagnostics {
@@ -253,12 +207,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
         job.consumers.size,
       );
       job.priority = Math.max(job.priority, input.priority ?? 0);
-      job.hot =
-        job.hot || input.hot === true || this.prioritySourceRanks.has(job.key);
-      job.hotRank = Math.max(
-        job.hotRank,
-        this.prioritySourceRanks.get(job.key) ?? (input.hot ? 0 : -1),
-      );
       this.sharedRequestTotal += 1;
       if (job.state === "network-active") {
         const joinedJob = job;
@@ -283,9 +231,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
         sequence: this.nextSequence++,
         state: initialState,
         priority: input.priority ?? 0,
-        hot: input.hot === true || this.prioritySourceRanks.has(input.key),
-        hotRank:
-          this.prioritySourceRanks.get(input.key) ?? (input.hot ? 0 : -1),
         peakConsumerCount: 1,
         activeDurationMs: 0,
       };
@@ -304,31 +249,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
     });
   }
 
-  /** Replaces the hot source set; request priority remains a stable tie-break. */
-  updatePriority(sourceKeys: Iterable<string>): void {
-    const ordered = [...sourceKeys];
-    const ranks = new Map<string, number>();
-    for (let index = 0; index < ordered.length; index += 1) {
-      if (!ranks.has(ordered[index]!)) {
-        ranks.set(ordered[index]!, ordered.length - index);
-      }
-    }
-    this.prioritySourceRanks = ranks;
-    for (const job of this.jobs.values()) {
-      job.hot = ranks.has(job.key);
-      job.hotRank = ranks.get(job.key) ?? -1;
-    }
-    this.pump();
-  }
-
-  /** Undefined clears the gate. Cache work is never filtered by this set. */
-  updateDemand(sourceKeys?: Iterable<string>): void {
-    this.demandedSourceKeys = sourceKeys === undefined
-      ? undefined
-      : new Set(sourceKeys);
-    this.pump();
-  }
-
   /** Pauses only new provider/network work. */
   pauseNetwork(): void {
     this.networkAdmissionPaused = true;
@@ -338,30 +258,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
   /** Called after provider backoff; the circuit still enforces one probe. */
   resumeDeferred(): void {
     this.networkAdmissionPaused = false;
-    this.emit();
-    this.pump();
-  }
-
-  /**
-   * Arms additive speculative admission. The next priority/demand update or
-   * request pumps the queue, so callers can demote stale forecast work first.
-   */
-  beginWarmRamp(): void {
-    if (!this.options.warmRamp) return;
-    this.warmRampActive = true;
-    this.warmRampLimit = this.warmRampInitialLimit;
-    this.emit();
-    // Runtime admission updates synchronously after arming. If that plan adds
-    // no jobs, close here so an unrelated later burst is not stale-throttled.
-    queueMicrotask(() => {
-      if (!this.disposed && this.closeWarmRampIfIdle()) this.emit();
-    });
-  }
-
-  endWarmRamp(): void {
-    if (!this.warmRampActive) return;
-    this.warmRampActive = false;
-    this.warmRampLimit = this.options.concurrency;
     this.emit();
     this.pump();
   }
@@ -415,7 +311,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
       this.sourceCancellationTotal += 1;
       job.controller?.abort();
     }
-    this.closeWarmRampIfIdle();
     this.emit();
     this.pump();
   }
@@ -471,12 +366,7 @@ export class TileSourceLoadQueue<TSource, TValue> {
       if (
         job.state !== "network-queued" ||
         this.jobs.get(job.key) !== job ||
-        job.consumers.size === 0 ||
-        (this.demandedSourceKeys !== undefined &&
-          !this.demandedSourceKeys.has(job.key)) ||
-        (this.warmRampActive &&
-          !job.hot &&
-          this.warmRampInFlight >= this.warmRampLimit)
+        job.consumers.size === 0
       ) continue;
       if (!selected || this.precedes(job, selected)) selected = job;
     }
@@ -487,15 +377,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
     first: SourceJob<TSource, TValue>,
     second: SourceJob<TSource, TValue>,
   ): boolean {
-    const firstDemanded =
-      this.demandedSourceKeys === undefined ||
-      this.demandedSourceKeys.has(first.key);
-    const secondDemanded =
-      this.demandedSourceKeys === undefined ||
-      this.demandedSourceKeys.has(second.key);
-    if (firstDemanded !== secondDemanded) return firstDemanded;
-    if (first.hot !== second.hot) return first.hot;
-    if (first.hotRank !== second.hotRank) return first.hotRank > second.hotRank;
     if (first.priority !== second.priority) {
       return first.priority > second.priority;
     }
@@ -534,7 +415,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
       .finally(() => {
         this.endActive(job, "cache-active");
         if (this.isCurrent(job)) this.enqueue(job, "network-queued");
-        this.closeWarmRampIfIdle();
         this.emit();
         this.pump();
       });
@@ -549,13 +429,10 @@ export class TileSourceLoadQueue<TSource, TValue> {
       return;
     }
     job.probe = start === "probe";
-    job.warmRamp = this.warmRampActive && !job.hot;
-    if (job.warmRamp) this.warmRampInFlight += 1;
     this.sourceLoadTotal += 1;
     const controller = job.controller!;
     const startedAt = this.now();
     let circuitSettled = false;
-    let deliveredSuccess = false;
     this.notifyJobInFlight(job, "network");
     this.emit();
     let pending: Promise<TValue>;
@@ -573,7 +450,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
           this.circuit.recordSuccess(job.probe === true);
           circuitSettled = true;
           if (!this.isCurrent(job)) return;
-          deliveredSuccess = true;
           this.completeJob(job, value, "network");
         },
         (error: unknown) => {
@@ -599,11 +475,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
           this.circuit.recordCancellation(job.probe === true);
         }
         this.endActive(job, "network-active");
-        if (job.warmRamp) {
-          this.warmRampInFlight = Math.max(0, this.warmRampInFlight - 1);
-          if (deliveredSuccess) this.advanceWarmRamp();
-        }
-        this.closeWarmRampIfIdle();
         this.emit();
         this.pump();
       });
@@ -663,7 +534,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
     source: TileSourceLoadStage,
   ): void {
     if (!this.isCurrent(job)) return;
-    this.recordReady(job.activeDurationMs);
     this.jobs.delete(job.key);
     const shared = job.peakConsumerCount > 1;
     for (const consumer of job.consumers.values()) {
@@ -745,33 +615,6 @@ export class TileSourceLoadQueue<TSource, TValue> {
     } catch {
       // A consumer callback cannot strand shared queue/circuit state.
     }
-  }
-
-  private recordReady(durationMs: number): void {
-    this.successfulReadyTotal += 1;
-    this.estimatedReadyMsValue +=
-      (durationMs - this.estimatedReadyMsValue) * this.readyFilterWeight;
-  }
-
-  private advanceWarmRamp(): void {
-    this.warmRampLimit = Math.min(
-      this.options.concurrency,
-      this.warmRampLimit + this.warmRampIncrement,
-    );
-    if (this.warmRampLimit >= this.options.concurrency) {
-      this.warmRampActive = false;
-    }
-  }
-
-  private closeWarmRampIfIdle(): boolean {
-    if (
-      !this.warmRampActive ||
-      this.jobs.size > 0 ||
-      this.activeSlotCount > 0
-    ) return false;
-    this.warmRampActive = false;
-    this.warmRampLimit = this.options.concurrency;
-    return true;
   }
 
   private emit(): void {

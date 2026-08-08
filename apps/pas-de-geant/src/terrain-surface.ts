@@ -33,25 +33,16 @@ import {
   createTileDebugControls,
   DEFAULT_TERRAIN_SCREEN_PIXELS_PER_SOURCE_PIXEL,
   tileDebugControlsReadback,
-  withTileDeltaZoomCap,
   withTileMaxZoom,
   withTilePixelRatio,
   withTileRecalculation,
-  withTileViewDistance,
   type TileDebugControls,
   type TileDebugControlsReadback,
   type TileOptionalZoomArguments,
   type TilePixelRatioArguments,
-  type TileViewDistanceArguments,
+  type TileRecalculationArguments,
 } from "./tile-debug-controls.js";
-import {
-  TileMovementAdmission,
-  type TileMovementForecast,
-} from "./tile-movement-admission.js";
-import {
-  TileResidencyPolicy,
-  tileWorkingSet,
-} from "./tile-residency-policy.js";
+import { TileVisibilityAdmission } from "./tile-visibility-admission.js";
 import {
   EARTH_MEAN_RADIUS_KM,
   WGS84_A_KM,
@@ -59,8 +50,8 @@ import {
 } from "./planet-state.js";
 import {
   type GeographicPoint,
-  type ViewResidencyInput,
-} from "./view-residency.js";
+  type ViewVisibilityInput,
+} from "./view-visibility.js";
 
 const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 const SKIRT_DEPTH_WORLD_METRES = 0.02;
@@ -83,11 +74,8 @@ export interface TerrainSurfaceView {
 
 export interface TerrainRuntimeMetrics {
   readonly committedLeafCount: number;
-  readonly hotTerrainTileCount: number;
-  readonly warmTerrainTileCount: number;
-  readonly residencyClassificationTotal: number;
-  readonly hotResidencyClassificationTotal: number;
-  readonly warmResidencyClassificationTotal: number;
+  readonly visibleTerrainTileCount: number;
+  readonly visibilityClassificationTotal: number;
   readonly imagery: ReturnType<ImageryVirtualTexture["getMetrics"]>;
   readonly elevation: {
     readonly decodedSourceCount: number;
@@ -503,18 +491,15 @@ export class TerrainSurface {
     HTMLImageElement,
     THREE.Texture
   >();
-  private readonly prewarmedElevations = new Map<string, HTMLImageElement>();
+  private readonly stagedElevations = new Map<string, HTMLImageElement>();
   private readonly renderer: THREE.WebGLRenderer;
   private readonly emptyTexture: THREE.DataTexture;
   private readonly sharedUniforms: Record<string, THREE.IUniform>;
   private readonly unsubscribe: () => void;
   private snapshot: SchedulerSnapshot<TileLayoutTarget>;
   private currentTarget: TileLayoutTarget;
-  private readonly movementAdmission: TileMovementAdmission;
-  private readonly movementForecast: TileMovementForecast;
-  private readonly residencyPolicy = new TileResidencyPolicy();
-  private deferSpeculativeWarm = false;
-  private residencyInput: ViewResidencyInput;
+  private readonly visibilityAdmission = new TileVisibilityAdmission();
+  private visibilityInput: ViewVisibilityInput;
   private debugControls: TileDebugControls = createTileDebugControls();
   private latestView: TerrainSurfaceView;
 
@@ -543,26 +528,14 @@ export class TerrainSurface {
         maxTopologyZoom: this.debugControls.terrain.maxZoom,
       },
     );
-    this.movementAdmission = new TileMovementAdmission(options.initialView);
-    this.movementForecast = this.movementAdmission.update(
-      options.initialView,
-      this.currentTarget.maxZoom,
-      this.provider.estimatedAssetReadyMs,
-      performance.now(),
-    );
-    this.residencyInput = {
-      underfoot: options.initialView,
+    this.visibilityInput = {
       footprint: options.initialView.footprint,
-      displayRadiusM: options.initialView.displayRadiusM,
-      observerHeightWorldM: options.initialView.observerHeightWorldM,
     };
     this.scheduler = new TileWorkerScheduler(this.currentTarget, {
       provider: this.provider,
       resourceRetention: "topology",
-      hydrateInitialResources: false,
       retryDelayMs: 5_000,
       retryMaxDelayMs: TRANSIENT_RETRY_MAX_DELAY_MS,
-      initialResourceDemand: [],
     });
     this.snapshot = this.scheduler.snapshot;
     this.emptyTexture = new THREE.DataTexture(
@@ -594,7 +567,7 @@ export class TerrainSurface {
       const committedChanged =
         !event && !sameCut(this.snapshot.committedCut, snapshot.committedCut);
       this.snapshot = snapshot;
-      this.applyResidency();
+      this.applyVisibilityAdmission();
       if (
         event?.kind === "atomic-swap" ||
         event?.sequence === -1 ||
@@ -603,13 +576,13 @@ export class TerrainSurface {
         this.syncMeshes();
       } else if (event?.kind === "response" && event.tile) {
         const resource = this.scheduler.committedResource(event.tile);
-        this.prewarmElevation(event.tile, resource);
+        this.stageElevation(event.tile, resource);
         const entry = this.meshes.get(tileIdentityKey(event.tile));
         if (entry) {
           this.updateElevation(entry, resource);
         }
       }
-      this.prunePrewarmedElevations();
+      this.pruneStagedElevations();
     });
   }
 
@@ -619,51 +592,29 @@ export class TerrainSurface {
       view.radialMultiplier / (EARTH_MEAN_RADIUS_KM * 1_000);
     this.sharedUniforms.normalizedSkirtDepth!.value =
       SKIRT_DEPTH_WORLD_METRES / view.displayRadiusM;
-    if (this.debugControls.textures.recalculationEnabled) {
-      this.imagery.update({
-        displayRadiusM: view.displayRadiusM,
-        latitudeDegrees: view.latitudeDegrees,
-        longitudeDegrees: view.longitudeDegrees,
-      }, {
-        underfoot: view,
-        footprint: view.footprint,
-        displayRadiusM: view.displayRadiusM,
-        observerHeightWorldM: view.observerHeightWorldM,
-      });
-    } else {
-      this.imagery.processPendingUploads();
-    }
-    if (!this.debugControls.terrain.recalculationEnabled) return;
-    this.residencyInput = {
-      underfoot: view,
-      footprint: view.footprint,
+    this.imagery.update({
       displayRadiusM: view.displayRadiusM,
-      observerHeightWorldM: view.observerHeightWorldM,
+      latitudeDegrees: view.latitudeDegrees,
+      longitudeDegrees: view.longitudeDegrees,
+    }, {
+      footprint: view.footprint,
+    }, {
+      recalculateTopology: this.debugControls.textures.recalculationEnabled,
+    });
+    this.visibilityInput = {
+      footprint: view.footprint,
     };
+    this.applyVisibilityAdmission();
+    if (!this.debugControls.terrain.recalculationEnabled) return;
     const target = terrainTargetForView(view, this.provider.tilePixels, {
       targetScreenPixelsPerSourcePixel:
         this.debugControls.terrain.screenPixelsPerSourcePixel,
       maxTopologyZoom: this.debugControls.terrain.maxZoom,
     });
-    this.movementAdmission.update(
-      view,
-      target.maxZoom,
-      this.provider.estimatedAssetReadyMs,
-      performance.now(),
-    );
-    const wasAdmissionDeferred = this.deferSpeculativeWarm;
-    this.deferSpeculativeWarm =
-      this.movementForecast.deferSpeculativeWarm;
-    const startingWarmRamp =
-      wasAdmissionDeferred && !this.deferSpeculativeWarm;
-    if (startingWarmRamp) {
-      this.provider.beginWarmRamp();
-    }
     if (tileLayoutTargetNeedsSubmission(this.currentTarget, target)) {
       this.currentTarget = target;
       this.scheduler.updateTarget(target);
     }
-    this.applyResidency();
   }
 
   getLodStatus(): { minZoom: number; maxZoom: number; budgetLimited: boolean } {
@@ -677,14 +628,11 @@ export class TerrainSurface {
 
   getMetrics(): TerrainRuntimeMetrics {
     const elevation = this.provider.metrics;
-    const residency = this.residencyPolicy.metrics;
+    const visibility = this.visibilityAdmission.metrics;
     return {
       committedLeafCount: this.snapshot.committedCut.length,
-      hotTerrainTileCount: residency.hotTileCount,
-      warmTerrainTileCount: residency.warmTileCount,
-      residencyClassificationTotal: residency.classificationTotal,
-      hotResidencyClassificationTotal: residency.hotClassificationTotal,
-      warmResidencyClassificationTotal: residency.warmClassificationTotal,
+      visibleTerrainTileCount: visibility.visibleTileCount,
+      visibilityClassificationTotal: visibility.classificationTotal,
       imagery: this.imagery.getMetrics(),
       elevation: {
         decodedSourceCount: elevation.decodedSourceCount,
@@ -718,7 +666,7 @@ export class TerrainSurface {
   getTilePlannerState() {
     const payloadRequests = this.scheduler.debugState;
     const provider = this.provider.metrics;
-    const residency = this.residencyPolicy.metrics;
+    const visibility = this.visibilityAdmission.metrics;
     return {
       terrain: {
         recalculation_enabled:
@@ -730,33 +678,12 @@ export class TerrainSurface {
           queued: provider.queued,
           network_deferred: provider.networkDeferred,
           in_flight: provider.inFlight,
-          warm_ramp_active: provider.warmRampActive,
-          warm_ramp_limit: provider.warmRampLimit,
         },
-        residency: {
-          hot_tile_count: residency.hotTileCount,
-          classified_warm_tile_count: residency.warmTileCount,
-          demanded_payload_tile_count:
-            payloadRequests.demanded_payload_count,
+        visibility_admission: {
+          visible_planner_tile_count: visibility.visibleTileCount,
+          admitted_candidate_count:
+            payloadRequests.admitted_candidate_count,
           committed_topology_tile_count: this.snapshot.committedCut.length,
-          view_distance_enabled:
-            this.debugControls.terrain.viewDistanceEnabled,
-          delta_zoom_cap: this.debugControls.terrain.deltaZoomCap,
-        },
-        movement: {
-          velocity_east_mps: this.movementForecast.velocityEastMps,
-          velocity_north_mps: this.movementForecast.velocityNorthMps,
-          surface_speed_mps: this.movementForecast.speedMps,
-          estimated_asset_ready_ms: this.movementForecast.estimatedReadyMs,
-          predicted_travel_m: this.movementForecast.predictedTravelM,
-          finest_tile_width_m: this.movementForecast.finestTileWidthM,
-          predicted_travel_tile_spans:
-            this.movementForecast.predictedTravelTileSpans,
-          speculative_warm_deferred: this.deferSpeculativeWarm,
-          forecast_tile_count: residency.forecastTileCount,
-          deferred_warm_tile_count: residency.deferredTileCount,
-          deferred_warm_tile_occurrence_total:
-            residency.deferredTileOccurrenceTotal,
         },
       },
       textures: this.imagery.getPlannerState(),
@@ -779,28 +706,8 @@ export class TerrainSurface {
     );
   }
 
-  setTileViewDistance(
-    argumentsValue: TileViewDistanceArguments,
-  ): TileDebugControlsReadback {
-    return this.setDebugControls(
-      withTileViewDistance(this.debugControls, argumentsValue),
-    );
-  }
-
-  setTileViewOverhead(overheadPercent: number): TileDebugControlsReadback {
-    return this.setDebugControls({ ...this.debugControls, overheadPercent });
-  }
-
-  setTileDeltaZoomCap(
-    argumentsValue: TileOptionalZoomArguments,
-  ): TileDebugControlsReadback {
-    return this.setDebugControls(
-      withTileDeltaZoomCap(this.debugControls, argumentsValue),
-    );
-  }
-
   setTileRecalculation(
-    argumentsValue: TileViewDistanceArguments,
+    argumentsValue: TileRecalculationArguments,
   ): TileDebugControlsReadback {
     return this.setDebugControls(
       withTileRecalculation(this.debugControls, argumentsValue),
@@ -822,10 +729,10 @@ export class TerrainSurface {
       this.disposeMesh(entry.mesh);
     }
     this.meshes.clear();
-    for (const image of this.prewarmedElevations.values()) {
+    for (const image of this.stagedElevations.values()) {
       this.releaseTexture(this.elevationTextures, image);
     }
-    this.prewarmedElevations.clear();
+    this.stagedElevations.clear();
     this.elevationTextures.dispose();
     this.emptyTexture.dispose();
     for (const child of [...this.group.children]) {
@@ -862,57 +769,32 @@ export class TerrainSurface {
     }
   }
 
-  private applyResidency(): void {
+  private applyVisibilityAdmission(): void {
     if (
       this.snapshot.committedCut.length === 0
     ) return;
-    const result = this.residencyPolicy.update({
-      committedTiles: this.snapshot.committedCut,
-      requestedTiles: this.snapshot.requestedCut,
-      requirements: this.snapshot.requirements,
-      targetZoom: this.currentTarget.maxZoom,
+    const visibleTiles = this.visibilityAdmission.update({
       revision: this.snapshot.revision,
-      view: this.residencyInput,
-      overheadPercent: this.debugControls.overheadPercent,
-      viewDistanceEnabled: this.debugControls.terrain.viewDistanceEnabled,
-      deltaZoomCap: this.debugControls.terrain.deltaZoomCap,
-      deferSpeculativeWarm: this.deferSpeculativeWarm,
-      forecastDisplacement: this.deferSpeculativeWarm
-        ? this.movementForecast.displacement
-        : undefined,
-      forecastSignature: this.deferSpeculativeWarm
-        ? this.movementForecast.signature
-        : 0,
-      isResidentOrInFlight: (tile) =>
-        this.scheduler.hasResidentOrInFlightResource(tile),
+      committedTiles: this.snapshot.committedCut,
+      replacementGroups: this.snapshot.graph.groups,
+      view: this.visibilityInput,
     });
-    if (!result) return;
-    if (!result.demandedTiles) {
-      this.scheduler.updateResourcePriority(result.priorityTiles);
-      return;
+    if (visibleTiles) {
+      this.scheduler.updateVisibilityAdmission(visibleTiles);
     }
-    this.scheduler.updateResourceDemand(
-      result.demandedTiles,
-      result.priorityTiles,
-    );
-    this.provider.retainSourceTiles(tileWorkingSet(
-      this.snapshot.committedCut,
-      result.demandedTiles,
-      this.snapshot.requirements.map(({ tile }) => tile),
-    ));
+    this.provider.retainSourceTiles([
+      ...this.snapshot.committedCut,
+      ...this.snapshot.requirements.map(({ tile }) => tile),
+    ]);
   }
 
   private setDebugControls(
     controls: TileDebugControls,
   ): TileDebugControlsReadback {
     this.debugControls = controls;
-    this.residencyPolicy.invalidate();
-    this.imagery.setDebugControls(
-      controls.textures,
-      controls.overheadPercent,
-    );
+    this.visibilityAdmission.invalidate();
+    this.imagery.setDebugControls(controls.textures);
     this.update(this.latestView);
-    if (!controls.terrain.recalculationEnabled) this.applyResidency();
     return this.getTileDebugControls();
   }
 
@@ -1002,41 +884,40 @@ export class TerrainSurface {
     });
   }
 
-  private prewarmElevation(
+  private stageElevation(
     tile: TileIdentity,
     resource: ElevationTileResource | undefined,
   ): void {
     const key = tileIdentityKey(tile);
     const elevation = resource?.elevation;
-    const previous = this.prewarmedElevations.get(key);
+    const previous = this.stagedElevations.get(key);
     if (previous === elevation?.image) return;
     if (previous) {
-      this.prewarmedElevations.delete(key);
+      this.stagedElevations.delete(key);
       this.releaseTexture(this.elevationTextures, previous);
     }
     if (!elevation) return;
     this.textureForElevation(elevation);
-    this.prewarmedElevations.set(key, elevation.image);
+    this.stagedElevations.set(key, elevation.image);
   }
 
-  private consumePrewarmedElevation(tile: TileIdentity): void {
+  private consumeStagedElevation(tile: TileIdentity): void {
     const key = tileIdentityKey(tile);
-    const image = this.prewarmedElevations.get(key);
+    const image = this.stagedElevations.get(key);
     if (!image) return;
-    this.prewarmedElevations.delete(key);
+    this.stagedElevations.delete(key);
     this.releaseTexture(this.elevationTextures, image);
   }
 
-  private prunePrewarmedElevations(): void {
-    if (this.prewarmedElevations.size === 0) return;
+  private pruneStagedElevations(): void {
+    if (this.stagedElevations.size === 0) return;
     const liveKeys = new Set([
       ...this.snapshot.committedCut,
-      ...this.snapshot.requestedCut,
       ...this.snapshot.requirements.map(({ tile }) => tile),
     ].map((tile) => tileIdentityKey(tile)));
-    for (const [key, image] of this.prewarmedElevations) {
+    for (const [key, image] of this.stagedElevations) {
       if (liveKeys.has(key)) continue;
-      this.prewarmedElevations.delete(key);
+      this.stagedElevations.delete(key);
       this.releaseTexture(this.elevationTextures, image);
     }
   }
@@ -1057,7 +938,7 @@ export class TerrainSurface {
   ): void {
     const elevation = resource?.elevation;
     if (entry.elevation === elevation) {
-      this.consumePrewarmedElevation(entry.tile);
+      this.consumeStagedElevation(entry.tile);
       return;
     }
     this.releaseTexture(this.elevationTextures, entry.elevation?.image);
@@ -1065,7 +946,7 @@ export class TerrainSurface {
     entry.elevationTexture = elevation
       ? this.textureForElevation(elevation)
       : undefined;
-    this.consumePrewarmedElevation(entry.tile);
+    this.consumeStagedElevation(entry.tile);
     entry.mesh.material.uniforms.elevationMap!.value =
       entry.elevationTexture ?? this.emptyTexture;
     entry.mesh.material.uniforms.elevationEnabled!.value = elevation ? 1 : 0;

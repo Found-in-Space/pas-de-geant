@@ -330,9 +330,6 @@ describe("Pas de Géant Realtime voice agent", () => {
       "get_tile_planner_state",
       "set_tile_pixel_ratio",
       "set_tile_max_zoom",
-      "set_tile_view_distance",
-      "set_tile_view_overhead",
-      "set_tile_delta_zoom_cap",
       "set_tile_recalculation",
     ]);
     expect(configuration.session.instructions).toContain(
@@ -416,11 +413,8 @@ describe("Pas de Géant Realtime voice agent", () => {
       "labels",
     ]);
     expect(configuration.session.tools.find(
-      ({ name }) => name === "set_tile_view_distance",
-    )?.description).toContain("loads the full current tile onion");
-    expect(configuration.session.tools.find(
-      ({ name }) => name === "set_tile_delta_zoom_cap",
-    )?.description).toContain("N+1 bands");
+      ({ name }) => name === "get_tile_planner_state",
+    )?.description).toContain("visibility-admission");
     const satelliteTool = configuration.session.tools.find(
       ({ name }) => name === "set_satellite_group_visibility",
     );

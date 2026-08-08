@@ -27,19 +27,15 @@ function provider() {
 }
 
 describe("Elevation tile provider", () => {
-  it("forwards demand and retry admission to the cache-first provider", () => {
+  it("forwards retry admission to the cache-first provider", () => {
     const images = {
       tilePixels: 512,
-      updateDemand: vi.fn(),
       resumeDeferred: vi.fn(),
     } as unknown as ImageTileProvider;
     const surface = new ElevationTileProvider(images);
-    const demand = [{ z: 3, x: 4, y: 2 }];
 
-    surface.updateDemand(demand);
     surface.resumeDeferred();
 
-    expect(images.updateDemand).toHaveBeenCalledWith(demand);
     expect(images.resumeDeferred).toHaveBeenCalledOnce();
   });
 
@@ -148,6 +144,7 @@ describe("Elevation tile provider", () => {
     );
 
     scheduler.updateTarget("children");
+    scheduler.updateVisibilityAdmission(children);
     for (const tile of children) {
       const key = tileIdentityKey(tile);
       if (key === "1/1/0") {

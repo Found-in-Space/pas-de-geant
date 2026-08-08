@@ -75,7 +75,6 @@ scope.onmessage = ({ data }: MessageEvent<TileSchedulerCommand>) => {
       data.target,
       new TileOnionLayoutSource(),
       provider,
-      { hydrateInitialResources: data.hydrateInitialResources },
     );
     scheduler.subscribe((snapshot, event) => {
       // Resource progress can be frequent. The main thread already owns those
@@ -93,6 +92,11 @@ scope.onmessage = ({ data }: MessageEvent<TileSchedulerCommand>) => {
     const changed = scheduler.updateTarget(data.target);
     if (changed) post({ kind: "snapshot", snapshot: scheduler.snapshot });
     post({ kind: "target-applied", target: data.target });
+  }
+  if (data.kind === "visibility-admission") {
+    if (scheduler.updateVisibilityAdmission(data.tiles, data.revision)) {
+      post({ kind: "snapshot", snapshot: scheduler.snapshot });
+    }
   }
   if (data.kind === "retry") scheduler.retryFailed();
   if (data.kind === "resource-result")

@@ -26,12 +26,6 @@ export interface TileProvider<Resource> {
     tile: TileIdentity,
     observer: (result: TileProviderResult<Resource>) => void,
   ): TileRequestHandle;
-  /** Reorders queued work without cancelling or restarting active requests. */
-  updatePriority?(tiles: Iterable<TileIdentity>): void;
-  /** Admits cache-miss work without limiting cache lookups. */
-  updateDemand?(tiles: Iterable<TileIdentity>): void;
   /** Reconsiders cache-miss work paused by provider backoff. */
   resumeDeferred?(): void;
-  /** Arms additive speculative traffic before the next priority/demand update. */
-  beginWarmRamp?(): void;
 }

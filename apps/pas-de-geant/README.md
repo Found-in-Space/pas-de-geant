@@ -50,17 +50,18 @@ pasDeGeantDebug.setTilePixelRatio("textures", 1.5)
 
 The runtime snapshot includes a rolling ten-second frame distribution,
 application CPU time, draw calls and primitives, Three.js resource counts,
-tile/source request-decode-upload-residency metrics, recent resource timing,
+tile/source request-decode-upload metrics, recent resource timing,
 WebGL capabilities, and browser heap. `mark(name)` retains a named snapshot;
 control changes and `clearMetrics()` start a clean frame window.
 
 For repeatable measurements, `beginBenchmark(options)` captures the live
 session, disables walking and controller-driven scale changes, resets the
 render/tile controls, and moves to an exact location. Let both planner queues
-reach zero, freeze them with `setTileRecalculation("both", false)`, then clear
-the metrics before sampling. `endBenchmark()` restores the captured location,
-scale, inputs, layers, and tile controls. A useful high-load, near-sea-level
-case is Pisa at scale 2500:
+reach zero, freeze topology-target recalculation with
+`setTileRecalculation("both", false)`, then clear the metrics before sampling.
+Visibility admission remains live while topology is frozen. `endBenchmark()`
+restores the captured location, scale, inputs, layers, and tile controls. A
+useful high-load, near-sea-level case is Pisa at scale 2500:
 
 ```js
 pasDeGeantDebug.beginBenchmark({
@@ -140,12 +141,13 @@ and tuned without changing the other. Terrain elevation never feeds back into
 LOD selection.
 
 The embedded Blue Marble is immediate, complete fallback imagery. Mapterhorn
-Terrarium pages hydrate the committed terrain cut. The photographic pipeline
-loads and commits independently, and a fragment can resolve a finer imagery
-page than the terrain mesh containing it. Elevation is required before a new
-terrain replacement commits. A confirmed missing elevation page resolves as
-flat terrain; a missing photographic page resolves to an available ancestor
-or Blue Marble. Neither kind of 404 blocks its sibling cells.
+Terrarium pages hydrate only visible members of the planner-owned committed
+terrain cut. The photographic pipeline loads and commits independently, and a
+fragment can resolve a finer imagery page than the terrain mesh containing it.
+Elevation is required before a new terrain replacement commits. A confirmed
+missing elevation page resolves as flat terrain; a missing photographic page
+resolves to an available ancestor or Blue Marble. Neither kind of 404 blocks
+its sibling cells.
 
 Terrarium displacement is decoded and bilinearly sampled in the vertex shader.
 Draw tiles sample cropped regions of source ancestors after the provider's
@@ -249,20 +251,19 @@ URLs aloud.
 ### Voice tile-debug controls
 
 The voice guide can read and tune the terrain and photographic tile pipelines
-while the app is running. Ask it to change screen pixels per source pixel, set
-or clear a topology max-z, enable or disable the warm view-distance buffer,
-change its overhead percentage, or set or clear a payload delta-z cap for
-terrain, textures, or both. A delta-z of 3 retains the four payload bands from
-z through z-3 without changing the complete mixed-LOD tile topology. Disabling
-view distance loads the full eligible current tile onion.
+while the app is running. Ask it to change screen pixels per source pixel or
+set or clear a topology max-z for terrain, textures, or both. Payload work is
+always restricted to the current visible subset of planner-owned topology and
+replacement groups.
 
-Terrain and texture recalculation can be frozen independently to inspect one
-current world selection while the other continues following the view. For
-example, ask “freeze terrain recalculation” or “resume texture recalculation.”
-Rendering and already-started tile work continue while frozen; re-enabling a
-pipeline immediately applies the latest view. The guide reads the controls
-before reporting them and returns the effective terrain and texture target
-zooms after each change.
+Terrain and texture topology-target recalculation can be frozen independently
+to inspect one planned world selection while the other continues replanning.
+For example, ask “freeze terrain recalculation” or “resume texture
+recalculation.” Current visibility admission always follows the view while a
+target is frozen, so offscreen planner work can still be deferred; re-enabling
+a pipeline immediately applies the latest topology target. The guide reads the
+controls before reporting them and returns the effective terrain and texture
+target zooms after each change.
 
 Ask “what is the tile planner waiting for?” or “are texture tiles still
 loading?” to read planner and scheduler state. The report separates topology

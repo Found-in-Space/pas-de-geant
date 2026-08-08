@@ -4,10 +4,9 @@ import {
   selectImageryZoom,
 } from "../apps/pas-de-geant/src/imagery-core.js";
 import {
-  ImageryMovementAdmission,
+  ImageryVirtualTexture,
   ImageryWorkerClient,
   ScheduledImageryProvider,
-  imageryDemandForAdmission,
   imageryLayerUploadPlan,
   imageryMigrationReady,
   imageryPoolGrowthCapacity,
@@ -18,9 +17,6 @@ import {
   retainedImageryPoolDemand,
   type ImageryWorkerPort,
 } from "../apps/pas-de-geant/src/imagery.js";
-import {
-  classifyHotAndForecastResidency,
-} from "../apps/pas-de-geant/src/view-residency.js";
 import {
   generateImageryMipChain,
   imageryMipDimensions,
@@ -48,6 +44,7 @@ import {
   tileTopologySelectionChanged,
   withTilePixelRatio,
 } from "../apps/pas-de-geant/src/tile-debug-controls.js";
+import { TileVisibilityAdmission } from "../apps/pas-de-geant/src/tile-visibility-admission.js";
 import { TileTransitionScheduler } from "../apps/pas-de-geant/src/tile-transition-scheduler.js";
 import type { TileIdentity } from "../apps/pas-de-geant/src/tile-transition-planner.js";
 
@@ -81,148 +78,46 @@ function reconcileForTest(
 }
 
 describe("independent photographic imagery pipeline", () => {
-  it("keeps planner topology at the desired zoom throughout movement", () => {
-    const radius = 1_000;
-    const initial = {
-      displayRadiusM: radius,
-      latitudeDegrees: 0,
-      longitudeDegrees: 0,
+  it("refreshes visibility while topology recalculation is frozen", () => {
+    const updateVisibilityAdmission = vi.fn();
+    const updateTarget = vi.fn();
+    const providerRequest = vi.fn();
+    const texture = Object.create(ImageryVirtualTexture.prototype) as any;
+    texture.scheduler = { updateVisibilityAdmission, updateTarget };
+    texture.provider = {
+      request: providerRequest,
+      source: { minZoom: 0, maxZoom: 4, tileSize: 512 },
     };
-    const admission = new ImageryMovementAdmission(initial);
-    admission.update(initial, 13, 1_000, 0);
-    const moved = {
-      ...initial,
-      longitudeDegrees: 100 / radius * 180 / Math.PI,
+    texture.visibilityAdmission = new TileVisibilityAdmission();
+    texture.snapshot = {
+      revision: 1,
+      target: { maxZoom: 4, latitudeDegrees: 0, longitudeDegrees: 0 },
+      committedCut: [{ z: 4, x: 8, y: 8 }],
+      requestedCut: [{ z: 4, x: 8, y: 8 }],
+      graph: { retained: [], groups: [], batches: [] },
+      requirements: [],
     };
+    texture.targetSubmissionTotal = 0;
+    texture.processUploads = vi.fn();
 
-    const forecast = admission.update(moved, 13, 1_000, 1_000);
+    texture.update(
+      { displayRadiusM: 1_000, latitudeDegrees: -5, longitudeDegrees: 11.25 },
+      { footprint: [{ latitudeDegrees: -5, longitudeDegrees: 11.25 }] },
+      { recalculateTopology: false },
+    );
+    texture.update(
+      { displayRadiusM: 1_000, latitudeDegrees: 60, longitudeDegrees: 100 },
+      { footprint: [] },
+      { recalculateTopology: false },
+    );
 
-    expect(forecast.predictedTravelTileSpans).toBeGreaterThan(1);
-    expect(forecast.deferSpeculativeWarm).toBe(true);
-    expect(imageryTargetForView(moved, 13).maxZoom).toBe(13);
-  });
-
-  it("keeps current-hot, predicted, resident, and in-flight warm demand", () => {
-    const hot = { z: 3, x: 0, y: 0 };
-    const predictedWarm = { z: 3, x: 1, y: 0 };
-    const residentWarm = { z: 3, x: 2, y: 0 };
-    const inFlightWarm = { z: 3, x: 3, y: 0 };
-    const speculativeWarm = { z: 3, x: 4, y: 0 };
-    const full = [
-      hot,
-      predictedWarm,
-      residentWarm,
-      inFlightWarm,
-      speculativeWarm,
-    ];
-
-    expect(imageryDemandForAdmission(
-      full,
-      new Set([tileKey(hot)]),
-      new Set([tileKey(predictedWarm)]),
-      true,
-      (tile) => [residentWarm, inFlightWarm].some((retained) =>
-        tileKey(tile) === tileKey(retained)
-      ),
-    )).toEqual([hot, predictedWarm, residentWarm, inFlightWarm]);
-  });
-
-  it("admits the full warm working set below one predicted tile span", () => {
-    const stationary = {
-      displayRadiusM: 1_000,
-      latitudeDegrees: 0,
-      longitudeDegrees: 0,
-    };
-    const admission = new ImageryMovementAdmission(stationary);
-    const forecast = admission.update(stationary, 3, 1_000, 0);
-    const full = [
-      { z: 3, x: 0, y: 0 },
-      { z: 3, x: 1, y: 0 },
-      { z: 3, x: 2, y: 0 },
-    ];
-
-    expect(imageryDemandForAdmission(
-      full,
-      new Set(),
-      new Set(),
-      forecast.deferSpeculativeWarm,
-      () => false,
-    )).toBe(full);
-    expect(forecast.predictedTravelTileSpans).toBeLessThan(1);
-  });
-
-  it("admits forward forecast tiles while leaving side and behind warm tiles speculative", () => {
-    const cut = [
-      { z: 4, x: 5, y: 8 },
+    expect(updateVisibilityAdmission).toHaveBeenNthCalledWith(1, [
       { z: 4, x: 8, y: 8 },
-      { z: 4, x: 11, y: 8 },
-      { z: 4, x: 8, y: 4 },
-    ];
-    const input = {
-      underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
-      footprint: [] as const,
-      displayRadiusM: 1_000,
-      observerHeightWorldM: 0,
-    };
-
-    const classified = classifyHotAndForecastResidency(
-      cut,
-      input,
-      { x: 3 / 16, y: 0 },
-    );
-    const demanded = imageryDemandForAdmission(
-      cut,
-      classified.hot,
-      classified.forecast,
-      true,
-      () => false,
-    );
-
-    expect(demanded).toContainEqual({ z: 4, x: 8, y: 8 });
-    expect(demanded).toContainEqual({ z: 4, x: 11, y: 8 });
-    expect(demanded).not.toContainEqual({ z: 4, x: 5, y: 8 });
-    expect(demanded).not.toContainEqual({ z: 4, x: 8, y: 4 });
-  });
-
-  it("wraps eastward velocity at the antimeridian and quantizes its forecast signature", () => {
-    const radius = 1_000;
-    const initial = {
-      displayRadiusM: radius,
-      latitudeDegrees: 0,
-      longitudeDegrees: 179.9,
-    };
-    const admission = new ImageryMovementAdmission(initial);
-    admission.update(initial, 12, 1_000, 0);
-    const moved = { ...initial, longitudeDegrees: -179.9 };
-    const forecast = admission.update(moved, 12, 1_000, 1_000);
-    const velocityEastMps = forecast.velocityEastMps;
-    const displacementX = forecast.displacement.x;
-    const forecastSignature = forecast.signature;
-    const jitteredSignature =
-      admission.update(moved, 12, 1_001, 1_000).signature;
-    const materiallyLaterSignature =
-      admission.update(moved, 12, 2_000, 1_000).signature;
-
-    expect(velocityEastMps).toBeGreaterThan(0);
-    expect(displacementX).toBeGreaterThan(0);
-    expect(jitteredSignature).toBe(forecastSignature);
-    expect(materiallyLaterSignature).not.toBe(forecastSignature);
-
-    const antimeridian = classifyHotAndForecastResidency(
-      [
-        { z: 4, x: 15, y: 8 },
-        { z: 4, x: 1, y: 8 },
-      ],
-      {
-        underfoot: { latitudeDegrees: 0, longitudeDegrees: 179.9 },
-        footprint: [],
-        displayRadiusM: radius,
-        observerHeightWorldM: 0,
-      },
-      { x: 2 / 16, y: 0 },
-    );
-    expect(antimeridian.hot).toContain("4/15/8");
-    expect(antimeridian.forecast).toContain("4/1/8");
+    ]);
+    expect(updateVisibilityAdmission).toHaveBeenNthCalledWith(2, []);
+    expect(updateTarget).not.toHaveBeenCalled();
+    expect(providerRequest).not.toHaveBeenCalled();
+    expect(texture.targetSubmissionTotal).toBe(0);
   });
 
   it("builds a complete padded mip chain with averaged pixels through 1 x 1", () => {
@@ -1009,6 +904,7 @@ describe("independent photographic imagery pipeline", () => {
     );
 
     scheduler.updateTarget("children");
+    scheduler.updateVisibilityAdmission(children);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(scheduler.snapshot.committedCut).toEqual(parent);
@@ -1096,43 +992,6 @@ describe("independent photographic imagery pipeline", () => {
       });
     });
     expect(loads).toBe(2);
-    scheduled.dispose();
-  });
-
-  it("updates its bounded readiness estimate when source and decode complete", async () => {
-    let nowMs = 0;
-    let resolveLoad!: (blob: Blob) => void;
-    const provider: ImageryProvider = {
-      id: "readiness-fixture",
-      attribution: "fixture",
-      tileSize: 512,
-      minZoom: 0,
-      maxZoom: 0,
-      load: async () => await new Promise<Blob>((resolve) => {
-        resolveLoad = resolve;
-      }),
-    };
-    const scheduled = new ScheduledImageryProvider(
-      provider,
-      async () => {
-        nowMs = 500;
-        return new Uint8Array([1, 2, 3, 4]);
-      },
-      () => nowMs,
-    );
-    const seededEstimate = scheduled.estimatedAssetReadyMs;
-    const completed = new Promise<void>((resolve) => {
-      scheduled.request({ z: 0, x: 0, y: 0 }, (result) => {
-        if (result.phase === "response") resolve();
-      });
-    });
-
-    await vi.waitFor(() => expect(resolveLoad).toBeTypeOf("function"));
-    resolveLoad(new Blob(["tile"], { type: "image/png" }));
-    await completed;
-
-    expect(scheduled.estimatedAssetReadyMs).toBeLessThan(seededEstimate);
-    expect(scheduled.estimatedAssetReadyMs).toBeGreaterThan(500);
     scheduled.dispose();
   });
 
@@ -1235,50 +1094,6 @@ describe("independent photographic imagery pipeline", () => {
     scheduled.dispose();
   });
 
-  it("ramps actual warm source starts while allowing hot work to preempt", async () => {
-    const pending = new Map<string, (blob: Blob) => void>();
-    const started: string[] = [];
-    const provider: ImageryProvider = {
-      id: "warm-ramp-fixture",
-      attribution: "fixture",
-      tileSize: 512,
-      minZoom: 3,
-      maxZoom: 3,
-      load: async (tile) => {
-        const key = tileKey(tile);
-        started.push(key);
-        return await new Promise<Blob>((resolve) => pending.set(key, resolve));
-      },
-    };
-    const scheduled = new ScheduledImageryProvider(
-      provider,
-      async () => new Uint8Array([1, 2, 3, 4]),
-    );
-    const hot = { z: 3, x: 7, y: 0 };
-    scheduled.updatePriority([hot]);
-    scheduled.beginWarmRamp();
-    for (let x = 0; x < 4; x += 1) {
-      scheduled.request({ z: 3, x, y: 0 }, () => {});
-    }
-    scheduled.request(hot, () => {});
-    await vi.waitFor(() => {
-      expect(started).toEqual(["3/7/0", "3/0/0"]);
-    });
-    pending.get("3/0/0")!(new Blob(["warm"], { type: "image/png" }));
-    await vi.waitFor(() => expect(started).toHaveLength(4));
-    expect(started.slice(2).sort()).toEqual(["3/1/0", "3/2/0"]);
-    expect(scheduled.metrics).toMatchObject({
-      warmRampActive: true,
-      warmRampLimit: 2,
-      sourceLoadTotal: 4,
-    });
-
-    for (const key of started) {
-      pending.get(key)?.(new Blob(["image"], { type: "image/png" }));
-    }
-    scheduled.dispose();
-  });
-
   it("defers unattempted imagery jobs after a systemic failure", async () => {
     const pending: Array<{
       resolve(blob: Blob): void;
@@ -1358,7 +1173,6 @@ describe("independent photographic imagery pipeline", () => {
       async () => new Uint8Array([1, 2, 3, 4]),
     );
     const initial = { z: 3, x: 0, y: 0 };
-    scheduled.updateDemand([initial]);
     scheduled.request(initial, () => {});
     await vi.waitFor(() => expect(networkAttempts).toEqual(["3/0/0"]));
     // Quest fetch exposes the proven 429 as only TypeError/ERR_FAILED because
@@ -1485,6 +1299,7 @@ describe("independent photographic imagery pipeline", () => {
     );
 
     scheduler.updateTarget("child");
+    scheduler.updateVisibilityAdmission(child);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(scheduler.snapshot.committedCut).toEqual(parent);
     expect(scheduler.snapshot.requirements[0]?.state).toBe("failed");

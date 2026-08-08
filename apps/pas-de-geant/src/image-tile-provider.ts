@@ -58,12 +58,9 @@ export interface ImageTileProviderMetrics {
   readonly persistentWriteTotal: number;
   readonly failureTotal: number;
   readonly byteTotal: number;
-  readonly estimatedAssetReadyMs: number;
   readonly queued: number;
   readonly networkDeferred: number;
   readonly inFlight: number;
-  readonly warmRampActive: boolean;
-  readonly warmRampLimit: number;
   readonly decodedSourceCount: number;
   readonly estimatedDecodedBytes: number;
 }
@@ -296,7 +293,6 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
         : {}),
       loadFromNetwork: options.loadSource,
       classifyNetworkFailure: imageFailureMetadata,
-      warmRamp: {},
     });
     this.sourceQueue.subscribe(() => this.emit());
   }
@@ -314,12 +310,9 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
       persistentWriteTotal: this.persistentWriteTotal,
       failureTotal: this.mappingFailureTotal + queue.failureTotal,
       byteTotal: this.byteTotal,
-      estimatedAssetReadyMs: queue.estimatedReadyMs,
       queued: queue.queued,
       networkDeferred: queue.networkDeferred,
       inFlight: queue.inFlight,
-      warmRampActive: queue.warmRampActive,
-      warmRampLimit: queue.warmRampLimit,
       decodedSourceCount: this.sourceCache.size,
       estimatedDecodedBytes:
         this.sourceCache.size * this.tilePixels * this.tilePixels * 4,
@@ -328,11 +321,6 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
 
   get retryDiagnostics() {
     return this.sourceQueue.retryDiagnostics;
-  }
-
-  /** Shared rolling cache/network readiness estimate without allocating. */
-  get estimatedAssetReadyMs(): number {
-    return this.sourceQueue.estimatedReadyMs;
   }
 
   /** Retains decoded images only for the current view/transition working set. */
@@ -354,42 +342,9 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
     if (changed) this.emit();
   }
 
-  updatePriority(tiles: Iterable<TileIdentity>): void {
-    const priority: string[] = [];
-    for (const tile of tiles) {
-      try {
-        priority.push(tileIdentityKey(
-          this.options.resolveSource(tile).sourceTile,
-        ));
-      } catch {
-        // Tiles outside provider coverage cannot contribute queued work.
-      }
-    }
-    this.sourceQueue.updatePriority(priority);
-  }
-
-  /** Cache checks remain admitted; this gates only cache misses to network. */
-  updateDemand(tiles: Iterable<TileIdentity>): void {
-    const demanded: string[] = [];
-    for (const tile of tiles) {
-      try {
-        demanded.push(tileIdentityKey(
-          this.options.resolveSource(tile).sourceTile,
-        ));
-      } catch {
-        // Tiles outside provider coverage cannot contribute network demand.
-      }
-    }
-    this.sourceQueue.updateDemand(demanded);
-  }
-
   /** Called by retry policy after its backoff window has elapsed. */
   resumeDeferred(): void {
     this.sourceQueue.resumeDeferred();
-  }
-
-  beginWarmRamp(): void {
-    this.sourceQueue.beginWarmRamp();
   }
 
   subscribe(listener: (metrics: ImageTileProviderMetrics) => void): () => void {

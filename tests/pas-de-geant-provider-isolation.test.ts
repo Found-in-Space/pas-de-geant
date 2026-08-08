@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { ElevationTileProvider } from "../apps/pas-de-geant/src/elevation-tile-provider.js";
 import {
   HttpTileError,
   ImageTileProvider,
@@ -11,6 +12,8 @@ import type {
   TileProvider,
   TileProviderResult,
 } from "../apps/pas-de-geant/src/tile-provider.js";
+import { TileTransitionScheduler } from "../apps/pas-de-geant/src/tile-transition-scheduler.js";
+import type { TileIdentity } from "../apps/pas-de-geant/src/tile-transition-planner.js";
 
 const tile = { z: 0, x: 0, y: 0 };
 
@@ -55,6 +58,75 @@ function elevationProvider(
 }
 
 describe("payload provider isolation", () => {
+  it("keeps off-plan admission out of both concrete provider paths", () => {
+    const base: TileIdentity[] = [
+      { z: 1, x: 0, y: 0 },
+      { z: 1, x: 1, y: 0 },
+      { z: 1, x: 0, y: 1 },
+      { z: 1, x: 1, y: 1 },
+    ];
+    const parent = base[0]!;
+    const desired = [
+      ...base.slice(1),
+      { z: 2, x: 0, y: 0 },
+      { z: 2, x: 1, y: 0 },
+      { z: 2, x: 0, y: 1 },
+      { z: 2, x: 1, y: 1 },
+    ];
+    const layout = {
+      calculate(target: "base" | "desired") {
+        return target === "base" ? base : desired;
+      },
+    };
+    const terrainLoad = vi.fn(async () => ({
+      image: {} as HTMLImageElement,
+      byteLength: 1,
+      cacheStatus: "provider" as const,
+    }));
+    const terrainImages = elevationProvider(terrainLoad);
+    const terrain = new ElevationTileProvider(terrainImages);
+    const imageryLoad = vi.fn(async () => new Blob(["image"]));
+    const imagery = imageryProvider(imageryLoad);
+    const terrainScheduler = new TileTransitionScheduler(
+      "base" as "base" | "desired",
+      layout,
+      terrain,
+    );
+    const imageryScheduler = new TileTransitionScheduler(
+      "base" as "base" | "desired",
+      layout,
+      imagery,
+    );
+    terrainScheduler.updateTarget("desired");
+    imageryScheduler.updateTarget("desired");
+    expect(terrainScheduler.snapshot.graph.groups[0]!.before).toContainEqual(
+      parent,
+    );
+    const outsidePlan = { z: 8, x: 100, y: 100 };
+
+    terrainScheduler.updateVisibilityAdmission([outsidePlan]);
+    imageryScheduler.updateVisibilityAdmission([outsidePlan]);
+
+    expect(terrainLoad).not.toHaveBeenCalled();
+    expect(imageryLoad).not.toHaveBeenCalled();
+    expect(terrain.metrics).toMatchObject({
+      requestTotal: 0,
+      cacheLookupTotal: 0,
+      sourceLoadTotal: 0,
+    });
+    expect(imagery.metrics).toMatchObject({
+      requestTotal: 0,
+      cacheLookupTotal: 0,
+      sourceLoadTotal: 0,
+    });
+    expect(terrainScheduler.snapshot.requirements).toEqual([]);
+    expect(imageryScheduler.snapshot.requirements).toEqual([]);
+    terrainScheduler.dispose();
+    imageryScheduler.dispose();
+    terrain.dispose();
+    imagery.dispose();
+  });
+
   it("keeps either payload queue healthy when the other provider is limited", async () => {
     const failedImagery = imageryProvider(async () => {
       // This is how a CORS-hidden 429 is exposed to application fetch.

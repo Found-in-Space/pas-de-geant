@@ -29,7 +29,6 @@ export interface TileSchedulerWorker {
 
 export interface TileWorkerSchedulerOptions<Resource> {
   readonly createWorker?: () => TileSchedulerWorker;
-  readonly hydrateInitialResources?: boolean;
   readonly provider: TileProvider<Resource>;
   /** Base retry cadence for transient provider failures. */
   readonly retryDelayMs?: number;
@@ -37,10 +36,8 @@ export interface TileWorkerSchedulerOptions<Resource> {
   readonly retryMaxDelayMs?: number;
   /** Random source used to desynchronise exponential retries. */
   readonly retryRandom?: () => number;
-  /** Demand known before the worker can emit its initial hydration requests. */
-  readonly initialResourceDemand?: Iterable<TileIdentity>;
   /**
-   * live: current demand only; topology: the committed/transition cut;
+   * live/topology: the committed/transition cut;
    * session: every completed payload.
    */
   readonly resourceRetention?: "live" | "topology" | "session";
@@ -53,17 +50,14 @@ export interface TileWorkerSchedulerRequestCounts {
 }
 
 export interface TileWorkerSchedulerDebugState {
-  readonly transition_owned: TileWorkerSchedulerRequestCounts;
-  readonly residency_hydration: TileWorkerSchedulerRequestCounts;
+  readonly planner_admission: TileWorkerSchedulerRequestCounts;
   readonly total: TileWorkerSchedulerRequestCounts;
   readonly resident_payload_count: number;
   readonly session_retained_payload_count: number;
-  readonly demanded_payload_count: number | null;
-  readonly deferred_payload_count: number;
+  readonly admitted_candidate_count: number;
   readonly resource_retention: "live" | "topology" | "session";
   readonly resource_releases: {
     readonly total: number;
-    readonly demand: number;
     readonly discard: number;
     readonly cancel: number;
     readonly topology: number;
@@ -85,11 +79,9 @@ export interface TileWorkerSchedulerDebugState {
 interface ActiveBridgeRequest {
   readonly requestId: number;
   readonly tile: TileIdentity;
-  /** True only for scheduler-owned committed-cut hydration. */
-  readonly directHydration: boolean;
   workerOwned: boolean;
   waitingWorkerRequestIds?: Set<number>;
-  phase: "deferred" | "requested" | "in-flight";
+  phase: "requested" | "in-flight";
   /** Invalidates callbacks from a cancelled/replaced provider attempt. */
   providerAttempt: number;
   handle?: TileRequestHandle;
@@ -126,10 +118,9 @@ export class TileWorkerScheduler<Resource> {
   >();
   private readonly requests = new Map<string, ActiveBridgeRequest>();
   private readonly resources = new Map<string, Resource>();
-  private readonly transitionFailureKeys = new Set<string>();
-  private demandedResources: ReadonlySet<string> | undefined;
-  private priorityResources: ReadonlySet<string> = new Set();
-  private nextDirectRequestId = -1;
+  private readonly plannerFailureKeys = new Set<string>();
+  private admittedCandidates = new Set<string>();
+  private admissionRevision = Number.NEGATIVE_INFINITY;
   private pendingTarget: TileLayoutTarget | undefined;
   private targetInFlight = false;
   private targetFlushQueued = false;
@@ -140,12 +131,7 @@ export class TileWorkerScheduler<Resource> {
   private retryScheduledAtMs: number | undefined;
   private automaticRetryEnabled = true;
   private lastFailureStatus: number | undefined;
-  /** Legacy providers cannot separate cache lookup from network admission. */
-  private terminalLegacyProviderFailure:
-    | Extract<TileProviderResult<never>, { phase: "failure" }>
-    | undefined;
   private readonly resourceReleaseCounts = {
-    demand: 0,
     discard: 0,
     cancel: 0,
     topology: 0,
@@ -158,13 +144,6 @@ export class TileWorkerScheduler<Resource> {
   ) {
     const normalizedInitialTarget = normalizeTileLayoutTarget(initialTarget);
     this.snapshotValue = initialSnapshot(normalizedInitialTarget);
-    if (options.initialResourceDemand) {
-      const initialDemand = [...options.initialResourceDemand];
-      this.demandedResources = new Set(
-        initialDemand.map(tileIdentityKey),
-      );
-      options.provider.updateDemand?.(initialDemand);
-    }
     this.worker =
       options.createWorker?.() ??
       new Worker(new URL("./tile-scheduler.worker.ts", import.meta.url), {
@@ -174,7 +153,6 @@ export class TileWorkerScheduler<Resource> {
     this.worker.postMessage({
       kind: "initialize",
       target: normalizedInitialTarget,
-      hydrateInitialResources: options.hydrateInitialResources ?? false,
     });
   }
 
@@ -183,45 +161,27 @@ export class TileWorkerScheduler<Resource> {
   }
 
   get debugState(): TileWorkerSchedulerDebugState {
-    const counts = (workerOwned: boolean): TileWorkerSchedulerRequestCounts => {
-      let requested = 0;
-      let inFlight = 0;
-      for (const request of this.requests.values()) {
-        if (request.workerOwned !== workerOwned) continue;
-        if (request.phase === "in-flight") inFlight += 1;
-        else requested += 1;
-      }
-      return {
-        requested,
-        in_flight: inFlight,
-        total_outstanding: requested + inFlight,
-      };
+    let requested = 0;
+    let inFlight = 0;
+    for (const request of this.requests.values()) {
+      if (request.phase === "in-flight") inFlight += 1;
+      else requested += 1;
+    }
+    const plannerAdmission = {
+      requested,
+      in_flight: inFlight,
+      total_outstanding: requested + inFlight,
     };
-    const transitionOwned = counts(true);
-    const residencyHydration = counts(false);
     return {
-      transition_owned: transitionOwned,
-      residency_hydration: residencyHydration,
-      total: {
-        requested:
-          transitionOwned.requested + residencyHydration.requested,
-        in_flight:
-          transitionOwned.in_flight + residencyHydration.in_flight,
-        total_outstanding:
-          transitionOwned.total_outstanding +
-          residencyHydration.total_outstanding,
-      },
+      planner_admission: plannerAdmission,
+      total: plannerAdmission,
       resident_payload_count: this.resources.size,
       session_retained_payload_count:
         this.options.resourceRetention === "session" ? this.resources.size : 0,
-      demanded_payload_count: this.demandedResources?.size ?? null,
-      deferred_payload_count: [...this.requests.values()].filter(
-        ({ phase }) => phase === "deferred",
-      ).length,
+      admitted_candidate_count: this.admittedCandidates.size,
       resource_retention: this.options.resourceRetention ?? "live",
       resource_releases: {
         total:
-          this.resourceReleaseCounts.demand +
           this.resourceReleaseCounts.discard +
           this.resourceReleaseCounts.cancel +
           this.resourceReleaseCounts.topology,
@@ -257,67 +217,23 @@ export class TileWorkerScheduler<Resource> {
     return this.resources.get(tileIdentityKey(tile));
   }
 
-  /** Reports loaded payloads and provider work that has actually begun. */
-  hasResidentOrInFlightResource(tile: TileIdentity): boolean {
-    const key = tileIdentityKey(tile);
-    return this.resources.has(key) ||
-      this.requests.get(key)?.phase === "in-flight";
-  }
-
-  /** Changes payload admission without changing worker-owned topology. */
-  updateResourceDemand(
-    demandedTiles: Iterable<TileIdentity>,
-    priorityTiles: Iterable<TileIdentity> = [],
-  ): void {
-    const demandedList = [...demandedTiles];
-    const demanded = new Set(demandedList.map(tileIdentityKey));
-    const priority = [...priorityTiles];
-    this.demandedResources = demanded;
-    this.priorityResources = new Set(priority.map(tileIdentityKey));
-    this.options.provider.updatePriority?.(priority);
-    this.options.provider.updateDemand?.(demandedList);
-    for (const [key, request] of [...this.requests]) {
-      if (demanded.has(key)) {
-        if (request.phase === "deferred") {
-          this.startProviderRequest(key, request);
-        }
-        continue;
-      }
-      // Residency admission is not topology cancellation. Work which has
-      // actually started may complete, and an exact worker requirement must
-      // remain unresolved until its provider supplies a real result.
-      if (request.phase === "in-flight") continue;
-      const hasWorkerRecipient = request.workerOwned ||
-        (request.waitingWorkerRequestIds?.size ?? 0) > 0;
-      if (hasWorkerRecipient) {
-        if (!this.options.provider.updateDemand) {
-          this.cancelProviderAttempt(request);
-          request.phase = "deferred";
-        }
-        continue;
-      }
-      this.cancelProviderAttempt(request);
-      this.requests.delete(key);
-    }
-    let changed = false;
+  /** Restricts worker-owned planner work to the supplied visible candidates. */
+  updateVisibilityAdmission(visibleTiles: Iterable<TileIdentity>): void {
+    if (this.disposed) return;
+    const tiles = [...visibleTiles];
+    const keys = new Set(tiles.map(tileIdentityKey));
     if (
-      this.options.resourceRetention === undefined ||
-      this.options.resourceRetention === "live"
-    ) {
-      for (const key of [...this.resources.keys()]) {
-        if (demanded.has(key)) continue;
-        changed = this.releaseResource(key, "demand") || changed;
-      }
-    }
-    this.hydrateDemandedCommitted();
-    this.resetRetryIfSatisfied();
-    if (changed) this.notifyResourceChange();
-  }
-
-  updateResourcePriority(priorityTiles: Iterable<TileIdentity>): void {
-    const priority = [...priorityTiles];
-    this.priorityResources = new Set(priority.map(tileIdentityKey));
-    this.options.provider.updatePriority?.(priority);
+      this.admissionRevision === this.snapshotValue.revision &&
+      keys.size === this.admittedCandidates.size &&
+      [...keys].every((key) => this.admittedCandidates.has(key))
+    ) return;
+    this.admittedCandidates = keys;
+    this.admissionRevision = this.snapshotValue.revision;
+    this.worker.postMessage({
+      kind: "visibility-admission",
+      revision: this.admissionRevision,
+      tiles,
+    });
   }
 
   updateTarget(target: TileLayoutTarget): void {
@@ -351,12 +267,6 @@ export class TileWorkerScheduler<Resource> {
     this.options.provider.resumeDeferred?.();
     if (!this.automaticRetryEnabled) return;
     this.worker.postMessage({ kind: "retry" });
-    for (const [key, request] of this.requests) {
-      if (request.phase === "deferred") {
-        this.startProviderRequest(key, request);
-      }
-    }
-    this.hydrateDemandedCommitted();
   }
 
   dispose(): void {
@@ -367,7 +277,7 @@ export class TileWorkerScheduler<Resource> {
     }
     this.requests.clear();
     this.resources.clear();
-    this.transitionFailureKeys.clear();
+    this.plannerFailureKeys.clear();
     this.listeners.clear();
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
     this.retryScheduledDelayMs = undefined;
@@ -397,13 +307,13 @@ export class TileWorkerScheduler<Resource> {
       if (message.event.tile) {
         const key = tileIdentityKey(message.event.tile);
         if (message.event.kind === "failure") {
-          this.transitionFailureKeys.add(key);
+          this.plannerFailureKeys.add(key);
         } else if (
           message.event.kind === "response" ||
           message.event.kind === "cancellation" ||
           message.event.kind === "discard"
         ) {
-          this.transitionFailureKeys.delete(key);
+          this.plannerFailureKeys.delete(key);
         }
       }
       if (message.event.kind === "discard" && message.event.tile) {
@@ -422,10 +332,10 @@ export class TileWorkerScheduler<Resource> {
     }
     if (message.snapshot.revision < this.snapshotValue.revision) return;
     this.snapshotValue = message.snapshot;
-    this.transitionFailureKeys.clear();
+    this.plannerFailureKeys.clear();
     for (const requirement of message.snapshot.requirements) {
       if (requirement.state === "failed") {
-        this.transitionFailureKeys.add(tileIdentityKey(requirement.tile));
+        this.plannerFailureKeys.add(tileIdentityKey(requirement.tile));
       }
     }
     this.retainLiveResources();
@@ -458,17 +368,6 @@ export class TileWorkerScheduler<Resource> {
       });
       return;
     }
-    if (
-      !this.options.provider.updateDemand &&
-      this.terminalLegacyProviderFailure
-    ) {
-      this.postWorkerResourceResult(
-        message.key,
-        message.requestId,
-        this.terminalLegacyProviderFailure,
-      );
-      return;
-    }
     const old = this.requests.get(message.key);
     if (old) {
       if (
@@ -486,26 +385,9 @@ export class TileWorkerScheduler<Resource> {
       }
       return;
     }
-    if (
-      this.demandedResources &&
-      !this.demandedResources.has(message.key) &&
-      !this.options.provider.updateDemand
-    ) {
-      const deferred: ActiveBridgeRequest = {
-        requestId: message.requestId,
-        tile: message.tile,
-        directHydration: false,
-        workerOwned: true,
-        phase: "deferred",
-        providerAttempt: 0,
-      };
-      this.requests.set(message.key, deferred);
-      return;
-    }
     const provisional: ActiveBridgeRequest = {
       requestId: message.requestId,
       tile: message.tile,
-      directHydration: false,
       workerOwned: true,
       phase: "requested",
       providerAttempt: 0,
@@ -519,13 +401,6 @@ export class TileWorkerScheduler<Resource> {
     request: ActiveBridgeRequest,
   ): void {
     if (this.disposed || this.requests.get(key) !== request) return;
-    // A provider implementing updateDemand owns cache-first admission and must
-    // always see the request. For legacy providers the bridge has no way to
-    // distinguish cache from network, so hold starts until retry backoff ends.
-    if (!this.options.provider.updateDemand && this.retryTimer !== undefined) {
-      request.phase = "deferred";
-      return;
-    }
     request.phase = "requested";
     const primaryRequestId = request.requestId;
     const providerAttempt = ++request.providerAttempt;
@@ -542,10 +417,8 @@ export class TileWorkerScheduler<Resource> {
       } else if (result.phase === "response") {
         retainedResponse =
           hasWorkerRecipient ||
-          (this.options.resourceRetention !== undefined &&
-            this.options.resourceRetention !== "live") ||
-          this.demandedResources === undefined ||
-          this.demandedResources.has(key);
+          this.options.resourceRetention === "topology" ||
+          this.options.resourceRetention === "session";
         if (retainedResponse) this.resources.set(key, result.resource);
         this.resetRetryIfSatisfied();
       } else {
@@ -589,9 +462,6 @@ export class TileWorkerScheduler<Resource> {
         !removed ||
         active.workerOwned ||
         (active.waitingWorkerRequestIds?.size ?? 0) > 0 ||
-        (active.directHydration &&
-          (this.demandedResources === undefined ||
-            this.demandedResources.has(key))) ||
         (this.options.resourceRetention === "session" &&
           active.phase === "in-flight")
       ) return;
@@ -611,24 +481,6 @@ export class TileWorkerScheduler<Resource> {
     this.cancelProviderAttempt(active);
     this.requests.delete(key);
     this.releaseResource(key, "cancel");
-  }
-
-  private requestDirectHydration(tile: TileIdentity, key: string): void {
-    if (
-      !this.options.provider.updateDemand &&
-      this.terminalLegacyProviderFailure
-    ) return;
-    const requestId = this.nextDirectRequestId--;
-    const provisional: ActiveBridgeRequest = {
-      requestId,
-      tile,
-      directHydration: true,
-      workerOwned: false,
-      phase: "requested",
-      providerAttempt: 0,
-    };
-    this.requests.set(key, provisional);
-    this.startProviderRequest(key, provisional);
   }
 
   private notifyResourceChange(): void {
@@ -654,32 +506,6 @@ export class TileWorkerScheduler<Resource> {
     });
   }
 
-  private hydrateDemandedCommitted(): void {
-    if (!this.demandedResources) return;
-    const demandedResources = this.demandedResources;
-    const hydrate = (tile: TileIdentity): void => {
-      const key = tileIdentityKey(tile);
-      if (
-        !demandedResources.has(key) ||
-        this.resources.has(key)
-      ) return;
-      const existing = this.requests.get(key);
-      if (existing) {
-        if (existing.phase === "deferred") {
-          this.startProviderRequest(key, existing);
-        }
-        return;
-      }
-      this.requestDirectHydration(tile, key);
-    };
-    for (const tile of this.snapshotValue.committedCut) {
-      if (this.priorityResources.has(tileIdentityKey(tile))) hydrate(tile);
-    }
-    for (const tile of this.snapshotValue.committedCut) {
-      if (!this.priorityResources.has(tileIdentityKey(tile))) hydrate(tile);
-    }
-  }
-
   private retainLiveResources(): void {
     const live = new Set([
       ...this.snapshotValue.committedCut.map(tileIdentityKey),
@@ -701,7 +527,6 @@ export class TileWorkerScheduler<Resource> {
       this.cancelProviderAttempt(request);
       this.requests.delete(key);
     }
-    this.hydrateDemandedCommitted();
   }
 
   private releaseResource(
@@ -753,16 +578,6 @@ export class TileWorkerScheduler<Resource> {
     if (failure?.retryable === false) {
       if (failure.scope === "tile") return;
       this.automaticRetryEnabled = false;
-      this.terminalLegacyProviderFailure = {
-        phase: "failure",
-        reason: failure.reason ?? "Tile provider disabled automatic requests.",
-        ...(failure.status === undefined ? {} : { status: failure.status }),
-        ...(failure.retryAfterMs === undefined
-          ? {}
-          : { retryAfterMs: failure.retryAfterMs }),
-        retryable: false,
-        scope: "provider",
-      };
       if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
       this.retryTimer = undefined;
       this.retryScheduledDelayMs = undefined;
@@ -834,13 +649,9 @@ export class TileWorkerScheduler<Resource> {
   private resetRetryIfSatisfied(): void {
     const circuitState = this.options.provider.retryDiagnostics?.state;
     if (
-      this.transitionFailureKeys.size > 0 ||
+      this.plannerFailureKeys.size > 0 ||
       circuitState === "open" ||
       circuitState === "half-open"
-    ) return;
-    if (
-      this.demandedResources &&
-      [...this.demandedResources].some((key) => !this.resources.has(key))
     ) return;
     this.retryAttempt = 0;
     this.retryScheduledDelayMs = undefined;

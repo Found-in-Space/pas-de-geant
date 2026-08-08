@@ -29,105 +29,6 @@ function eventsFor<T>(): TileSourceLoadEvent<T>[] {
 }
 
 describe("TileSourceLoadQueue", () => {
-  it("does not carry an empty warm plan into a later request burst", async () => {
-    const pending = Array.from({ length: 4 }, () => deferred<string>());
-    const starts: string[] = [];
-    const queue = new TileSourceLoadQueue<string, string>({
-      concurrency: 4,
-      warmRamp: {},
-      loadFromNetwork: async (source) => {
-        starts.push(source);
-        return await pending[Number(source)]!.promise;
-      },
-    });
-    queue.beginWarmRamp();
-    await Promise.resolve();
-    expect(queue.metrics).toMatchObject({
-      warmRampActive: false,
-      warmRampLimit: 4,
-    });
-
-    for (let index = 0; index < 4; index += 1) {
-      queue.request({ key: String(index), source: String(index) }, () => {});
-    }
-    await vi.waitFor(() => expect(starts).toHaveLength(4));
-    pending.forEach((job) => job.resolve("ready"));
-  });
-
-  it("ends a completed short warm ramp before a later stationary burst", async () => {
-    const first = deferred<string>();
-    const later = Array.from({ length: 4 }, () => deferred<string>());
-    const starts: string[] = [];
-    const queue = new TileSourceLoadQueue<string, string>({
-      concurrency: 4,
-      warmRamp: {},
-      loadFromNetwork: async (source) => {
-        starts.push(source);
-        if (source === "first") return await first.promise;
-        return await later[Number(source.slice(5))]!.promise;
-      },
-    });
-    queue.beginWarmRamp();
-    queue.request({ key: "first", source: "first" }, () => {});
-    await vi.waitFor(() => expect(starts).toEqual(["first"]));
-
-    first.resolve("ready");
-    await vi.waitFor(() => {
-      expect(queue.metrics).toMatchObject({
-        inFlight: 0,
-        warmRampActive: false,
-        warmRampLimit: 4,
-      });
-    });
-    for (let index = 0; index < 4; index += 1) {
-      queue.request({
-        key: `later${index}`,
-        source: `later${index}`,
-      }, () => {});
-    }
-    await vi.waitFor(() => expect(starts).toHaveLength(5));
-    expect(queue.metrics.inFlight).toBe(4);
-    later.forEach((job) => job.resolve("ready"));
-  });
-
-  it("starts an admitted hot network miss before colder queued cache work", async () => {
-    const hotNetwork = deferred<string>();
-    const starts: string[] = [];
-    const queue = new TileSourceLoadQueue<string, string>({
-      concurrency: 1,
-      loadFromCache: async (source) => {
-        starts.push(`cache:${source}`);
-        return undefined;
-      },
-      loadFromNetwork: async (source) => {
-        starts.push(`network:${source}`);
-        if (source === "hot") return await hotNetwork.promise;
-        return "cold-ready";
-      },
-    });
-
-    queue.request({ key: "hot", source: "hot", hot: true }, () => {});
-    queue.request({ key: "cold", source: "cold" }, () => {});
-
-    await vi.waitFor(() => {
-      expect(starts).toEqual(["cache:hot", "network:hot"]);
-    });
-    expect(queue.metrics).toMatchObject({
-      cacheQueued: 1,
-      networkActive: 1,
-    });
-
-    hotNetwork.resolve("hot-ready");
-    await vi.waitFor(() => {
-      expect(starts).toEqual([
-        "cache:hot",
-        "network:hot",
-        "cache:cold",
-        "network:cold",
-      ]);
-    });
-  });
-
   it("serves a cache hit while the provider circuit is open", async () => {
     const networkLoads: string[] = [];
     const queue = new TileSourceLoadQueue<string, string>({
@@ -154,7 +55,6 @@ describe("TileSourceLoadQueue", () => {
     });
     expect(queue.retryDiagnostics.state).toBe("open");
 
-    queue.updateDemand(["trip"]);
     const cached = eventsFor<string>();
     queue.request({ key: "cached", source: "cached" }, (event) =>
       cached.push(event)

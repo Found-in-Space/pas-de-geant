@@ -57,18 +57,11 @@ import {
   tileTopologySelectionChanged,
   type TilePipelineDebugControls,
 } from "./tile-debug-controls.js";
+import { TileVisibilityAdmission } from "./tile-visibility-admission.js";
 import {
-  DEFAULT_TILE_ASSET_READY_MS,
-  TileMovementAdmission,
-  type TileMovementForecast,
-} from "./tile-movement-admission.js";
-import {
-  TileResidencyPolicy,
-} from "./tile-residency-policy.js";
-import {
-  sameResidencyKeys,
-  type ViewResidencyInput,
-} from "./view-residency.js";
+  sameTileKeys,
+  type ViewVisibilityInput,
+} from "./view-visibility.js";
 
 export {
   configuredXyzImageryProvider,
@@ -78,16 +71,9 @@ export {
   type XyzImageryConfiguration,
 } from "./imagery-provider.js";
 export { normalizedMercatorYForLatitude } from "./imagery-core.js";
-export {
-  TileMovementAdmission as ImageryMovementAdmission,
-  tileDemandForAdmission as imageryDemandForAdmission,
-  type TileMovementForecast as ImageryMovementForecast,
-} from "./tile-movement-admission.js";
-
 const IMAGERY_GUTTER_PIXELS = 8;
 const MAX_CONCURRENT_REQUESTS = 6;
 const MAX_UPLOADS_PER_FRAME = 2;
-const ASSET_READY_FILTER_WEIGHT = 0.2;
 const TRANSIENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
 
 function imageryFailureMetadata(
@@ -336,6 +322,10 @@ export interface ImageryTileResource {
   readonly fallbackFromNotFound?: boolean;
 }
 
+export interface ImageryVirtualTextureUpdateOptions {
+  readonly recalculateTopology?: boolean;
+}
+
 interface SourceResult {
   readonly sourceTile: TileIdentity;
   readonly pixels: Uint8Array;
@@ -376,16 +366,8 @@ export class ScheduledImageryProvider
         return await this.decodeSource(tile, blob, signal);
       },
       classifyNetworkFailure: imageryFailureMetadata,
-      warmRamp: {},
-      initialReadyMs: DEFAULT_TILE_ASSET_READY_MS,
-      readyFilterWeight: ASSET_READY_FILTER_WEIGHT,
       now,
     });
-  }
-
-  /** Rolling successful source+decode time; no per-frame history scan. */
-  get estimatedAssetReadyMs(): number {
-    return this.queue.estimatedReadyMs;
   }
 
   get metrics(): {
@@ -398,9 +380,6 @@ export class ScheduledImageryProvider
     sourceCancellationTotal: number;
     queued: number;
     inFlight: number;
-    warmRampActive: boolean;
-    warmRampLimit: number;
-    estimatedAssetReadyMs: number;
   } {
     const metrics = this.queue.metrics;
     return {
@@ -413,19 +392,11 @@ export class ScheduledImageryProvider
       sourceCancellationTotal: metrics.sourceCancellationTotal,
       queued: metrics.queued,
       inFlight: metrics.inFlight,
-      warmRampActive: metrics.warmRampActive,
-      warmRampLimit: metrics.warmRampLimit,
-      estimatedAssetReadyMs: this.estimatedAssetReadyMs,
     };
   }
 
   get retryDiagnostics() {
     return this.queue.retryDiagnostics;
-  }
-
-  /** Arms additive warm traffic before forecast priorities are replaced. */
-  beginWarmRamp(): void {
-    this.queue.beginWarmRamp();
   }
 
   /** Called by retry policy after its backoff window has elapsed. */
@@ -491,23 +462,6 @@ export class ScheduledImageryProvider
 
   dispose(): void {
     this.queue.dispose();
-  }
-
-  updatePriority(tiles: Iterable<TileIdentity>): void {
-    const priority: string[] = [];
-    for (const tile of tiles) {
-      priority.push(imageryKey(ancestorAtZoom(tile, this.source.maxZoom)));
-    }
-    this.queue.updatePriority(priority);
-  }
-
-  /** Cache checks remain admitted; this gates only cache misses to network. */
-  updateDemand(tiles: Iterable<TileIdentity>): void {
-    const demanded: string[] = [];
-    for (const tile of tiles) {
-      demanded.push(imageryKey(ancestorAtZoom(tile, this.source.maxZoom)));
-    }
-    this.queue.updateDemand(demanded);
   }
 
   private async decodeSource(
@@ -970,12 +924,9 @@ export class ImageryVirtualTexture {
   private snapshot: SchedulerSnapshot<TileLayoutTarget>;
   private target: TileLayoutTarget;
   private desiredZoom: number | undefined;
-  private readonly movementAdmission: TileMovementAdmission;
-  private readonly movementForecast: TileMovementForecast;
-  private readonly residencyPolicy = new TileResidencyPolicy();
+  private readonly visibilityAdmission = new TileVisibilityAdmission();
   private nextPoolGeneration = 1;
-  private residencyInput?: ViewResidencyInput;
-  private deferSpeculativeWarm = false;
+  private visibilityInput?: ViewVisibilityInput;
   private uploadTotal = 0;
   private targetSubmissionTotal = 0;
   private targetSubmissionSuppressedTotal = 0;
@@ -988,7 +939,6 @@ export class ImageryVirtualTexture {
   private debugControls: TilePipelineDebugControls = {
     ...DEFAULT_TILE_DEBUG_CONTROLS.textures,
   };
-  private overheadPercent = DEFAULT_TILE_DEBUG_CONTROLS.overheadPercent;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -1008,13 +958,6 @@ export class ImageryVirtualTexture {
           tilePixels: imageryProvider.tileSize,
         })
       : 0;
-    this.movementAdmission = new TileMovementAdmission(initialView);
-    this.movementForecast = this.movementAdmission.update(
-      initialView,
-      zoom,
-      DEFAULT_TILE_ASSET_READY_MS,
-      performance.now(),
-    );
     this.target = imageryTargetForView(initialView, zoom);
     this.lastObservedTargetLatitudeDegrees = this.target.latitudeDegrees;
     this.lastObservedTargetLongitudeDegrees = this.target.longitudeDegrees;
@@ -1068,24 +1011,19 @@ export class ImageryVirtualTexture {
         (blob, tileSize, signal) =>
           this.workerClient!.decode(blob, tileSize, signal),
       );
-      this.residencyInput = {
-        underfoot: initialView,
+      this.visibilityInput = {
         footprint: [],
-        displayRadiusM: initialView.displayRadiusM,
-        observerHeightWorldM: 0,
       };
       this.scheduler = new TileWorkerScheduler(this.target, {
         provider: this.provider,
         resourceRetention: "session",
-        hydrateInitialResources: false,
         retryDelayMs: 5_000,
         retryMaxDelayMs: TRANSIENT_RETRY_MAX_DELAY_MS,
-        initialResourceDemand: [],
       });
       this.snapshot = this.scheduler.snapshot;
       this.unsubscribe = this.scheduler.subscribe((snapshot, event) => {
         this.snapshot = snapshot;
-        this.applyResidency();
+        this.applyVisibilityAdmission();
         if (event?.kind === "response") {
           if (event.tile) this.stage(this.scheduler!.committedResource(event.tile));
           else {
@@ -1127,8 +1065,18 @@ export class ImageryVirtualTexture {
     );
   }
 
-  update(view: ImageryView, residencyInput?: ViewResidencyInput): void {
+  update(
+    view: ImageryView,
+    visibilityInput?: ViewVisibilityInput,
+    options: ImageryVirtualTextureUpdateOptions = {},
+  ): void {
     if (!this.scheduler || !this.provider) return;
+    this.visibilityInput = visibilityInput ?? { footprint: [] };
+    this.applyVisibilityAdmission();
+    if (options.recalculateTopology === false) {
+      this.processUploads();
+      return;
+    }
     const zoom = selectImageryZoom({
       ...view,
       minZoom: this.provider.source.minZoom,
@@ -1140,20 +1088,6 @@ export class ImageryVirtualTexture {
       maxTopologyZoom: this.debugControls.maxZoom,
     });
     this.desiredZoom = zoom;
-    this.movementAdmission.update(
-      view,
-      zoom,
-      this.provider.estimatedAssetReadyMs,
-      performance.now(),
-    );
-    const wasAdmissionDeferred = this.deferSpeculativeWarm;
-    this.deferSpeculativeWarm =
-      this.movementForecast.deferSpeculativeWarm;
-    const startingWarmRamp =
-      wasAdmissionDeferred && !this.deferSpeculativeWarm;
-    if (startingWarmRamp) {
-      this.provider.beginWarmRamp();
-    }
     const target = imageryTargetForView(
       view,
       zoom,
@@ -1170,19 +1104,11 @@ export class ImageryVirtualTexture {
     }
     this.lastObservedTargetLatitudeDegrees = target.latitudeDegrees;
     this.lastObservedTargetLongitudeDegrees = target.longitudeDegrees;
-    this.residencyInput = residencyInput ?? {
-      underfoot: view,
-      footprint: [],
-      displayRadiusM: view.displayRadiusM,
-      observerHeightWorldM: 0,
-    };
-    this.applyResidency();
     this.processUploads();
   }
 
   setDebugControls(
     controls: TilePipelineDebugControls,
-    overheadPercent: number,
   ): void {
     if (tileTopologySelectionChanged(this.debugControls, controls)) {
       // A user-requested density/cap change is a new selection baseline, not
@@ -1191,9 +1117,8 @@ export class ImageryVirtualTexture {
       this.desiredZoom = undefined;
     }
     this.debugControls = { ...controls };
-    this.overheadPercent = overheadPercent;
-    this.residencyPolicy.invalidate();
-    this.applyResidency();
+    this.visibilityAdmission.invalidate();
+    this.applyVisibilityAdmission();
   }
 
   getTargetZoom(): number {
@@ -1202,29 +1127,31 @@ export class ImageryVirtualTexture {
 
   getPlannerState() {
     const payloadRequests = this.scheduler?.debugState ?? {
-      transition_owned: { requested: 0, in_flight: 0, total_outstanding: 0 },
-      residency_hydration: {
-        requested: 0,
-        in_flight: 0,
-        total_outstanding: 0,
-      },
+      planner_admission: { requested: 0, in_flight: 0, total_outstanding: 0 },
       total: { requested: 0, in_flight: 0, total_outstanding: 0 },
       resident_payload_count: 0,
       session_retained_payload_count: 0,
-      demanded_payload_count: 0,
+      admitted_candidate_count: 0,
       resource_retention: "session" as const,
       resource_releases: {
         total: 0,
-        demand: 0,
         discard: 0,
         cancel: 0,
         topology: 0,
       },
       target_submission: { pending: false, in_flight: false },
+      retry: {
+        failed_rounds: 0,
+        scheduled_delay_ms: null,
+        scheduled_at_ms: null,
+        automatic_retry_enabled: true,
+        last_status: null,
+        circuit: null,
+      },
     };
     const provider = this.provider?.metrics;
     const metrics = this.getMetrics();
-    const residency = this.residencyPolicy.metrics;
+    const visibility = this.visibilityAdmission.metrics;
     return {
       recalculation_enabled: this.debugControls.recalculationEnabled,
       effective_target: { ...this.target },
@@ -1237,14 +1164,11 @@ export class ImageryVirtualTexture {
         cache_hit_total: provider?.cacheHitTotal ?? 0,
         network_deferred: provider?.networkDeferred ?? 0,
       },
-      residency: {
-        hot_tile_count: residency.hotTileCount,
-        classified_warm_tile_count: residency.warmTileCount,
-        demanded_payload_tile_count:
-          payloadRequests.demanded_payload_count,
+      visibility_admission: {
+        visible_planner_tile_count: visibility.visibleTileCount,
+        admitted_candidate_count:
+          payloadRequests.admitted_candidate_count,
         committed_topology_tile_count: this.snapshot.committedCut.length,
-        view_distance_enabled: this.debugControls.viewDistanceEnabled,
-        delta_zoom_cap: this.debugControls.deltaZoomCap,
       },
       imagery_uploads: {
         active_layer_count: metrics.activeLayerCount,
@@ -1261,37 +1185,17 @@ export class ImageryVirtualTexture {
         migration_obsolete_upload_avoided_total:
           this.migrationObsoleteUploadAvoidedTotal,
       },
-      movement: {
-        velocity_east_mps: this.movementForecast.velocityEastMps,
-        velocity_north_mps: this.movementForecast.velocityNorthMps,
-        surface_speed_mps: this.movementForecast.speedMps,
-        estimated_asset_ready_ms: this.movementForecast.estimatedReadyMs,
-        predicted_travel_m: this.movementForecast.predictedTravelM,
-        finest_tile_width_m: this.movementForecast.finestTileWidthM,
-        predicted_travel_tile_spans:
-          this.movementForecast.predictedTravelTileSpans,
-        speculative_warm_deferred: this.deferSpeculativeWarm,
-        forecast_tile_count: residency.forecastTileCount,
+      admission_updates: {
         target_submission_total: this.targetSubmissionTotal,
         target_submission_suppressed_total:
           this.targetSubmissionSuppressedTotal,
-        deferred_warm_tile_count: residency.deferredTileCount,
-        deferred_warm_tile_occurrence_total:
-          residency.deferredTileOccurrenceTotal,
-        warm_ramp_active: provider?.warmRampActive ?? false,
-        warm_ramp_limit: provider?.warmRampLimit ?? MAX_CONCURRENT_REQUESTS,
       },
     };
   }
 
-  processPendingUploads(): void {
-    this.processUploads();
-  }
-
   getMetrics(): {
     committedLeafCount: number;
-    hotTileCount: number;
-    warmTileCount: number;
+    visibleTileCount: number;
     recordCount: number;
     activeLayerCount: number;
     poolCapacity: number;
@@ -1306,38 +1210,23 @@ export class ImageryVirtualTexture {
     uploadTotal: number;
     estimatedCpuBytes: number;
     estimatedGpuBytes: number;
-    residencyClassificationTotal: number;
-    hotResidencyClassificationTotal: number;
-    warmResidencyClassificationTotal: number;
-    surfaceSpeedMps: number;
-    velocityEastMps: number;
-    velocityNorthMps: number;
-    estimatedAssetReadyMs: number;
-    predictedTravelM: number;
-    predictedTravelTileSpans: number;
-    deferSpeculativeWarm: boolean;
-    forecastTileCount: number;
+    visibilityClassificationTotal: number;
     targetSubmissionTotal: number;
     targetSubmissionSuppressedTotal: number;
-    deferredWarmTileOccurrenceTotal: number;
-    deferredWarmTileCount: number;
     sourceCancellationTotal: number;
-    warmRampActive: boolean;
-    warmRampLimit: number;
     migrationSupersededTotal: number;
     migrationReusedUploadTotal: number;
     migrationObsoleteUploadAvoidedTotal: number;
   } {
     const provider = this.provider?.metrics;
-    const residency = this.residencyPolicy.metrics;
+    const visibility = this.visibilityAdmission.metrics;
     const mipBytesPerLayer = imageryMipDimensions(
       this.paddedSize,
       this.paddedSize,
     ).reduce((total, level) => total + level.width * level.height * 4, 0);
     return {
       committedLeafCount: this.snapshot.committedCut.length,
-      hotTileCount: residency.hotTileCount,
-      warmTileCount: residency.warmTileCount,
+      visibleTileCount: visibility.visibleTileCount,
       recordCount: this.records.size,
       activeLayerCount: this.activePool.layers,
       poolCapacity: this.activePool.layers,
@@ -1358,25 +1247,10 @@ export class ImageryVirtualTexture {
           ? this.migration.pool.layers
           : 0)) *
         mipBytesPerLayer,
-      residencyClassificationTotal: residency.classificationTotal,
-      hotResidencyClassificationTotal: residency.hotClassificationTotal,
-      warmResidencyClassificationTotal: residency.warmClassificationTotal,
-      surfaceSpeedMps: this.movementForecast.speedMps,
-      velocityEastMps: this.movementForecast.velocityEastMps,
-      velocityNorthMps: this.movementForecast.velocityNorthMps,
-      estimatedAssetReadyMs: this.movementForecast.estimatedReadyMs,
-      predictedTravelM: this.movementForecast.predictedTravelM,
-      predictedTravelTileSpans:
-        this.movementForecast.predictedTravelTileSpans,
-      deferSpeculativeWarm: this.deferSpeculativeWarm,
-      forecastTileCount: residency.forecastTileCount,
+      visibilityClassificationTotal: visibility.classificationTotal,
       targetSubmissionTotal: this.targetSubmissionTotal,
       targetSubmissionSuppressedTotal: this.targetSubmissionSuppressedTotal,
-      deferredWarmTileOccurrenceTotal: residency.deferredTileOccurrenceTotal,
-      deferredWarmTileCount: residency.deferredTileCount,
       sourceCancellationTotal: provider?.sourceCancellationTotal ?? 0,
-      warmRampActive: provider?.warmRampActive ?? false,
-      warmRampLimit: provider?.warmRampLimit ?? MAX_CONCURRENT_REQUESTS,
       migrationSupersededTotal: this.migrationSupersededTotal,
       migrationReusedUploadTotal: this.migrationReusedUploadTotal,
       migrationObsoleteUploadAvoidedTotal:
@@ -1747,7 +1621,7 @@ export class ImageryVirtualTexture {
       this.activePool.slots,
       demanded,
     );
-    const demandChanged = !sameResidencyKeys(
+    const demandChanged = !sameTileKeys(
       migration.demandedKeys,
       retainedDemand,
     );
@@ -1866,41 +1740,21 @@ export class ImageryVirtualTexture {
     return true;
   }
 
-  private applyResidency(): void {
+  private applyVisibilityAdmission(): void {
     if (
       !this.scheduler ||
-      !this.residencyInput ||
+      !this.visibilityInput ||
       this.snapshot.committedCut.length === 0
     ) return;
-    const result = this.residencyPolicy.update({
-      committedTiles: this.snapshot.committedCut,
-      requestedTiles: this.snapshot.requestedCut,
-      requirements: this.snapshot.requirements,
-      targetZoom: this.target.maxZoom,
+    const visibleTiles = this.visibilityAdmission.update({
       revision: this.snapshot.revision,
-      view: this.residencyInput,
-      overheadPercent: this.overheadPercent,
-      viewDistanceEnabled: this.debugControls.viewDistanceEnabled,
-      deltaZoomCap: this.debugControls.deltaZoomCap,
-      deferSpeculativeWarm: this.deferSpeculativeWarm,
-      forecastDisplacement: this.deferSpeculativeWarm
-        ? this.movementForecast.displacement
-        : undefined,
-      forecastSignature: this.deferSpeculativeWarm
-        ? this.movementForecast.signature
-        : 0,
-      isResidentOrInFlight: (tile) =>
-        this.scheduler!.hasResidentOrInFlightResource(tile),
+      committedTiles: this.snapshot.committedCut,
+      replacementGroups: this.snapshot.graph.groups,
+      view: this.visibilityInput,
     });
-    if (!result) return;
-    if (!result.demandedTiles) {
-      this.scheduler.updateResourcePriority(result.priorityTiles);
-      return;
+    if (visibleTiles) {
+      this.scheduler.updateVisibilityAdmission(visibleTiles);
     }
-    this.scheduler.updateResourceDemand(
-      result.demandedTiles,
-      result.priorityTiles,
-    );
   }
 
   private migrationComplete(): boolean {
