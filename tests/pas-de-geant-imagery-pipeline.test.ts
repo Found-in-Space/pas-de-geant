@@ -616,13 +616,13 @@ describe("independent photographic imagery pipeline", () => {
         ratioOne.screenPixelsPerSourcePixel,
     });
 
-    expect(initialZoom).toBe(2);
+    expect(initialZoom).toBe(3);
     expect(selectImageryZoom({
       ...common,
       targetScreenPixelsPerSourcePixel:
         ratioTwo.screenPixelsPerSourcePixel,
       previousZoom: initialZoom,
-    })).toBe(2);
+    })).toBe(3);
     expect(tileTopologySelectionChanged(ratioOne, ratioTwo)).toBe(true);
     expect(selectImageryZoom({
       ...common,
@@ -631,7 +631,7 @@ describe("independent photographic imagery pipeline", () => {
       previousZoom: tileTopologySelectionChanged(ratioOne, ratioTwo)
         ? undefined
         : initialZoom,
-    })).toBe(1);
+    })).toBe(2);
   });
 
   it("applies terrain density and topology caps independently from elevation source zoom", () => {

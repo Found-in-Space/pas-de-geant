@@ -1,6 +1,6 @@
 import type { TileIdentity } from "./tile-transition-planner.js";
 
-export const IMAGERY_TARGET_METRES_PER_TEXEL = 0.005;
+export const IMAGERY_TARGET_METRES_PER_TEXEL = 0.0025;
 export const IMAGERY_REFERENCE_TILE_PIXELS = 512;
 export const IMAGERY_COARSEN_FACTOR = 1.75 / 2.56;
 export const IMAGERY_REFINE_FACTOR = 3.75 / 2.56;
