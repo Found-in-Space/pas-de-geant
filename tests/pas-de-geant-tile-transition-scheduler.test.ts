@@ -251,6 +251,169 @@ describe("Tile transition scheduler", () => {
     }
   });
 
+  it("lets deep refinement progress around one locally failed child", () => {
+    const base = uniformCut(1);
+    const deep = uniformCut(3);
+    const provider = new FakeTileProvider({
+      latencyMs: 10,
+      jitterMs: 0,
+      failureMode: "persistent-selected",
+      selectedFailureKey: "3/0/0",
+    });
+    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
+      "base",
+      new FixtureLayoutSource({ base, deep }),
+      provider,
+    );
+
+    scheduler.updateTarget("deep");
+    expect(scheduler.snapshot.requirements.every(({ tile }) => tile.z === 2))
+      .toBe(true);
+    provider.advanceBy(10);
+    expect(scheduler.snapshot.committedCut.every(({ z }) => z === 2)).toBe(true);
+    provider.advanceBy(10);
+
+    const committed = scheduler.snapshot.committedCut.map(tileIdentityKey);
+    expect(committed).toContain("2/0/0");
+    expect(committed).not.toContain("2/1/0");
+    expect(committed).toEqual(expect.arrayContaining([
+      "3/2/0",
+      "3/3/0",
+      "3/2/1",
+      "3/3/1",
+    ]));
+    expect(scheduler.snapshot.requirements.find(({ tile }) =>
+      tileIdentityKey(tile) === "3/0/0"
+    )?.state).toBe("failed");
+    expect(() => assertAdmissibleCut(scheduler.snapshot.committedCut)).not.toThrow();
+  });
+
+  it("publishes next-stage exact requirements with a progressive atomic swap", () => {
+    const base = uniformCut(1);
+    const desired = uniformCut(3);
+    const provider = new FakeTileProvider({ latencyMs: 10, jitterMs: 0 });
+    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
+      "base",
+      new FixtureLayoutSource({ base, desired }),
+      provider,
+    );
+    const atomicSnapshots: SchedulerSnapshot<string>[] = [];
+    scheduler.subscribe((snapshot, event) => {
+      if (event?.kind === "atomic-swap") atomicSnapshots.push(snapshot);
+    });
+
+    scheduler.updateTarget("desired");
+    expect(scheduler.snapshot.requirements.every(({ tile }) => tile.z === 2))
+      .toBe(true);
+    provider.advanceBy(10);
+
+    expect(atomicSnapshots.length).toBeGreaterThan(0);
+    const nextStage = atomicSnapshots.find((snapshot) =>
+      snapshot.requirements.some(({ tile }) => tile.z === 3)
+    );
+    expect(nextStage).toBeDefined();
+    expect(nextStage!.committedCut.some(({ z }) => z === 2)).toBe(true);
+    expect(nextStage!.requirements.some(({ tile }) => tile.z === 3)).toBe(true);
+  });
+
+  it("keeps fine coverage when an exact coarse replacement is unavailable", () => {
+    const fine = uniformCut(3);
+    const coarse = uniformCut(1);
+    const requests: string[] = [];
+    const provider = new FakeTileProvider({
+      latencyMs: 10,
+      jitterMs: 0,
+      failureMode: "persistent-selected",
+      selectedFailureKey: "1/0/0",
+    });
+    provider.subscribe((event) => {
+      if (event.phase === "request") requests.push(tileIdentityKey(event.tile));
+    });
+    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
+      "fine",
+      new FixtureLayoutSource({ fine, coarse }),
+      provider,
+    );
+
+    scheduler.updateTarget("coarse");
+    expect(requests).toHaveLength(4);
+    expect(requests.every((key) => key.startsWith("1/"))).toBe(true);
+    provider.advanceBy(10);
+
+    const committed = scheduler.snapshot.committedCut.map(tileIdentityKey);
+    expect(committed).toEqual(fine.map(tileIdentityKey));
+    expect(committed).not.toContain("1/0/0");
+    expect(scheduler.snapshot.requirements).toHaveLength(4);
+    expect(scheduler.snapshot.requirements.filter(({ state }) =>
+      state === "failed"
+    )).toEqual([
+      expect.objectContaining({ tile: { z: 1, x: 0, y: 0 } }),
+    ]);
+    expect(scheduler.snapshot.requirements.filter(({ state }) =>
+      state === "ready"
+    )).toHaveLength(3);
+  });
+
+  it("coarsens directly by two levels once each planned ancestor is ready", () => {
+    const fine = uniformCut(3);
+    const coarse = uniformCut(1);
+    const requests: string[] = [];
+    const provider = new FakeTileProvider({ latencyMs: 0, jitterMs: 0 });
+    provider.subscribe((event) => {
+      if (event.phase === "request") requests.push(tileIdentityKey(event.tile));
+    });
+    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
+      "fine",
+      new FixtureLayoutSource({ fine, coarse }),
+      provider,
+    );
+
+    scheduler.updateTarget("coarse");
+    expect(requests).toHaveLength(4);
+    expect(requests.some((key) => key.startsWith("2/"))).toBe(false);
+    provider.advanceBy(0);
+
+    expect(scheduler.snapshot.committedCut.map(tileIdentityKey)).toEqual(
+      coarse.map(tileIdentityKey),
+    );
+    expect(scheduler.snapshot.requirements).toEqual([]);
+  });
+
+  it("discards a failed deep requirement when a new target supersedes it", () => {
+    const base = uniformCut(1);
+    const middle = uniformCut(2);
+    const deep = uniformCut(3);
+    const provider = new FakeTileProvider({
+      latencyMs: 10,
+      jitterMs: 0,
+      failureMode: "persistent-selected",
+      selectedFailureKey: "3/0/0",
+    });
+    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
+      "base",
+      new FixtureLayoutSource({ base, middle, deep }),
+      provider,
+    );
+    const events: SchedulerEvent[] = [];
+    scheduler.subscribe(eventCollector(events));
+    scheduler.updateTarget("deep");
+    provider.advanceBy(10);
+    provider.advanceBy(10);
+    expect(scheduler.snapshot.requirements.some(({ tile, state }) =>
+      tileIdentityKey(tile) === "3/0/0" && state === "failed"
+    )).toBe(true);
+
+    scheduler.updateTarget("middle");
+
+    expect(scheduler.snapshot.requirements.some(({ tile }) =>
+      tileIdentityKey(tile) === "3/0/0"
+    )).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({
+      kind: "discard",
+      tile: { z: 3, x: 0, y: 0 },
+    }));
+  });
+
   it("reuses exact still-needed requests across a new target and cancels obsolete work", () => {
     const base = uniformCut(1);
     const first = refine(base, { z: 1, x: 0, y: 0 });

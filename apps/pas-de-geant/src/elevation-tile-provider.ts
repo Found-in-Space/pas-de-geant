@@ -49,12 +49,28 @@ export class ElevationTileProvider implements TileProvider<ElevationTileResource
     return this.elevationProvider.retryDiagnostics;
   }
 
+  get estimatedAssetReadyMs(): number {
+    return this.elevationProvider.estimatedAssetReadyMs;
+  }
+
   retainSourceTiles(tiles: Iterable<TileIdentity>): void {
     this.elevationProvider.retainSourceTiles(tiles);
   }
 
   updatePriority(tiles: Iterable<TileIdentity>): void {
     this.elevationProvider.updatePriority(tiles);
+  }
+
+  updateDemand(tiles: Iterable<TileIdentity>): void {
+    this.elevationProvider.updateDemand(tiles);
+  }
+
+  resumeDeferred(): void {
+    this.elevationProvider.resumeDeferred();
+  }
+
+  beginWarmRamp(): void {
+    this.elevationProvider.beginWarmRamp();
   }
 
   request(

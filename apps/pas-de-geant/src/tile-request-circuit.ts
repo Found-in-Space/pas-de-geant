@@ -15,6 +15,9 @@ export interface TileRequestCircuitDiagnostics {
   readonly state: TileRequestCircuitState;
   readonly last_status: number | null;
   readonly status_counts: Readonly<Record<string, number>>;
+  /** Failures for which browser fetch exposed no HTTP status. */
+  readonly opaque_failure_count: number;
+  /** Backwards-compatible alias; opaque failures may hide an HTTP response. */
   readonly network_failure_count: number;
   readonly cooldown_until_ms: number | null;
   readonly probe_in_flight: boolean;
@@ -70,6 +73,7 @@ export class TileRequestCircuit {
       status_counts: Object.freeze(Object.fromEntries(
         [...this.statusCounts].map(([status, count]) => [String(status), count]),
       )),
+      opaque_failure_count: this.networkFailureCount,
       network_failure_count: this.networkFailureCount,
       cooldown_until_ms: this.cooldownUntilMs ?? null,
       probe_in_flight: this.probeInFlight,
@@ -112,7 +116,7 @@ export class TileRequestCircuit {
     this.probeInFlight = false;
   }
 
-  /** Returns true when queued work should be failed without starting it. */
+  /** Returns true when network admission tripped open or disabled. */
   recordFailure(
     metadata: TileRequestFailureMetadata,
     probe: boolean,
@@ -131,7 +135,13 @@ export class TileRequestCircuit {
     // provider session. Later responses from work that was already in flight
     // may enrich diagnostics, but must never reopen the circuit.
     if (this.stateValue === "disabled") return false;
-    if (!metadata.systemic && !probe) return false;
+    if (!metadata.systemic) {
+      // A half-open request that reached a tile-local HTTP/content result has
+      // proved network availability just as surely as a usable tile. Close the
+      // provider circuit while leaving that one tile failed for its consumer.
+      this.recordSuccess(probe);
+      return false;
+    }
     this.probeInFlight = false;
     if (metadata.retryable === false) {
       this.stateValue = "disabled";
@@ -140,9 +150,16 @@ export class TileRequestCircuit {
     }
     this.stateValue = "open";
     const failureTime = nowMs ?? Date.now();
-    this.cooldownUntilMs = metadata.retryAfterMs === undefined
+    const requestedCooldownUntil = metadata.retryAfterMs === undefined
       ? failureTime
       : failureTime + Math.max(0, metadata.retryAfterMs);
+    // Several requests may already be in flight when a provider starts
+    // throttling. A later, shorter response must not erase the longest
+    // Retry-After already observed for this provider.
+    this.cooldownUntilMs = Math.max(
+      this.cooldownUntilMs ?? Number.NEGATIVE_INFINITY,
+      requestedCooldownUntil,
+    );
     return true;
   }
 }

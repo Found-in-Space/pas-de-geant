@@ -47,16 +47,20 @@ function snapshot(revision: number, committedCut = [{ z: 0, x: 0, y: 0 }]) {
 }
 
 describe("Tile worker scheduler bridge", () => {
-  it("honors Retry-After before retrying a rate-limited round", () => {
+  it("honors a prolonged visible Retry-After before retrying", () => {
     vi.useFakeTimers();
     try {
       const worker = new FakeWorker();
       const observers: Array<Parameters<TileProvider<string>["request"]>[1]> = [];
+      let resumes = 0;
       const scheduler = new TileWorkerScheduler(layoutTarget(0), {
         provider: {
           request: (_tile, observer) => {
             observers.push(observer);
             return { requestId: observers.length, cancel() {} };
+          },
+          resumeDeferred: () => {
+            resumes += 1;
           },
         },
         createWorker: () => worker,
@@ -70,21 +74,205 @@ describe("Tile worker scheduler bridge", () => {
         phase: "failure",
         reason: "limited",
         status: 429,
-        retryAfterMs: 30_000,
+        retryAfterMs: 4_158_000,
       });
 
       expect(scheduler.debugState.retry).toMatchObject({
-        scheduled_delay_ms: 30_000,
+        scheduled_delay_ms: 4_158_000,
         last_status: 429,
       });
-      vi.advanceTimersByTime(29_999);
+      vi.advanceTimersByTime(4_157_999);
       expect(observers).toHaveLength(1);
+      expect(resumes).toBe(0);
       vi.advanceTimersByTime(1);
       expect(observers).toHaveLength(2);
+      expect(resumes).toBe(1);
       scheduler.dispose();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("preserves a Retry-After deadline beyond the browser timer range", () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      const scheduler = new TileWorkerScheduler(layoutTarget(0), {
+        provider: {
+          request: () => ({ requestId: 1, cancel() {} }),
+        },
+        createWorker: () => worker,
+        retryDelayMs: 250,
+        retryRandom: () => 0,
+      });
+      const thirtyDaysMs = 30 * 24 * 60 * 60 * 1_000;
+      worker.emit({
+        kind: "event",
+        event: {
+          sequence: 1,
+          revision: 0,
+          kind: "failure",
+          tile: { z: 0, x: 0, y: 0 },
+          reason: "long provider backoff",
+          status: 429,
+          retryAfterMs: thirtyDaysMs,
+        },
+      });
+
+      expect(scheduler.debugState.retry.scheduled_delay_ms).toBe(
+        thirtyDaysMs,
+      );
+      vi.advanceTimersByTime(2_147_483_647);
+      expect(worker.commands.some(({ kind }) => kind === "retry")).toBe(false);
+      vi.advanceTimersByTime(thirtyDaysMs - 2_147_483_647 - 1);
+      expect(worker.commands.some(({ kind }) => kind === "retry")).toBe(false);
+      vi.advanceTimersByTime(1);
+      expect(worker.commands.at(-1)).toEqual({ kind: "retry" });
+      scheduler.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the automatic wake-up when manual retry is requested too early", () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      let resumes = 0;
+      const scheduler = new TileWorkerScheduler(layoutTarget(0), {
+        provider: {
+          request: () => ({ requestId: 1, cancel() {} }),
+          resumeDeferred: () => {
+            resumes += 1;
+          },
+        },
+        createWorker: () => worker,
+        retryDelayMs: 100,
+      });
+      worker.emit({
+        kind: "event",
+        event: {
+          sequence: 1,
+          revision: 0,
+          kind: "failure",
+          tile: { z: 0, x: 0, y: 0 },
+          reason: "limited",
+          status: 429,
+          retryAfterMs: 1_000,
+        },
+      });
+
+      vi.advanceTimersByTime(100);
+      scheduler.retryFailed();
+      expect(resumes).toBe(0);
+      expect(worker.commands.some(({ kind }) => kind === "retry")).toBe(false);
+      expect(scheduler.debugState.retry.scheduled_delay_ms).toBe(1_000);
+
+      vi.advanceTimersByTime(899);
+      expect(resumes).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(resumes).toBe(1);
+      expect(worker.commands.at(-1)).toEqual({ kind: "retry" });
+      scheduler.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts an exact legacy request deferred behind retry backoff", () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      const observers: Array<Parameters<TileProvider<string>["request"]>[1]> = [];
+      const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+        provider: {
+          request: (_tile, observer) => {
+            observers.push(observer);
+            return { requestId: observers.length, cancel() {} };
+          },
+        },
+        createWorker: () => worker,
+        retryDelayMs: 100,
+        retryRandom: () => 0,
+      });
+      const exact = { z: 1, x: 0, y: 0 };
+      worker.emit({
+        kind: "event",
+        event: {
+          sequence: 1,
+          revision: 0,
+          kind: "failure",
+          tile: { z: 1, x: 1, y: 0 },
+          reason: "provider unavailable",
+        },
+      });
+      worker.emit({
+        kind: "resource-request",
+        tile: exact,
+        key: "1/0/0",
+        requestId: 77,
+      });
+      expect(observers).toHaveLength(0);
+      expect(scheduler.debugState.deferred_payload_count).toBe(1);
+
+      vi.advanceTimersByTime(100);
+      expect(observers).toHaveLength(1);
+      observers[0]!({ phase: "response", resource: "exact-resource" });
+      expect(worker.commands).toContainEqual({
+        kind: "resource-result",
+        key: "1/0/0",
+        requestId: 77,
+        result: { phase: "response", resource: undefined },
+      });
+      scheduler.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores a cancelled legacy attempt after the same bridge request restarts", () => {
+    const worker = new FakeWorker();
+    const observers: Array<Parameters<TileProvider<string>["request"]>[1]> = [];
+    const cancellations: number[] = [];
+    const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+      provider: {
+        request: (_tile, observer) => {
+          const attempt = observers.push(observer);
+          return {
+            requestId: attempt,
+            cancel: () => cancellations.push(attempt),
+          };
+        },
+      },
+      createWorker: () => worker,
+    });
+    const tile = { z: 1, x: 0, y: 0 };
+    scheduler.updateResourceDemand([tile]);
+    worker.emit({
+      kind: "resource-request",
+      tile,
+      key: "1/0/0",
+      requestId: 88,
+    });
+    scheduler.updateResourceDemand([]);
+    scheduler.updateResourceDemand([tile]);
+
+    expect(cancellations).toEqual([1]);
+    expect(observers).toHaveLength(2);
+    observers[0]!({ phase: "response", resource: "stale" });
+    expect(scheduler.committedResource(tile)).toBeUndefined();
+    expect(worker.commands.filter(({ kind }) => kind === "resource-result"))
+      .toHaveLength(0);
+
+    observers[1]!({ phase: "response", resource: "current" });
+    expect(scheduler.committedResource(tile)).toBe("current");
+    expect(worker.commands).toContainEqual({
+      kind: "resource-result",
+      key: "1/0/0",
+      requestId: 88,
+      result: { phase: "response", resource: undefined },
+    });
+    scheduler.dispose();
   });
 
   it("keeps fatal provider state terminal across later demand changes", () => {
@@ -135,12 +323,57 @@ describe("Tile worker scheduler bridge", () => {
           reason: "forbidden",
           status: 403,
           retryable: false,
+          scope: "provider",
         },
       });
       expect(worker.commands.some(({ kind }) => kind === "retry")).toBe(false);
       expect(scheduler.debugState.retry).toMatchObject({
         automatic_retry_enabled: false,
         last_status: 403,
+      });
+      scheduler.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a terminal tile failure local to that exact resource", () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      const observers: Array<Parameters<TileProvider<string>["request"]>[1]> = [];
+      const provider: TileProvider<string> = {
+        request: (_tile, observer) => {
+          observers.push(observer);
+          return { requestId: observers.length, cancel() {} };
+        },
+      };
+      const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+        provider,
+        createWorker: () => worker,
+        retryDelayMs: 250,
+      });
+      const missing = { z: 1, x: 0, y: 0 };
+      const available = { z: 1, x: 1, y: 0 };
+      scheduler.updateResourceDemand([missing]);
+      worker.emit({
+        kind: "snapshot",
+        snapshot: snapshot(1, [missing, available]),
+      });
+      observers[0]!({
+        phase: "failure",
+        reason: "missing",
+        status: 404,
+        retryable: false,
+        scope: "tile",
+      });
+
+      scheduler.updateResourceDemand([available]);
+
+      expect(observers).toHaveLength(2);
+      expect(scheduler.debugState.retry).toMatchObject({
+        automatic_retry_enabled: true,
+        scheduled_delay_ms: null,
       });
       scheduler.dispose();
     } finally {
@@ -271,7 +504,7 @@ describe("Tile worker scheduler bridge", () => {
     scheduler.dispose();
   });
 
-  it("commits off-demand fallback and hydrates an unchanged committed tile on demand", () => {
+  it("keeps off-demand exact work unresolved until it becomes demanded", () => {
     const worker = new FakeWorker();
     let respond: ((resource: { id: string }) => void) | undefined;
     const provider: TileProvider<{ id: string }> = {
@@ -293,16 +526,200 @@ describe("Tile worker scheduler bridge", () => {
       requestId: 7,
     });
     expect(respond).toBeUndefined();
-    expect(worker.commands.at(-1)).toMatchObject({
-      kind: "resource-result",
-      requestId: 7,
-      result: { phase: "response" },
-    });
+    expect(worker.commands.some((command) =>
+      command.kind === "resource-result" && command.requestId === 7
+    )).toBe(false);
 
     worker.emit({ kind: "snapshot", snapshot: snapshot(1, [tile]) });
     scheduler.updateResourceDemand([tile]);
+    expect(respond).toBeDefined();
     respond!({ id: "late-hydration" });
     expect(scheduler.committedResource(tile)).toEqual({ id: "late-hydration" });
+  });
+
+  it("lets a session provider satisfy an off-demand transition from cache", () => {
+    const worker = new FakeWorker();
+    let observer: Parameters<TileProvider<string>["request"]>[1] | undefined;
+    const demands: string[][] = [];
+    const provider: TileProvider<string> = {
+      updateDemand(tiles) {
+        demands.push([...tiles].map((tile) =>
+          `${tile.z}/${tile.x}/${tile.y}`
+        ));
+      },
+      request: (_tile, next) => {
+        observer = next;
+        return { requestId: 1, cancel() {} };
+      },
+    };
+    const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+      provider,
+      createWorker: () => worker,
+      resourceRetention: "session",
+      initialResourceDemand: [],
+    });
+    const tile = { z: 1, x: 0, y: 0 };
+    worker.emit({
+      kind: "resource-request",
+      tile,
+      key: "1/0/0",
+      requestId: 31,
+    });
+
+    expect(observer).toBeDefined();
+    expect(demands).toEqual([[]]);
+    expect(worker.commands.some((command) =>
+      command.kind === "resource-result" && command.requestId === 31
+    )).toBe(false);
+
+    observer!({ phase: "response", resource: "browser-cache-hit" });
+    expect(worker.commands).toContainEqual({
+      kind: "resource-result",
+      key: "1/0/0",
+      requestId: 31,
+      result: { phase: "response", resource: undefined },
+    });
+    expect(scheduler.committedResource(tile)).toBe("browser-cache-hit");
+    scheduler.dispose();
+  });
+
+  it("shares live hydration with a later exact worker requirement", () => {
+    const worker = new FakeWorker();
+    let observer: Parameters<TileProvider<string>["request"]>[1] | undefined;
+    let requestCount = 0;
+    const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+      provider: {
+        request: (_tile, next) => {
+          requestCount += 1;
+          observer = next;
+          return { requestId: requestCount, cancel() {} };
+        },
+      },
+      createWorker: () => worker,
+    });
+    const tile = { z: 1, x: 0, y: 0 };
+    worker.emit({ kind: "snapshot", snapshot: snapshot(1, [tile]) });
+    scheduler.updateResourceDemand([tile]);
+    worker.emit({
+      kind: "resource-request",
+      tile,
+      key: "1/0/0",
+      requestId: 81,
+    });
+
+    expect(requestCount).toBe(1);
+    observer!({ phase: "response", resource: "shared-live-resource" });
+    expect(scheduler.committedResource(tile)).toBe("shared-live-resource");
+    expect(worker.commands).toContainEqual({
+      kind: "resource-result",
+      key: "1/0/0",
+      requestId: 81,
+      result: { phase: "response", resource: undefined },
+    });
+    scheduler.dispose();
+  });
+
+  it("cancels shared provider work after its final worker recipient leaves", () => {
+    const worker = new FakeWorker();
+    let observer: Parameters<TileProvider<string>["request"]>[1] | undefined;
+    let cancellationCount = 0;
+    const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+      provider: {
+        request: (_tile, next) => {
+          observer = next;
+          return {
+            requestId: 1,
+            cancel: () => {
+              cancellationCount += 1;
+            },
+          };
+        },
+      },
+      createWorker: () => worker,
+    });
+    const tile = { z: 1, x: 0, y: 0 };
+    worker.emit({
+      kind: "resource-request",
+      tile,
+      key: "1/0/0",
+      requestId: 91,
+    });
+    worker.emit({
+      kind: "resource-request",
+      tile,
+      key: "1/0/0",
+      requestId: 92,
+    });
+    observer!({ phase: "in-flight" });
+
+    worker.emit({ kind: "resource-cancel", key: "1/0/0", requestId: 91 });
+    expect(cancellationCount).toBe(0);
+    worker.emit({ kind: "resource-cancel", key: "1/0/0", requestId: 92 });
+
+    expect(cancellationCount).toBe(1);
+    expect(scheduler.debugState.total.total_outstanding).toBe(0);
+    observer!({ phase: "response", resource: "late" });
+    expect(scheduler.committedResource(tile)).toBeUndefined();
+    scheduler.dispose();
+  });
+
+  it("releases direct hydration after demand and its joined worker leave", () => {
+    const worker = new FakeWorker();
+    let cancellationCount = 0;
+    const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+      provider: {
+        updateDemand() {},
+        request: () => ({
+          requestId: 1,
+          cancel: () => {
+            cancellationCount += 1;
+          },
+        }),
+      },
+      createWorker: () => worker,
+    });
+    const tile = { z: 1, x: 0, y: 0 };
+    worker.emit({ kind: "snapshot", snapshot: snapshot(1, [tile]) });
+    scheduler.updateResourceDemand([tile]);
+    worker.emit({
+      kind: "resource-request",
+      tile,
+      key: "1/0/0",
+      requestId: 93,
+    });
+
+    scheduler.updateResourceDemand([]);
+    worker.emit({ kind: "resource-cancel", key: "1/0/0", requestId: 93 });
+
+    expect(cancellationCount).toBe(1);
+    expect(scheduler.debugState.total.total_outstanding).toBe(0);
+    scheduler.dispose();
+  });
+
+  it("discards live direct hydration that completes after demand leaves", () => {
+    const worker = new FakeWorker();
+    let observer: Parameters<TileProvider<string>["request"]>[1] | undefined;
+    const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+      provider: {
+        updateDemand() {},
+        request: (_tile, next) => {
+          observer = next;
+          return { requestId: 1, cancel() {} };
+        },
+      },
+      createWorker: () => worker,
+    });
+    const tile = { z: 1, x: 0, y: 0 };
+    worker.emit({ kind: "snapshot", snapshot: snapshot(1, [tile]) });
+    scheduler.updateResourceDemand([tile]);
+    observer!({ phase: "in-flight" });
+
+    scheduler.updateResourceDemand([]);
+    observer!({ phase: "response", resource: "now-off-demand" });
+
+    expect(scheduler.committedResource(tile)).toBeUndefined();
+    expect(scheduler.debugState.total.total_outstanding).toBe(0);
+    scheduler.dispose();
   });
 
   it("advances independent terrain and imagery instances without sharing targets or cuts", async () => {
@@ -502,6 +919,274 @@ describe("Tile worker scheduler bridge", () => {
     expect(scheduler.committedResource({ z: 0, x: 0, y: 0 })).toBeUndefined();
   });
 
+  it("retains completed session resources across demand, discard, and cut changes", () => {
+    const worker = new FakeWorker();
+    const observers: Array<Parameters<TileProvider<string>["request"]>[1]> = [];
+    const provider: TileProvider<string> = {
+      request: (_tile, observer) => {
+        observers.push(observer);
+        return { requestId: observers.length, cancel() {} };
+      },
+    };
+    const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+      provider,
+      createWorker: () => worker,
+      resourceRetention: "session",
+    });
+    const visited = { z: 1, x: 0, y: 0 };
+    const elsewhere = { z: 1, x: 1, y: 0 };
+
+    worker.emit({ kind: "snapshot", snapshot: snapshot(1, [visited]) });
+    scheduler.updateResourceDemand([visited]);
+    observers[0]!({ phase: "response", resource: "visited-image" });
+    scheduler.updateResourceDemand([]);
+    worker.emit({
+      kind: "event",
+      event: {
+        sequence: 1,
+        revision: 1,
+        kind: "discard",
+        tile: visited,
+        requestId: 1,
+      },
+    });
+    worker.emit({ kind: "snapshot", snapshot: snapshot(2, [elsewhere]) });
+
+    expect(scheduler.committedResource(visited)).toBe("visited-image");
+    expect(scheduler.debugState).toMatchObject({
+      resident_payload_count: 1,
+      session_retained_payload_count: 1,
+      resource_retention: "session",
+      resource_releases: { total: 0 },
+    });
+
+    worker.emit({ kind: "snapshot", snapshot: snapshot(3, [visited]) });
+    scheduler.updateResourceDemand([visited]);
+    worker.emit({
+      kind: "resource-request",
+      tile: visited,
+      key: "1/0/0",
+      requestId: 42,
+    });
+
+    expect(observers).toHaveLength(1);
+    expect(worker.commands.at(-1)).toEqual({
+      kind: "resource-result",
+      key: "1/0/0",
+      requestId: 42,
+      result: { phase: "response", resource: undefined },
+    });
+    scheduler.dispose();
+  });
+
+  it("keeps started session work but still cancels queued speculative work", () => {
+    const worker = new FakeWorker();
+    const observers = new Map<
+      string,
+      Parameters<TileProvider<string>["request"]>[1]
+    >();
+    const cancelled: string[] = [];
+    const provider: TileProvider<string> = {
+      request: (tile, observer) => {
+        const key = `${tile.z}/${tile.x}/${tile.y}`;
+        observers.set(key, observer);
+        return {
+          requestId: observers.size,
+          cancel: () => cancelled.push(key),
+        };
+      },
+    };
+    const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+      provider,
+      createWorker: () => worker,
+      resourceRetention: "session",
+    });
+    const started = { z: 1, x: 0, y: 0 };
+    const queued = { z: 1, x: 1, y: 0 };
+    scheduler.updateResourceDemand([started, queued]);
+    worker.emit({
+      kind: "resource-request",
+      tile: started,
+      key: "1/0/0",
+      requestId: 10,
+    });
+    worker.emit({
+      kind: "resource-request",
+      tile: queued,
+      key: "1/1/0",
+      requestId: 11,
+    });
+    observers.get("1/0/0")!({ phase: "in-flight" });
+    worker.emit({
+      kind: "resource-request",
+      tile: started,
+      key: "1/0/0",
+      requestId: 12,
+    });
+
+    scheduler.updateResourceDemand([]);
+    worker.emit({ kind: "resource-cancel", key: "1/0/0", requestId: 10 });
+
+    expect(cancelled).toEqual(["1/1/0"]);
+    expect(scheduler.hasResidentOrInFlightResource(started)).toBe(true);
+    observers.get("1/0/0")!({
+      phase: "response",
+      resource: "started-image",
+    });
+    expect(scheduler.committedResource(started)).toBe("started-image");
+    expect(scheduler.committedResource(queued)).toBeUndefined();
+    expect(worker.commands).toContainEqual({
+      kind: "resource-result",
+      key: "1/0/0",
+      requestId: 12,
+      result: { phase: "response", resource: undefined },
+    });
+    scheduler.dispose();
+  });
+
+  it("does not manufacture success when a cut cancels queued work", () => {
+    const worker = new FakeWorker();
+    let cancellationCount = 0;
+    const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+      provider: {
+        request: () => ({
+          requestId: 1,
+          cancel: () => {
+            cancellationCount += 1;
+          },
+        }),
+      },
+      createWorker: () => worker,
+      resourceRetention: "session",
+    });
+    const queued = { z: 1, x: 0, y: 0 };
+    scheduler.updateResourceDemand([queued]);
+    worker.emit({
+      kind: "resource-request",
+      tile: queued,
+      key: "1/0/0",
+      requestId: 20,
+    });
+    worker.emit({
+      kind: "resource-request",
+      tile: queued,
+      key: "1/0/0",
+      requestId: 21,
+    });
+
+    worker.emit({
+      kind: "snapshot",
+      snapshot: snapshot(1, [{ z: 1, x: 1, y: 0 }]),
+    });
+
+    expect(cancellationCount).toBe(1);
+    expect(
+      worker.commands.filter((command) =>
+        command.kind === "resource-result" &&
+        command.key === "1/0/0" &&
+        (command.requestId === 20 || command.requestId === 21)
+      ),
+    ).toEqual([]);
+    scheduler.dispose();
+  });
+
+  it("schedules retry when detached started session work fails", () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      let observer: Parameters<TileProvider<string>["request"]>[1] | undefined;
+      const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+        provider: {
+          request: (_tile, next) => {
+            observer = next;
+            return { requestId: 1, cancel() {} };
+          },
+        },
+        createWorker: () => worker,
+        resourceRetention: "session",
+        retryDelayMs: 100,
+        retryRandom: () => 0,
+      });
+      const tile = { z: 1, x: 0, y: 0 };
+      scheduler.updateResourceDemand([tile]);
+      worker.emit({
+        kind: "resource-request",
+        tile,
+        key: "1/0/0",
+        requestId: 30,
+      });
+      observer!({ phase: "in-flight" });
+      worker.emit({ kind: "resource-cancel", key: "1/0/0", requestId: 30 });
+      observer!({ phase: "failure", reason: "offline" });
+
+      expect(scheduler.debugState.retry.scheduled_delay_ms).toBe(100);
+      vi.advanceTimersByTime(100);
+      expect(worker.commands.at(-1)).toEqual({ kind: "retry" });
+      scheduler.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the default live-resource release policy", () => {
+    const worker = new FakeWorker();
+    let observer: Parameters<TileProvider<string>["request"]>[1] | undefined;
+    const scheduler = new TileWorkerScheduler(layoutTarget(0), {
+      provider: {
+        request: (_tile, next) => {
+          observer = next;
+          return { requestId: 1, cancel() {} };
+        },
+      },
+      createWorker: () => worker,
+    });
+    const tile = { z: 0, x: 0, y: 0 };
+    worker.emit({ kind: "snapshot", snapshot: snapshot(1, [tile]) });
+    scheduler.updateResourceDemand([tile]);
+    observer!({ phase: "response", resource: "live" });
+
+    scheduler.updateResourceDemand([]);
+
+    expect(scheduler.committedResource(tile)).toBeUndefined();
+    expect(scheduler.debugState).toMatchObject({
+      resource_retention: "live",
+      session_retained_payload_count: 0,
+      resource_releases: { total: 1, demand: 1 },
+    });
+    scheduler.dispose();
+  });
+
+  it("retains topology resources across demand changes and releases obsolete cuts", () => {
+    const worker = new FakeWorker();
+    let observer: Parameters<TileProvider<string>["request"]>[1] | undefined;
+    const scheduler = new TileWorkerScheduler(layoutTarget(0), {
+      provider: {
+        request: (_tile, next) => {
+          observer = next;
+          return { requestId: 1, cancel() {} };
+        },
+      },
+      createWorker: () => worker,
+      resourceRetention: "topology",
+    });
+    const first = { z: 0, x: 0, y: 0 };
+    const next = { z: 1, x: 0, y: 0 };
+    worker.emit({ kind: "snapshot", snapshot: snapshot(1, [first]) });
+    scheduler.updateResourceDemand([first]);
+    observer!({ phase: "response", resource: "topology-resource" });
+
+    scheduler.updateResourceDemand([]);
+    expect(scheduler.committedResource(first)).toBe("topology-resource");
+
+    worker.emit({ kind: "snapshot", snapshot: snapshot(2, [next]) });
+    expect(scheduler.committedResource(first)).toBeUndefined();
+    expect(scheduler.debugState).toMatchObject({
+      resource_retention: "topology",
+      resource_releases: { total: 1, topology: 1 },
+    });
+    scheduler.dispose();
+  });
+
   it("captures a provider response delivered synchronously from request", () => {
     const worker = new FakeWorker();
     const provider: TileProvider<{ id: string }> = {
@@ -589,6 +1274,61 @@ describe("Tile worker scheduler bridge", () => {
       vi.advanceTimersByTime(249);
       expect(worker.commands.some(({ kind }) => kind === "retry")).toBe(false);
       vi.advanceTimersByTime(1);
+      expect(worker.commands.at(-1)).toEqual({ kind: "retry" });
+      scheduler.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the provider retry wake-up when demand moves away", () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      let circuitState: "closed" | "open" = "open";
+      let resumes = 0;
+      const provider: TileProvider<unknown> = {
+        get retryDiagnostics() {
+          return {
+            state: circuitState,
+            last_status: null,
+            status_counts: {},
+            opaque_failure_count: 1,
+            network_failure_count: 1,
+            cooldown_until_ms: Date.now() + 100,
+            probe_in_flight: false,
+          };
+        },
+        request: () => ({ requestId: 1, cancel() {} }),
+        resumeDeferred: () => {
+          resumes += 1;
+          circuitState = "closed";
+        },
+      };
+      const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+        provider,
+        createWorker: () => worker,
+        resourceRetention: "session",
+        retryDelayMs: 100,
+        retryRandom: () => 0,
+      });
+      const failed = { z: 1, x: 0, y: 0 };
+      worker.emit({
+        kind: "event",
+        event: {
+          sequence: 1,
+          revision: 0,
+          kind: "failure",
+          tile: failed,
+          reason: "opaque fetch failure",
+        },
+      });
+      scheduler.updateResourceDemand([]);
+
+      expect(scheduler.debugState.retry.scheduled_delay_ms).toBe(100);
+      vi.advanceTimersByTime(100);
+
+      expect(resumes).toBe(1);
       expect(worker.commands.at(-1)).toEqual({ kind: "retry" });
       scheduler.dispose();
     } finally {

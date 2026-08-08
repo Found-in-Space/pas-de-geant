@@ -63,6 +63,7 @@ export interface SchedulerEvent {
   readonly status?: number;
   readonly retryAfterMs?: number;
   readonly retryable?: boolean;
+  readonly scope?: "tile" | "provider";
   readonly batchId?: string;
   readonly groupIds?: readonly string[];
   readonly before?: readonly TileIdentity[];
@@ -351,6 +352,7 @@ export class TileTransitionScheduler<Target, Resource> {
         ...(result.retryable === undefined
           ? {}
           : { retryable: result.retryable }),
+        ...(result.scope === undefined ? {} : { scope: result.scope }),
       });
       return;
     }
@@ -378,7 +380,7 @@ export class TileTransitionScheduler<Target, Resource> {
     return batch.groupIds.every((groupId) =>
       this.groupById(groupId).after.every((tile) => {
         const key = tileIdentityKey(tile);
-        return this.committed.has(key) || this.requirements.get(key)?.state === "ready";
+        return this.requirements.get(key)?.state === "ready";
       }),
     );
   }
@@ -392,15 +394,20 @@ export class TileTransitionScheduler<Target, Resource> {
           this.batchReady(candidate),
         );
         if (!batch) break;
-        this.commitBatch(batch);
+        const event = this.commitBatch(batch);
         this.reconcileAfterCommit();
+        // Publish only after the next progressive stage's exact requirements
+        // exist, so main-thread admission cannot see a transient empty set.
+        this.notify("atomic-swap", event);
       }
     } finally {
       this.changing = false;
     }
   }
 
-  private commitBatch(batch: TransitionBatch): void {
+  private commitBatch(
+    batch: TransitionBatch,
+  ): Omit<SchedulerEvent, "sequence" | "revision" | "kind"> {
     const groups = batch.groupIds.map((id) => this.groupById(id));
     const before = sortedTiles(groups.flatMap((group) => [...group.before]));
     const after = sortedTiles(groups.flatMap((group) => [...group.after]));
@@ -417,18 +424,18 @@ export class TileTransitionScheduler<Target, Resource> {
       this.committedResources.set(key, requirement?.resource);
       if (requirement) this.requirements.delete(key);
     }
-    // Publish the swap against the topology that actually exists after it,
-    // rather than leaving subscribers with the just-consumed graph.
+    // Replan against the topology that now exists so the subsequent atomic
+    // snapshot cannot expose the just-consumed graph.
     this.graphValue = planTransition(
       this.committed.values(),
       this.requested.values(),
     );
-    this.notify("atomic-swap", {
+    return {
       batchId: batch.id,
       groupIds: batch.groupIds,
       before,
       after,
-    });
+    };
   }
 
   private reconcileAfterCommit(): void {

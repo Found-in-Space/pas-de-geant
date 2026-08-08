@@ -140,6 +140,49 @@ describe("Topology-only tile transition planner", () => {
     );
   });
 
+  it("plans deep refinement as local parent-to-immediate-child steps", () => {
+    const committed = uniformCut(1);
+    const requested = uniformCut(3);
+    const first = planTransition(committed, requested);
+
+    expect(first.groups).toHaveLength(4);
+    expect(first.groups.every((group) =>
+      group.before.length === 1 &&
+      group.after.length === 4 &&
+      group.after.every((tile) => tile.z === 2)
+    )).toBe(true);
+    expect(first.groups.flatMap((group) => group.after).some(
+      (tile) => tile.z === 3,
+    )).toBe(false);
+    expect(first.groups.every((group) =>
+      group.after.every((tile) => Object.isFrozen(tile))
+    )).toBe(true);
+
+    const hybrid = applyGroups(committed, [first.groups[0]!]);
+    const second = planTransition(hybrid, requested);
+    const local = second.groups.filter((group) => group.region.z === 2);
+    expect(local).toHaveLength(4);
+    expect(local.every((group) =>
+      group.before.length === 1 &&
+      group.after.length === 4 &&
+      group.after.every((tile) => tile.z === 3)
+    )).toBe(true);
+  });
+
+  it("plans direct multi-level coarsening to the requested ancestor", () => {
+    const committed = uniformCut(3);
+    const requested = uniformCut(1);
+    const graph = planTransition(committed, requested);
+
+    expect(graph.groups).toHaveLength(4);
+    for (const group of graph.groups) {
+      expect(group.before).toHaveLength(16);
+      expect(group.before.every((tile) => tile.z === 3)).toBe(true);
+      expect(group.after).toEqual([group.region]);
+      expect(group.region.z).toBe(1);
+    }
+  });
+
   it("recurses when both cuts subdivide and keeps independent regions minimal", () => {
     const base = uniformCut(1);
     const committed = refine(base, { z: 1, x: 0, y: 0 });
@@ -243,20 +286,24 @@ describe("Topology-only tile transition planner", () => {
       touchesAcrossSeam(first, second),
     )).toBe(true);
 
-    // Any topological order of the batch DAG remains a complete balanced cut.
+    // Replanning after every batch keeps each progressive hybrid cut balanced.
     let hybrid: readonly TileIdentity[] = committed;
-    const pending = new Map(graph.batches.map((batch) => [batch.id, batch]));
-    const committedBatchIds = new Set<string>();
-    while (pending.size > 0) {
-      const batch = [...pending.values()].find((candidate) =>
-        candidate.dependsOn.every((id) => committedBatchIds.has(id)),
+    let nextGraph = graph;
+    let steps = 0;
+    while (nextGraph.groups.length > 0) {
+      const nextGroups = new Map(
+        nextGraph.groups.map((group) => [group.id, group]),
+      );
+      const batch = nextGraph.batches.find((candidate) =>
+        candidate.dependsOn.length === 0,
       );
       expect(batch).toBeDefined();
-      const groups = batch!.groupIds.map((id) => groupById.get(id)!);
+      const groups = batch!.groupIds.map((id) => nextGroups.get(id)!);
       hybrid = applyGroups(hybrid, groups);
       expect(() => assertAdmissibleCut(hybrid, "Partial commit")).not.toThrow();
-      committedBatchIds.add(batch!.id);
-      pending.delete(batch!.id);
+      nextGraph = planTransition(hybrid, requested);
+      steps += 1;
+      expect(steps).toBeLessThan(1_000);
     }
     expect(new Set(labels(hybrid))).toEqual(new Set(labels(requested)));
   });

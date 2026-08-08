@@ -355,12 +355,21 @@ export function planTransition(
       retained.push(after.leaf);
       return;
     }
-    if (before.leaf || after.leaf) {
+    if (before.leaf) {
+      const immediateChildren = [0, 1, 2, 3].map(
+        (index) => copyIdentity(after.children.get(index)!.address),
+      );
+      groups.push(freezesGroup(
+        before.address,
+        [before.leaf],
+        immediateChildren,
+      ));
+      return;
+    }
+    if (after.leaf) {
       const beforeLeaves: TileIdentity[] = [];
-      const afterLeaves: TileIdentity[] = [];
       collectLeaves(before, beforeLeaves);
-      collectLeaves(after, afterLeaves);
-      groups.push(freezesGroup(before.address, beforeLeaves, afterLeaves));
+      groups.push(freezesGroup(before.address, beforeLeaves, [after.leaf]));
       return;
     }
     for (let index = 0; index < 4; index += 1) {

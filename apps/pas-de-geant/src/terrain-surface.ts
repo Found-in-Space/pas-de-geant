@@ -32,8 +32,6 @@ import { summarizeTilePlannerSnapshot } from "./tile-planner-state.js";
 import {
   createTileDebugControls,
   DEFAULT_TERRAIN_SCREEN_PIXELS_PER_SOURCE_PIXEL,
-  demandedPayloadTiles,
-  eligiblePayloadTiles,
   tileDebugControlsReadback,
   withTileDeltaZoomCap,
   withTileMaxZoom,
@@ -47,16 +45,19 @@ import {
   type TileViewDistanceArguments,
 } from "./tile-debug-controls.js";
 import {
+  TileMovementAdmission,
+  type TileMovementForecast,
+} from "./tile-movement-admission.js";
+import {
+  TileResidencyPolicy,
+  tileWorkingSet,
+} from "./tile-residency-policy.js";
+import {
   EARTH_MEAN_RADIUS_KM,
   WGS84_A_KM,
   WGS84_B_KM,
 } from "./planet-state.js";
 import {
-  classifyHotResidency,
-  classifyWarmResidency,
-  hotResidencySignature,
-  sameResidencyKeys,
-  warmResidencySignature,
   type GeographicPoint,
   type ViewResidencyInput,
 } from "./view-residency.js";
@@ -509,16 +510,11 @@ export class TerrainSurface {
   private readonly unsubscribe: () => void;
   private snapshot: SchedulerSnapshot<TileLayoutTarget>;
   private currentTarget: TileLayoutTarget;
-  private hotKeys = new Set<string>();
-  private warmKeys = new Set<string>();
+  private readonly movementAdmission: TileMovementAdmission;
+  private readonly movementForecast: TileMovementForecast;
+  private readonly residencyPolicy = new TileResidencyPolicy();
+  private deferSpeculativeWarm = false;
   private residencyInput: ViewResidencyInput;
-  private hotViewSignature = -1;
-  private hotRevision = -2;
-  private warmViewSignature = -1;
-  private warmRevision = -2;
-  private residencyClassificationTotal = 0;
-  private hotResidencyClassificationTotal = 0;
-  private warmResidencyClassificationTotal = 0;
   private debugControls: TileDebugControls = createTileDebugControls();
   private latestView: TerrainSurfaceView;
 
@@ -547,6 +543,13 @@ export class TerrainSurface {
         maxTopologyZoom: this.debugControls.terrain.maxZoom,
       },
     );
+    this.movementAdmission = new TileMovementAdmission(options.initialView);
+    this.movementForecast = this.movementAdmission.update(
+      options.initialView,
+      this.currentTarget.maxZoom,
+      this.provider.estimatedAssetReadyMs,
+      performance.now(),
+    );
     this.residencyInput = {
       underfoot: options.initialView,
       footprint: options.initialView.footprint,
@@ -555,6 +558,7 @@ export class TerrainSurface {
     };
     this.scheduler = new TileWorkerScheduler(this.currentTarget, {
       provider: this.provider,
+      resourceRetention: "topology",
       hydrateInitialResources: false,
       retryDelayMs: 5_000,
       retryMaxDelayMs: TRANSIENT_RETRY_MAX_DELAY_MS,
@@ -636,16 +640,30 @@ export class TerrainSurface {
       displayRadiusM: view.displayRadiusM,
       observerHeightWorldM: view.observerHeightWorldM,
     };
-    this.applyResidency();
     const target = terrainTargetForView(view, this.provider.tilePixels, {
       targetScreenPixelsPerSourcePixel:
         this.debugControls.terrain.screenPixelsPerSourcePixel,
       maxTopologyZoom: this.debugControls.terrain.maxZoom,
     });
+    this.movementAdmission.update(
+      view,
+      target.maxZoom,
+      this.provider.estimatedAssetReadyMs,
+      performance.now(),
+    );
+    const wasAdmissionDeferred = this.deferSpeculativeWarm;
+    this.deferSpeculativeWarm =
+      this.movementForecast.deferSpeculativeWarm;
+    const startingWarmRamp =
+      wasAdmissionDeferred && !this.deferSpeculativeWarm;
+    if (startingWarmRamp) {
+      this.provider.beginWarmRamp();
+    }
     if (tileLayoutTargetNeedsSubmission(this.currentTarget, target)) {
       this.currentTarget = target;
       this.scheduler.updateTarget(target);
     }
+    this.applyResidency();
   }
 
   getLodStatus(): { minZoom: number; maxZoom: number; budgetLimited: boolean } {
@@ -659,13 +677,14 @@ export class TerrainSurface {
 
   getMetrics(): TerrainRuntimeMetrics {
     const elevation = this.provider.metrics;
+    const residency = this.residencyPolicy.metrics;
     return {
       committedLeafCount: this.snapshot.committedCut.length,
-      hotTerrainTileCount: this.hotKeys.size,
-      warmTerrainTileCount: this.warmKeys.size,
-      residencyClassificationTotal: this.residencyClassificationTotal,
-      hotResidencyClassificationTotal: this.hotResidencyClassificationTotal,
-      warmResidencyClassificationTotal: this.warmResidencyClassificationTotal,
+      hotTerrainTileCount: residency.hotTileCount,
+      warmTerrainTileCount: residency.warmTileCount,
+      residencyClassificationTotal: residency.classificationTotal,
+      hotResidencyClassificationTotal: residency.hotClassificationTotal,
+      warmResidencyClassificationTotal: residency.warmClassificationTotal,
       imagery: this.imagery.getMetrics(),
       elevation: {
         decodedSourceCount: elevation.decodedSourceCount,
@@ -699,6 +718,7 @@ export class TerrainSurface {
   getTilePlannerState() {
     const payloadRequests = this.scheduler.debugState;
     const provider = this.provider.metrics;
+    const residency = this.residencyPolicy.metrics;
     return {
       terrain: {
         recalculation_enabled:
@@ -708,17 +728,35 @@ export class TerrainSurface {
         payload_tile_requests: payloadRequests,
         source_jobs: {
           queued: provider.queued,
+          network_deferred: provider.networkDeferred,
           in_flight: provider.inFlight,
+          warm_ramp_active: provider.warmRampActive,
+          warm_ramp_limit: provider.warmRampLimit,
         },
         residency: {
-          hot_tile_count: this.hotKeys.size,
-          classified_warm_tile_count: this.warmKeys.size,
+          hot_tile_count: residency.hotTileCount,
+          classified_warm_tile_count: residency.warmTileCount,
           demanded_payload_tile_count:
             payloadRequests.demanded_payload_count,
           committed_topology_tile_count: this.snapshot.committedCut.length,
           view_distance_enabled:
             this.debugControls.terrain.viewDistanceEnabled,
           delta_zoom_cap: this.debugControls.terrain.deltaZoomCap,
+        },
+        movement: {
+          velocity_east_mps: this.movementForecast.velocityEastMps,
+          velocity_north_mps: this.movementForecast.velocityNorthMps,
+          surface_speed_mps: this.movementForecast.speedMps,
+          estimated_asset_ready_ms: this.movementForecast.estimatedReadyMs,
+          predicted_travel_m: this.movementForecast.predictedTravelM,
+          finest_tile_width_m: this.movementForecast.finestTileWidthM,
+          predicted_travel_tile_spans:
+            this.movementForecast.predictedTravelTileSpans,
+          speculative_warm_deferred: this.deferSpeculativeWarm,
+          forecast_tile_count: residency.forecastTileCount,
+          deferred_warm_tile_count: residency.deferredTileCount,
+          deferred_warm_tile_occurrence_total:
+            residency.deferredTileOccurrenceTotal,
         },
       },
       textures: this.imagery.getPlannerState(),
@@ -826,92 +864,49 @@ export class TerrainSurface {
 
   private applyResidency(): void {
     if (
-      (this.debugControls.terrain.viewDistanceEnabled &&
-        this.residencyInput.footprint.length === 0) ||
       this.snapshot.committedCut.length === 0
     ) return;
-    const hotSignature = hotResidencySignature(
-      this.currentTarget.maxZoom,
-      this.residencyInput,
-    );
-    const warmSignature = warmResidencySignature(
-      this.currentTarget.maxZoom,
-      this.residencyInput,
-      this.debugControls.overheadPercent,
-    );
-    const hotNeedsClassification =
-      hotSignature !== this.hotViewSignature ||
-      this.snapshot.revision !== this.hotRevision;
-    const warmNeedsClassification =
-      warmSignature !== this.warmViewSignature ||
-      this.snapshot.revision !== this.warmRevision;
-    if (!hotNeedsClassification && !warmNeedsClassification) return;
-    this.hotViewSignature = hotSignature;
-    this.hotRevision = this.snapshot.revision;
-    this.warmViewSignature = warmSignature;
-    this.warmRevision = this.snapshot.revision;
-    this.residencyClassificationTotal += 1;
-    if (hotNeedsClassification) this.hotResidencyClassificationTotal += 1;
-    if (warmNeedsClassification) this.warmResidencyClassificationTotal += 1;
-    const workingCut = new Map<string, TileIdentity>();
-    for (const tile of [
-      ...this.snapshot.committedCut,
-      ...this.snapshot.requestedCut,
-    ]) workingCut.set(tileIdentityKey(tile), tile);
-    const workingTiles = [...workingCut.values()];
-    if (hotNeedsClassification) {
-      this.hotKeys = new Set(classifyHotResidency(
-        workingTiles,
-        this.residencyInput,
-      ));
-    }
-    let warmChanged = false;
-    if (warmNeedsClassification) {
-      const eligible = eligiblePayloadTiles(
-        workingTiles,
-        this.currentTarget.maxZoom,
-        this.debugControls.terrain.deltaZoomCap,
-      );
-      const warm = this.debugControls.terrain.viewDistanceEnabled
-        ? classifyWarmResidency(
-            eligible,
-            this.residencyInput,
-            this.warmKeys,
-            this.debugControls.overheadPercent,
-          )
-        : new Set(eligible.map((tile) => tileIdentityKey(tile)));
-      warmChanged = !sameResidencyKeys(this.warmKeys, warm);
-      this.warmKeys = new Set(warm);
-    }
-    const eligible = eligiblePayloadTiles(
-      workingTiles,
-      this.currentTarget.maxZoom,
-      this.debugControls.terrain.deltaZoomCap,
-    );
-    const hot = eligible.filter((tile) =>
-      this.hotKeys.has(tileIdentityKey(tile))
-    );
-    if (!warmChanged) {
-      this.scheduler.updateResourcePriority(hot);
+    const result = this.residencyPolicy.update({
+      committedTiles: this.snapshot.committedCut,
+      requestedTiles: this.snapshot.requestedCut,
+      requirements: this.snapshot.requirements,
+      targetZoom: this.currentTarget.maxZoom,
+      revision: this.snapshot.revision,
+      view: this.residencyInput,
+      overheadPercent: this.debugControls.overheadPercent,
+      viewDistanceEnabled: this.debugControls.terrain.viewDistanceEnabled,
+      deltaZoomCap: this.debugControls.terrain.deltaZoomCap,
+      deferSpeculativeWarm: this.deferSpeculativeWarm,
+      forecastDisplacement: this.deferSpeculativeWarm
+        ? this.movementForecast.displacement
+        : undefined,
+      forecastSignature: this.deferSpeculativeWarm
+        ? this.movementForecast.signature
+        : 0,
+      isResidentOrInFlight: (tile) =>
+        this.scheduler.hasResidentOrInFlightResource(tile),
+    });
+    if (!result) return;
+    if (!result.demandedTiles) {
+      this.scheduler.updateResourcePriority(result.priorityTiles);
       return;
     }
-    const demanded = demandedPayloadTiles(
-      workingTiles,
-      this.currentTarget.maxZoom,
-      this.debugControls.terrain.deltaZoomCap,
-      this.debugControls.terrain.viewDistanceEnabled,
-      this.warmKeys,
+    this.scheduler.updateResourceDemand(
+      result.demandedTiles,
+      result.priorityTiles,
     );
-    this.scheduler.updateResourceDemand(demanded, hot);
-    this.provider.retainSourceTiles(demanded);
+    this.provider.retainSourceTiles(tileWorkingSet(
+      this.snapshot.committedCut,
+      result.demandedTiles,
+      this.snapshot.requirements.map(({ tile }) => tile),
+    ));
   }
 
   private setDebugControls(
     controls: TileDebugControls,
   ): TileDebugControlsReadback {
     this.debugControls = controls;
-    this.hotViewSignature = -1;
-    this.warmViewSignature = -1;
+    this.residencyPolicy.invalidate();
     this.imagery.setDebugControls(
       controls.textures,
       controls.overheadPercent,

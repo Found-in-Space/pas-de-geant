@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ElevationTileProvider } from "../apps/pas-de-geant/src/elevation-tile-provider.js";
 import type {
   ImageTileProvider,
@@ -27,6 +27,22 @@ function provider() {
 }
 
 describe("Elevation tile provider", () => {
+  it("forwards demand and retry admission to the cache-first provider", () => {
+    const images = {
+      tilePixels: 512,
+      updateDemand: vi.fn(),
+      resumeDeferred: vi.fn(),
+    } as unknown as ImageTileProvider;
+    const surface = new ElevationTileProvider(images);
+    const demand = [{ z: 3, x: 4, y: 2 }];
+
+    surface.updateDemand(demand);
+    surface.resumeDeferred();
+
+    expect(images.updateDemand).toHaveBeenCalledWith(demand);
+    expect(images.resumeDeferred).toHaveBeenCalledOnce();
+  });
+
   it("commits elevation without waiting for any imagery work", () => {
     const elevation = provider();
     const surface = new ElevationTileProvider(

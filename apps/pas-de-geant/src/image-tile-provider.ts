@@ -1,9 +1,10 @@
 import {
   deleteCachedElevation,
-  loadCachedElevation,
+  loadElevationFromNetwork,
+  lookupCachedElevation,
   type ElevationCacheStatus,
+  type ElevationPayload,
 } from "./elevation-cache.js";
-import type { ImageryProvider } from "./imagery-provider.js";
 import {
   tileIdentityKey,
   type TileIdentity,
@@ -15,9 +16,9 @@ import type {
 } from "./tile-provider.js";
 import {
   isSessionFatalStatus,
-  TileRequestCircuit,
   type TileRequestFailureMetadata,
 } from "./tile-request-circuit.js";
+import { TileSourceLoadQueue } from "./tile-source-load-queue.js";
 
 export type ImageTileKind = "imagery" | "terrain";
 export const ELEVATION_TILE_PIXELS = 512;
@@ -49,15 +50,20 @@ export interface ImageTileResource {
 export interface ImageTileProviderMetrics {
   readonly requestTotal: number;
   readonly sourceLoadTotal: number;
+  readonly cacheLookupTotal: number;
+  readonly cacheHitTotal: number;
   readonly memoryHitTotal: number;
   readonly sharedRequestTotal: number;
   readonly persistentHitTotal: number;
   readonly persistentWriteTotal: number;
   readonly failureTotal: number;
   readonly byteTotal: number;
-  readonly averageLoadMs: number;
+  readonly estimatedAssetReadyMs: number;
   readonly queued: number;
+  readonly networkDeferred: number;
   readonly inFlight: number;
+  readonly warmRampActive: boolean;
+  readonly warmRampLimit: number;
   readonly decodedSourceCount: number;
   readonly estimatedDecodedBytes: number;
 }
@@ -88,29 +94,16 @@ export interface ImageTileProviderOptions {
   readonly attribution?: string;
   readonly concurrency: number;
   resolveSource(tile: TileIdentity): SourceMapping;
+  /** Optional persistent-cache phase; undefined is a cache miss. */
+  loadFromCache?(
+    sourceTile: TileIdentity,
+    signal: AbortSignal,
+  ): Promise<SourceImageLoad | undefined>;
+  /** Provider/network phase. It is called only after cache lookup and admission. */
   loadSource(
     sourceTile: TileIdentity,
     signal: AbortSignal,
   ): Promise<SourceImageLoad>;
-}
-
-interface Consumer {
-  readonly requestId: number;
-  readonly tile: TileIdentity;
-  readonly mapping: SourceMapping;
-  readonly observer: (result: TileProviderResult<ImageTileResource>) => void;
-  active: boolean;
-}
-
-interface SourceJob {
-  readonly key: string;
-  readonly sourceTile: TileIdentity;
-  readonly consumers: Set<number>;
-  priorityZoom: number;
-  state: "queued" | "in-flight";
-  hot: boolean;
-  controller?: AbortController;
-  probe?: boolean;
 }
 
 function immutableTile(tile: TileIdentity): TileIdentity {
@@ -158,6 +151,9 @@ export class HttpTileError extends Error {
   }
 }
 
+/** The provider responded successfully, but the returned tile was unusable. */
+export class TileContentError extends Error {}
+
 function imageFailureMetadata(error: unknown): TileRequestFailureMetadata {
   if (isAbortError(error)) return { systemic: false };
   if (error instanceof HttpTileError) {
@@ -171,6 +167,7 @@ function imageFailureMetadata(error: unknown): TileRequestFailureMetadata {
         ? {}
         : { retryAfterMs: error.retryAfterMs }),
       ...(isSessionFatalStatus(error.status) ? { retryable: false } : {}),
+      ...(error.status === 404 ? { retryable: false } : {}),
     };
   }
   return { systemic: error instanceof TypeError };
@@ -178,16 +175,20 @@ function imageFailureMetadata(error: unknown): TileRequestFailureMetadata {
 
 function failureResult(
   error: unknown,
+  metadata = imageFailureMetadata(error),
 ): Extract<TileProviderResult<never>, { phase: "failure" }> {
   return {
     phase: "failure",
     reason: errorReason(error),
-    ...(error instanceof HttpTileError ? { status: error.status } : {}),
-    ...(error instanceof HttpTileError && error.retryAfterMs !== undefined
-      ? { retryAfterMs: error.retryAfterMs }
-      : {}),
-    ...(error instanceof HttpTileError && isSessionFatalStatus(error.status)
-      ? { retryable: false }
+    ...(metadata.status === undefined ? {} : { status: metadata.status }),
+    ...(metadata.retryAfterMs === undefined
+      ? {}
+      : { retryAfterMs: metadata.retryAfterMs }),
+    ...(metadata.retryable === undefined
+      ? {}
+      : { retryable: metadata.retryable }),
+    ...(metadata.retryable === false
+      ? { scope: metadata.systemic ? "provider" as const : "tile" as const }
       : {}),
   };
 }
@@ -236,7 +237,7 @@ async function decodeBlobImage(
           image.naturalHeight !== expectedPixels
         ) {
           reject(
-            new Error(
+            new TileContentError(
               `Tile image is ${image.naturalWidth} × ${image.naturalHeight}; expected ${expectedPixels} × ${expectedPixels}.`,
             ),
           );
@@ -247,7 +248,9 @@ async function decodeBlobImage(
       image.onerror = (): void => {
         cleanup();
         reject(
-          new Error("The tile response could not be decoded as an image."),
+          new TileContentError(
+            "The tile response could not be decoded as an image.",
+          ),
         );
       };
       image.src = url;
@@ -267,50 +270,56 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
   readonly tilePixels: number;
   readonly attribution: string;
   private readonly sourceCache = new Map<string, LoadedSource>();
-  private readonly jobs = new Map<string, SourceJob>();
-  private readonly queue: SourceJob[] = [];
-  private readonly consumers = new Map<number, Consumer>();
-  private prioritySourceKeys = new Set<string>();
+  private readonly sourceQueue: TileSourceLoadQueue<
+    TileIdentity,
+    SourceImageLoad
+  >;
   private readonly listeners = new Set<
     (metrics: ImageTileProviderMetrics) => void
   >();
   private nextRequestId = 1;
-  private activeJobCount = 0;
   private requestTotal = 0;
-  private sourceLoadTotal = 0;
-  private successfulLoadTotal = 0;
   private memoryHitTotal = 0;
-  private sharedRequestTotal = 0;
   private persistentHitTotal = 0;
   private persistentWriteTotal = 0;
-  private failureTotal = 0;
+  private mappingFailureTotal = 0;
   private byteTotal = 0;
-  private loadDurationTotalMs = 0;
-  private readonly circuit = new TileRequestCircuit();
-  private lastCircuitError: unknown;
 
   constructor(private readonly options: ImageTileProviderOptions) {
     this.mode = options.mode;
     this.tilePixels = options.tilePixels;
     this.attribution = options.attribution ?? "";
+    this.sourceQueue = new TileSourceLoadQueue({
+      concurrency: options.concurrency,
+      ...(options.loadFromCache
+        ? { loadFromCache: options.loadFromCache }
+        : {}),
+      loadFromNetwork: options.loadSource,
+      classifyNetworkFailure: imageFailureMetadata,
+      warmRamp: {},
+    });
+    this.sourceQueue.subscribe(() => this.emit());
   }
 
   get metrics(): ImageTileProviderMetrics {
+    const queue = this.sourceQueue.metrics;
     return Object.freeze({
       requestTotal: this.requestTotal,
-      sourceLoadTotal: this.sourceLoadTotal,
+      sourceLoadTotal: queue.sourceLoadTotal,
+      cacheLookupTotal: queue.cacheLookupTotal,
+      cacheHitTotal: queue.cacheHitTotal,
       memoryHitTotal: this.memoryHitTotal,
-      sharedRequestTotal: this.sharedRequestTotal,
+      sharedRequestTotal: queue.sharedRequestTotal,
       persistentHitTotal: this.persistentHitTotal,
       persistentWriteTotal: this.persistentWriteTotal,
-      failureTotal: this.failureTotal,
+      failureTotal: this.mappingFailureTotal + queue.failureTotal,
       byteTotal: this.byteTotal,
-      averageLoadMs:
-        this.successfulLoadTotal === 0
-          ? 0
-          : this.loadDurationTotalMs / this.successfulLoadTotal,
-      queued: this.queue.length,
-      inFlight: this.activeJobCount,
+      estimatedAssetReadyMs: queue.estimatedReadyMs,
+      queued: queue.queued,
+      networkDeferred: queue.networkDeferred,
+      inFlight: queue.inFlight,
+      warmRampActive: queue.warmRampActive,
+      warmRampLimit: queue.warmRampLimit,
       decodedSourceCount: this.sourceCache.size,
       estimatedDecodedBytes:
         this.sourceCache.size * this.tilePixels * this.tilePixels * 4,
@@ -318,7 +327,12 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
   }
 
   get retryDiagnostics() {
-    return this.circuit.diagnostics;
+    return this.sourceQueue.retryDiagnostics;
+  }
+
+  /** Shared rolling cache/network readiness estimate without allocating. */
+  get estimatedAssetReadyMs(): number {
+    return this.sourceQueue.estimatedReadyMs;
   }
 
   /** Retains decoded images only for the current view/transition working set. */
@@ -341,16 +355,41 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
   }
 
   updatePriority(tiles: Iterable<TileIdentity>): void {
-    const priority = new Set<string>();
+    const priority: string[] = [];
     for (const tile of tiles) {
       try {
-        priority.add(tileIdentityKey(this.options.resolveSource(tile).sourceTile));
+        priority.push(tileIdentityKey(
+          this.options.resolveSource(tile).sourceTile,
+        ));
       } catch {
         // Tiles outside provider coverage cannot contribute queued work.
       }
     }
-    this.prioritySourceKeys = priority;
-    for (const job of this.jobs.values()) job.hot = priority.has(job.key);
+    this.sourceQueue.updatePriority(priority);
+  }
+
+  /** Cache checks remain admitted; this gates only cache misses to network. */
+  updateDemand(tiles: Iterable<TileIdentity>): void {
+    const demanded: string[] = [];
+    for (const tile of tiles) {
+      try {
+        demanded.push(tileIdentityKey(
+          this.options.resolveSource(tile).sourceTile,
+        ));
+      } catch {
+        // Tiles outside provider coverage cannot contribute network demand.
+      }
+    }
+    this.sourceQueue.updateDemand(demanded);
+  }
+
+  /** Called by retry policy after its backoff window has elapsed. */
+  resumeDeferred(): void {
+    this.sourceQueue.resumeDeferred();
+  }
+
+  beginWarmRamp(): void {
+    this.sourceQueue.beginWarmRamp();
   }
 
   subscribe(listener: (metrics: ImageTileProviderMetrics) => void): () => void {
@@ -360,13 +399,9 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
   }
 
   dispose(): void {
-    for (const job of this.jobs.values()) job.controller?.abort();
-    this.jobs.clear();
-    this.queue.splice(0);
-    this.consumers.clear();
+    this.sourceQueue.dispose();
     this.sourceCache.clear();
     this.listeners.clear();
-    this.activeJobCount = 0;
   }
 
   request(
@@ -380,253 +415,116 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
     try {
       mapping = this.options.resolveSource(tile);
     } catch (error) {
-      this.failureTotal += 1;
+      this.mappingFailureTotal += 1;
       queueMicrotask(() =>
-        observer({ phase: "failure", reason: errorReason(error) }),
+        observer(failureResult(error, {
+          systemic: false,
+          retryable: false,
+        })),
       );
       this.emit();
       return Object.freeze({ requestId, cancel() {} });
     }
 
-    const consumer: Consumer = {
-      requestId,
-      tile,
-      mapping,
-      observer,
-      active: true,
-    };
-    this.consumers.set(requestId, consumer);
     const key = tileIdentityKey(mapping.sourceTile);
     const cached = this.sourceCache.get(key);
     if (cached) {
       this.memoryHitTotal += 1;
+      let active = true;
       queueMicrotask(() => {
-        const active = this.consumers.get(requestId);
-        if (!active?.active) return;
-        active.observer({ phase: "in-flight" });
-        active.observer({
+        if (!active) return;
+        observer({ phase: "in-flight" });
+        observer({
           phase: "response",
-          resource: this.resourceFor(active, cached, "memory"),
+          resource: this.resourceFor(tile, mapping, cached, "memory"),
         });
-        this.consumers.delete(requestId);
+        active = false;
         this.emit();
       });
-    } else {
-      const existing = this.jobs.get(key);
-      if (existing) {
-        existing.consumers.add(requestId);
-        existing.priorityZoom = Math.max(existing.priorityZoom, tile.z);
-        this.sharedRequestTotal += 1;
-        if (existing.state === "in-flight") {
-          queueMicrotask(() => {
-            if (this.consumers.get(requestId)?.active) {
-              observer({ phase: "in-flight" });
-            }
-          });
-        }
-      } else {
-        const job: SourceJob = {
-          key,
-          sourceTile: mapping.sourceTile,
-          consumers: new Set([requestId]),
-          priorityZoom: tile.z,
-          state: "queued",
-          hot: this.prioritySourceKeys.has(key),
-        };
-        this.jobs.set(key, job);
-        this.queue.push(job);
-        queueMicrotask(() => this.pump());
-      }
-    }
-    this.emit();
-
-    return Object.freeze({
-      requestId,
-      cancel: (): void => this.cancel(requestId),
-    });
-  }
-
-  private cancel(requestId: number): void {
-    const consumer = this.consumers.get(requestId);
-    if (!consumer) return;
-    consumer.active = false;
-    this.consumers.delete(requestId);
-    const key = tileIdentityKey(consumer.mapping.sourceTile);
-    const job = this.jobs.get(key);
-    job?.consumers.delete(requestId);
-    if (job && job.consumers.size === 0) {
-      this.jobs.delete(key);
-      if (job.state === "in-flight") {
-        this.circuit.recordCancellation(job.probe === true);
-        this.activeJobCount = Math.max(0, this.activeJobCount - 1);
-        job.controller?.abort();
-        this.pump();
-      } else {
-        const queueIndex = this.queue.indexOf(job);
-        if (queueIndex >= 0) this.queue.splice(queueIndex, 1);
-      }
-    }
-    this.emit();
-  }
-
-  private pump(): void {
-    if (
-      this.activeJobCount >= this.options.concurrency ||
-      this.queue.length === 0
-    ) return;
-    if (!this.circuit.mayStart()) {
-      if (this.circuit.state === "disabled") {
-        const error = this.lastCircuitError ?? new Error(
-          "Tile image requests are disabled for this session.",
-        );
-        queueMicrotask(() => this.failQueued(error));
-      }
-      return;
-    }
-    this.queue.sort(
-      (first, second) =>
-        Number(second.hot) - Number(first.hot) ||
-        second.priorityZoom - first.priorityZoom ||
-        second.sourceTile.z - first.sourceTile.z,
-    );
-    while (this.activeJobCount < this.options.concurrency) {
-      while (
-        this.queue.length > 0 &&
-        (!this.jobs.has(this.queue[0]!.key) ||
-          this.queue[0]!.consumers.size === 0)
-      ) this.queue.shift();
-      if (this.queue.length === 0) return;
-      const start = this.circuit.tryStart();
-      if (!start) return;
-      const job = this.queue.shift();
-      if (!job) return;
-      if (this.jobs.get(job.key) !== job || job.consumers.size === 0) continue;
-      job.state = "in-flight";
-      job.probe = start === "probe";
-      job.controller = new AbortController();
-      this.activeJobCount += 1;
-      this.sourceLoadTotal += 1;
-      for (const requestId of job.consumers) {
-        this.consumers.get(requestId)?.observer({ phase: "in-flight" });
-      }
-      const startedAt = performance.now();
-      void this.options.loadSource(job.sourceTile, job.controller.signal).then(
-        (source) => this.complete(job, source, performance.now() - startedAt),
-        (error: unknown) => {
-          if (this.jobs.get(job.key) !== job) return;
-          // Elevation 404 is a successful no-data probe at the surface layer.
-          // It must restore concurrency just like a decoded elevation tile.
-          let tripped = false;
-          if (error instanceof HttpTileError && error.status === 404) {
-            this.circuit.recordSuccess(job.probe === true);
-          } else {
-            tripped = this.circuit.recordFailure(
-              imageFailureMetadata(error),
-              job.probe === true,
-            );
-          }
-          if (tripped) this.lastCircuitError = error;
-          if (tripped) this.failQueued(error);
-          this.fail(job, error);
+      this.emit();
+      return Object.freeze({
+        requestId,
+        cancel: (): void => {
+          active = false;
         },
-      );
+      });
     }
-    this.emit();
-  }
 
-  private complete(
-    job: SourceJob,
-    source: SourceImageLoad,
-    loadDurationMs: number,
-  ): void {
-    if (this.jobs.get(job.key) !== job) return;
-    this.circuit.recordSuccess(job.probe === true);
-    const loaded: LoadedSource = Object.freeze({
-      ...source,
-      loadDurationMs,
-    });
-    this.sourceCache.set(job.key, loaded);
-    this.byteTotal += source.byteLength;
-    this.loadDurationTotalMs += loadDurationMs;
-    this.successfulLoadTotal += 1;
-    if (source.cacheStatus === "persistent-hit") this.persistentHitTotal += 1;
-    if (source.cacheStatus === "persistent-write")
-      this.persistentWriteTotal += 1;
-    for (const requestId of job.consumers) {
-      const consumer = this.consumers.get(requestId);
-      if (!consumer?.active) continue;
-      consumer.observer({
+    let active = true;
+    const handle = this.sourceQueue.request({
+      key,
+      source: mapping.sourceTile,
+      priority: tile.z,
+    }, (event) => {
+      if (!active) return;
+      if (event.phase === "in-flight") {
+        observer({ phase: "in-flight" });
+        return;
+      }
+      active = false;
+      if (event.phase === "failure") {
+        observer(failureResult(event.error, event.metadata));
+        return;
+      }
+      const loaded = this.loadedSource(key, event.value, event.readyDurationMs);
+      observer({
         phase: "response",
         resource: this.resourceFor(
-          consumer,
+          tile,
+          mapping,
           loaded,
-          job.consumers.size > 1 ? "shared" : loaded.cacheStatus,
+          event.shared ? "shared" : loaded.cacheStatus,
         ),
       });
-      this.consumers.delete(requestId);
-    }
-    this.finish(job);
-  }
-
-  private fail(job: SourceJob, error: unknown): void {
-    if (this.jobs.get(job.key) !== job) return;
-    if (!isAbortError(error) || job.consumers.size > 0) {
-      this.failureTotal += 1;
-      for (const requestId of job.consumers) {
-        const consumer = this.consumers.get(requestId);
-        if (!consumer?.active) continue;
-        consumer.observer({
-          ...failureResult(error),
-        });
-        this.consumers.delete(requestId);
-      }
-    }
-    this.finish(job);
-  }
-
-  /** A provider-wide failure must not drain pending work into the outage. */
-  private failQueued(error: unknown): void {
-    const queued = this.queue.splice(0);
-    for (const job of queued) {
-      if (this.jobs.get(job.key) !== job) continue;
-      this.jobs.delete(job.key);
-      this.failureTotal += 1;
-      for (const requestId of job.consumers) {
-        const consumer = this.consumers.get(requestId);
-        if (!consumer?.active) continue;
-        consumer.observer(failureResult(error));
-        this.consumers.delete(requestId);
-      }
-    }
-    if (queued.length > 0) this.emit();
-  }
-
-  private finish(job: SourceJob): void {
-    this.jobs.delete(job.key);
-    this.activeJobCount = Math.max(0, this.activeJobCount - 1);
+    });
     this.emit();
-    this.pump();
+    return Object.freeze({
+      requestId,
+      cancel: (): void => {
+        if (!active) return;
+        active = false;
+        handle.cancel();
+      },
+    });
   }
 
   private resourceFor(
-    consumer: Consumer,
+    tile: TileIdentity,
+    mapping: SourceMapping,
     source: LoadedSource,
     cacheStatus: ImageTileCacheStatus,
   ): ImageTileResource {
     return Object.freeze({
       kind: "image",
       mode: this.mode,
-      tile: consumer.tile,
-      sourceTile: consumer.mapping.sourceTile,
+      tile,
+      sourceTile: mapping.sourceTile,
       image: source.image,
       tilePixels: this.tilePixels,
-      sourceScale: consumer.mapping.sourceScale,
-      sourceOffsetX: consumer.mapping.sourceOffsetX,
-      sourceOffsetY: consumer.mapping.sourceOffsetY,
+      sourceScale: mapping.sourceScale,
+      sourceOffsetX: mapping.sourceOffsetX,
+      sourceOffsetY: mapping.sourceOffsetY,
       cacheStatus,
       loadDurationMs: source.loadDurationMs,
       byteLength: source.byteLength,
     });
+  }
+
+  private loadedSource(
+    key: string,
+    source: SourceImageLoad,
+    loadDurationMs: number,
+  ): LoadedSource {
+    const existing = this.sourceCache.get(key);
+    if (existing) return existing;
+    const loaded: LoadedSource = Object.freeze({ ...source, loadDurationMs });
+    this.sourceCache.set(key, loaded);
+    this.byteTotal += source.byteLength;
+    if (source.cacheStatus === "persistent-hit") this.persistentHitTotal += 1;
+    if (source.cacheStatus === "persistent-write") {
+      this.persistentWriteTotal += 1;
+    }
+    return loaded;
   }
 
   private emit(): void {
@@ -635,32 +533,22 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
   }
 }
 
-export function createImageryTileProvider(
-  provider: ImageryProvider,
-): ImageTileProvider {
-  return new ImageTileProvider({
-    mode: "imagery",
-    tilePixels: provider.tileSize,
-    attribution: provider.attribution,
-    concurrency: 6,
-    resolveSource: (tile) => {
-      if (tile.z < provider.minZoom) {
-        throw new Error(
-          `Imagery begins at z${provider.minZoom}; ${tileIdentityKey(tile)} has no single source tile.`,
-        );
-      }
-      const source = ancestorAtZoom(tile, provider.maxZoom);
-      return sourceMapping(tile, source);
-    },
-    loadSource: async (source, signal) => {
-      const blob = await provider.load(source, signal);
-      return {
-        image: await decodeBlobImage(blob, provider.tileSize, signal),
-        byteLength: blob.size,
-        cacheStatus: "provider",
-      };
-    },
-  });
+async function decodeElevationSource(
+  source: TileIdentity,
+  payload: ElevationPayload,
+  signal: AbortSignal,
+): Promise<SourceImageLoad> {
+  const blob = new Blob([payload.bytes], { type: payload.contentType });
+  try {
+    return {
+      image: await decodeBlobImage(blob, ELEVATION_TILE_PIXELS, signal),
+      byteLength: payload.bytes.byteLength,
+      cacheStatus: elevationCacheStatus(payload.cacheStatus),
+    };
+  } catch (error) {
+    if (!isAbortError(error)) await deleteCachedElevation(source);
+    throw error;
+  }
 }
 
 export function createElevationTileProvider(): ImageTileProvider {
@@ -671,8 +559,13 @@ export function createElevationTileProvider(): ImageTileProvider {
     concurrency: 4,
     resolveSource: (tile) =>
       sourceMapping(tile, ancestorAtZoom(tile, ELEVATION_MAX_ZOOM)),
+    loadFromCache: async (source, signal) => {
+      const payload = await lookupCachedElevation(source, signal);
+      if (!payload) return undefined;
+      return decodeElevationSource(source, payload, signal);
+    },
     loadSource: async (source, signal) => {
-      const payload = await loadCachedElevation(source, signal);
+      const payload = await loadElevationFromNetwork(source, signal);
       if (payload.status < 200 || payload.status >= 300) {
         throw new HttpTileError(
           payload.status,
@@ -680,17 +573,7 @@ export function createElevationTileProvider(): ImageTileProvider {
           payload.retryAfterMs,
         );
       }
-      const blob = new Blob([payload.bytes], { type: payload.contentType });
-      try {
-        return {
-          image: await decodeBlobImage(blob, ELEVATION_TILE_PIXELS, signal),
-          byteLength: payload.bytes.byteLength,
-          cacheStatus: elevationCacheStatus(payload.cacheStatus),
-        };
-      } catch (error) {
-        if (!isAbortError(error)) await deleteCachedElevation(source);
-        throw error;
-      }
+      return decodeElevationSource(source, payload, signal);
     },
   });
 }

@@ -36,6 +36,13 @@ export interface ElevationCacheOptions {
   fetcher?: typeof fetch;
 }
 
+export type ElevationPayload = CachedElevationPayload & {
+  readonly status: number;
+};
+
+/** The provider responded, but its successful response had no tile payload. */
+export class InvalidElevationPayloadError extends Error {}
+
 function browserCacheStorage(): ElevationCacheStorage | null {
   return typeof caches === "undefined" ? null : caches;
 }
@@ -60,7 +67,7 @@ async function responsePayload(
   const bytes = await response.arrayBuffer();
   ensureNotAborted(signal);
   if (bytes.byteLength === 0) {
-    throw new Error("The elevation tile is empty.");
+    throw new InvalidElevationPayloadError("The elevation tile is empty.");
   }
   return {
     bytes,
@@ -68,45 +75,55 @@ async function responsePayload(
   };
 }
 
-export async function loadCachedElevation(
+/** Reads only persistent storage. A missing or unavailable cache is a miss. */
+export async function lookupCachedElevation(
+  address: TileIdentity,
+  signal: AbortSignal,
+  cacheStorage: ElevationCacheStorage | null = browserCacheStorage(),
+): Promise<ElevationPayload | undefined> {
+  const url = mapterhornUrlForTile(address);
+  ensureNotAborted(signal);
+  if (!cacheStorage) return undefined;
+  try {
+    const cache = await cacheStorage.open(MAPTERHORN_ELEVATION_CACHE_NAME);
+    ensureNotAborted(signal);
+    const cached = await cache.match(url);
+    ensureNotAborted(signal);
+    if (!cached) return undefined;
+    if (!cached.ok) {
+      await cache.delete(url);
+      return undefined;
+    }
+    try {
+      return {
+        ...(await responsePayload(cached, signal)),
+        cacheStatus: "hit",
+        status: cached.status,
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
+      await cache.delete(url);
+      return undefined;
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
+    return undefined;
+  }
+}
+
+/** Fetches only from the provider, then opportunistically persists success. */
+export async function loadElevationFromNetwork(
   address: TileIdentity,
   signal: AbortSignal,
   options: ElevationCacheOptions = {},
-): Promise<CachedElevationPayload & { status: number }> {
+): Promise<ElevationPayload> {
   const url = mapterhornUrlForTile(address);
   const fetcher = options.fetcher ?? fetch;
   const cacheStorage =
     options.cacheStorage === undefined
       ? browserCacheStorage()
       : options.cacheStorage;
-  let cache: ElevationResponseCache | undefined;
-  let cacheFailed = false;
-  if (cacheStorage) {
-    try {
-      cache = await cacheStorage.open(MAPTERHORN_ELEVATION_CACHE_NAME);
-      ensureNotAborted(signal);
-      const cached = await cache.match(url);
-      ensureNotAborted(signal);
-      if (cached?.ok) {
-        try {
-          return {
-            ...(await responsePayload(cached, signal)),
-            cacheStatus: "hit",
-            status: cached.status,
-          };
-        } catch (error) {
-          if (error instanceof Error && error.name === "AbortError") throw error;
-          await cache.delete(url);
-        }
-      } else if (cached) {
-        await cache.delete(url);
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") throw error;
-      cacheFailed = true;
-      cache = undefined;
-    }
-  }
+  ensureNotAborted(signal);
 
   const response = await fetcher(url, {
     cache: "default",
@@ -122,25 +139,45 @@ export async function loadCachedElevation(
     return {
       bytes: new ArrayBuffer(0),
       contentType: response.headers.get("content-type") ?? "",
-      cacheStatus: cacheFailed ? "error" : "unavailable",
+      cacheStatus: "unavailable",
       status,
       ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     };
   }
-  const responseForCache = cache ? response.clone() : undefined;
+  const responseForCache = cacheStorage ? response.clone() : undefined;
   const payload = await responsePayload(response, signal);
-  let cacheStatus: ElevationCacheStatus = cacheFailed
-    ? "error"
-    : "unavailable";
-  if (cache && responseForCache) {
+  let cacheStatus: ElevationCacheStatus = "unavailable";
+  if (cacheStorage && responseForCache) {
     try {
+      const cache = await cacheStorage.open(MAPTERHORN_ELEVATION_CACHE_NAME);
+      ensureNotAborted(signal);
       await cache.put(url, responseForCache);
+      ensureNotAborted(signal);
       cacheStatus = "stored";
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
       cacheStatus = "error";
     }
   }
   return { ...payload, cacheStatus, status };
+}
+
+/** Backwards-compatible cache-first composition for non-scheduled callers. */
+export async function loadCachedElevation(
+  address: TileIdentity,
+  signal: AbortSignal,
+  options: ElevationCacheOptions = {},
+): Promise<ElevationPayload> {
+  const cacheStorage =
+    options.cacheStorage === undefined
+      ? browserCacheStorage()
+      : options.cacheStorage;
+  const cached = await lookupCachedElevation(address, signal, cacheStorage);
+  if (cached) return cached;
+  return loadElevationFromNetwork(address, signal, {
+    ...options,
+    cacheStorage,
+  });
 }
 
 export async function deleteCachedElevation(

@@ -2,11 +2,184 @@ import { describe, expect, it, vi } from "vitest";
 import {
   HttpTileError,
   ImageTileProvider,
+  TileContentError,
   type ImageTileResource,
 } from "../apps/pas-de-geant/src/image-tile-provider.js";
-import type { TileProviderResult } from "../apps/pas-de-geant/src/tile-provider.js";
+import { TileResidencyPolicy } from "../apps/pas-de-geant/src/tile-residency-policy.js";
+import { tileIdentityKey } from "../apps/pas-de-geant/src/tile-transition-planner.js";
+import type {
+  TileProviderResult,
+  TileRequestHandle,
+} from "../apps/pas-de-geant/src/tile-provider.js";
 
 describe("Image tile provider", () => {
+  it("keeps deterministic source-mapping failures local and terminal", async () => {
+    const provider = new ImageTileProvider({
+      mode: "terrain",
+      tilePixels: 512,
+      concurrency: 1,
+      resolveSource: () => {
+        throw new Error("outside provider coverage");
+      },
+      loadSource: async () => {
+        throw new Error("must not load");
+      },
+    });
+    const failure = await new Promise<
+      Extract<TileProviderResult<ImageTileResource>, { phase: "failure" }>
+    >((resolve) => {
+      provider.request({ z: 2, x: 0, y: 0 }, (result) => {
+        if (result.phase === "failure") resolve(result);
+      });
+    });
+
+    expect(failure).toEqual({
+      phase: "failure",
+      reason: "outside provider coverage",
+      retryable: false,
+      scope: "tile",
+    });
+    expect(provider.metrics).toMatchObject({
+      failureTotal: 1,
+      sourceLoadTotal: 0,
+    });
+    provider.dispose();
+  });
+
+  it("ramps policy-produced warm terrain misses while urgent work stays unrestricted", async () => {
+    const tiles = [
+      { z: 5, x: 16, y: 16 },
+      { z: 5, x: 0, y: 0 },
+      { z: 5, x: 1, y: 0 },
+      { z: 5, x: 2, y: 0 },
+      { z: 5, x: 3, y: 0 },
+    ];
+    const policy = new TileResidencyPolicy();
+    const plan = policy.update({
+      committedTiles: tiles,
+      requestedTiles: [],
+      requirements: [],
+      targetZoom: 5,
+      revision: 1,
+      view: {
+        underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
+        footprint: [{ latitudeDegrees: 0, longitudeDegrees: 0 }],
+        displayRadiusM: 1_000,
+        observerHeightWorldM: 1,
+      },
+      overheadPercent: 25,
+      viewDistanceEnabled: false,
+      deltaZoomCap: null,
+      deferSpeculativeWarm: false,
+      forecastSignature: 0,
+      isResidentOrInFlight: () => false,
+    })!;
+    const demanded = plan.demandedTiles!;
+    const urgentKeys = new Set(plan.priorityTiles.map(tileIdentityKey));
+    const warmKeys = new Set(
+      demanded
+        .map(tileIdentityKey)
+        .filter((key) => !urgentKeys.has(key)),
+    );
+    expect(urgentKeys.size).toBe(1);
+    expect(warmKeys.size).toBe(4);
+
+    const starts: string[] = [];
+    const provider = new ImageTileProvider({
+      mode: "terrain",
+      tilePixels: 512,
+      concurrency: 4,
+      resolveSource: (tile) => ({
+        sourceTile: tile,
+        sourceScale: 1,
+        sourceOffsetX: 0,
+        sourceOffsetY: 0,
+      }),
+      loadSource: async (tile, signal) => {
+        starts.push(tileIdentityKey(tile));
+        return await new Promise((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+    });
+    // Model the movement edge: every queued tile was forecast-priority, but
+    // speculative admission was closed. Arm the ramp before replacing that
+    // stale priority set and reopening full warm demand.
+    provider.updatePriority(demanded);
+    provider.updateDemand([]);
+    for (const tile of demanded) provider.request(tile, () => {});
+    await Promise.resolve();
+    expect(starts).toEqual([]);
+    provider.beginWarmRamp();
+    provider.updatePriority(plan.priorityTiles);
+    provider.updateDemand(demanded);
+
+    await vi.waitFor(() => expect(starts).toHaveLength(2));
+    expect(starts.filter((key) => urgentKeys.has(key))).toHaveLength(1);
+    expect(starts.filter((key) => warmKeys.has(key))).toHaveLength(1);
+    expect(provider.metrics).toMatchObject({
+      inFlight: 2,
+      warmRampActive: true,
+      warmRampLimit: 1,
+    });
+    provider.dispose();
+  });
+
+  it("does not reuse a cancelled slot until the underlying load settles", async () => {
+    const starts: number[] = [];
+    let rejectFirst!: (error: unknown) => void;
+    let resolveSecond!: (value: {
+      image: HTMLImageElement;
+      byteLength: number;
+      cacheStatus: "provider";
+    }) => void;
+    const provider = new ImageTileProvider({
+      mode: "terrain",
+      tilePixels: 512,
+      concurrency: 1,
+      resolveSource: (tile) => ({
+        sourceTile: tile,
+        sourceScale: 1,
+        sourceOffsetX: 0,
+        sourceOffsetY: 0,
+      }),
+      loadSource: async (tile) => {
+        starts.push(tile.x);
+        if (tile.x === 0) {
+          return await new Promise((_resolve, reject) => {
+            rejectFirst = reject;
+          });
+        }
+        return await new Promise((resolve) => {
+          resolveSecond = resolve;
+        });
+      },
+    });
+    const first = provider.request({ z: 2, x: 0, y: 0 }, () => {});
+    provider.request({ z: 2, x: 1, y: 0 }, () => {});
+    await vi.waitFor(() => expect(starts).toEqual([0]));
+
+    first.cancel();
+    await Promise.resolve();
+    expect(starts).toEqual([0]);
+    expect(provider.metrics.inFlight).toBe(1);
+
+    rejectFirst(new DOMException("aborted", "AbortError"));
+    await vi.waitFor(() => expect(starts).toEqual([0, 1]));
+    expect(provider.metrics.inFlight).toBe(1);
+    resolveSecond({
+      image: {} as HTMLImageElement,
+      byteLength: 1,
+      cacheStatus: "provider",
+    });
+    await vi.waitFor(() => expect(provider.metrics.inFlight).toBe(0));
+    provider.dispose();
+  });
+
   it("does not drain the terrain queue after a fast systemic failure", async () => {
     const pending: Array<{
       resolve(value: {
@@ -17,6 +190,7 @@ describe("Image tile provider", () => {
       reject(error: unknown): void;
     }> = [];
     const failures: number[] = [];
+    const handles: TileRequestHandle[] = [];
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
@@ -32,24 +206,127 @@ describe("Image tile provider", () => {
       }),
     });
     for (let index = 0; index < 8; index += 1) {
-      provider.request({ z: 3, x: index, y: 0 }, (result) => {
+      handles.push(provider.request({ z: 3, x: index, y: 0 }, (result) => {
         if (result.phase === "failure") failures.push(index);
-      });
+      }));
     }
     await vi.waitFor(() => expect(pending).toHaveLength(4));
 
     pending[0]!.reject(new HttpTileError(503, "unavailable"));
-    await vi.waitFor(() => expect(provider.metrics.queued).toBe(0));
+    await vi.waitFor(() => expect(failures).toEqual([0]));
 
     expect(pending).toHaveLength(4);
     expect(provider.metrics.sourceLoadTotal).toBe(4);
-    expect(failures).toEqual(expect.arrayContaining([0, 4, 5, 6, 7]));
+    expect(provider.metrics.queued).toBe(4);
     for (const load of pending.slice(1)) load.resolve({
       image: {} as HTMLImageElement,
       byteLength: 1,
       cacheStatus: "provider",
     });
     await vi.waitFor(() => expect(provider.metrics.inFlight).toBe(0));
+    expect(failures).toEqual([0]);
+    expect(provider.metrics.queued).toBe(4);
+    for (const handle of handles.slice(4)) handle.cancel();
+    expect(provider.metrics.queued).toBe(0);
+    provider.dispose();
+  });
+
+  it("serves persistent hits while provider backoff defers cache misses", async () => {
+    const failures: number[] = [];
+    const responses: ImageTileResource[] = [];
+    const networkLoads: number[] = [];
+    const provider = new ImageTileProvider({
+      mode: "terrain",
+      tilePixels: 512,
+      concurrency: 1,
+      resolveSource: (tile) => ({
+        sourceTile: tile,
+        sourceScale: 1,
+        sourceOffsetX: 0,
+        sourceOffsetY: 0,
+      }),
+      loadFromCache: async (tile) =>
+        tile.x === 1
+          ? {
+              image: {} as HTMLImageElement,
+              byteLength: 64,
+              cacheStatus: "persistent-hit" as const,
+            }
+          : undefined,
+      loadSource: async (tile) => {
+        networkLoads.push(tile.x);
+        throw new HttpTileError(429, "limited", 60_000);
+      },
+    });
+    provider.request({ z: 3, x: 0, y: 0 }, (result) => {
+      if (result.phase === "failure") failures.push(0);
+    });
+    await vi.waitFor(() =>
+      expect(provider.retryDiagnostics.state).toBe("open"),
+    );
+
+    provider.request({ z: 3, x: 1, y: 0 }, (result) => {
+      if (result.phase === "response") responses.push(result.resource);
+    });
+    const deferred = provider.request({ z: 3, x: 2, y: 0 }, (result) => {
+      if (result.phase === "failure") failures.push(2);
+    });
+
+    await vi.waitFor(() => expect(responses).toHaveLength(1));
+    await vi.waitFor(() => expect(provider.metrics.networkDeferred).toBe(1));
+    expect(responses[0]!.cacheStatus).toBe("persistent-hit");
+    expect(networkLoads).toEqual([0]);
+    expect(failures).toEqual([0]);
+    expect(provider.metrics).toMatchObject({
+      cacheLookupTotal: 3,
+      cacheHitTotal: 1,
+      sourceLoadTotal: 1,
+    });
+
+    deferred.cancel();
+    expect(provider.metrics.networkDeferred).toBe(0);
+    provider.dispose();
+  });
+
+  it("changes network demand without evicting decoded or cache-probeable sources", async () => {
+    const loadSource = vi.fn(async () => ({
+      image: {} as HTMLImageElement,
+      byteLength: 64,
+      cacheStatus: "persistent-write" as const,
+    }));
+    const loadFromCache = vi.fn(async () => undefined);
+    const provider = new ImageTileProvider({
+      mode: "terrain",
+      tilePixels: 512,
+      concurrency: 1,
+      resolveSource: (tile) => ({
+        sourceTile: tile,
+        sourceScale: 1,
+        sourceOffsetX: 0,
+        sourceOffsetY: 0,
+      }),
+      loadFromCache,
+      loadSource,
+    });
+    const retained = { z: 3, x: 0, y: 0 };
+    const deferred = { z: 3, x: 1, y: 0 };
+    provider.updateDemand([retained]);
+    provider.request(retained, () => {});
+    await vi.waitFor(() =>
+      expect(provider.metrics.decodedSourceCount).toBe(1),
+    );
+
+    provider.updateDemand([]);
+    const deferredHandle = provider.request(deferred, () => {});
+    await vi.waitFor(() => expect(loadFromCache).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(provider.metrics.networkDeferred).toBe(1));
+
+    expect(provider.metrics.decodedSourceCount).toBe(1);
+    expect(loadSource).toHaveBeenCalledOnce();
+    provider.request(retained, () => {});
+    await vi.waitFor(() => expect(provider.metrics.memoryHitTotal).toBe(1));
+
+    deferredHandle.cancel();
     provider.dispose();
   });
 
@@ -101,6 +378,7 @@ describe("Image tile provider", () => {
     for (let x = 1; x <= 3; x += 1) {
       provider.request({ z: 3, x, y: 0 }, () => {});
     }
+    provider.resumeDeferred();
     await vi.waitFor(() => expect(attempts).toBe(2));
     expect(provider.retryDiagnostics).toMatchObject({
       state: "half-open",
@@ -145,6 +423,7 @@ describe("Image tile provider", () => {
     );
 
     const cancelled = provider.request({ z: 3, x: 1, y: 0 }, () => {});
+    provider.resumeDeferred();
     await vi.waitFor(() => expect(attempts).toBe(2));
     cancelled.cancel();
     provider.request({ z: 3, x: 2, y: 0 }, () => {});
@@ -155,6 +434,47 @@ describe("Image tile provider", () => {
       probe_in_flight: true,
       network_failure_count: 0,
     });
+    provider.dispose();
+  });
+
+  it("closes a half-open probe after a tile-local content failure", async () => {
+    let attempts = 0;
+    const failures: number[] = [];
+    const provider = new ImageTileProvider({
+      mode: "terrain",
+      tilePixels: 512,
+      concurrency: 1,
+      resolveSource: (tile) => ({
+        sourceTile: tile,
+        sourceScale: 1,
+        sourceOffsetX: 0,
+        sourceOffsetY: 0,
+      }),
+      loadSource: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new HttpTileError(429, "limited", 0);
+        if (attempts === 2) throw new TileContentError("invalid tile");
+        return {
+          image: {} as HTMLImageElement,
+          byteLength: 1,
+          cacheStatus: "provider" as const,
+        };
+      },
+    });
+    provider.request({ z: 3, x: 0, y: 0 }, () => {});
+    await vi.waitFor(() =>
+      expect(provider.retryDiagnostics.state).toBe("open"),
+    );
+
+    provider.request({ z: 3, x: 1, y: 0 }, (result) => {
+      if (result.phase === "failure") failures.push(1);
+    });
+    provider.resumeDeferred();
+    await vi.waitFor(() => expect(failures).toEqual([1]));
+    expect(provider.retryDiagnostics.state).toBe("closed");
+
+    provider.request({ z: 3, x: 2, y: 0 }, () => {});
+    await vi.waitFor(() => expect(attempts).toBe(3));
     provider.dispose();
   });
 
@@ -270,7 +590,11 @@ describe("Image tile provider", () => {
       }),
       loadSource: (_tile, signal) => {
         sourceSignals.push(signal);
-        return new Promise(() => {});
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          }, { once: true });
+        });
       },
     });
 
