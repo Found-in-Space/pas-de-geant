@@ -36,11 +36,6 @@ export interface TileWorkerSchedulerOptions<Resource> {
   readonly retryMaxDelayMs?: number;
   /** Random source used to desynchronise exponential retries. */
   readonly retryRandom?: () => number;
-  /**
-   * live/topology: the committed/transition cut;
-   * session: every completed payload.
-   */
-  readonly resourceRetention?: "live" | "topology" | "session";
 }
 
 export interface TileWorkerSchedulerRequestCounts {
@@ -50,17 +45,15 @@ export interface TileWorkerSchedulerRequestCounts {
 }
 
 export interface TileWorkerSchedulerDebugState {
-  readonly planner_admission: TileWorkerSchedulerRequestCounts;
-  readonly total: TileWorkerSchedulerRequestCounts;
+  readonly planner_requests: TileWorkerSchedulerRequestCounts;
   readonly resident_payload_count: number;
-  readonly session_retained_payload_count: number;
-  readonly admitted_candidate_count: number;
-  readonly resource_retention: "live" | "topology" | "session";
+  readonly working_set_payload_count: number;
+  readonly horizon_candidate_count: number;
   readonly resource_releases: {
     readonly total: number;
     readonly discard: number;
     readonly cancel: number;
-    readonly topology: number;
+    readonly eviction: number;
   };
   readonly target_submission: {
     readonly pending: boolean;
@@ -119,8 +112,8 @@ export class TileWorkerScheduler<Resource> {
   private readonly requests = new Map<string, ActiveBridgeRequest>();
   private readonly resources = new Map<string, Resource>();
   private readonly plannerFailureKeys = new Set<string>();
-  private admittedCandidates = new Set<string>();
-  private admissionRevision = Number.NEGATIVE_INFINITY;
+  private horizonCandidates = new Map<string, TileIdentity>();
+  private horizonRevision = Number.NEGATIVE_INFINITY;
   private pendingTarget: TileLayoutTarget | undefined;
   private targetInFlight = false;
   private targetFlushQueued = false;
@@ -134,7 +127,7 @@ export class TileWorkerScheduler<Resource> {
   private readonly resourceReleaseCounts = {
     discard: 0,
     cancel: 0,
-    topology: 0,
+    eviction: 0,
   };
   private snapshotValue: SchedulerSnapshot<TileLayoutTarget>;
 
@@ -167,24 +160,21 @@ export class TileWorkerScheduler<Resource> {
       if (request.phase === "in-flight") inFlight += 1;
       else requested += 1;
     }
-    const plannerAdmission = {
+    const plannerRequests = {
       requested,
       in_flight: inFlight,
       total_outstanding: requested + inFlight,
     };
     return {
-      planner_admission: plannerAdmission,
-      total: plannerAdmission,
+      planner_requests: plannerRequests,
       resident_payload_count: this.resources.size,
-      session_retained_payload_count:
-        this.options.resourceRetention === "session" ? this.resources.size : 0,
-      admitted_candidate_count: this.admittedCandidates.size,
-      resource_retention: this.options.resourceRetention ?? "live",
+      working_set_payload_count: this.workingSetKeys().size,
+      horizon_candidate_count: this.horizonCandidates.size,
       resource_releases: {
         total:
           this.resourceReleaseCounts.discard +
           this.resourceReleaseCounts.cancel +
-          this.resourceReleaseCounts.topology,
+          this.resourceReleaseCounts.eviction,
         ...this.resourceReleaseCounts,
       },
       target_submission: {
@@ -217,23 +207,35 @@ export class TileWorkerScheduler<Resource> {
     return this.resources.get(tileIdentityKey(tile));
   }
 
-  /** Restricts worker-owned planner work to the supplied visible candidates. */
-  updateVisibilityAdmission(visibleTiles: Iterable<TileIdentity>): void {
+  /** The horizon-retained planner generation plus active replacement work. */
+  get workingSetTiles(): readonly TileIdentity[] {
+    const tiles = new Map(this.horizonCandidates);
+    for (const { tile } of this.snapshotValue.requirements) {
+      tiles.set(tileIdentityKey(tile), tile);
+    }
+    return [...tiles.values()];
+  }
+
+  /** Applies geometric horizon culling to worker-owned planner candidates. */
+  updateHorizonCulling(retainedTiles: Iterable<TileIdentity>): void {
     if (this.disposed) return;
-    const tiles = [...visibleTiles];
-    const keys = new Set(tiles.map(tileIdentityKey));
+    const tiles = [...retainedTiles];
+    const retained = new Map<string, TileIdentity>(
+      tiles.map((tile) => [tileIdentityKey(tile), tile] as const),
+    );
     if (
-      this.admissionRevision === this.snapshotValue.revision &&
-      keys.size === this.admittedCandidates.size &&
-      [...keys].every((key) => this.admittedCandidates.has(key))
+      this.horizonRevision === this.snapshotValue.revision &&
+      retained.size === this.horizonCandidates.size &&
+      [...retained.keys()].every((key) => this.horizonCandidates.has(key))
     ) return;
-    this.admittedCandidates = keys;
-    this.admissionRevision = this.snapshotValue.revision;
+    this.horizonCandidates = retained;
+    this.horizonRevision = this.snapshotValue.revision;
     this.worker.postMessage({
-      kind: "visibility-admission",
-      revision: this.admissionRevision,
+      kind: "horizon-culling",
+      revision: this.horizonRevision,
       tiles,
     });
+    if (this.retainWorkingSetResources()) this.notifyResourceChange();
   }
 
   updateTarget(target: TileLayoutTarget): void {
@@ -338,7 +340,7 @@ export class TileWorkerScheduler<Resource> {
         this.plannerFailureKeys.add(tileIdentityKey(requirement.tile));
       }
     }
-    this.retainLiveResources();
+    this.retainWorkingSetResources();
     this.resetRetryIfSatisfied();
     for (const listener of this.listeners)
       listener(this.snapshotValue, message.event);
@@ -356,10 +358,7 @@ export class TileWorkerScheduler<Resource> {
   private requestResource(
     message: Extract<TileSchedulerMessage, { kind: "resource-request" }>,
   ): void {
-    if (
-      this.options.resourceRetention === "session" &&
-      this.resources.has(message.key)
-    ) {
+    if (this.resources.has(message.key)) {
       this.worker.postMessage({
         kind: "resource-result",
         key: message.key,
@@ -415,10 +414,7 @@ export class TileWorkerScheduler<Resource> {
       if (result.phase === "in-flight") {
         active.phase = "in-flight";
       } else if (result.phase === "response") {
-        retainedResponse =
-          hasWorkerRecipient ||
-          this.options.resourceRetention === "topology" ||
-          this.options.resourceRetention === "session";
+        retainedResponse = hasWorkerRecipient;
         if (retainedResponse) this.resources.set(key, result.resource);
         this.resetRetryIfSatisfied();
       } else {
@@ -461,9 +457,7 @@ export class TileWorkerScheduler<Resource> {
       if (
         !removed ||
         active.workerOwned ||
-        (active.waitingWorkerRequestIds?.size ?? 0) > 0 ||
-        (this.options.resourceRetention === "session" &&
-          active.phase === "in-flight")
+        (active.waitingWorkerRequestIds?.size ?? 0) > 0
       ) return;
       this.cancelProviderAttempt(active);
       this.requests.delete(key);
@@ -471,9 +465,7 @@ export class TileWorkerScheduler<Resource> {
       return;
     }
     if (
-      (active.waitingWorkerRequestIds?.size ?? 0) > 0 ||
-      (this.options.resourceRetention === "session" &&
-        active.phase === "in-flight")
+      (active.waitingWorkerRequestIds?.size ?? 0) > 0
     ) {
       active.workerOwned = false;
       return;
@@ -506,34 +498,30 @@ export class TileWorkerScheduler<Resource> {
     });
   }
 
-  private retainLiveResources(): void {
-    const live = new Set([
-      ...this.snapshotValue.committedCut.map(tileIdentityKey),
-      ...this.snapshotValue.requirements.map(({ tile }) =>
-        tileIdentityKey(tile),
-      ),
-    ]);
-    if (this.options.resourceRetention !== "session") {
-      for (const key of this.resources.keys()) {
-        if (!live.has(key)) this.releaseResource(key, "topology");
+  private workingSetKeys(): Set<string> {
+    return new Set(this.workingSetTiles.map(tileIdentityKey));
+  }
+
+  private retainWorkingSetResources(): boolean {
+    const live = this.workingSetKeys();
+    let changed = false;
+    for (const key of [...this.resources.keys()]) {
+      if (!live.has(key)) {
+        changed = this.releaseResource(key, "eviction") || changed;
       }
     }
     for (const [key, request] of this.requests) {
       if (live.has(key)) continue;
-      if (
-        this.options.resourceRetention === "session" &&
-        request.phase === "in-flight"
-      ) continue;
       this.cancelProviderAttempt(request);
       this.requests.delete(key);
     }
+    return changed;
   }
 
   private releaseResource(
     key: string,
     reason: keyof typeof this.resourceReleaseCounts,
   ): boolean {
-    if (this.options.resourceRetention === "session") return false;
     if (!this.resources.delete(key)) return false;
     this.resourceReleaseCounts[reason] += 1;
     return true;

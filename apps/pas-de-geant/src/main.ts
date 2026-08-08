@@ -71,8 +71,6 @@ import {
   rollContactFrame,
   solvePlanetPose,
   type PlanetState,
-  WGS84_A_KM,
-  WGS84_B_KM,
 } from "./planet-state.js";
 import { resolveInitialLocation } from "./initial-location.js";
 import {
@@ -106,10 +104,6 @@ import {
   type SatelliteGroupId,
 } from "./satellite-groups.js";
 import { SatelliteLayer } from "./satellite-layer.js";
-import {
-  intersectEllipsoidRay,
-  type GeographicPoint,
-} from "./view-visibility.js";
 import {
   geographicTravelFromWorld,
   geographicViewHeadingDegrees,
@@ -394,7 +388,6 @@ const terrain = new TerrainSurface({
     radialMultiplier: state.radialMultiplier,
     observerHeightWorldM: 1.65,
     focalLengthPixels: 1_000,
-    footprint: [],
   },
 });
 planetRoot.add(terrain.group);
@@ -651,80 +644,16 @@ function setTextureTileOverlayVisible(visible: boolean): void {
 
 const terrainEyeWorldPosition = new THREE.Vector3();
 const terrainDrawingBufferSize = new THREE.Vector2();
-const terrainRayWorldPoint = new THREE.Vector3();
-const terrainRayLocalOrigin = new THREE.Vector3();
-const terrainRayLocalPoint = new THREE.Vector3();
-const terrainRayLocalDirection = new THREE.Vector3();
-const terrainSurfacePoint = new THREE.Vector3();
-const TERRAIN_EQUATORIAL_RADIUS = WGS84_A_KM / EARTH_MEAN_RADIUS_KM;
-const TERRAIN_POLAR_RADIUS = WGS84_B_KM / EARTH_MEAN_RADIUS_KM;
-const terrainFootprint: Array<{
-  latitudeDegrees: number;
-  longitudeDegrees: number;
-}> = [];
-let terrainFootprintLength = 0;
-const TERRAIN_NDC_SAMPLES = [-1, 0, 1] as const;
-
-function appendTerrainFootprint(viewCamera: THREE.Camera): void {
-  viewCamera.updateWorldMatrix(true, false);
-  viewCamera.getWorldPosition(terrainEyeWorldPosition);
-  for (const ndcY of TERRAIN_NDC_SAMPLES) {
-    for (const ndcX of TERRAIN_NDC_SAMPLES) {
-      terrainRayWorldPoint.set(ndcX, ndcY, 0.5).unproject(viewCamera);
-      terrainRayLocalOrigin.copy(terrainEyeWorldPosition);
-      planetRoot.worldToLocal(terrainRayLocalOrigin);
-      terrainRayLocalPoint.copy(terrainRayWorldPoint);
-      planetRoot.worldToLocal(terrainRayLocalPoint);
-      terrainRayLocalDirection
-        .subVectors(terrainRayLocalPoint, terrainRayLocalOrigin)
-        .normalize();
-      if (!intersectEllipsoidRay(
-        terrainRayLocalOrigin,
-        terrainRayLocalDirection,
-        TERRAIN_EQUATORIAL_RADIUS,
-        TERRAIN_POLAR_RADIUS,
-        terrainSurfacePoint,
-      )) continue;
-      const point = terrainFootprint[terrainFootprintLength] ?? {
-        latitudeDegrees: 0,
-        longitudeDegrees: 0,
-      };
-      terrainFootprint[terrainFootprintLength++] = point;
-      const horizontal = Math.hypot(
-        terrainSurfacePoint.x,
-        terrainSurfacePoint.z,
-      );
-      point.latitudeDegrees = THREE.MathUtils.radToDeg(Math.atan2(
-        terrainSurfacePoint.y /
-          (TERRAIN_POLAR_RADIUS * TERRAIN_POLAR_RADIUS),
-        horizontal /
-          (TERRAIN_EQUATORIAL_RADIUS * TERRAIN_EQUATORIAL_RADIUS),
-      ));
-      point.longitudeDegrees = THREE.MathUtils.radToDeg(
-        Math.atan2(-terrainSurfacePoint.z, terrainSurfacePoint.x),
-      );
-    }
-  }
-}
 
 function terrainViewMetrics(): {
   eyeHeightWorldM: number;
   focalLengthPixels: number;
-  footprint: readonly GeographicPoint[];
 } {
   const viewCamera = renderer.xr.isPresenting
     ? renderer.xr.getCamera()
     : camera;
   viewCamera.updateWorldMatrix(true, false);
   viewCamera.getWorldPosition(terrainEyeWorldPosition);
-  planetRoot.updateWorldMatrix(true, false);
-  terrainFootprintLength = 0;
-  if (viewCamera instanceof THREE.ArrayCamera) {
-    for (const eyeCamera of viewCamera.cameras) appendTerrainFootprint(eyeCamera);
-  } else {
-    appendTerrainFootprint(viewCamera);
-  }
-  terrainFootprint.length = terrainFootprintLength;
   // The local-floor reference space measures eye height from world y=0,
   // which is the un-displaced flat base surface used for terrain LOD.
   const eyeHeightWorldM = Math.max(0.001, terrainEyeWorldPosition.y);
@@ -750,7 +679,6 @@ function terrainViewMetrics(): {
   return {
     eyeHeightWorldM,
     focalLengthPixels: Math.max(1, focalLengthPixels),
-    footprint: terrainFootprint,
   };
 }
 
@@ -781,7 +709,6 @@ function updatePresentation(): void {
     radialMultiplier: state.radialMultiplier,
     observerHeightWorldM: view.eyeHeightWorldM,
     focalLengthPixels: view.focalLengthPixels,
-    footprint: view.footprint,
   });
   atmosphere.update({
     displayRadiusM: state.displayRadiusM,

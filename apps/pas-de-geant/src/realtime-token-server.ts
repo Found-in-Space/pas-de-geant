@@ -284,7 +284,7 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
           type: "function",
           name: "get_tile_planner_state",
           description:
-            "Read terrain and texture planner, visibility-admission, payload-request, and source-fetch state. Use this for loading progress, queued or in-flight work, completion, failures, and scheduler health. Tile payload requests and shared provider source jobs are distinct layers.",
+            "Read terrain and texture planner, horizon-culling, payload-request, and source-fetch state. Use this for loading progress, queued or in-flight work, completion, failures, and scheduler health. Tile payload requests and shared provider source jobs are distinct layers.",
           parameters: { type: "object", properties: {}, additionalProperties: false },
         },
         {
@@ -331,7 +331,7 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
           type: "function",
           name: "set_tile_recalculation",
           description:
-            "Enable or freeze topology-target recalculation for terrain, textures, or both. Current visibility admission continues following the view so offscreen work is still deferred.",
+            "Enable or freeze topology-target recalculation for terrain, textures, or both. Geometric horizon culling continues following observer location and eye height.",
           parameters: {
             type: "object",
             properties: {

@@ -102,7 +102,7 @@ export class TileTransitionScheduler<Target, Resource> {
   private readonly requirements = new Map<string, Requirement<Resource>>();
   private readonly committedResources = new Map<string, Resource | undefined>();
   private readonly hydratedCommitted = new Set<string>();
-  private visiblePlannerCandidates = new Set<string>();
+  private horizonPlannerCandidates = new Set<string>();
   private committed = new Map<string, TileIdentity>();
   private requested = new Map<string, TileIdentity>();
   private targetValue: Readonly<Target>;
@@ -221,26 +221,26 @@ export class TileTransitionScheduler<Target, Resource> {
   }
 
   /**
-   * Restricts resource work to the visible subset of planner-owned topology.
+   * Restricts resource work to the horizon-retained subset of planner topology.
    *
-   * Candidate keys do not themselves create work. A visible committed tile may
-   * be hydrated, and a visible transition group activates its planner-authored
-   * batch plus the batch dependencies already declared by the planner.
+   * Candidate keys do not themselves create work. A retained committed tile
+   * may be hydrated, and a retained transition group activates its complete
+   * planner-authored batch and dependency closure.
    */
-  updateVisibilityAdmission(
-    visibleTiles: Iterable<TileIdentity>,
+  updateHorizonCulling(
+    retainedTiles: Iterable<TileIdentity>,
     revision = this.revisionValue,
   ): boolean {
     if (revision !== this.revisionValue) return false;
     const plannerCandidates = this.plannerCandidateKeys();
-    const visible = new Set(
-      [...visibleTiles]
+    const retained = new Set(
+      [...retainedTiles]
         .map(tileIdentityKey)
         .filter((key) => plannerCandidates.has(key)),
     );
-    if (this.keysEqual(this.visiblePlannerCandidates, visible)) return false;
-    this.visiblePlannerCandidates = visible;
-    this.reconcileAdmission();
+    if (this.keysEqual(this.horizonPlannerCandidates, retained)) return false;
+    this.horizonPlannerCandidates = retained;
+    this.reconcileHorizonCulling();
     return true;
   }
 
@@ -281,11 +281,10 @@ export class TileTransitionScheduler<Target, Resource> {
 
   private replan(): void {
     this.graphValue = planTransition(this.committed.values(), this.requested.values());
-    // Admission was classified against the previous planner revision. Even
-    // overlapping tile keys must remain deferred until the current revision
-    // is classified and admitted explicitly.
-    this.visiblePlannerCandidates.clear();
-    this.reconcileAdmission();
+    // Horizon classification belongs to a planner revision. The main thread
+    // will classify the new planner-owned candidates before work continues.
+    this.horizonPlannerCandidates.clear();
+    this.reconcileHorizonCulling();
   }
 
   private plannerCandidateKeys(): ReadonlySet<string> {
@@ -297,58 +296,63 @@ export class TileTransitionScheduler<Target, Resource> {
     return keys;
   }
 
-  private restrictVisibilityToCurrentPlan(): void {
+  private restrictHorizonToCurrentPlan(): void {
     const plannerCandidates = this.plannerCandidateKeys();
-    this.visiblePlannerCandidates = new Set(
-      [...this.visiblePlannerCandidates].filter((key) =>
+    this.horizonPlannerCandidates = new Set(
+      [...this.horizonPlannerCandidates].filter((key) =>
         plannerCandidates.has(key)
       ),
     );
   }
 
-  private admittedBatchIds(): ReadonlySet<string> {
+  private horizonBatchIds(): ReadonlySet<string> {
     const groupsById = new Map(
       this.graphValue.groups.map((group) => [group.id, group] as const),
     );
     const batchesById = new Map(
       this.graphValue.batches.map((batch) => [batch.id, batch] as const),
     );
-    const admitted = new Set<string>();
-    const admit = (batchId: string): void => {
-      if (admitted.has(batchId)) return;
+    const retained = new Set<string>();
+    const retain = (batchId: string): void => {
+      if (retained.has(batchId)) return;
       const batch = batchesById.get(batchId);
       if (!batch) return;
-      admitted.add(batchId);
-      for (const dependency of batch.dependsOn) admit(dependency);
+      retained.add(batchId);
+      for (const dependency of batch.dependsOn) retain(dependency);
     };
     for (const batch of this.graphValue.batches) {
-      const visible = batch.groupIds.some((groupId) => {
+      const intersectsHorizon = batch.groupIds.some((groupId) => {
         const group = groupsById.get(groupId);
         return group !== undefined && [...group.before, ...group.after].some(
-          (tile) => this.visiblePlannerCandidates.has(tileIdentityKey(tile)),
+          (tile) => this.horizonPlannerCandidates.has(tileIdentityKey(tile)),
         );
       });
-      if (visible) admit(batch.id);
+      if (intersectsHorizon) retain(batch.id);
     }
-    return admitted;
+    return retained;
   }
 
-  private reconcileAdmission(): void {
+  private reconcileHorizonCulling(): void {
+    for (const key of this.committed.keys()) {
+      if (this.horizonPlannerCandidates.has(key)) continue;
+      this.hydratedCommitted.delete(key);
+      this.committedResources.set(key, undefined);
+    }
     const needed = new Map<
       string,
       { readonly tile: TileIdentity; readonly kind: Requirement<Resource>["kind"] }
     >();
     for (const [key, tile] of this.committed) {
       if (
-        this.visiblePlannerCandidates.has(key) &&
+        this.horizonPlannerCandidates.has(key) &&
         !this.hydratedCommitted.has(key)
       ) {
         needed.set(key, { tile, kind: "committed" });
       }
     }
-    const admittedBatchIds = this.admittedBatchIds();
+    const horizonBatchIds = this.horizonBatchIds();
     for (const batch of this.graphValue.batches) {
-      if (!admittedBatchIds.has(batch.id)) continue;
+      if (!horizonBatchIds.has(batch.id)) continue;
       for (const groupId of batch.groupIds) {
         const group = this.groupById(groupId);
         for (const tile of group.after) {
@@ -482,7 +486,7 @@ export class TileTransitionScheduler<Target, Resource> {
         const event = this.commitBatch(batch);
         this.reconcileAfterCommit();
         // Publish only after the next progressive stage's exact requirements
-        // exist, so main-thread admission cannot see a transient empty set.
+        // exist, so horizon culling cannot observe a transient empty set.
         this.notify("atomic-swap", event);
       }
     } finally {
@@ -526,7 +530,7 @@ export class TileTransitionScheduler<Target, Resource> {
   }
 
   private reconcileAfterCommit(): void {
-    this.restrictVisibilityToCurrentPlan();
-    this.reconcileAdmission();
+    this.restrictHorizonToCurrentPlan();
+    this.reconcileHorizonCulling();
   }
 }

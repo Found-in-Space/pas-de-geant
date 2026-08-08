@@ -59,7 +59,7 @@ session, disables walking and controller-driven scale changes, resets the
 render/tile controls, and moves to an exact location. Let both planner queues
 reach zero, freeze topology-target recalculation with
 `setTileRecalculation("both", false)`, then clear the metrics before sampling.
-Visibility admission remains live while topology is frozen. `endBenchmark()`
+Geometric horizon culling remains live while topology is frozen. `endBenchmark()`
 restores the captured location, scale, inputs, layers, and tile controls. A
 useful high-load, near-sea-level case is Pisa at scale 2500:
 
@@ -141,7 +141,7 @@ and tuned without changing the other. Terrain elevation never feeds back into
 LOD selection.
 
 The embedded Blue Marble is immediate, complete fallback imagery. Mapterhorn
-Terrarium pages hydrate only visible members of the planner-owned committed
+Terrarium pages hydrate only horizon-retained members of the planner-owned committed
 terrain cut. The photographic pipeline loads and commits independently, and a
 fragment can resolve a finer imagery page than the terrain mesh containing it.
 Elevation is required before a new terrain replacement commits. A confirmed
@@ -307,17 +307,17 @@ URLs aloud.
 The voice guide can read and tune the terrain and photographic tile pipelines
 while the app is running. Ask it to change screen pixels per source pixel or
 set or clear a topology max-z for terrain, textures, or both. Payload work is
-always restricted to the current visible subset of planner-owned topology and
-replacement groups.
+restricted to planner-owned topology and replacement groups that intersect the
+geometric surface horizon.
 
 Terrain and texture topology-target recalculation can be frozen independently
 to inspect one planned world selection while the other continues replanning.
 For example, ask “freeze terrain recalculation” or “resume texture
-recalculation.” Current visibility admission always follows the view while a
-target is frozen, so offscreen planner work can still be deferred; re-enabling
-a pipeline immediately applies the latest topology target. The guide reads the
-controls before reporting them and returns the effective terrain and texture
-target zooms after each change.
+recalculation.” Horizon culling continues to follow observer location and eye
+height while a target is frozen, so beyond-horizon planner work can remain
+deferred; re-enabling a pipeline immediately applies the latest topology
+target. The guide reads the controls before reporting them and returns the
+effective terrain and texture target zooms after each change.
 
 Ask “what is the tile planner waiting for?” or “are texture tiles still
 loading?” to read planner and scheduler state. The report separates topology

@@ -57,11 +57,10 @@ import {
   tileTopologySelectionChanged,
   type TilePipelineDebugControls,
 } from "./tile-debug-controls.js";
-import { TileVisibilityAdmission } from "./tile-visibility-admission.js";
 import {
-  sameTileKeys,
-  type ViewVisibilityInput,
-} from "./view-visibility.js";
+  TileHorizonCulling,
+  type TileHorizonView,
+} from "./tile-horizon-culling.js";
 
 export {
   configuredXyzImageryProvider,
@@ -75,6 +74,15 @@ const IMAGERY_GUTTER_PIXELS = 8;
 const MAX_CONCURRENT_REQUESTS = 6;
 const MAX_UPLOADS_PER_FRAME = 2;
 const TRANSIENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
+
+function sameTileKeys(
+  first: ReadonlySet<string>,
+  second: ReadonlySet<string>,
+): boolean {
+  if (first.size !== second.size) return false;
+  for (const key of first) if (!second.has(key)) return false;
+  return true;
+}
 
 function imageryFailureMetadata(
   error: unknown,
@@ -779,16 +787,6 @@ export interface ImageryMigrationUploadDemandPlan {
   readonly validReusedUploadCount: number;
 }
 
-/** Adds new tree demand without releasing any page uploaded this session. */
-export function retainedImageryPoolDemand(
-  activeSlots: ReadonlyMap<string, number>,
-  demandedKeys: Iterable<string>,
-): Set<string> {
-  const retained = new Set(activeSlots.keys());
-  for (const key of demandedKeys) retained.add(key);
-  return retained;
-}
-
 /** Separates valid reused uploads from pages requiring current data. */
 export function planImageryMigrationUploadDemand(
   demandedKeys: Iterable<string>,
@@ -843,19 +841,14 @@ export function planImageryPoolMigrationRetarget(
 }
 
 /**
- * Grow only by the slots this transition cannot stage in the current pool.
- * The current capacity is a floor, so a smaller later cut never causes churn.
+ * A replacement pool contains exactly one layer per candidate source. The
+ * visible pool remains alive until publication, so no outgoing page needs a
+ * slot in the replacement allocation.
  */
-export function imageryPoolGrowthCapacity(
-  activeCapacity: number,
+export function imageryReplacementPoolCapacity(
   demandedCount: number,
-  requiredAdditionalSlots: number,
 ): number {
-  return Math.max(
-    activeCapacity,
-    demandedCount,
-    activeCapacity + requiredAdditionalSlots,
-  );
+  return Math.max(1, demandedCount);
 }
 
 /**
@@ -914,19 +907,21 @@ export class ImageryVirtualTexture {
   private migration?: PoolMigration;
   private activeTreeTextures: ImageryTreeTextures;
   private committedRoot: ImageryTreeNode = BLUE_MARBLE_IMAGERY_NODE;
+  private committedSourceKeys = new Set<string>();
   private desiredRoot: DesiredImageryTree = Object.freeze({
     image: BLUE_MARBLE_IMAGERY_KEY,
     fallbackFromNotFound: false,
   });
+  private desiredSourceKeys = new Set<string>();
   private readonly tileSize: number;
   private readonly paddedSize: number;
   private readonly unsubscribe?: () => void;
   private snapshot: SchedulerSnapshot<TileLayoutTarget>;
   private target: TileLayoutTarget;
   private desiredZoom: number | undefined;
-  private readonly visibilityAdmission = new TileVisibilityAdmission();
+  private readonly horizonCulling = new TileHorizonCulling();
   private nextPoolGeneration = 1;
-  private visibilityInput?: ViewVisibilityInput;
+  private horizonView?: TileHorizonView;
   private uploadTotal = 0;
   private targetSubmissionTotal = 0;
   private targetSubmissionSuppressedTotal = 0;
@@ -944,7 +939,7 @@ export class ImageryVirtualTexture {
     private readonly renderer: THREE.WebGLRenderer,
     blueMarble: THREE.Texture,
     imageryProvider?: ImageryProvider,
-    initialView: ImageryView = {
+    initialView: ImageryView & { readonly observerHeightWorldM?: number } = {
       displayRadiusM: 1,
       latitudeDegrees: 0,
       longitudeDegrees: 0,
@@ -1011,19 +1006,19 @@ export class ImageryVirtualTexture {
         (blob, tileSize, signal) =>
           this.workerClient!.decode(blob, tileSize, signal),
       );
-      this.visibilityInput = {
-        footprint: [],
+      this.horizonView = {
+        ...initialView,
+        observerHeightWorldM: initialView.observerHeightWorldM ?? 0,
       };
       this.scheduler = new TileWorkerScheduler(this.target, {
         provider: this.provider,
-        resourceRetention: "session",
         retryDelayMs: 5_000,
         retryMaxDelayMs: TRANSIENT_RETRY_MAX_DELAY_MS,
       });
       this.snapshot = this.scheduler.snapshot;
       this.unsubscribe = this.scheduler.subscribe((snapshot, event) => {
         this.snapshot = snapshot;
-        this.applyVisibilityAdmission();
+        this.applyHorizonCulling();
         if (event?.kind === "response") {
           if (event.tile) this.stage(this.scheduler!.committedResource(event.tile));
           else {
@@ -1067,12 +1062,15 @@ export class ImageryVirtualTexture {
 
   update(
     view: ImageryView,
-    visibilityInput?: ViewVisibilityInput,
+    horizonView?: TileHorizonView,
     options: ImageryVirtualTextureUpdateOptions = {},
   ): void {
     if (!this.scheduler || !this.provider) return;
-    this.visibilityInput = visibilityInput ?? { footprint: [] };
-    this.applyVisibilityAdmission();
+    this.horizonView = horizonView ?? {
+      ...view,
+      observerHeightWorldM: this.horizonView?.observerHeightWorldM ?? 0,
+    };
+    this.applyHorizonCulling();
     if (options.recalculateTopology === false) {
       this.processUploads();
       return;
@@ -1117,8 +1115,6 @@ export class ImageryVirtualTexture {
       this.desiredZoom = undefined;
     }
     this.debugControls = { ...controls };
-    this.visibilityAdmission.invalidate();
-    this.applyVisibilityAdmission();
   }
 
   getTargetZoom(): number {
@@ -1127,17 +1123,15 @@ export class ImageryVirtualTexture {
 
   getPlannerState() {
     const payloadRequests = this.scheduler?.debugState ?? {
-      planner_admission: { requested: 0, in_flight: 0, total_outstanding: 0 },
-      total: { requested: 0, in_flight: 0, total_outstanding: 0 },
+      planner_requests: { requested: 0, in_flight: 0, total_outstanding: 0 },
       resident_payload_count: 0,
-      session_retained_payload_count: 0,
-      admitted_candidate_count: 0,
-      resource_retention: "session" as const,
+      working_set_payload_count: 0,
+      horizon_candidate_count: 0,
       resource_releases: {
         total: 0,
         discard: 0,
         cancel: 0,
-        topology: 0,
+        eviction: 0,
       },
       target_submission: { pending: false, in_flight: false },
       retry: {
@@ -1151,7 +1145,7 @@ export class ImageryVirtualTexture {
     };
     const provider = this.provider?.metrics;
     const metrics = this.getMetrics();
-    const visibility = this.visibilityAdmission.metrics;
+    const horizon = this.horizonCulling.metrics;
     return {
       recalculation_enabled: this.debugControls.recalculationEnabled,
       effective_target: { ...this.target },
@@ -1164,10 +1158,10 @@ export class ImageryVirtualTexture {
         cache_hit_total: provider?.cacheHitTotal ?? 0,
         network_deferred: provider?.networkDeferred ?? 0,
       },
-      visibility_admission: {
-        visible_planner_tile_count: visibility.visibleTileCount,
-        admitted_candidate_count:
-          payloadRequests.admitted_candidate_count,
+      horizon_culling: {
+        retained_planner_tile_count: horizon.horizonTileCount,
+        horizon_candidate_count:
+          payloadRequests.horizon_candidate_count,
         committed_topology_tile_count: this.snapshot.committedCut.length,
       },
       imagery_uploads: {
@@ -1175,9 +1169,8 @@ export class ImageryVirtualTexture {
         pool_capacity: metrics.poolCapacity,
         pool_used: metrics.poolUsed,
         pool_free: metrics.poolFree,
-        session_retained_source_page_count:
-          metrics.retainedSourcePageCount,
-        session_retained_gpu_page_count: metrics.retainedGpuPageCount,
+        resident_source_page_count: metrics.residentSourcePageCount,
+        resident_gpu_page_count: metrics.residentGpuPageCount,
         migration_active: this.migration !== undefined,
         migration_layer_count: metrics.migrationLayerCount,
         migration_superseded_total: this.migrationSupersededTotal,
@@ -1185,7 +1178,7 @@ export class ImageryVirtualTexture {
         migration_obsolete_upload_avoided_total:
           this.migrationObsoleteUploadAvoidedTotal,
       },
-      admission_updates: {
+      planner_updates: {
         target_submission_total: this.targetSubmissionTotal,
         target_submission_suppressed_total:
           this.targetSubmissionSuppressedTotal,
@@ -1195,14 +1188,14 @@ export class ImageryVirtualTexture {
 
   getMetrics(): {
     committedLeafCount: number;
-    visibleTileCount: number;
+    horizonTileCount: number;
     recordCount: number;
     activeLayerCount: number;
     poolCapacity: number;
     poolUsed: number;
     poolFree: number;
-    retainedSourcePageCount: number;
-    retainedGpuPageCount: number;
+    residentSourcePageCount: number;
+    residentGpuPageCount: number;
     migrationLayerCount: number;
     requestTotal: number;
     sourceLoadTotal: number;
@@ -1210,7 +1203,7 @@ export class ImageryVirtualTexture {
     uploadTotal: number;
     estimatedCpuBytes: number;
     estimatedGpuBytes: number;
-    visibilityClassificationTotal: number;
+    horizonClassificationTotal: number;
     targetSubmissionTotal: number;
     targetSubmissionSuppressedTotal: number;
     sourceCancellationTotal: number;
@@ -1219,21 +1212,21 @@ export class ImageryVirtualTexture {
     migrationObsoleteUploadAvoidedTotal: number;
   } {
     const provider = this.provider?.metrics;
-    const visibility = this.visibilityAdmission.metrics;
+    const horizon = this.horizonCulling.metrics;
     const mipBytesPerLayer = imageryMipDimensions(
       this.paddedSize,
       this.paddedSize,
     ).reduce((total, level) => total + level.width * level.height * 4, 0);
     return {
       committedLeafCount: this.snapshot.committedCut.length,
-      visibleTileCount: visibility.visibleTileCount,
+      horizonTileCount: horizon.horizonTileCount,
       recordCount: this.records.size,
       activeLayerCount: this.activePool.layers,
       poolCapacity: this.activePool.layers,
       poolUsed: this.activePool.layers - this.activePool.freeSlots.length,
       poolFree: this.activePool.freeSlots.length,
-      retainedSourcePageCount: this.records.size,
-      retainedGpuPageCount: this.activePool.slots.size,
+      residentSourcePageCount: this.records.size,
+      residentGpuPageCount: this.activePool.slots.size,
       migrationLayerCount: this.migration?.replacesActivePool
         ? this.migration.pool.layers
         : 0,
@@ -1247,7 +1240,7 @@ export class ImageryVirtualTexture {
           ? this.migration.pool.layers
           : 0)) *
         mipBytesPerLayer,
-      visibilityClassificationTotal: visibility.classificationTotal,
+      horizonClassificationTotal: horizon.classificationTotal,
       targetSubmissionTotal: this.targetSubmissionTotal,
       targetSubmissionSuppressedTotal: this.targetSubmissionSuppressedTotal,
       sourceCancellationTotal: provider?.sourceCancellationTotal ?? 0,
@@ -1375,6 +1368,7 @@ export class ImageryVirtualTexture {
           candidateRoot,
           imageryTreeSourceKeys(candidateRoot),
         );
+        this.pruneRecords();
       }
       this.uploadPendingChains(
         this.migration,
@@ -1402,6 +1396,13 @@ export class ImageryVirtualTexture {
           this.activePool,
         );
       }
+      const compactCapacity = imageryReplacementPoolCapacity(candidateKeys.size);
+      if (this.activePool.layers > compactCapacity) {
+        this.startMigration(candidateRoot, candidateKeys);
+        this.uploadPendingChains(this.migration!, MAX_UPLOADS_PER_FRAME);
+        if (this.migrationComplete()) this.promoteMigration();
+      }
+      this.pruneRecords();
       return;
     }
 
@@ -1412,6 +1413,7 @@ export class ImageryVirtualTexture {
       MAX_UPLOADS_PER_FRAME,
     );
     if (this.migrationComplete()) this.promoteMigration();
+    this.pruneRecords();
   }
 
   private stitchNeighbours(record: PageRecord): void {
@@ -1483,30 +1485,24 @@ export class ImageryVirtualTexture {
     root: ImageryTreeNode,
     demanded: Set<string>,
   ): void {
-    const retainedDemand = retainedImageryPoolDemand(
-      this.activePool.slots,
-      demanded,
-    );
     const revisions = new Map<string, number>();
-    for (const key of retainedDemand) {
+    for (const key of demanded) {
       revisions.set(key, this.records.get(key)?.revision ?? 0);
     }
     const retained = planImageryPoolMigration(
       this.activePool.slots,
       this.activePool.uploadedRevisions,
-      retainedDemand,
+      demanded,
       revisions,
     );
-    const replacesActivePool = retained.requiredAdditionalSlots >
-      this.activePool.freeSlots.length;
-    // DataArrayTexture storage cannot grow in place. Preserve the existing
-    // capacity and add only the slots this candidate could not stage there.
+    const candidateCapacity = imageryReplacementPoolCapacity(demanded.size);
+    const replacesActivePool =
+      retained.requiredAdditionalSlots > this.activePool.freeSlots.length ||
+      this.activePool.layers > candidateCapacity;
+    // DataArrayTexture storage cannot resize in place. A replacement remains
+    // separate from the visible generation until every candidate layer exists.
     const pool = replacesActivePool
-      ? this.createPool(imageryPoolGrowthCapacity(
-          this.activePool.layers,
-          Math.max(1, retainedDemand.size),
-          retained.requiredAdditionalSlots,
-        ))
+      ? this.createPool(candidateCapacity)
       : this.activePool;
     const slots = replacesActivePool
       ? new Map<string, number>()
@@ -1514,7 +1510,7 @@ export class ImageryVirtualTexture {
     const uploadedRevisions = replacesActivePool
       ? new Map<string, number>()
       : retained.uploadedRevisions;
-    for (const key of retainedDemand) {
+    for (const key of demanded) {
       if (slots.has(key)) continue;
       const slot = pool.freeSlots.pop();
       if (slot === undefined) {
@@ -1524,7 +1520,7 @@ export class ImageryVirtualTexture {
       slots.set(key, slot);
     }
     const uploadDemand = planImageryMigrationUploadDemand(
-      retainedDemand,
+      demanded,
       uploadedRevisions,
       revisions,
     );
@@ -1532,7 +1528,7 @@ export class ImageryVirtualTexture {
     this.migration = {
       pool,
       root,
-      demandedKeys: retainedDemand,
+      demandedKeys: demanded,
       slots,
       uploadedRevisions,
       pendingUploadKeys,
@@ -1617,19 +1613,23 @@ export class ImageryVirtualTexture {
     demanded: Set<string>,
   ): void {
     if (this.migration !== migration) return;
-    const retainedDemand = retainedImageryPoolDemand(
-      this.activePool.slots,
-      demanded,
-    );
     const demandChanged = !sameTileKeys(
       migration.demandedKeys,
-      retainedDemand,
+      demanded,
     );
     if (!demandChanged && root === migration.root) return;
     this.migrationSupersededTotal += 1;
+    if (
+      migration.replacesActivePool &&
+      migration.pool.layers !== imageryReplacementPoolCapacity(demanded.size)
+    ) {
+      this.abandonMigration(migration);
+      this.startMigration(root, demanded);
+      return;
+    }
     let avoided = 0;
     for (const key of migration.demandedKeys) {
-      if (retainedDemand.has(key)) continue;
+      if (demanded.has(key)) continue;
       const requiredRevision = this.records.get(key)?.revision ?? 0;
       if (
         requiredRevision > 0 &&
@@ -1644,14 +1644,14 @@ export class ImageryVirtualTexture {
       migration.slots,
       migration.uploadedRevisions,
       visibleSlots,
-      retainedDemand,
+      demanded,
     );
     if (
       plan.missingKeys.length >
         migration.pool.freeSlots.length + plan.releasedCandidateSlots.length
     ) {
       this.abandonMigration(migration);
-      this.startMigration(root, retainedDemand);
+      this.startMigration(root, demanded);
       return;
     }
     for (const slot of plan.releasedCandidateSlots) {
@@ -1665,7 +1665,7 @@ export class ImageryVirtualTexture {
       plan.slots.set(key, slot);
     }
     migration.root = root;
-    migration.demandedKeys = retainedDemand;
+    migration.demandedKeys = demanded;
     migration.slots.clear();
     for (const [key, slot] of plan.slots) migration.slots.set(key, slot);
     migration.uploadedRevisions.clear();
@@ -1673,11 +1673,11 @@ export class ImageryVirtualTexture {
       migration.uploadedRevisions.set(key, revision);
     }
     const requiredRevisions = new Map<string, number>();
-    for (const key of retainedDemand) {
+    for (const key of demanded) {
       requiredRevisions.set(key, this.records.get(key)?.revision ?? 0);
     }
     const uploadDemand = planImageryMigrationUploadDemand(
-      retainedDemand,
+      demanded,
       migration.uploadedRevisions,
       requiredRevisions,
     );
@@ -1740,20 +1740,20 @@ export class ImageryVirtualTexture {
     return true;
   }
 
-  private applyVisibilityAdmission(): void {
+  private applyHorizonCulling(): void {
     if (
       !this.scheduler ||
-      !this.visibilityInput ||
+      !this.horizonView ||
       this.snapshot.committedCut.length === 0
     ) return;
-    const visibleTiles = this.visibilityAdmission.update({
+    const retainedTiles = this.horizonCulling.update({
       revision: this.snapshot.revision,
       committedTiles: this.snapshot.committedCut,
       replacementGroups: this.snapshot.graph.groups,
-      view: this.visibilityInput,
+      view: this.horizonView,
     });
-    if (visibleTiles) {
-      this.scheduler.updateVisibilityAdmission(visibleTiles);
+    if (retainedTiles) {
+      this.scheduler.updateHorizonCulling(retainedTiles);
     }
   }
 
@@ -1793,6 +1793,7 @@ export class ImageryVirtualTexture {
   }
 
   private refreshDesiredTree(): void {
+    const sourceKeys = new Set<string>();
     this.desiredRoot = buildDesiredImageryTree(
       this.snapshot.committedCut,
       (tile) => {
@@ -1804,12 +1805,14 @@ export class ImageryVirtualTexture {
           };
         }
         const image = imageryKey(resource.sourceTile);
+        sourceKeys.add(image);
         return {
           image,
           fallbackFromNotFound: resource.fallbackFromNotFound === true,
         };
       },
     );
+    this.desiredSourceKeys = sourceKeys;
     this.candidateDirty = true;
   }
 
@@ -1866,6 +1869,7 @@ export class ImageryVirtualTexture {
   ): void {
     const previousTextures = this.activeTreeTextures;
     this.committedRoot = root;
+    this.committedSourceKeys = imageryTreeSourceKeys(root);
     this.activeTreeTextures = textures;
     this.activePool = pool;
     this.sharedUniforms.imageryTree!.value = textures.nodes;
@@ -1878,5 +1882,39 @@ export class ImageryVirtualTexture {
     this.sharedUniforms.imageryEnabled!.value = 1;
     previousTextures.nodes.dispose();
     previousTextures.images.dispose();
+    this.releasePoolSlots(pool, this.committedSourceKeys);
+    if (
+      pool.layers > imageryReplacementPoolCapacity(this.committedSourceKeys.size)
+    ) this.candidateDirty = true;
+    this.pruneRecords();
+  }
+
+  private releasePoolSlots(
+    pool: ImageryPool,
+    retained: ReadonlySet<string>,
+  ): void {
+    for (const [key, slot] of [...pool.slots]) {
+      if (retained.has(key)) continue;
+      pool.slots.delete(key);
+      pool.uploadedRevisions.delete(key);
+      pool.freeSlots.push(slot);
+    }
+  }
+
+  private pruneRecords(): void {
+    const retained = new Set([
+      ...this.committedSourceKeys,
+      ...this.desiredSourceKeys,
+      ...(this.migration?.demandedKeys ?? []),
+    ]);
+    if (this.scheduler) {
+      for (const tile of this.scheduler.workingSetTiles) {
+        const sourceTile = this.scheduler.committedResource(tile)?.sourceTile;
+        if (sourceTile) retained.add(imageryKey(sourceTile));
+      }
+    }
+    for (const key of [...this.records.keys()]) {
+      if (!retained.has(key)) this.records.delete(key);
+    }
   }
 }

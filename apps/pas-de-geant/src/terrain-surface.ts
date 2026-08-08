@@ -42,16 +42,15 @@ import {
   type TilePixelRatioArguments,
   type TileRecalculationArguments,
 } from "./tile-debug-controls.js";
-import { TileVisibilityAdmission } from "./tile-visibility-admission.js";
+import {
+  TileHorizonCulling,
+  type TileHorizonView,
+} from "./tile-horizon-culling.js";
 import {
   EARTH_MEAN_RADIUS_KM,
   WGS84_A_KM,
   WGS84_B_KM,
 } from "./planet-state.js";
-import {
-  type GeographicPoint,
-  type ViewVisibilityInput,
-} from "./view-visibility.js";
 
 const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 const SKIRT_DEPTH_WORLD_METRES = 0.02;
@@ -68,14 +67,12 @@ export interface TerrainSurfaceView {
   /** Eye height above the un-displaced, flat local surface in render metres. */
   readonly observerHeightWorldM: number;
   readonly focalLengthPixels: number;
-  /** Surface intersections/tangent points sampled from the active eye frusta. */
-  readonly footprint: readonly GeographicPoint[];
 }
 
 export interface TerrainRuntimeMetrics {
   readonly committedLeafCount: number;
-  readonly visibleTerrainTileCount: number;
-  readonly visibilityClassificationTotal: number;
+  readonly horizonTerrainTileCount: number;
+  readonly horizonClassificationTotal: number;
   readonly imagery: ReturnType<ImageryVirtualTexture["getMetrics"]>;
   readonly elevation: {
     readonly decodedSourceCount: number;
@@ -498,8 +495,8 @@ export class TerrainSurface {
   private readonly unsubscribe: () => void;
   private snapshot: SchedulerSnapshot<TileLayoutTarget>;
   private currentTarget: TileLayoutTarget;
-  private readonly visibilityAdmission = new TileVisibilityAdmission();
-  private visibilityInput: ViewVisibilityInput;
+  private readonly horizonCulling = new TileHorizonCulling();
+  private horizonView: TileHorizonView;
   private debugControls: TileDebugControls = createTileDebugControls();
   private latestView: TerrainSurfaceView;
 
@@ -528,12 +525,9 @@ export class TerrainSurface {
         maxTopologyZoom: this.debugControls.terrain.maxZoom,
       },
     );
-    this.visibilityInput = {
-      footprint: options.initialView.footprint,
-    };
+    this.horizonView = options.initialView;
     this.scheduler = new TileWorkerScheduler(this.currentTarget, {
       provider: this.provider,
-      resourceRetention: "topology",
       retryDelayMs: 5_000,
       retryMaxDelayMs: TRANSIENT_RETRY_MAX_DELAY_MS,
     });
@@ -562,12 +556,12 @@ export class TerrainSurface {
       displayRadiusM: options.initialView.displayRadiusM,
       latitudeDegrees: options.initialView.latitudeDegrees,
       longitudeDegrees: options.initialView.longitudeDegrees,
-    });
+    }, this.horizonView);
     this.unsubscribe = this.scheduler.subscribe((snapshot, event) => {
       const committedChanged =
         !event && !sameCut(this.snapshot.committedCut, snapshot.committedCut);
       this.snapshot = snapshot;
-      this.applyVisibilityAdmission();
+      this.applyHorizonCulling();
       if (
         event?.kind === "atomic-swap" ||
         event?.sequence === -1 ||
@@ -592,19 +586,15 @@ export class TerrainSurface {
       view.radialMultiplier / (EARTH_MEAN_RADIUS_KM * 1_000);
     this.sharedUniforms.normalizedSkirtDepth!.value =
       SKIRT_DEPTH_WORLD_METRES / view.displayRadiusM;
+    this.horizonView = view;
     this.imagery.update({
       displayRadiusM: view.displayRadiusM,
       latitudeDegrees: view.latitudeDegrees,
       longitudeDegrees: view.longitudeDegrees,
-    }, {
-      footprint: view.footprint,
-    }, {
+    }, this.horizonView, {
       recalculateTopology: this.debugControls.textures.recalculationEnabled,
     });
-    this.visibilityInput = {
-      footprint: view.footprint,
-    };
-    this.applyVisibilityAdmission();
+    this.applyHorizonCulling();
     if (!this.debugControls.terrain.recalculationEnabled) return;
     const target = terrainTargetForView(view, this.provider.tilePixels, {
       targetScreenPixelsPerSourcePixel:
@@ -628,11 +618,11 @@ export class TerrainSurface {
 
   getMetrics(): TerrainRuntimeMetrics {
     const elevation = this.provider.metrics;
-    const visibility = this.visibilityAdmission.metrics;
+    const horizon = this.horizonCulling.metrics;
     return {
       committedLeafCount: this.snapshot.committedCut.length,
-      visibleTerrainTileCount: visibility.visibleTileCount,
-      visibilityClassificationTotal: visibility.classificationTotal,
+      horizonTerrainTileCount: horizon.horizonTileCount,
+      horizonClassificationTotal: horizon.classificationTotal,
       imagery: this.imagery.getMetrics(),
       elevation: {
         decodedSourceCount: elevation.decodedSourceCount,
@@ -666,7 +656,7 @@ export class TerrainSurface {
   getTilePlannerState() {
     const payloadRequests = this.scheduler.debugState;
     const provider = this.provider.metrics;
-    const visibility = this.visibilityAdmission.metrics;
+    const horizon = this.horizonCulling.metrics;
     return {
       terrain: {
         recalculation_enabled:
@@ -679,10 +669,10 @@ export class TerrainSurface {
           network_deferred: provider.networkDeferred,
           in_flight: provider.inFlight,
         },
-        visibility_admission: {
-          visible_planner_tile_count: visibility.visibleTileCount,
-          admitted_candidate_count:
-            payloadRequests.admitted_candidate_count,
+        horizon_culling: {
+          retained_planner_tile_count: horizon.horizonTileCount,
+          horizon_candidate_count:
+            payloadRequests.horizon_candidate_count,
           committed_topology_tile_count: this.snapshot.committedCut.length,
         },
       },
@@ -769,30 +759,26 @@ export class TerrainSurface {
     }
   }
 
-  private applyVisibilityAdmission(): void {
+  private applyHorizonCulling(): void {
     if (
       this.snapshot.committedCut.length === 0
     ) return;
-    const visibleTiles = this.visibilityAdmission.update({
+    const retainedTiles = this.horizonCulling.update({
       revision: this.snapshot.revision,
       committedTiles: this.snapshot.committedCut,
       replacementGroups: this.snapshot.graph.groups,
-      view: this.visibilityInput,
+      view: this.horizonView,
     });
-    if (visibleTiles) {
-      this.scheduler.updateVisibilityAdmission(visibleTiles);
+    if (retainedTiles) {
+      this.scheduler.updateHorizonCulling(retainedTiles);
     }
-    this.provider.retainSourceTiles([
-      ...this.snapshot.committedCut,
-      ...this.snapshot.requirements.map(({ tile }) => tile),
-    ]);
+    this.provider.retainSourceTiles(this.scheduler.workingSetTiles);
   }
 
   private setDebugControls(
     controls: TileDebugControls,
   ): TileDebugControlsReadback {
     this.debugControls = controls;
-    this.visibilityAdmission.invalidate();
     this.imagery.setDebugControls(controls.textures);
     this.update(this.latestView);
     return this.getTileDebugControls();
@@ -911,10 +897,9 @@ export class TerrainSurface {
 
   private pruneStagedElevations(): void {
     if (this.stagedElevations.size === 0) return;
-    const liveKeys = new Set([
-      ...this.snapshot.committedCut,
-      ...this.snapshot.requirements.map(({ tile }) => tile),
-    ].map((tile) => tileIdentityKey(tile)));
+    const liveKeys = new Set(
+      this.scheduler.workingSetTiles.map(tileIdentityKey),
+    );
     for (const [key, image] of this.stagedElevations) {
       if (liveKeys.has(key)) continue;
       this.stagedElevations.delete(key);

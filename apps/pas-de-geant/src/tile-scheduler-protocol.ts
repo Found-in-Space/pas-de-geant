@@ -13,7 +13,7 @@ export type TileSchedulerCommand =
     }
   | { readonly kind: "target"; readonly target: TileLayoutTarget }
   | {
-      readonly kind: "visibility-admission";
+      readonly kind: "horizon-culling";
       readonly revision: number;
       readonly tiles: readonly TileIdentity[];
     }

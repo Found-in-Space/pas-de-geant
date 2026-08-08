@@ -85,7 +85,7 @@ function providerHarness<Resource>(): ProviderHarness<Resource> {
 }
 
 describe("Tile worker scheduler planner bridge", () => {
-  it("sends visibility admission to the worker and deduplicates identical sets", () => {
+  it("sends horizon culling to the worker and deduplicates identical sets", () => {
     const worker = new FakeWorker();
     const harness = providerHarness<string>();
     const scheduler = new TileWorkerScheduler(layoutTarget(2), {
@@ -95,23 +95,23 @@ describe("Tile worker scheduler planner bridge", () => {
     const first = { z: 2, x: 1, y: 1 };
     const second = { z: 2, x: 2, y: 1 };
 
-    scheduler.updateVisibilityAdmission([first, second]);
-    scheduler.updateVisibilityAdmission([second, first, first]);
+    scheduler.updateHorizonCulling([first, second]);
+    scheduler.updateHorizonCulling([second, first, first]);
 
     expect(worker.commands).toEqual([
       { kind: "initialize", target: layoutTarget(2) },
       {
-        kind: "visibility-admission",
+        kind: "horizon-culling",
         revision: -1,
         tiles: [first, second],
       },
     ]);
     expect(harness.requested).toEqual([]);
-    expect(scheduler.debugState.admitted_candidate_count).toBe(2);
+    expect(scheduler.debugState.horizon_candidate_count).toBe(2);
     scheduler.dispose();
   });
 
-  it("resends unchanged visible keys when the planner revision changes", () => {
+  it("resends unchanged horizon keys when the planner revision changes", () => {
     const worker = new FakeWorker();
     const harness = providerHarness<string>();
     const scheduler = new TileWorkerScheduler(layoutTarget(1), {
@@ -120,21 +120,21 @@ describe("Tile worker scheduler planner bridge", () => {
     });
     const tile = { z: 1, x: 0, y: 0 };
 
-    scheduler.updateVisibilityAdmission([tile]);
+    scheduler.updateHorizonCulling([tile]);
     worker.emit({ kind: "snapshot", snapshot: snapshot(0, [tile]) });
-    scheduler.updateVisibilityAdmission([tile]);
-    scheduler.updateVisibilityAdmission([tile]);
+    scheduler.updateHorizonCulling([tile]);
+    scheduler.updateHorizonCulling([tile]);
 
     expect(worker.commands.filter(({ kind }) =>
-      kind === "visibility-admission"
+      kind === "horizon-culling"
     )).toEqual([
-      { kind: "visibility-admission", revision: -1, tiles: [tile] },
-      { kind: "visibility-admission", revision: 0, tiles: [tile] },
+      { kind: "horizon-culling", revision: -1, tiles: [tile] },
+      { kind: "horizon-culling", revision: 0, tiles: [tile] },
     ]);
     scheduler.dispose();
   });
 
-  it("invokes the provider only for worker-admitted requests", () => {
+  it("invokes the provider only for planner-and-horizon requests", () => {
     const worker = new FakeWorker();
     const harness = providerHarness<string>();
     const scheduler = new TileWorkerScheduler(layoutTarget(0), {
@@ -144,7 +144,7 @@ describe("Tile worker scheduler planner bridge", () => {
     const planned = { z: 1, x: 0, y: 0 };
     const outside = { z: 8, x: 100, y: 100 };
 
-    scheduler.updateVisibilityAdmission([planned, outside]);
+    scheduler.updateHorizonCulling([planned, outside]);
     expect(harness.requested).toEqual([]);
     worker.emit({
       kind: "resource-request",
@@ -154,7 +154,7 @@ describe("Tile worker scheduler planner bridge", () => {
     });
 
     expect(harness.requested).toEqual([planned]);
-    expect(scheduler.debugState.planner_admission).toEqual({
+    expect(scheduler.debugState.planner_requests).toEqual({
       requested: 1,
       in_flight: 0,
       total_outstanding: 1,
@@ -225,7 +225,7 @@ describe("Tile worker scheduler planner bridge", () => {
         },
       ]);
     expect(scheduler.committedResource(tile)).toBe("synchronous");
-    expect(scheduler.debugState.total.total_outstanding).toBe(0);
+    expect(scheduler.debugState.planner_requests.total_outstanding).toBe(0);
     expect(cancel).not.toHaveBeenCalled();
     scheduler.dispose();
   });
@@ -244,11 +244,11 @@ describe("Tile worker scheduler planner bridge", () => {
     expect(harness.cancelled).toEqual([1]);
     expect(worker.commands.filter(({ kind }) => kind === "resource-result"))
       .toEqual([]);
-    expect(scheduler.debugState.total.total_outstanding).toBe(0);
+    expect(scheduler.debugState.planner_requests.total_outstanding).toBe(0);
     scheduler.dispose();
   });
 
-  it("allows admitted cache-first provider work during Retry-After backoff", () => {
+  it("allows planner-requested cache-first work during Retry-After backoff", () => {
     vi.useFakeTimers();
     try {
       const worker = new FakeWorker();
@@ -399,41 +399,40 @@ describe("Tile worker scheduler planner bridge", () => {
     scheduler.dispose();
   });
 
-  it("keeps completed and completing imagery session resources across visibility changes", () => {
+  it("evicts completed payloads and cancels completing work beyond the horizon", () => {
     const worker = new FakeWorker();
     const harness = providerHarness<string>();
     const scheduler = new TileWorkerScheduler(layoutTarget(1), {
       provider: harness.provider,
       createWorker: () => worker,
-      resourceRetention: "session",
     });
     const loaded = { z: 1, x: 0, y: 0 };
     const completing = { z: 1, x: 1, y: 0 };
+    scheduler.updateHorizonCulling([loaded, completing]);
     worker.emit({ kind: "resource-request", tile: loaded, key: "1/0/0", requestId: 1 });
     harness.observers[0]!({ phase: "response", resource: "loaded" });
     worker.emit({ kind: "resource-request", tile: completing, key: "1/1/0", requestId: 2 });
     harness.observers[1]!({ phase: "in-flight" });
-    worker.emit({ kind: "resource-cancel", key: "1/1/0", requestId: 2 });
-    scheduler.updateVisibilityAdmission([]);
+    scheduler.updateHorizonCulling([]);
     harness.observers[1]!({ phase: "response", resource: "completed" });
 
-    expect(harness.cancelled).toEqual([]);
-    expect(scheduler.committedResource(loaded)).toBe("loaded");
-    expect(scheduler.committedResource(completing)).toBe("completed");
-    expect(scheduler.debugState.session_retained_payload_count).toBe(2);
-
-    worker.emit({ kind: "resource-request", tile: loaded, key: "1/0/0", requestId: 3 });
-    expect(harness.requested).toEqual([loaded, completing]);
-    expect(worker.commands.at(-1)).toEqual({
-      kind: "resource-result",
-      key: "1/0/0",
-      requestId: 3,
-      result: { phase: "response", resource: undefined },
+    expect(harness.cancelled).toEqual([2]);
+    expect(scheduler.committedResource(loaded)).toBeUndefined();
+    expect(scheduler.committedResource(completing)).toBeUndefined();
+    expect(scheduler.debugState.resource_releases).toMatchObject({
+      total: 1,
+      eviction: 1,
     });
+
+    scheduler.updateHorizonCulling([loaded]);
+    worker.emit({ kind: "resource-request", tile: loaded, key: "1/0/0", requestId: 3 });
+    expect(harness.requested).toEqual([loaded, completing, loaded]);
+    harness.observers[2]!({ phase: "response", resource: "reloaded" });
+    expect(scheduler.committedResource(loaded)).toBe("reloaded");
     scheduler.dispose();
   });
 
-  it("preserves loaded imagery through a visibility change and provider outage", async () => {
+  it("does not pin an outgoing payload through an unrelated provider outage", async () => {
     const worker = new FakeWorker();
     const source: ImageryProvider = {
       id: "session-outage-fixture",
@@ -453,11 +452,10 @@ describe("Tile worker scheduler planner bridge", () => {
     const scheduler = new TileWorkerScheduler(layoutTarget(1), {
       provider,
       createWorker: () => worker,
-      resourceRetention: "session",
     });
     const loaded = { z: 1, x: 0, y: 0 };
     const outage = { z: 1, x: 1, y: 0 };
-    scheduler.updateVisibilityAdmission([loaded]);
+    scheduler.updateHorizonCulling([loaded]);
     worker.emit({
       kind: "resource-request",
       tile: loaded,
@@ -467,11 +465,9 @@ describe("Tile worker scheduler planner bridge", () => {
     await vi.waitFor(() =>
       expect(scheduler.committedResource(loaded)).toBeDefined()
     );
-    const retained = scheduler.committedResource(loaded);
-
-    scheduler.updateVisibilityAdmission([]);
-    expect(scheduler.committedResource(loaded)).toBe(retained);
-    scheduler.updateVisibilityAdmission([outage]);
+    scheduler.updateHorizonCulling([]);
+    expect(scheduler.committedResource(loaded)).toBeUndefined();
+    scheduler.updateHorizonCulling([outage]);
     worker.emit({
       kind: "resource-request",
       tile: outage,
@@ -480,9 +476,9 @@ describe("Tile worker scheduler planner bridge", () => {
     });
     await vi.waitFor(() => expect(provider.retryDiagnostics.state).toBe("open"));
 
-    expect(scheduler.committedResource(loaded)).toBe(retained);
+    expect(scheduler.committedResource(loaded)).toBeUndefined();
     expect(scheduler.committedResource(outage)).toBeUndefined();
-    expect(scheduler.debugState.session_retained_payload_count).toBe(1);
+    expect(scheduler.debugState.resident_payload_count).toBe(0);
     expect(worker.commands).toContainEqual(expect.objectContaining({
       kind: "resource-result",
       requestId: 2,
@@ -492,27 +488,41 @@ describe("Tile worker scheduler planner bridge", () => {
     provider.dispose();
   });
 
-  it("releases non-session payloads only when planner topology makes them obsolete", () => {
+  it("retains active replacement payloads and evicts them after ownership ends", () => {
     const worker = new FakeWorker();
     const harness = providerHarness<string>();
     const scheduler = new TileWorkerScheduler(layoutTarget(1), {
       provider: harness.provider,
       createWorker: () => worker,
-      resourceRetention: "topology",
     });
     const first = { z: 1, x: 0, y: 0 };
     const second = { z: 1, x: 1, y: 0 };
+    scheduler.updateHorizonCulling([first]);
     worker.emit({ kind: "resource-request", tile: first, key: "1/0/0", requestId: 1 });
     harness.observers[0]!({ phase: "response", resource: "first" });
-    scheduler.updateVisibilityAdmission([]);
-    expect(scheduler.committedResource(first)).toBe("first");
-
-    worker.emit({ kind: "snapshot", snapshot: snapshot(2, [second]) });
+    worker.emit({
+      kind: "snapshot",
+      snapshot: {
+        ...snapshot(1, [first]),
+        requirements: [{
+          tile: second,
+          state: "in-flight",
+          requestId: 2,
+        }],
+      },
+    });
+    worker.emit({ kind: "resource-request", tile: second, key: "1/1/0", requestId: 2 });
+    harness.observers[1]!({ phase: "response", resource: "second" });
+    scheduler.updateHorizonCulling([]);
 
     expect(scheduler.committedResource(first)).toBeUndefined();
+    expect(scheduler.committedResource(second)).toBe("second");
+    worker.emit({ kind: "snapshot", snapshot: snapshot(2, [second]) });
+
+    expect(scheduler.committedResource(second)).toBeUndefined();
     expect(scheduler.debugState.resource_releases).toMatchObject({
-      total: 1,
-      topology: 1,
+      total: 2,
+      eviction: 2,
     });
     scheduler.dispose();
   });

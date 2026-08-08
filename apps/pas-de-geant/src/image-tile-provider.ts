@@ -258,9 +258,9 @@ async function decodeBlobImage(
 }
 
 /**
- * Adapts real image loaders to the cancellable tile protocol. It
- * coalesces identical overzoomed source requests and retains decoded sources
- * so revisits can use the session memory cache.
+ * Adapts real image loaders to the cancellable tile protocol. It coalesces
+ * identical overzoomed source requests while retaining decoded sources only
+ * for the renderer's current working set.
  */
 export class ImageTileProvider implements TileProvider<ImageTileResource> {
   readonly mode: ImageTileKind;
@@ -323,7 +323,7 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
     return this.sourceQueue.retryDiagnostics;
   }
 
-  /** Retains decoded images only for the current view/transition working set. */
+  /** Retains decoded images for the planner-and-horizon working set. */
   retainSourceTiles(tiles: Iterable<TileIdentity>): void {
     const retained = new Set<string>();
     for (const tile of tiles) {

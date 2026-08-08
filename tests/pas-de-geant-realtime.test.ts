@@ -414,7 +414,7 @@ describe("Pas de Géant Realtime voice agent", () => {
     ]);
     expect(configuration.session.tools.find(
       ({ name }) => name === "get_tile_planner_state",
-    )?.description).toContain("visibility-admission");
+    )?.description).toContain("horizon-culling");
     const satelliteTool = configuration.session.tools.find(
       ({ name }) => name === "set_satellite_group_visibility",
     );

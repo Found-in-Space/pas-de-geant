@@ -93,8 +93,8 @@ scope.onmessage = ({ data }: MessageEvent<TileSchedulerCommand>) => {
     if (changed) post({ kind: "snapshot", snapshot: scheduler.snapshot });
     post({ kind: "target-applied", target: data.target });
   }
-  if (data.kind === "visibility-admission") {
-    if (scheduler.updateVisibilityAdmission(data.tiles, data.revision)) {
+  if (data.kind === "horizon-culling") {
+    if (scheduler.updateHorizonCulling(data.tiles, data.revision)) {
       post({ kind: "snapshot", snapshot: scheduler.snapshot });
     }
   }

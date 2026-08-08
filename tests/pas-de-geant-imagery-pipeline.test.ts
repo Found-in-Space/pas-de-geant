@@ -9,12 +9,11 @@ import {
   ScheduledImageryProvider,
   imageryLayerUploadPlan,
   imageryMigrationReady,
-  imageryPoolGrowthCapacity,
+  imageryReplacementPoolCapacity,
   imageryTargetForView,
   planImageryMigrationUploadDemand,
   planImageryPoolMigration,
   planImageryPoolMigrationRetarget,
-  retainedImageryPoolDemand,
   type ImageryWorkerPort,
 } from "../apps/pas-de-geant/src/imagery.js";
 import {
@@ -44,7 +43,7 @@ import {
   tileTopologySelectionChanged,
   withTilePixelRatio,
 } from "../apps/pas-de-geant/src/tile-debug-controls.js";
-import { TileVisibilityAdmission } from "../apps/pas-de-geant/src/tile-visibility-admission.js";
+import { TileHorizonCulling } from "../apps/pas-de-geant/src/tile-horizon-culling.js";
 import { TileTransitionScheduler } from "../apps/pas-de-geant/src/tile-transition-scheduler.js";
 import type { TileIdentity } from "../apps/pas-de-geant/src/tile-transition-planner.js";
 
@@ -78,17 +77,17 @@ function reconcileForTest(
 }
 
 describe("independent photographic imagery pipeline", () => {
-  it("refreshes visibility while topology recalculation is frozen", () => {
-    const updateVisibilityAdmission = vi.fn();
+  it("refreshes horizon culling while topology recalculation is frozen", () => {
+    const updateHorizonCulling = vi.fn();
     const updateTarget = vi.fn();
     const providerRequest = vi.fn();
     const texture = Object.create(ImageryVirtualTexture.prototype) as any;
-    texture.scheduler = { updateVisibilityAdmission, updateTarget };
+    texture.scheduler = { updateHorizonCulling, updateTarget };
     texture.provider = {
       request: providerRequest,
       source: { minZoom: 0, maxZoom: 4, tileSize: 512 },
     };
-    texture.visibilityAdmission = new TileVisibilityAdmission();
+    texture.horizonCulling = new TileHorizonCulling();
     texture.snapshot = {
       revision: 1,
       target: { maxZoom: 4, latitudeDegrees: 0, longitudeDegrees: 0 },
@@ -102,19 +101,29 @@ describe("independent photographic imagery pipeline", () => {
 
     texture.update(
       { displayRadiusM: 1_000, latitudeDegrees: -5, longitudeDegrees: 11.25 },
-      { footprint: [{ latitudeDegrees: -5, longitudeDegrees: 11.25 }] },
+      {
+        displayRadiusM: 1_000,
+        latitudeDegrees: -5,
+        longitudeDegrees: 11.25,
+        observerHeightWorldM: 1.65,
+      },
       { recalculateTopology: false },
     );
     texture.update(
       { displayRadiusM: 1_000, latitudeDegrees: 60, longitudeDegrees: 100 },
-      { footprint: [] },
+      {
+        displayRadiusM: 1_000,
+        latitudeDegrees: 60,
+        longitudeDegrees: 100,
+        observerHeightWorldM: 1.65,
+      },
       { recalculateTopology: false },
     );
 
-    expect(updateVisibilityAdmission).toHaveBeenNthCalledWith(1, [
+    expect(updateHorizonCulling).toHaveBeenNthCalledWith(1, [
       { z: 4, x: 8, y: 8 },
     ]);
-    expect(updateVisibilityAdmission).toHaveBeenNthCalledWith(2, []);
+    expect(updateHorizonCulling).toHaveBeenNthCalledWith(2, []);
     expect(updateTarget).not.toHaveBeenCalled();
     expect(providerRequest).not.toHaveBeenCalled();
     expect(texture.targetSubmissionTotal).toBe(0);
@@ -276,13 +285,9 @@ describe("independent photographic imagery pipeline", () => {
     )).toBe(true);
   });
 
-  it("keeps a visited GPU page upload-valid across a move-away and return", () => {
+  it("excludes an outgoing GPU page from later candidate generations", () => {
     const visitedSlots = new Map([["visited", 4]]);
     const visitedUploads = new Map([["visited", 3]]);
-    const awayDemand = retainedImageryPoolDemand(
-      visitedSlots,
-      ["away"],
-    );
     const awayRevisions = new Map([
       ["visited", 3],
       ["away", 1],
@@ -290,50 +295,35 @@ describe("independent photographic imagery pipeline", () => {
     const away = planImageryPoolMigration(
       visitedSlots,
       visitedUploads,
-      awayDemand,
+      ["away"],
       awayRevisions,
     );
-    expect(away.slots).toEqual(new Map([["visited", 4]]));
+    expect(away.slots).toEqual(new Map());
     expect(away.requiredAdditionalSlots).toBe(1);
 
-    const sessionSlots = new Map([
-      ["visited", 4],
-      ["away", 5],
-    ]);
-    const sessionUploads = new Map([
-      ["visited", 3],
-      ["away", 1],
-    ]);
-    const returnDemand = retainedImageryPoolDemand(
-      sessionSlots,
-      ["visited"],
-    );
+    const awaySlots = new Map([["away", 0]]);
+    const awayUploads = new Map([["away", 1]]);
     const returned = planImageryPoolMigration(
-      sessionSlots,
-      sessionUploads,
-      returnDemand,
+      awaySlots,
+      awayUploads,
+      ["visited"],
       awayRevisions,
     );
     const uploadDemand = planImageryMigrationUploadDemand(
-      returnDemand,
+      ["visited"],
       returned.uploadedRevisions,
       awayRevisions,
     );
 
-    expect(returned.requiredAdditionalSlots).toBe(0);
-    expect(returned.slots).toEqual(sessionSlots);
-    expect(uploadDemand.pendingKeys).toEqual([]);
+    expect(returned.requiredAdditionalSlots).toBe(1);
+    expect(returned.slots).toEqual(new Map());
+    expect(uploadDemand.pendingKeys).toEqual(["visited"]);
   });
 
-  it("grows pool capacity only by unstaged demand and never shrinks", () => {
-    // The active capacity remains the growth floor, with only the unstaged
-    // demand added as slack in the separately prepared replacement pool.
-    expect(imageryPoolGrowthCapacity(1, 5, 5)).toBe(6);
-
-    // A later overlapping transition adds room for only its two incoming or
-    // changed pages; a smaller fully retained cut keeps existing capacity.
-    expect(imageryPoolGrowthCapacity(6, 5, 2)).toBe(8);
-    expect(imageryPoolGrowthCapacity(8, 3, 0)).toBe(8);
+  it("sizes replacement GPU storage to the candidate generation", () => {
+    expect(imageryReplacementPoolCapacity(0)).toBe(1);
+    expect(imageryReplacementPoolCapacity(5)).toBe(5);
+    expect(imageryReplacementPoolCapacity(3)).toBe(3);
   });
 
   it("reuses partial uploads across repeated migration supersedes without releasing visible slots", () => {
@@ -452,7 +442,6 @@ describe("independent photographic imagery pipeline", () => {
       radialMultiplier: 1,
       observerHeightWorldM: 1.65,
       focalLengthPixels: 250,
-      footprint: [],
     };
     const terrain = terrainTargetForView(view, 512);
     const imageryZoom = selectImageryZoom({
@@ -482,7 +471,6 @@ describe("independent photographic imagery pipeline", () => {
       radialMultiplier: 1,
       observerHeightWorldM: 1.65,
       focalLengthPixels: 250,
-      footprint: [],
     };
     const terrain = terrainTargetForView(view, 512);
     const imagery = imageryTargetForView(view, terrain.maxZoom + 3);
@@ -586,7 +574,6 @@ describe("independent photographic imagery pipeline", () => {
       radialMultiplier: 1,
       observerHeightWorldM: 1.65,
       focalLengthPixels: 250,
-      footprint: [],
     };
     const dense = terrainTargetForView(view, 512, {
       targetScreenPixelsPerSourcePixel: 1,
@@ -908,7 +895,7 @@ describe("independent photographic imagery pipeline", () => {
     );
 
     scheduler.updateTarget("children");
-    scheduler.updateVisibilityAdmission(children);
+    scheduler.updateHorizonCulling(children);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(scheduler.snapshot.committedCut).toEqual(parent);
@@ -1303,7 +1290,7 @@ describe("independent photographic imagery pipeline", () => {
     );
 
     scheduler.updateTarget("child");
-    scheduler.updateVisibilityAdmission(child);
+    scheduler.updateHorizonCulling(child);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(scheduler.snapshot.committedCut).toEqual(parent);
     expect(scheduler.snapshot.requirements[0]?.state).toBe("failed");

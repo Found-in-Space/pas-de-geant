@@ -144,7 +144,7 @@ describe("Elevation tile provider", () => {
     );
 
     scheduler.updateTarget("children");
-    scheduler.updateVisibilityAdmission(children);
+    scheduler.updateHorizonCulling(children);
     for (const tile of children) {
       const key = tileIdentityKey(tile);
       if (key === "1/1/0") {

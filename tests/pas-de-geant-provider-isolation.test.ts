@@ -58,7 +58,7 @@ function elevationProvider(
 }
 
 describe("payload provider isolation", () => {
-  it("keeps off-plan admission out of both concrete provider paths", () => {
+  it("keeps off-plan horizon input out of both concrete provider paths", () => {
     const base: TileIdentity[] = [
       { z: 1, x: 0, y: 0 },
       { z: 1, x: 1, y: 0 },
@@ -104,8 +104,8 @@ describe("payload provider isolation", () => {
     );
     const outsidePlan = { z: 8, x: 100, y: 100 };
 
-    terrainScheduler.updateVisibilityAdmission([outsidePlan]);
-    imageryScheduler.updateVisibilityAdmission([outsidePlan]);
+    terrainScheduler.updateHorizonCulling([outsidePlan]);
+    imageryScheduler.updateHorizonCulling([outsidePlan]);
 
     expect(terrainLoad).not.toHaveBeenCalled();
     expect(imageryLoad).not.toHaveBeenCalled();

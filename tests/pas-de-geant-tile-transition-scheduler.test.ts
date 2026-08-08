@@ -19,7 +19,6 @@ import {
   type TileIdentity,
 } from "../apps/pas-de-geant/src/tile-transition-planner.js";
 import { calculateTileOnionPlan } from "../apps/pas-de-geant/src/tile-onion-core.js";
-import { TileVisibilityAdmission } from "../apps/pas-de-geant/src/tile-visibility-admission.js";
 
 function uniformCut(zoom: number): TileIdentity[] {
   const width = 2 ** zoom;
@@ -115,8 +114,8 @@ function createScheduler<Resource>(
   );
 }
 
-describe("planner-bounded tile transition admission", () => {
-  it("performs no work for offscreen planner groups or tiles outside planner output", () => {
+describe("planner-and-horizon tile transition scheduler", () => {
+  it("performs no work for beyond-horizon planner groups or tiles outside planner output", () => {
     const base = uniformCut(1);
     const desired = refine(base, base[0]!);
     const provider = new ControlledProvider();
@@ -127,17 +126,17 @@ describe("planner-bounded tile transition admission", () => {
     expect(scheduler.snapshot.requirements).toEqual([]);
     expect(provider.requested).toEqual([]);
 
-    scheduler.updateVisibilityAdmission([{ z: 8, x: 100, y: 100 }]);
+    scheduler.updateHorizonCulling([{ z: 8, x: 100, y: 100 }]);
     expect(scheduler.snapshot.requirements).toEqual([]);
     expect(provider.requested).toEqual([]);
   });
 
-  it("hydrates only visible members of the planner-owned committed cut", () => {
+  it("hydrates only horizon-retained members of the planner-owned committed cut", () => {
     const base = uniformCut(1);
     const provider = new ControlledProvider();
     const scheduler = createScheduler({ base }, provider);
 
-    scheduler.updateVisibilityAdmission([base[2]!, { z: 9, x: 1, y: 1 }]);
+    scheduler.updateHorizonCulling([base[2]!, { z: 9, x: 1, y: 1 }]);
 
     expect(provider.requested).toEqual([tileIdentityKey(base[2]!)]);
     expect(scheduler.snapshot.requirements.map(({ tile }) => tileIdentityKey(tile)))
@@ -152,7 +151,7 @@ describe("planner-bounded tile transition admission", () => {
     }
   });
 
-  it("activates exactly the full planner batch when one replacement is visible", () => {
+  it("activates the full planner batch when one replacement intersects the horizon", () => {
     const base = uniformCut(1);
     const desired = refine(base, base[0]!);
     const provider = new ControlledProvider();
@@ -161,7 +160,7 @@ describe("planner-bounded tile transition admission", () => {
     const graph = scheduler.snapshot.graph;
     expect(graph.batches).toHaveLength(1);
 
-    scheduler.updateVisibilityAdmission([graph.groups[0]!.after[0]!]);
+    scheduler.updateHorizonCulling([graph.groups[0]!.after[0]!]);
 
     const declared = graph.batches[0]!.groupIds.flatMap((groupId) =>
       graph.groups.find(({ id }) => id === groupId)!.after.map(tileIdentityKey)
@@ -189,23 +188,23 @@ describe("planner-bounded tile transition admission", () => {
     const selected = graph.batches.find(({ dependsOn }) => dependsOn.length > 0)!;
     expect(selected).toBeDefined();
     const batchesById = new Map(graph.batches.map((batch) => [batch.id, batch]));
-    const admittedBatchIds = new Set<string>();
+    const horizonBatchIds = new Set<string>();
     const include = (batchId: string): void => {
-      if (admittedBatchIds.has(batchId)) return;
+      if (horizonBatchIds.has(batchId)) return;
       const batch = batchesById.get(batchId)!;
-      admittedBatchIds.add(batchId);
+      horizonBatchIds.add(batchId);
       for (const dependencyId of batch.dependsOn) include(dependencyId);
     };
     include(selected.id);
-    expect(admittedBatchIds.size).toBeLessThan(graph.batches.length);
+    expect(horizonBatchIds.size).toBeLessThan(graph.batches.length);
     const selectedGroup = graph.groups.find(
       ({ id }) => selected.groupIds.includes(id),
     )!;
 
-    scheduler.updateVisibilityAdmission([selectedGroup.after[0]!]);
+    scheduler.updateHorizonCulling([selectedGroup.after[0]!]);
 
     const expected = graph.batches
-      .filter(({ id }) => admittedBatchIds.has(id))
+      .filter(({ id }) => horizonBatchIds.has(id))
       .flatMap(({ groupIds }) => groupIds)
       .flatMap((groupId) =>
         graph.groups.find(({ id }) => id === groupId)!.after.map(tileIdentityKey)
@@ -217,7 +216,7 @@ describe("planner-bounded tile transition admission", () => {
     );
   });
 
-  it("executes an admitted dependent batch chain as exact planner swaps", () => {
+  it("executes a horizon-retained dependent batch chain as exact planner swaps", () => {
     const base = calculateTileOnionPlan({
       latitudeDegrees: 20,
       longitudeDegrees: 179,
@@ -276,7 +275,7 @@ describe("planner-bounded tile transition admission", () => {
       }
       rememberBatches(nextSnapshot);
     });
-    scheduler.updateVisibilityAdmission(
+    scheduler.updateHorizonCulling(
       initialGraph.groups.flatMap(({ after }) => after),
     );
 
@@ -292,7 +291,7 @@ describe("planner-bounded tile transition admission", () => {
     expect(swaps).toEqual([]);
     while (scheduler.snapshot.graph.groups.length > 0) {
       if (provider.pendingKeys.length === 0) {
-        scheduler.updateVisibilityAdmission(
+        scheduler.updateHorizonCulling(
           scheduler.snapshot.graph.groups.flatMap(({ after }) => after),
           scheduler.snapshot.revision,
         );
@@ -313,7 +312,7 @@ describe("planner-bounded tile transition admission", () => {
     expect(scheduler.snapshot.graph.groups).toEqual([]);
   });
 
-  it("changes admission by intersection only and cancels removed work without failing it", () => {
+  it("changes horizon retention by intersection and cancels removed work without failing it", () => {
     const base = uniformCut(1);
     const desired = refine(refine(base, base[0]!), base[3]!);
     const provider = new ControlledProvider();
@@ -324,13 +323,13 @@ describe("planner-bounded tile transition admission", () => {
     });
     scheduler.updateTarget("desired");
     const firstGroup = scheduler.snapshot.graph.groups[0]!;
-    const admittedKeys = firstGroup.after.map(tileIdentityKey).sort();
+    const horizonKeys = firstGroup.after.map(tileIdentityKey).sort();
 
-    scheduler.updateVisibilityAdmission([firstGroup.after[0]!]);
-    expect([...provider.requested].sort()).toEqual(admittedKeys);
-    scheduler.updateVisibilityAdmission([{ z: 7, x: 1, y: 1 }]);
+    scheduler.updateHorizonCulling([firstGroup.after[0]!]);
+    expect([...provider.requested].sort()).toEqual(horizonKeys);
+    scheduler.updateHorizonCulling([{ z: 7, x: 1, y: 1 }]);
 
-    expect([...provider.cancelled].sort()).toEqual(admittedKeys);
+    expect([...provider.cancelled].sort()).toEqual(horizonKeys);
     expect(scheduler.snapshot.requirements).toEqual([]);
     expect(scheduler.snapshot.graph.groups).not.toHaveLength(0);
     expect(events.filter(({ kind }) => kind === "failure")).toEqual([]);
@@ -344,7 +343,7 @@ describe("planner-bounded tile transition admission", () => {
     const scheduler = createScheduler({ base, desired }, provider);
     scheduler.updateTarget("desired");
     const group = scheduler.snapshot.graph.groups[0]!;
-    scheduler.updateVisibilityAdmission([group.after[0]!]);
+    scheduler.updateHorizonCulling([group.after[0]!]);
 
     for (const key of group.after.slice(0, -1).map(tileIdentityKey)) {
       provider.respond(key);
@@ -363,33 +362,33 @@ describe("planner-bounded tile transition admission", () => {
     expect(() => assertAdmissibleCut(scheduler.snapshot.committedCut)).not.toThrow();
   });
 
-  it("lets an independent visible group commit while an offscreen group stays unresolved", () => {
+  it("lets one horizon-retained group commit while a beyond-horizon group stays unresolved", () => {
     const base = uniformCut(1);
-    const offscreenParent = base[0]!;
-    const visibleParent = base[3]!;
-    const desired = refine(refine(base, offscreenParent), visibleParent);
+    const beyondHorizonParent = base[0]!;
+    const horizonParent = base[3]!;
+    const desired = refine(refine(base, beyondHorizonParent), horizonParent);
     const provider = new ControlledProvider();
     const scheduler = createScheduler({ base, desired }, provider);
     scheduler.updateTarget("desired");
-    const visibleGroup = scheduler.snapshot.graph.groups.find(
+    const horizonGroup = scheduler.snapshot.graph.groups.find(
       ({ before }) => before.some(
-        (tile) => tileIdentityKey(tile) === tileIdentityKey(visibleParent),
+        (tile) => tileIdentityKey(tile) === tileIdentityKey(horizonParent),
       ),
     )!;
 
-    scheduler.updateVisibilityAdmission([visibleGroup.after[0]!]);
-    for (const tile of visibleGroup.after) provider.respond(tileIdentityKey(tile));
+    scheduler.updateHorizonCulling([horizonGroup.after[0]!]);
+    for (const tile of horizonGroup.after) provider.respond(tileIdentityKey(tile));
 
     const committed = scheduler.snapshot.committedCut.map(tileIdentityKey);
-    expect(committed).toContain(tileIdentityKey(offscreenParent));
-    expect(committed).not.toContain(tileIdentityKey(visibleParent));
+    expect(committed).toContain(tileIdentityKey(beyondHorizonParent));
+    expect(committed).not.toContain(tileIdentityKey(horizonParent));
     expect(provider.requested.sort()).toEqual(
-      visibleGroup.after.map(tileIdentityKey).sort(),
+      horizonGroup.after.map(tileIdentityKey).sort(),
     );
     expect(scheduler.snapshot.graph.groups).not.toHaveLength(0);
   });
 
-  it("keeps a failed group local while another admitted group progresses", () => {
+  it("keeps a failed group local while another horizon-retained group progresses", () => {
     const base = uniformCut(1);
     const blockedParent = base[0]!;
     const freeParent = base[3]!;
@@ -404,7 +403,7 @@ describe("planner-bounded tile transition admission", () => {
     const free = groups.find(({ before }) =>
       before.some((tile) => tileIdentityKey(tile) === tileIdentityKey(freeParent))
     )!;
-    scheduler.updateVisibilityAdmission([blocked.after[0]!, free.after[0]!]);
+    scheduler.updateHorizonCulling([blocked.after[0]!, free.after[0]!]);
 
     provider.fail(tileIdentityKey(blocked.after[0]!));
     for (const tile of blocked.after.slice(1)) provider.respond(tileIdentityKey(tile));
@@ -421,26 +420,26 @@ describe("planner-bounded tile transition admission", () => {
     );
   });
 
-  it("drops out-of-plan admission across replans until the current plan is admitted", () => {
+  it("drops out-of-plan horizon input across replans until the current plan is classified", () => {
     const base = uniformCut(1);
     const desired = refine(base, base[0]!);
     const provider = new ControlledProvider();
     const scheduler = createScheduler({ base, desired }, provider);
-    const visibleReplacement = desired.find(({ z }) => z === 2)!;
-    scheduler.updateVisibilityAdmission([visibleReplacement]);
+    const horizonReplacement = desired.find(({ z }) => z === 2)!;
+    scheduler.updateHorizonCulling([horizonReplacement]);
     expect(provider.requested).toEqual([]);
 
     scheduler.updateTarget("desired");
 
     const group = scheduler.snapshot.graph.groups[0]!;
     expect(provider.requested).toEqual([]);
-    expect(scheduler.updateVisibilityAdmission(
+    expect(scheduler.updateHorizonCulling(
       [group.after[0]!],
       scheduler.snapshot.revision - 1,
     )).toBe(false);
     expect(provider.requested).toEqual([]);
 
-    scheduler.updateVisibilityAdmission(
+    scheduler.updateHorizonCulling(
       [group.after[0]!],
       scheduler.snapshot.revision,
     );
@@ -449,7 +448,7 @@ describe("planner-bounded tile transition admission", () => {
     expect(provider.requested).not.toContain("2/2/0");
   });
 
-  it("clears overlapping admission when a new planner revision is created", () => {
+  it("clears stale horizon retention when a new planner revision is created", () => {
     const base = uniformCut(1);
     const first = refine(base, base[0]!);
     const second = refine(first, base[3]!);
@@ -457,7 +456,7 @@ describe("planner-bounded tile transition admission", () => {
     const scheduler = createScheduler({ base, first, second }, provider);
     scheduler.updateTarget("first");
     const firstGroup = scheduler.snapshot.graph.groups[0]!;
-    scheduler.updateVisibilityAdmission([firstGroup.after[0]!]);
+    scheduler.updateHorizonCulling([firstGroup.after[0]!]);
     const firstRequests = firstGroup.after.map(tileIdentityKey).sort();
     expect([...provider.requested].sort()).toEqual(firstRequests);
 
@@ -470,21 +469,21 @@ describe("planner-bounded tile transition admission", () => {
     const overlappingGroup = scheduler.snapshot.graph.groups.find(({ before }) =>
       before.some((tile) => tileIdentityKey(tile) === tileIdentityKey(base[0]!))
     )!;
-    scheduler.updateVisibilityAdmission(
+    scheduler.updateHorizonCulling(
       [overlappingGroup.after[0]!],
       scheduler.snapshot.revision,
     );
     expect(provider.requested).toHaveLength(firstRequests.length * 2);
   });
 
-  it("keeps active admitted work intact when a new target has the same cut", () => {
+  it("keeps active horizon-retained work intact when a new target has the same cut", () => {
     const base = uniformCut(1);
     const desired = refine(base, base[0]!);
     const provider = new ControlledProvider();
     const scheduler = createScheduler({ base, desired, alias: desired }, provider);
     scheduler.updateTarget("desired");
     const group = scheduler.snapshot.graph.groups[0]!;
-    scheduler.updateVisibilityAdmission([group.after[0]!]);
+    scheduler.updateHorizonCulling([group.after[0]!]);
     const revision = scheduler.snapshot.revision;
     const requested = [...provider.requested];
     const requirementKeys = scheduler.snapshot.requirements
@@ -500,7 +499,7 @@ describe("planner-bounded tile transition admission", () => {
     ).sort()).toEqual(requirementKeys);
   });
 
-  it("does not request again because visibility changes after committed hydration", () => {
+  it("reloads committed hydration after it leaves and re-enters the horizon", () => {
     const base = uniformCut(1);
     const provider = new FakeTileProvider({ latencyMs: 1, jitterMs: 0 });
     const requested: string[] = [];
@@ -512,47 +511,15 @@ describe("planner-bounded tile transition admission", () => {
       provider as TileProvider<string | FakeTileResource>,
     );
 
-    scheduler.updateVisibilityAdmission([base[0]!]);
+    scheduler.updateHorizonCulling([base[0]!]);
     provider.advanceBy(1);
-    scheduler.updateVisibilityAdmission([]);
-    scheduler.updateVisibilityAdmission([base[0]!]);
+    scheduler.updateHorizonCulling([]);
+    scheduler.updateHorizonCulling([base[0]!]);
 
-    expect(requested).toEqual([tileIdentityKey(base[0]!)]);
+    expect(requested).toEqual([
+      tileIdentityKey(base[0]!),
+      tileIdentityKey(base[0]!),
+    ]);
   });
 
-  it("does not turn repeated movement or stopping updates into extra requests", () => {
-    const base = uniformCut(2);
-    const provider = new ControlledProvider();
-    const scheduler = createScheduler({ base }, provider);
-    const admission = new TileVisibilityAdmission();
-    const firstView = {
-      footprint: [{ latitudeDegrees: -10, longitudeDegrees: -135 }],
-    };
-    const stoppedView = {
-      footprint: [{ latitudeDegrees: -10, longitudeDegrees: -45 }],
-    };
-    const apply = (view: typeof firstView): void => {
-      const visible = admission.update({
-        revision: scheduler.snapshot.revision,
-        committedTiles: scheduler.snapshot.committedCut,
-        replacementGroups: scheduler.snapshot.graph.groups,
-        view,
-      });
-      if (visible) scheduler.updateVisibilityAdmission(visible);
-    };
-
-    apply(firstView);
-    for (let cadence = 0; cadence < 5; cadence += 1) apply(firstView);
-    expect(provider.requested).toHaveLength(1);
-    provider.respond(provider.requested[0]!);
-
-    apply(stoppedView);
-    for (let cadence = 0; cadence < 5; cadence += 1) apply(stoppedView);
-    expect(provider.requested).toHaveLength(2);
-    provider.respond(provider.requested[1]!);
-    for (let cadence = 0; cadence < 5; cadence += 1) apply(stoppedView);
-
-    expect(provider.requested).toHaveLength(2);
-    expect(new Set(provider.requested)).toEqual(new Set(["2/0/2", "2/1/2"]));
-  });
 });
