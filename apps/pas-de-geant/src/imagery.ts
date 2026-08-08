@@ -1,11 +1,9 @@
 import * as THREE from "three";
 import {
-  WEB_MERCATOR_MAX_LATITUDE,
   ancestorAtZoom,
   imageryKey,
   mercatorPointForImagery,
   normalizedMercatorYForLatitude,
-  renderedImageryTileWidthM,
   selectImageryZoom,
   wrapImageryX,
   type ImageryAddress,
@@ -45,10 +43,8 @@ import type {
   TileProviderResult,
   TileRequestHandle,
 } from "./tile-provider.js";
-import {
-  TileRequestCircuit,
-  type TileRequestFailureMetadata,
-} from "./tile-request-circuit.js";
+import type { TileRequestFailureMetadata } from "./tile-request-circuit.js";
+import { TileSourceLoadQueue } from "./tile-source-load-queue.js";
 import type { SchedulerSnapshot } from "./tile-transition-scheduler.js";
 import {
   tileIdentityKey,
@@ -58,20 +54,14 @@ import { TileWorkerScheduler } from "./tile-worker-scheduler.js";
 import { summarizeTilePlannerSnapshot } from "./tile-planner-state.js";
 import {
   DEFAULT_TILE_DEBUG_CONTROLS,
-  demandedPayloadTiles,
-  eligiblePayloadTiles,
   tileTopologySelectionChanged,
   type TilePipelineDebugControls,
 } from "./tile-debug-controls.js";
+import { TileVisibilityAdmission } from "./tile-visibility-admission.js";
 import {
-  classifyHotAndForecastResidency,
-  classifyWarmResidency,
-  hotResidencySignature,
-  sameResidencyKeys,
-  warmResidencySignature,
-  type MercatorForecastDisplacement,
-  type ViewResidencyInput,
-} from "./view-residency.js";
+  sameTileKeys,
+  type ViewVisibilityInput,
+} from "./view-visibility.js";
 
 export {
   configuredXyzImageryProvider,
@@ -81,14 +71,9 @@ export {
   type XyzImageryConfiguration,
 } from "./imagery-provider.js";
 export { normalizedMercatorYForLatitude } from "./imagery-core.js";
-
 const IMAGERY_GUTTER_PIXELS = 8;
 const MAX_CONCURRENT_REQUESTS = 6;
 const MAX_UPLOADS_PER_FRAME = 2;
-const IMAGERY_VELOCITY_FILTER_MS = 180;
-const FORECAST_QUANTIZATION_STEPS_PER_TILE = 2;
-const DEFAULT_ASSET_READY_MS = 750;
-const ASSET_READY_FILTER_WEIGHT = 0.2;
 const TRANSIENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
 
 function imageryFailureMetadata(
@@ -108,8 +93,13 @@ function imageryFailureMetadata(
         ? {}
         : { retryAfterMs: error.retryAfterMs }),
       ...(error.kind === "fatal" ? { retryable: false } : {}),
+      ...(error.kind === "not-found" ? { retryable: false } : {}),
     };
   }
+  // A statusless fetch rejection can still be an HTTP response whose status
+  // and Retry-After were hidden by a missing CORS allow-origin header (as with
+  // MapTiler/Cloudflare 429 responses). Treat it as a provider-wide network
+  // admission signal, but never as evidence that unattempted tiles failed.
   return { systemic: true };
 }
 
@@ -176,175 +166,6 @@ export interface ImageryCoordinateBounds {
   readonly south: number;
 }
 
-function wrappedLongitudeDeltaRadians(
-  firstLongitudeDegrees: number,
-  secondLongitudeDegrees: number,
-): number {
-  const radians = Math.PI / 180;
-  const rawLongitudeDelta =
-    (secondLongitudeDegrees - firstLongitudeDegrees) * radians;
-  return ((rawLongitudeDelta + Math.PI) % (Math.PI * 2) + Math.PI * 2) %
-      (Math.PI * 2) - Math.PI;
-}
-
-export interface ImageryMovementForecast {
-  readonly topologyZoom: number;
-  readonly velocityEastMps: number;
-  readonly velocityNorthMps: number;
-  readonly speedMps: number;
-  readonly estimatedReadyMs: number;
-  readonly predictedTravelM: number;
-  readonly finestTileWidthM: number;
-  readonly predictedTravelTileSpans: number;
-  readonly deferSpeculativeWarm: boolean;
-  readonly displacement: MercatorForecastDisplacement;
-  /** Changes only at half-fine-tile displacement boundaries. */
-  readonly signature: number;
-}
-
-/**
- * Predicts which warm imagery can be useful when its payload is ready. Motion
- * affects admission only; the returned topology zoom is always the planner's
- * desired zoom.
- */
-export class ImageryMovementAdmission {
-  private sampleLatitudeDegrees: number | undefined;
-  private sampleLongitudeDegrees = 0;
-  private sampleTimeMs: number | undefined;
-  private filteredVelocityEastMps = 0;
-  private filteredVelocityNorthMps = 0;
-  /** Reused because this policy is sampled on every rendered frame. */
-  private readonly forecastValue = {
-    topologyZoom: 0,
-    velocityEastMps: 0,
-    velocityNorthMps: 0,
-    speedMps: 0,
-    estimatedReadyMs: DEFAULT_ASSET_READY_MS,
-    predictedTravelM: 0,
-    finestTileWidthM: 1,
-    predictedTravelTileSpans: 0,
-    deferSpeculativeWarm: false,
-    displacement: { x: 0, y: 0 },
-    signature: 0,
-  };
-
-  constructor(initialView?: ImageryView) {
-    if (!initialView) return;
-    this.sampleLatitudeDegrees = initialView.latitudeDegrees;
-    this.sampleLongitudeDegrees = initialView.longitudeDegrees;
-  }
-
-  /** Live read-only view, reused across updates to avoid frame allocations. */
-  get forecast(): ImageryMovementForecast {
-    return this.forecastValue;
-  }
-
-  update(
-    view: ImageryView,
-    desiredZoom: number,
-    estimatedReadyMs: number,
-    nowMs: number,
-  ): ImageryMovementForecast {
-    if (this.sampleLatitudeDegrees === undefined) {
-      this.sampleLatitudeDegrees = view.latitudeDegrees;
-      this.sampleLongitudeDegrees = view.longitudeDegrees;
-      this.sampleTimeMs = nowMs;
-    } else if (this.sampleTimeMs === undefined) {
-      this.sampleTimeMs = nowMs;
-      this.sampleLatitudeDegrees = view.latitudeDegrees;
-      this.sampleLongitudeDegrees = view.longitudeDegrees;
-    } else {
-      const elapsedMs = nowMs - this.sampleTimeMs;
-      if (elapsedMs > 0) {
-        const radians = Math.PI / 180;
-        const radius = Math.max(0.001, view.displayRadiusM);
-        const meanLatitude = Math.max(
-          -WEB_MERCATOR_MAX_LATITUDE,
-          Math.min(
-            WEB_MERCATOR_MAX_LATITUDE,
-            (this.sampleLatitudeDegrees + view.latitudeDegrees) * 0.5,
-          ),
-        ) * radians;
-        const seconds = elapsedMs / 1_000;
-        const instantaneousEastMps = wrappedLongitudeDeltaRadians(
-          this.sampleLongitudeDegrees,
-          view.longitudeDegrees,
-        ) * Math.cos(meanLatitude) * radius / seconds;
-        const instantaneousNorthMps =
-          (view.latitudeDegrees - this.sampleLatitudeDegrees) * radians *
-          radius / seconds;
-        const filterWeight = 1 - Math.exp(
-          -elapsedMs / IMAGERY_VELOCITY_FILTER_MS,
-        );
-        this.filteredVelocityEastMps +=
-          (instantaneousEastMps - this.filteredVelocityEastMps) *
-          filterWeight;
-        this.filteredVelocityNorthMps +=
-          (instantaneousNorthMps - this.filteredVelocityNorthMps) *
-          filterWeight;
-        this.sampleTimeMs = nowMs;
-        this.sampleLatitudeDegrees = view.latitudeDegrees;
-        this.sampleLongitudeDegrees = view.longitudeDegrees;
-      }
-    }
-
-    const speedMps = Math.hypot(
-      this.filteredVelocityEastMps,
-      this.filteredVelocityNorthMps,
-    );
-    const readyMs = Math.max(0, estimatedReadyMs);
-    const readinessSeconds = readyMs / 1_000;
-    const predictedTravelM = speedMps * readinessSeconds;
-    const finestTileWidthM = renderedImageryTileWidthM(
-      view.latitudeDegrees,
-      view.displayRadiusM,
-      desiredZoom,
-    );
-    const predictedTravelTileSpans = predictedTravelM / finestTileWidthM;
-    const width = 2 ** Math.max(0, Math.floor(desiredZoom));
-    const latitude = Math.max(
-      -WEB_MERCATOR_MAX_LATITUDE,
-      Math.min(WEB_MERCATOR_MAX_LATITUDE, view.latitudeDegrees),
-    ) * Math.PI / 180;
-    const normalizedMetres = 2 * Math.PI *
-      Math.max(0.001, view.displayRadiusM) * Math.cos(latitude);
-    const rawX = this.filteredVelocityEastMps * readinessSeconds /
-      normalizedMetres;
-    let rawY = -this.filteredVelocityNorthMps * readinessSeconds /
-      normalizedMetres;
-    const currentY = normalizedMercatorYForLatitude(view.latitudeDegrees);
-    rawY = Math.max(0, Math.min(1, currentY + rawY)) - currentY;
-    const quantizedX = Math.round(
-      rawX * width * FORECAST_QUANTIZATION_STEPS_PER_TILE,
-    );
-    const quantizedY = Math.round(
-      rawY * width * FORECAST_QUANTIZATION_STEPS_PER_TILE,
-    );
-    const deferSpeculativeWarm = predictedTravelTileSpans >= 1;
-    let signature = Math.imul(2_166_136_261 ^ quantizedX, 16_777_619);
-    signature = Math.imul(signature ^ quantizedY, 16_777_619);
-    signature = Math.imul(
-      signature ^ Number(deferSpeculativeWarm),
-      16_777_619,
-    ) >>> 0;
-    this.forecastValue.topologyZoom = desiredZoom;
-    this.forecastValue.velocityEastMps = this.filteredVelocityEastMps;
-    this.forecastValue.velocityNorthMps = this.filteredVelocityNorthMps;
-    this.forecastValue.speedMps = speedMps;
-    this.forecastValue.estimatedReadyMs = readyMs;
-    this.forecastValue.predictedTravelM = predictedTravelM;
-    this.forecastValue.finestTileWidthM = finestTileWidthM;
-    this.forecastValue.predictedTravelTileSpans = predictedTravelTileSpans;
-    this.forecastValue.deferSpeculativeWarm = deferSpeculativeWarm;
-    this.forecastValue.displacement.x =
-      quantizedX / FORECAST_QUANTIZATION_STEPS_PER_TILE / width;
-    this.forecastValue.displacement.y =
-      quantizedY / FORECAST_QUANTIZATION_STEPS_PER_TILE / width;
-    this.forecastValue.signature = signature;
-    return this.forecastValue;
-  }
-}
-
 /** Geographic topology target; imagery source clamping remains downstream. */
 export function imageryTargetForView(
   view: Pick<ImageryView, "latitudeDegrees" | "longitudeDegrees">,
@@ -354,22 +175,6 @@ export function imageryTargetForView(
     maxZoom,
     latitudeDegrees: view.latitudeDegrees,
     longitudeDegrees: view.longitudeDegrees,
-  });
-}
-
-/** Defers only speculative warm work that has neither started nor loaded. */
-export function imageryDemandForAdmission(
-  fullDemand: readonly TileIdentity[],
-  hotKeys: ReadonlySet<string>,
-  forecastKeys: ReadonlySet<string>,
-  deferSpeculativeWarm: boolean,
-  isResidentOrInFlight: (tile: TileIdentity) => boolean,
-): readonly TileIdentity[] {
-  if (!deferSpeculativeWarm) return fullDemand;
-  return fullDemand.filter((tile) => {
-    const key = tileIdentityKey(tile);
-    return hotKeys.has(key) || forecastKeys.has(key) ||
-      isResidentOrInFlight(tile);
   });
 }
 
@@ -517,54 +322,22 @@ export interface ImageryTileResource {
   readonly fallbackFromNotFound?: boolean;
 }
 
-interface Request {
-  readonly id: number;
-  readonly tile: TileIdentity;
-  readonly observer: (result: TileProviderResult<ImageryTileResource>) => void;
-  readonly sourceKey: string;
-  active: boolean;
+export interface ImageryVirtualTextureUpdateOptions {
+  readonly recalculateTopology?: boolean;
 }
 
 interface SourceResult {
-  readonly sourceTile?: TileIdentity;
-  readonly pixels?: Uint8Array;
+  readonly sourceTile: TileIdentity;
+  readonly pixels: Uint8Array;
   readonly fallbackFromNotFound?: boolean;
 }
 
-interface SourceJob {
-  readonly key: string;
-  readonly sourceTile: TileIdentity;
-  readonly consumers: Set<number>;
-  state: "queued" | "active";
-  hot: boolean;
-  controller?: AbortController;
-  probe?: boolean;
-  warmRamp?: boolean;
-  succeeded?: boolean;
-  startedAtMs?: number;
-}
-
-/** Scheduler provider whose 404s resolve as no-data and whose failures are classified. */
+/** Imagery adapter over the shared cache-first source queue. */
 export class ScheduledImageryProvider
   implements TileProvider<ImageryTileResource>
 {
-  private nextId = 1;
-  private activeJobCount = 0;
-  private readonly requests = new Map<number, Request>();
-  private readonly jobs = new Map<string, SourceJob>();
-  private readonly queuedJobs: SourceJob[] = [];
-  private prioritySourceKeys = new Set<string>();
-  private disposed = false;
-  private requestTotal = 0;
-  private sourceLoadTotal = 0;
   private decodeTotal = 0;
-  private sourceCancellationTotal = 0;
-  private warmRampActive = false;
-  private warmRampLimit = MAX_CONCURRENT_REQUESTS;
-  private warmRampInFlight = 0;
-  private successfulReadyDurationMs = DEFAULT_ASSET_READY_MS;
-  private readonly circuit = new TileRequestCircuit();
-  private lastCircuitError: unknown;
+  private readonly queue: TileSourceLoadQueue<TileIdentity, SourceResult>;
 
   constructor(
     readonly source: ImageryProvider,
@@ -575,314 +348,133 @@ export class ScheduledImageryProvider
     ) => Promise<Uint8Array> = async (blob) =>
       new Uint8Array(await blob.arrayBuffer()),
     private readonly now: () => number = () => performance.now(),
-  ) {}
-
-  /** Rolling successful source+decode time; no per-frame history scan. */
-  get estimatedAssetReadyMs(): number {
-    return this.successfulReadyDurationMs;
+  ) {
+    const loadFromCache = source.loadFromCache
+      ? async (tile: TileIdentity, signal: AbortSignal) => {
+          const blob = await source.loadFromCache!.call(source, tile, signal);
+          return blob === undefined
+            ? undefined
+            : await this.decodeSource(tile, blob, signal);
+        }
+      : undefined;
+    this.queue = new TileSourceLoadQueue({
+      concurrency: MAX_CONCURRENT_REQUESTS,
+      ...(loadFromCache ? { loadFromCache } : {}),
+      loadFromNetwork: async (tile, signal) => {
+        const load = source.loadFromNetwork ?? source.load;
+        const blob = await load.call(source, tile, signal);
+        return await this.decodeSource(tile, blob, signal);
+      },
+      classifyNetworkFailure: imageryFailureMetadata,
+      now,
+    });
   }
 
   get metrics(): {
     requestTotal: number;
     sourceLoadTotal: number;
+    cacheLookupTotal: number;
+    cacheHitTotal: number;
+    networkDeferred: number;
     decodeTotal: number;
     sourceCancellationTotal: number;
     queued: number;
     inFlight: number;
-    warmRampActive: boolean;
-    warmRampLimit: number;
-    estimatedAssetReadyMs: number;
   } {
+    const metrics = this.queue.metrics;
     return {
-      requestTotal: this.requestTotal,
-      sourceLoadTotal: this.sourceLoadTotal,
+      requestTotal: metrics.requestTotal,
+      sourceLoadTotal: metrics.sourceLoadTotal,
+      cacheLookupTotal: metrics.cacheLookupTotal,
+      cacheHitTotal: metrics.cacheHitTotal,
+      networkDeferred: metrics.networkDeferred,
       decodeTotal: this.decodeTotal,
-      sourceCancellationTotal: this.sourceCancellationTotal,
-      queued: this.queuedJobs.length,
-      inFlight: this.activeJobCount,
-      warmRampActive: this.warmRampActive,
-      warmRampLimit: this.warmRampLimit,
-      estimatedAssetReadyMs: this.estimatedAssetReadyMs,
+      sourceCancellationTotal: metrics.sourceCancellationTotal,
+      queued: metrics.queued,
+      inFlight: metrics.inFlight,
     };
   }
 
   get retryDiagnostics() {
-    return this.circuit.diagnostics;
+    return this.queue.retryDiagnostics;
   }
 
-  /** Restores speculative warm traffic additively after forecast deferral. */
-  beginWarmRamp(): void {
-    this.warmRampActive = true;
-    this.warmRampLimit = 1;
-    this.pumpJobs();
+  /** Called by retry policy after its backoff window has elapsed. */
+  resumeDeferred(): void {
+    this.queue.resumeDeferred();
   }
 
   request(
     tile: TileIdentity,
     observer: (result: TileProviderResult<ImageryTileResource>) => void,
   ): TileRequestHandle {
-    this.requestTotal += 1;
+    const requestedTile = Object.freeze({ ...tile });
     const sourceTile = ancestorAtZoom(tile, this.source.maxZoom);
     const sourceKey = imageryKey(sourceTile);
-    const request: Request = {
-      id: this.nextId++,
-      tile: Object.freeze({ ...tile }),
-      observer,
-      sourceKey,
-      active: true,
-    };
-    this.requests.set(request.id, request);
-    let job = this.jobs.get(sourceKey);
-    if (!job) {
-      job = {
-        key: sourceKey,
-        sourceTile,
-        consumers: new Set(),
-        state: "queued",
-        hot: this.prioritySourceKeys.has(sourceKey),
-      };
-      this.jobs.set(sourceKey, job);
-      this.queuedJobs.push(job);
-    }
-    job.consumers.add(request.id);
-    if (job.state === "active") {
-      // This request joined a source fetch that had already started. Defer the
-      // phase notification until request() has returned its cancellation
-      // handle, and suppress it if either the request or shared job completed
-      // or was cancelled first.
-      const joinedJob = job;
-      queueMicrotask(() => {
-        const activeRequest = this.requests.get(request.id);
-        if (
-          activeRequest !== request ||
-          !request.active ||
-          this.jobs.get(sourceKey) !== joinedJob ||
-          joinedJob.state !== "active" ||
-          !joinedJob.consumers.has(request.id)
-        ) return;
+    return this.queue.request({
+      key: sourceKey,
+      source: sourceTile,
+      priority: tile.z,
+    }, (event) => {
+      if (event.phase === "in-flight") {
         observer({ phase: "in-flight" });
-      });
-    }
-    this.pumpJobs();
-    return {
-      requestId: request.id,
-      cancel: () => this.cancelRequest(request.id),
-    };
-  }
-
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    for (const request of this.requests.values()) {
-      request.active = false;
-    }
-    for (const job of this.jobs.values()) job.controller?.abort();
-    this.requests.clear();
-    this.queuedJobs.length = 0;
-    this.jobs.clear();
-  }
-
-  updatePriority(tiles: Iterable<TileIdentity>): void {
-    const priority = new Set<string>();
-    for (const tile of tiles) {
-      priority.add(imageryKey(ancestorAtZoom(tile, this.source.maxZoom)));
-    }
-    this.prioritySourceKeys = priority;
-    for (const job of this.jobs.values()) job.hot = priority.has(job.key);
-    this.queuedJobs.sort((first, second) =>
-      Number(second.hot) - Number(first.hot)
-    );
-  }
-
-  private cancelRequest(requestId: number): void {
-    const request = this.requests.get(requestId);
-    if (!request?.active) return;
-    request.active = false;
-    this.requests.delete(requestId);
-    const job = this.jobs.get(request.sourceKey);
-    if (!job) return;
-    job.consumers.delete(requestId);
-    if (job.consumers.size > 0) return;
-    this.jobs.delete(job.key);
-    if (job.state === "queued") {
-      const index = this.queuedJobs.indexOf(job);
-      if (index >= 0) this.queuedJobs.splice(index, 1);
-    } else {
-      this.circuit.recordCancellation(job.probe === true);
-      this.sourceCancellationTotal += 1;
-      job.controller?.abort();
-    }
-  }
-
-  private pumpJobs(): void {
-    if (
-      this.activeJobCount >= MAX_CONCURRENT_REQUESTS ||
-      this.queuedJobs.length === 0
-    ) return;
-    if (!this.circuit.mayStart()) {
-      if (this.circuit.state === "disabled") {
-        const error = this.lastCircuitError ?? new Error(
-          "Imagery requests are disabled for this session.",
-        );
-        queueMicrotask(() => this.failQueuedJobs(error));
+        return;
       }
-      return;
-    }
-    this.queuedJobs.sort((first, second) =>
-      Number(second.hot) - Number(first.hot)
-    );
-    while (this.activeJobCount < MAX_CONCURRENT_REQUESTS) {
-      while (
-        this.queuedJobs.length > 0 &&
-        (!this.jobs.has(this.queuedJobs[0]!.key) ||
-          this.queuedJobs[0]!.consumers.size === 0)
-      ) this.queuedJobs.shift();
-      if (this.queuedJobs.length === 0) return;
-      const next = this.queuedJobs[0]!;
-      if (
-        this.warmRampActive &&
-        !next.hot &&
-        this.warmRampInFlight >= this.warmRampLimit
-      ) return;
-      const start = this.circuit.tryStart();
-      if (!start) return;
-      const job = this.queuedJobs.shift();
-      if (!job) return;
-      if (!this.jobs.has(job.key) || job.consumers.size === 0) continue;
-      job.state = "active";
-      job.probe = start === "probe";
-      job.warmRamp = this.warmRampActive && !job.hot;
-      if (job.warmRamp) this.warmRampInFlight += 1;
-      job.controller = new AbortController();
-      job.startedAtMs = this.now();
-      this.activeJobCount += 1;
-      this.sourceLoadTotal += 1;
-      for (const requestId of job.consumers) {
-        this.requests.get(requestId)?.observer({ phase: "in-flight" });
-      }
-      void this.loadSource(job.sourceTile, job.controller.signal)
-        .then(
-          (result) => this.completeJob(job, result),
-          (error: unknown) => {
-            if (this.jobs.get(job.key) !== job) return;
-            const metadata = imageryFailureMetadata(error);
-            const tripped = this.circuit.recordFailure(
-              metadata,
-              job.probe === true,
-            );
-            if (tripped) this.lastCircuitError = error;
-            this.failJob(job, error);
-            if (tripped) this.failQueuedJobs(error);
-          },
-        )
-        .finally(() => {
-          this.activeJobCount -= 1;
-          if (job.warmRamp) {
-            this.warmRampInFlight = Math.max(0, this.warmRampInFlight - 1);
-            if (job.succeeded) {
-              this.warmRampLimit = Math.min(
-                MAX_CONCURRENT_REQUESTS,
-                this.warmRampLimit + 1,
-              );
-              if (this.warmRampLimit >= MAX_CONCURRENT_REQUESTS) {
-                this.warmRampActive = false;
+      if (event.phase === "failure") {
+        observer({
+          phase: "failure",
+          reason: event.error instanceof Error
+            ? event.error.message
+            : "Imagery request failed.",
+          ...(event.metadata.status === undefined
+            ? {}
+            : { status: event.metadata.status }),
+          ...(event.metadata.retryAfterMs === undefined
+            ? {}
+            : { retryAfterMs: event.metadata.retryAfterMs }),
+          ...(event.metadata.retryable === undefined
+            ? {}
+            : { retryable: event.metadata.retryable }),
+          ...(event.metadata.retryable === false
+            ? {
+                scope: event.metadata.systemic
+                  ? "provider" as const
+                  : "tile" as const,
               }
-            }
-          }
-          this.pumpJobs();
+            : {}),
         });
-    }
-  }
-
-  private completeJob(job: SourceJob, result: SourceResult): void {
-    if (this.jobs.get(job.key) !== job) return;
-    if (job.startedAtMs !== undefined) {
-      const durationMs = Math.max(0, this.now() - job.startedAtMs);
-      this.successfulReadyDurationMs +=
-        (durationMs - this.successfulReadyDurationMs) *
-        ASSET_READY_FILTER_WEIGHT;
-    }
-    this.circuit.recordSuccess(job.probe === true);
-    job.succeeded = true;
-    this.jobs.delete(job.key);
-    for (const requestId of job.consumers) {
-      const request = this.requests.get(requestId);
-      if (!request?.active) continue;
-      request.active = false;
-      this.requests.delete(requestId);
-      request.observer({
+        return;
+      }
+      observer({
         phase: "response",
         resource: Object.freeze({
           kind: "imagery",
-          tile: request.tile,
-          ...(result.sourceTile ? { sourceTile: result.sourceTile } : {}),
-          ...(result.pixels ? { pixels: result.pixels } : {}),
-          ...(result.fallbackFromNotFound
+          tile: requestedTile,
+          sourceTile: event.value.sourceTile,
+          pixels: event.value.pixels,
+          ...(event.value.fallbackFromNotFound
             ? { fallbackFromNotFound: true }
             : {}),
         }),
       });
-    }
+    });
   }
 
-  private failJob(job: SourceJob, error: unknown): void {
-    if (this.jobs.get(job.key) !== job) return;
-    this.jobs.delete(job.key);
-    for (const requestId of job.consumers) {
-      const request = this.requests.get(requestId);
-      if (!request?.active) continue;
-      request.active = false;
-      this.requests.delete(requestId);
-      request.observer({
-        phase: "failure",
-        reason:
-          error instanceof Error ? error.message : "Imagery request failed.",
-        ...(error instanceof ImageryRequestError && error.status
-          ? { status: error.status }
-          : {}),
-        ...(error instanceof ImageryRequestError &&
-            error.retryAfterMs !== undefined
-          ? { retryAfterMs: error.retryAfterMs }
-          : {}),
-        ...(error instanceof ImageryRequestError && error.kind === "fatal"
-          ? { retryable: false }
-          : {}),
-      });
-    }
+  dispose(): void {
+    this.queue.dispose();
   }
 
-  /** A systemic failure should not drain planned work into the same outage. */
-  private failQueuedJobs(error: unknown): void {
-    const queued = this.queuedJobs.splice(0);
-    for (const job of queued) this.failJob(job, error);
-  }
-
-  private async loadSource(
-    initial: TileIdentity,
+  private async decodeSource(
+    sourceTile: TileIdentity,
+    blob: Blob,
     signal: AbortSignal,
   ): Promise<SourceResult> {
-    let sourceTile = initial;
-    while (sourceTile.z >= this.source.minZoom) {
-      try {
-        const blob = await this.source.load(sourceTile, signal);
-        const pixels = await this.decode(blob, this.source.tileSize, signal);
-        this.decodeTotal += 1;
-        return {
-          sourceTile: Object.freeze({ ...sourceTile }),
-          pixels,
-          ...(sourceTile.z < initial.z
-            ? { fallbackFromNotFound: true }
-            : {}),
-        };
-      } catch (error) {
-        if (!(error instanceof ImageryRequestError) || error.kind !== "not-found") {
-          throw error;
-        }
-        if (sourceTile.z === this.source.minZoom) return {};
-        sourceTile = ancestorAtZoom(sourceTile, sourceTile.z - 1);
-      }
-    }
-    return {};
+    const pixels = await this.decode(blob, this.source.tileSize, signal);
+    this.decodeTotal += 1;
+    return {
+      sourceTile: Object.freeze({ ...sourceTile }),
+      pixels,
+    };
   }
 }
 
@@ -1187,6 +779,16 @@ export interface ImageryMigrationUploadDemandPlan {
   readonly validReusedUploadCount: number;
 }
 
+/** Adds new tree demand without releasing any page uploaded this session. */
+export function retainedImageryPoolDemand(
+  activeSlots: ReadonlyMap<string, number>,
+  demandedKeys: Iterable<string>,
+): Set<string> {
+  const retained = new Set(activeSlots.keys());
+  for (const key of demandedKeys) retained.add(key);
+  return retained;
+}
+
 /** Separates valid reused uploads from pages requiring current data. */
 export function planImageryMigrationUploadDemand(
   demandedKeys: Iterable<string>,
@@ -1316,45 +918,27 @@ export class ImageryVirtualTexture {
     image: BLUE_MARBLE_IMAGERY_KEY,
     fallbackFromNotFound: false,
   });
-  private committedSourceKeys = new Set<string>();
   private readonly tileSize: number;
   private readonly paddedSize: number;
   private readonly unsubscribe?: () => void;
   private snapshot: SchedulerSnapshot<TileLayoutTarget>;
   private target: TileLayoutTarget;
   private desiredZoom: number | undefined;
-  private readonly movementAdmission: ImageryMovementAdmission;
-  private readonly movementForecast: ImageryMovementForecast;
-  private desiredSourceKeySet = new Set<string>();
+  private readonly visibilityAdmission = new TileVisibilityAdmission();
   private nextPoolGeneration = 1;
-  private hotKeys = new Set<string>();
-  private forecastKeys = new Set<string>();
-  private warmKeys = new Set<string>();
-  private residencyInput?: ViewResidencyInput;
-  private hotViewSignature = -1;
-  private hotRevision = -2;
-  private warmViewSignature = -1;
-  private warmRevision = -2;
-  private residencyAdmissionDeferred: boolean | undefined;
-  private deferSpeculativeWarm = false;
+  private visibilityInput?: ViewVisibilityInput;
   private uploadTotal = 0;
   private targetSubmissionTotal = 0;
   private targetSubmissionSuppressedTotal = 0;
   private lastObservedTargetLatitudeDegrees: number;
   private lastObservedTargetLongitudeDegrees: number;
-  private deferredWarmTileOccurrenceTotal = 0;
-  private deferredWarmTileCount = 0;
   private candidateDirty = true;
   private migrationSupersededTotal = 0;
   private migrationReusedUploadTotal = 0;
   private migrationObsoleteUploadAvoidedTotal = 0;
-  private residencyClassificationTotal = 0;
-  private hotResidencyClassificationTotal = 0;
-  private warmResidencyClassificationTotal = 0;
   private debugControls: TilePipelineDebugControls = {
     ...DEFAULT_TILE_DEBUG_CONTROLS.textures,
   };
-  private overheadPercent = DEFAULT_TILE_DEBUG_CONTROLS.overheadPercent;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -1374,13 +958,6 @@ export class ImageryVirtualTexture {
           tilePixels: imageryProvider.tileSize,
         })
       : 0;
-    this.movementAdmission = new ImageryMovementAdmission(initialView);
-    this.movementForecast = this.movementAdmission.update(
-      initialView,
-      zoom,
-      DEFAULT_ASSET_READY_MS,
-      performance.now(),
-    );
     this.target = imageryTargetForView(initialView, zoom);
     this.lastObservedTargetLatitudeDegrees = this.target.latitudeDegrees;
     this.lastObservedTargetLongitudeDegrees = this.target.longitudeDegrees;
@@ -1434,23 +1011,19 @@ export class ImageryVirtualTexture {
         (blob, tileSize, signal) =>
           this.workerClient!.decode(blob, tileSize, signal),
       );
-      this.residencyInput = {
-        underfoot: initialView,
+      this.visibilityInput = {
         footprint: [],
-        displayRadiusM: initialView.displayRadiusM,
-        observerHeightWorldM: 0,
       };
       this.scheduler = new TileWorkerScheduler(this.target, {
         provider: this.provider,
-        hydrateInitialResources: false,
+        resourceRetention: "session",
         retryDelayMs: 5_000,
         retryMaxDelayMs: TRANSIENT_RETRY_MAX_DELAY_MS,
-        initialResourceDemand: [],
       });
       this.snapshot = this.scheduler.snapshot;
       this.unsubscribe = this.scheduler.subscribe((snapshot, event) => {
         this.snapshot = snapshot;
-        this.applyResidency();
+        this.applyVisibilityAdmission();
         if (event?.kind === "response") {
           if (event.tile) this.stage(this.scheduler!.committedResource(event.tile));
           else {
@@ -1492,8 +1065,18 @@ export class ImageryVirtualTexture {
     );
   }
 
-  update(view: ImageryView, residencyInput?: ViewResidencyInput): void {
+  update(
+    view: ImageryView,
+    visibilityInput?: ViewVisibilityInput,
+    options: ImageryVirtualTextureUpdateOptions = {},
+  ): void {
     if (!this.scheduler || !this.provider) return;
+    this.visibilityInput = visibilityInput ?? { footprint: [] };
+    this.applyVisibilityAdmission();
+    if (options.recalculateTopology === false) {
+      this.processUploads();
+      return;
+    }
     const zoom = selectImageryZoom({
       ...view,
       minZoom: this.provider.source.minZoom,
@@ -1505,21 +1088,9 @@ export class ImageryVirtualTexture {
       maxTopologyZoom: this.debugControls.maxZoom,
     });
     this.desiredZoom = zoom;
-    this.movementAdmission.update(
-      view,
-      zoom,
-      this.provider.estimatedAssetReadyMs,
-      performance.now(),
-    );
-    const wasAdmissionDeferred = this.deferSpeculativeWarm;
-    this.deferSpeculativeWarm =
-      this.movementForecast.deferSpeculativeWarm;
-    if (wasAdmissionDeferred && !this.deferSpeculativeWarm) {
-      this.provider.beginWarmRamp();
-    }
     const target = imageryTargetForView(
       view,
-      this.movementForecast.topologyZoom,
+      zoom,
     );
     const observedCoordinatesChanged =
       target.latitudeDegrees !== this.lastObservedTargetLatitudeDegrees ||
@@ -1533,19 +1104,11 @@ export class ImageryVirtualTexture {
     }
     this.lastObservedTargetLatitudeDegrees = target.latitudeDegrees;
     this.lastObservedTargetLongitudeDegrees = target.longitudeDegrees;
-    this.residencyInput = residencyInput ?? {
-      underfoot: view,
-      footprint: [],
-      displayRadiusM: view.displayRadiusM,
-      observerHeightWorldM: 0,
-    };
-    this.applyResidency();
     this.processUploads();
   }
 
   setDebugControls(
     controls: TilePipelineDebugControls,
-    overheadPercent: number,
   ): void {
     if (tileTopologySelectionChanged(this.debugControls, controls)) {
       // A user-requested density/cap change is a new selection baseline, not
@@ -1554,10 +1117,8 @@ export class ImageryVirtualTexture {
       this.desiredZoom = undefined;
     }
     this.debugControls = { ...controls };
-    this.overheadPercent = overheadPercent;
-    this.hotViewSignature = -1;
-    this.warmViewSignature = -1;
-    this.applyResidency();
+    this.visibilityAdmission.invalidate();
+    this.applyVisibilityAdmission();
   }
 
   getTargetZoom(): number {
@@ -1566,19 +1127,31 @@ export class ImageryVirtualTexture {
 
   getPlannerState() {
     const payloadRequests = this.scheduler?.debugState ?? {
-      transition_owned: { requested: 0, in_flight: 0, total_outstanding: 0 },
-      residency_hydration: {
-        requested: 0,
-        in_flight: 0,
-        total_outstanding: 0,
-      },
+      planner_admission: { requested: 0, in_flight: 0, total_outstanding: 0 },
       total: { requested: 0, in_flight: 0, total_outstanding: 0 },
       resident_payload_count: 0,
-      demanded_payload_count: 0,
+      session_retained_payload_count: 0,
+      admitted_candidate_count: 0,
+      resource_retention: "session" as const,
+      resource_releases: {
+        total: 0,
+        discard: 0,
+        cancel: 0,
+        topology: 0,
+      },
       target_submission: { pending: false, in_flight: false },
+      retry: {
+        failed_rounds: 0,
+        scheduled_delay_ms: null,
+        scheduled_at_ms: null,
+        automatic_retry_enabled: true,
+        last_status: null,
+        circuit: null,
+      },
     };
     const provider = this.provider?.metrics;
     const metrics = this.getMetrics();
+    const visibility = this.visibilityAdmission.metrics;
     return {
       recalculation_enabled: this.debugControls.recalculationEnabled,
       effective_target: { ...this.target },
@@ -1587,18 +1160,24 @@ export class ImageryVirtualTexture {
       source_jobs: {
         queued: provider?.queued ?? 0,
         in_flight: provider?.inFlight ?? 0,
+        cache_lookup_total: provider?.cacheLookupTotal ?? 0,
+        cache_hit_total: provider?.cacheHitTotal ?? 0,
+        network_deferred: provider?.networkDeferred ?? 0,
       },
-      residency: {
-        hot_tile_count: this.hotKeys.size,
-        classified_warm_tile_count: this.warmKeys.size,
-        demanded_payload_tile_count:
-          payloadRequests.demanded_payload_count,
+      visibility_admission: {
+        visible_planner_tile_count: visibility.visibleTileCount,
+        admitted_candidate_count:
+          payloadRequests.admitted_candidate_count,
         committed_topology_tile_count: this.snapshot.committedCut.length,
-        view_distance_enabled: this.debugControls.viewDistanceEnabled,
-        delta_zoom_cap: this.debugControls.deltaZoomCap,
       },
       imagery_uploads: {
         active_layer_count: metrics.activeLayerCount,
+        pool_capacity: metrics.poolCapacity,
+        pool_used: metrics.poolUsed,
+        pool_free: metrics.poolFree,
+        session_retained_source_page_count:
+          metrics.retainedSourcePageCount,
+        session_retained_gpu_page_count: metrics.retainedGpuPageCount,
         migration_active: this.migration !== undefined,
         migration_layer_count: metrics.migrationLayerCount,
         migration_superseded_total: this.migrationSupersededTotal,
@@ -1606,39 +1185,24 @@ export class ImageryVirtualTexture {
         migration_obsolete_upload_avoided_total:
           this.migrationObsoleteUploadAvoidedTotal,
       },
-      movement: {
-        velocity_east_mps: this.movementForecast.velocityEastMps,
-        velocity_north_mps: this.movementForecast.velocityNorthMps,
-        surface_speed_mps: this.movementForecast.speedMps,
-        estimated_asset_ready_ms: this.movementForecast.estimatedReadyMs,
-        predicted_travel_m: this.movementForecast.predictedTravelM,
-        finest_tile_width_m: this.movementForecast.finestTileWidthM,
-        predicted_travel_tile_spans:
-          this.movementForecast.predictedTravelTileSpans,
-        speculative_warm_deferred: this.deferSpeculativeWarm,
-        forecast_tile_count: this.forecastKeys.size,
+      admission_updates: {
         target_submission_total: this.targetSubmissionTotal,
         target_submission_suppressed_total:
           this.targetSubmissionSuppressedTotal,
-        deferred_warm_tile_count: this.deferredWarmTileCount,
-        deferred_warm_tile_occurrence_total:
-          this.deferredWarmTileOccurrenceTotal,
-        warm_ramp_active: provider?.warmRampActive ?? false,
-        warm_ramp_limit: provider?.warmRampLimit ?? MAX_CONCURRENT_REQUESTS,
       },
     };
   }
 
-  processPendingUploads(): void {
-    this.processUploads();
-  }
-
   getMetrics(): {
     committedLeafCount: number;
-    hotTileCount: number;
-    warmTileCount: number;
+    visibleTileCount: number;
     recordCount: number;
     activeLayerCount: number;
+    poolCapacity: number;
+    poolUsed: number;
+    poolFree: number;
+    retainedSourcePageCount: number;
+    retainedGpuPageCount: number;
     migrationLayerCount: number;
     requestTotal: number;
     sourceLoadTotal: number;
@@ -1646,39 +1210,30 @@ export class ImageryVirtualTexture {
     uploadTotal: number;
     estimatedCpuBytes: number;
     estimatedGpuBytes: number;
-    residencyClassificationTotal: number;
-    hotResidencyClassificationTotal: number;
-    warmResidencyClassificationTotal: number;
-    surfaceSpeedMps: number;
-    velocityEastMps: number;
-    velocityNorthMps: number;
-    estimatedAssetReadyMs: number;
-    predictedTravelM: number;
-    predictedTravelTileSpans: number;
-    deferSpeculativeWarm: boolean;
-    forecastTileCount: number;
+    visibilityClassificationTotal: number;
     targetSubmissionTotal: number;
     targetSubmissionSuppressedTotal: number;
-    deferredWarmTileOccurrenceTotal: number;
-    deferredWarmTileCount: number;
     sourceCancellationTotal: number;
-    warmRampActive: boolean;
-    warmRampLimit: number;
     migrationSupersededTotal: number;
     migrationReusedUploadTotal: number;
     migrationObsoleteUploadAvoidedTotal: number;
   } {
     const provider = this.provider?.metrics;
+    const visibility = this.visibilityAdmission.metrics;
     const mipBytesPerLayer = imageryMipDimensions(
       this.paddedSize,
       this.paddedSize,
     ).reduce((total, level) => total + level.width * level.height * 4, 0);
     return {
       committedLeafCount: this.snapshot.committedCut.length,
-      hotTileCount: this.hotKeys.size,
-      warmTileCount: this.warmKeys.size,
+      visibleTileCount: visibility.visibleTileCount,
       recordCount: this.records.size,
       activeLayerCount: this.activePool.layers,
+      poolCapacity: this.activePool.layers,
+      poolUsed: this.activePool.layers - this.activePool.freeSlots.length,
+      poolFree: this.activePool.freeSlots.length,
+      retainedSourcePageCount: this.records.size,
+      retainedGpuPageCount: this.activePool.slots.size,
       migrationLayerCount: this.migration?.replacesActivePool
         ? this.migration.pool.layers
         : 0,
@@ -1692,25 +1247,10 @@ export class ImageryVirtualTexture {
           ? this.migration.pool.layers
           : 0)) *
         mipBytesPerLayer,
-      residencyClassificationTotal: this.residencyClassificationTotal,
-      hotResidencyClassificationTotal: this.hotResidencyClassificationTotal,
-      warmResidencyClassificationTotal: this.warmResidencyClassificationTotal,
-      surfaceSpeedMps: this.movementForecast.speedMps,
-      velocityEastMps: this.movementForecast.velocityEastMps,
-      velocityNorthMps: this.movementForecast.velocityNorthMps,
-      estimatedAssetReadyMs: this.movementForecast.estimatedReadyMs,
-      predictedTravelM: this.movementForecast.predictedTravelM,
-      predictedTravelTileSpans:
-        this.movementForecast.predictedTravelTileSpans,
-      deferSpeculativeWarm: this.deferSpeculativeWarm,
-      forecastTileCount: this.forecastKeys.size,
+      visibilityClassificationTotal: visibility.classificationTotal,
       targetSubmissionTotal: this.targetSubmissionTotal,
       targetSubmissionSuppressedTotal: this.targetSubmissionSuppressedTotal,
-      deferredWarmTileOccurrenceTotal: this.deferredWarmTileOccurrenceTotal,
-      deferredWarmTileCount: this.deferredWarmTileCount,
       sourceCancellationTotal: provider?.sourceCancellationTotal ?? 0,
-      warmRampActive: provider?.warmRampActive ?? false,
-      warmRampLimit: provider?.warmRampLimit ?? MAX_CONCURRENT_REQUESTS,
       migrationSupersededTotal: this.migrationSupersededTotal,
       migrationReusedUploadTotal: this.migrationReusedUploadTotal,
       migrationObsoleteUploadAvoidedTotal:
@@ -1835,7 +1375,6 @@ export class ImageryVirtualTexture {
           candidateRoot,
           imageryTreeSourceKeys(candidateRoot),
         );
-        this.pruneRecords();
       }
       this.uploadPendingChains(
         this.migration,
@@ -1863,7 +1402,6 @@ export class ImageryVirtualTexture {
           this.activePool,
         );
       }
-      this.pruneRecords();
       return;
     }
 
@@ -1874,7 +1412,6 @@ export class ImageryVirtualTexture {
       MAX_UPLOADS_PER_FRAME,
     );
     if (this.migrationComplete()) this.promoteMigration();
-    this.pruneRecords();
   }
 
   private stitchNeighbours(record: PageRecord): void {
@@ -1946,14 +1483,18 @@ export class ImageryVirtualTexture {
     root: ImageryTreeNode,
     demanded: Set<string>,
   ): void {
+    const retainedDemand = retainedImageryPoolDemand(
+      this.activePool.slots,
+      demanded,
+    );
     const revisions = new Map<string, number>();
-    for (const key of demanded) {
+    for (const key of retainedDemand) {
       revisions.set(key, this.records.get(key)?.revision ?? 0);
     }
     const retained = planImageryPoolMigration(
       this.activePool.slots,
       this.activePool.uploadedRevisions,
-      demanded,
+      retainedDemand,
       revisions,
     );
     const replacesActivePool = retained.requiredAdditionalSlots >
@@ -1963,7 +1504,7 @@ export class ImageryVirtualTexture {
     const pool = replacesActivePool
       ? this.createPool(imageryPoolGrowthCapacity(
           this.activePool.layers,
-          Math.max(1, demanded.size),
+          Math.max(1, retainedDemand.size),
           retained.requiredAdditionalSlots,
         ))
       : this.activePool;
@@ -1973,7 +1514,7 @@ export class ImageryVirtualTexture {
     const uploadedRevisions = replacesActivePool
       ? new Map<string, number>()
       : retained.uploadedRevisions;
-    for (const key of demanded) {
+    for (const key of retainedDemand) {
       if (slots.has(key)) continue;
       const slot = pool.freeSlots.pop();
       if (slot === undefined) {
@@ -1983,7 +1524,7 @@ export class ImageryVirtualTexture {
       slots.set(key, slot);
     }
     const uploadDemand = planImageryMigrationUploadDemand(
-      demanded,
+      retainedDemand,
       uploadedRevisions,
       revisions,
     );
@@ -1991,7 +1532,7 @@ export class ImageryVirtualTexture {
     this.migration = {
       pool,
       root,
-      demandedKeys: new Set(demanded),
+      demandedKeys: retainedDemand,
       slots,
       uploadedRevisions,
       pendingUploadKeys,
@@ -2076,15 +1617,19 @@ export class ImageryVirtualTexture {
     demanded: Set<string>,
   ): void {
     if (this.migration !== migration) return;
-    const demandChanged = !sameResidencyKeys(
-      migration.demandedKeys,
+    const retainedDemand = retainedImageryPoolDemand(
+      this.activePool.slots,
       demanded,
+    );
+    const demandChanged = !sameTileKeys(
+      migration.demandedKeys,
+      retainedDemand,
     );
     if (!demandChanged && root === migration.root) return;
     this.migrationSupersededTotal += 1;
     let avoided = 0;
     for (const key of migration.demandedKeys) {
-      if (demanded.has(key)) continue;
+      if (retainedDemand.has(key)) continue;
       const requiredRevision = this.records.get(key)?.revision ?? 0;
       if (
         requiredRevision > 0 &&
@@ -2099,14 +1644,14 @@ export class ImageryVirtualTexture {
       migration.slots,
       migration.uploadedRevisions,
       visibleSlots,
-      demanded,
+      retainedDemand,
     );
     if (
       plan.missingKeys.length >
         migration.pool.freeSlots.length + plan.releasedCandidateSlots.length
     ) {
       this.abandonMigration(migration);
-      this.startMigration(root, demanded);
+      this.startMigration(root, retainedDemand);
       return;
     }
     for (const slot of plan.releasedCandidateSlots) {
@@ -2120,7 +1665,7 @@ export class ImageryVirtualTexture {
       plan.slots.set(key, slot);
     }
     migration.root = root;
-    migration.demandedKeys = new Set(demanded);
+    migration.demandedKeys = retainedDemand;
     migration.slots.clear();
     for (const [key, slot] of plan.slots) migration.slots.set(key, slot);
     migration.uploadedRevisions.clear();
@@ -2128,11 +1673,11 @@ export class ImageryVirtualTexture {
       migration.uploadedRevisions.set(key, revision);
     }
     const requiredRevisions = new Map<string, number>();
-    for (const key of demanded) {
+    for (const key of retainedDemand) {
       requiredRevisions.set(key, this.records.get(key)?.revision ?? 0);
     }
     const uploadDemand = planImageryMigrationUploadDemand(
-      demanded,
+      retainedDemand,
       migration.uploadedRevisions,
       requiredRevisions,
     );
@@ -2195,114 +1740,21 @@ export class ImageryVirtualTexture {
     return true;
   }
 
-  private applyResidency(): void {
+  private applyVisibilityAdmission(): void {
     if (
       !this.scheduler ||
-      !this.residencyInput ||
-      (this.debugControls.viewDistanceEnabled &&
-        this.residencyInput.footprint.length === 0) ||
+      !this.visibilityInput ||
       this.snapshot.committedCut.length === 0
     ) return;
-    const visibleSignature = hotResidencySignature(
-      this.target.maxZoom,
-      this.residencyInput,
-    );
-    const forecastSignature = this.deferSpeculativeWarm
-      ? this.movementForecast.signature
-      : 0;
-    const hotSignature = Math.imul(
-      visibleSignature ^ forecastSignature,
-      16_777_619,
-    ) >>> 0;
-    const warmSignature = warmResidencySignature(
-      this.target.maxZoom,
-      this.residencyInput,
-      this.overheadPercent,
-    );
-    const hotNeedsClassification =
-      hotSignature !== this.hotViewSignature ||
-      this.snapshot.revision !== this.hotRevision;
-    const warmNeedsClassification =
-      warmSignature !== this.warmViewSignature ||
-      this.snapshot.revision !== this.warmRevision;
-    const admissionDeferralChanged =
-      this.deferSpeculativeWarm !== this.residencyAdmissionDeferred;
-    if (
-      !hotNeedsClassification &&
-      !warmNeedsClassification &&
-      !admissionDeferralChanged
-    ) return;
-    this.hotViewSignature = hotSignature;
-    this.hotRevision = this.snapshot.revision;
-    this.warmViewSignature = warmSignature;
-    this.warmRevision = this.snapshot.revision;
-    this.residencyAdmissionDeferred = this.deferSpeculativeWarm;
-    this.residencyClassificationTotal += 1;
-    if (hotNeedsClassification) this.hotResidencyClassificationTotal += 1;
-    if (warmNeedsClassification) this.warmResidencyClassificationTotal += 1;
-    const workingCut = new Map<string, TileIdentity>();
-    for (const tile of [
-      ...this.snapshot.committedCut,
-      ...this.snapshot.requestedCut,
-    ]) workingCut.set(tileIdentityKey(tile), tile);
-    const workingTiles = [...workingCut.values()];
-    if (hotNeedsClassification) {
-      const classified = classifyHotAndForecastResidency(
-        workingTiles,
-        this.residencyInput,
-        this.deferSpeculativeWarm
-          ? this.movementForecast.displacement
-          : undefined,
-      );
-      this.hotKeys = new Set(classified.hot);
-      this.forecastKeys = new Set(classified.forecast);
+    const visibleTiles = this.visibilityAdmission.update({
+      revision: this.snapshot.revision,
+      committedTiles: this.snapshot.committedCut,
+      replacementGroups: this.snapshot.graph.groups,
+      view: this.visibilityInput,
+    });
+    if (visibleTiles) {
+      this.scheduler.updateVisibilityAdmission(visibleTiles);
     }
-    let warmChanged = false;
-    const eligible = eligiblePayloadTiles(
-      workingTiles,
-      this.target.maxZoom,
-      this.debugControls.deltaZoomCap,
-    );
-    if (warmNeedsClassification) {
-      const warm = this.debugControls.viewDistanceEnabled
-        ? classifyWarmResidency(
-            eligible,
-            this.residencyInput,
-            this.warmKeys,
-            this.overheadPercent,
-          )
-        : new Set(eligible.map((tile) => tileIdentityKey(tile)));
-      warmChanged = !sameResidencyKeys(this.warmKeys, warm);
-      this.warmKeys = new Set(warm);
-    }
-    const hot = eligible.filter((tile) =>
-      this.hotKeys.has(tileIdentityKey(tile))
-    );
-    if (
-      !warmChanged &&
-      !admissionDeferralChanged &&
-      !(this.deferSpeculativeWarm && hotNeedsClassification)
-    ) {
-      this.scheduler.updateResourcePriority(hot);
-      return;
-    }
-    const fullDemanded = demandedPayloadTiles(
-      workingTiles,
-      this.target.maxZoom,
-      this.debugControls.deltaZoomCap,
-      this.debugControls.viewDistanceEnabled,
-      this.warmKeys,
-    );
-    const demanded = imageryDemandForAdmission(
-      fullDemanded,
-      this.hotKeys,
-      this.forecastKeys,
-      this.deferSpeculativeWarm,
-      (tile) => this.scheduler!.hasResidentOrInFlightResource(tile),
-    );
-    this.deferredWarmTileCount = fullDemanded.length - demanded.length;
-    this.deferredWarmTileOccurrenceTotal += this.deferredWarmTileCount;
-    this.scheduler.updateResourceDemand(demanded, hot);
   }
 
   private migrationComplete(): boolean {
@@ -2341,7 +1793,6 @@ export class ImageryVirtualTexture {
   }
 
   private refreshDesiredTree(): void {
-    const keys = new Set<string>();
     this.desiredRoot = buildDesiredImageryTree(
       this.snapshot.committedCut,
       (tile) => {
@@ -2350,18 +1801,15 @@ export class ImageryVirtualTexture {
           return {
             image: BLUE_MARBLE_IMAGERY_KEY,
             fallbackFromNotFound: true,
-            evictCommitted: !this.warmKeys.has(tileIdentityKey(tile)),
           };
         }
         const image = imageryKey(resource.sourceTile);
-        keys.add(image);
         return {
           image,
           fallbackFromNotFound: resource.fallbackFromNotFound === true,
         };
       },
     );
-    this.desiredSourceKeySet = keys;
     this.candidateDirty = true;
   }
 
@@ -2418,7 +1866,6 @@ export class ImageryVirtualTexture {
   ): void {
     const previousTextures = this.activeTreeTextures;
     this.committedRoot = root;
-    this.committedSourceKeys = imageryTreeSourceKeys(root);
     this.activeTreeTextures = textures;
     this.activePool = pool;
     this.sharedUniforms.imageryTree!.value = textures.nodes;
@@ -2431,33 +1878,5 @@ export class ImageryVirtualTexture {
     this.sharedUniforms.imageryEnabled!.value = 1;
     previousTextures.nodes.dispose();
     previousTextures.images.dispose();
-    this.releasePoolSlots(pool, this.committedSourceKeys);
-    this.pruneRecords();
-  }
-
-  private releasePoolSlots(pool: ImageryPool, retained: Set<string>): void {
-    for (const [key, slot] of pool.slots) {
-      if (retained.has(key)) continue;
-      pool.slots.delete(key);
-      pool.uploadedRevisions.delete(key);
-      pool.freeSlots.push(slot);
-    }
-  }
-
-  private pruneRecords(): void {
-    const retained = new Set([
-      ...this.committedSourceKeys,
-      ...this.desiredSourceKeySet,
-      ...(this.migration?.demandedKeys ?? []),
-    ]);
-    if (this.scheduler) {
-      for (const tile of this.snapshot.requestedCut) {
-        const sourceTile = this.scheduler.committedResource(tile)?.sourceTile;
-        if (sourceTile) retained.add(imageryKey(sourceTile));
-      }
-    }
-    for (const key of this.records.keys()) {
-      if (!retained.has(key)) this.records.delete(key);
-    }
   }
 }

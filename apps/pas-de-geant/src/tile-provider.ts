@@ -10,6 +10,8 @@ export type TileProviderResult<Resource> =
       readonly status?: number;
       readonly retryAfterMs?: number;
       readonly retryable?: boolean;
+      /** Tile-local failures must never disable unrelated provider work. */
+      readonly scope?: "tile" | "provider";
     };
 
 export interface TileRequestHandle {
@@ -24,6 +26,6 @@ export interface TileProvider<Resource> {
     tile: TileIdentity,
     observer: (result: TileProviderResult<Resource>) => void,
   ): TileRequestHandle;
-  /** Reorders queued work without cancelling or restarting active requests. */
-  updatePriority?(tiles: Iterable<TileIdentity>): void;
+  /** Reconsiders cache-miss work paused by provider backoff. */
+  resumeDeferred?(): void;
 }

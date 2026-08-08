@@ -20,8 +20,6 @@ export type ImageryTreeNode = ImageryImageNode | ImageryChildrenNode;
 export interface DesiredImageryLeaf {
   readonly image: string;
   readonly fallbackFromNotFound: boolean;
-  /** Blue Marble is intentional residency eviction, not transient absence. */
-  readonly evictCommitted?: boolean;
 }
 
 export interface DesiredImageryChildren {
@@ -131,42 +129,16 @@ export function reconcileImageryTree(
   desired: DesiredImageryTree,
   options: ImageryTreeReconcileOptions,
 ): ImageryTreeNode {
-  const photographic = new WeakMap<ImageryTreeNode, boolean>();
-  const finestZoom = new WeakMap<ImageryTreeNode, number>();
-
-  const hasPhotographicImage = (node: ImageryTreeNode): boolean => {
-    const cached = photographic.get(node);
-    if (cached !== undefined) return cached;
-    const result = isImage(node)
-      ? node.image !== BLUE_MARBLE_IMAGERY_KEY
-      : node.children.some(hasPhotographicImage);
-    photographic.set(node, result);
-    return result;
-  };
-
-  const maximumSourceZoom = (node: ImageryTreeNode): number => {
-    const cached = finestZoom.get(node);
-    if (cached !== undefined) return cached;
-    const result = isImage(node)
-      ? node.image === BLUE_MARBLE_IMAGERY_KEY
-        ? -1
-        : options.sourceZoom(node.image)
-      : Math.max(...node.children.map(maximumSourceZoom));
-    finestZoom.set(node, result);
-    return result;
-  };
-
-  const preservesCommitted = (
+  const satisfiesLeaf = (
     current: ImageryTreeNode,
     leaf: DesiredImageryLeaf,
   ): boolean => {
-    if (leaf.image === BLUE_MARBLE_IMAGERY_KEY) {
-      return leaf.evictCommitted !== true && hasPhotographicImage(current);
+    if (isImage(current)) {
+      if (leaf.image === BLUE_MARBLE_IMAGERY_KEY) return true;
+      return current.image !== BLUE_MARBLE_IMAGERY_KEY &&
+        options.sourceZoom(current.image) >= options.sourceZoom(leaf.image);
     }
-    return (
-      leaf.fallbackFromNotFound &&
-      maximumSourceZoom(current) > options.sourceZoom(leaf.image)
-    );
+    return current.children.every((child) => satisfiesLeaf(child, leaf));
   };
 
   const ready = (
@@ -174,8 +146,7 @@ export function reconcileImageryTree(
     next: DesiredImageryTree,
   ): boolean => {
     if (isDesiredLeaf(next)) {
-      return preservesCommitted(current, next) ||
-        next.image === BLUE_MARBLE_IMAGERY_KEY ||
+      return satisfiesLeaf(current, next) ||
         options.isResident(next.image);
     }
     if (isImage(current)) {
@@ -191,17 +162,7 @@ export function reconcileImageryTree(
     next: DesiredImageryTree,
   ): ImageryTreeNode => {
     if (isDesiredLeaf(next)) {
-      if (preservesCommitted(current, next) ||
-          (next.image !== BLUE_MARBLE_IMAGERY_KEY &&
-            !options.isResident(next.image))) {
-        return current;
-      }
-      const replacement = next.image === BLUE_MARBLE_IMAGERY_KEY
-        ? BLUE_MARBLE_IMAGERY_NODE
-        : options.imageNode(next.image);
-      return isImage(current) && current.image === replacement.image
-        ? current
-        : replacement;
+      return mergeLeaf(current, next);
     }
     if (isImage(current)) {
       if (!ready(current, next)) return current;
@@ -213,6 +174,28 @@ export function reconcileImageryTree(
     }
     const children = next.children.map((child, index) =>
       merge(current.children[index]!, child),
+    ) as unknown as ImageryChildrenNode["children"];
+    return children.every((child, index) => child === current.children[index])
+      ? current
+      : Object.freeze({ children: Object.freeze(children) });
+  };
+
+  const mergeLeaf = (
+    current: ImageryTreeNode,
+    next: DesiredImageryLeaf,
+  ): ImageryTreeNode => {
+    if (isImage(current)) {
+      if (next.image === BLUE_MARBLE_IMAGERY_KEY) return current;
+      if (!options.isResident(next.image)) return current;
+      if (
+        current.image !== BLUE_MARBLE_IMAGERY_KEY &&
+        options.sourceZoom(current.image) > options.sourceZoom(next.image)
+      ) return current;
+      const replacement = options.imageNode(next.image);
+      return current.image === replacement.image ? current : replacement;
+    }
+    const children = current.children.map((child) =>
+      mergeLeaf(child, next)
     ) as unknown as ImageryChildrenNode["children"];
     return children.every((child, index) => child === current.children[index])
       ? current

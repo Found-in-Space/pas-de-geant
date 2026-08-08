@@ -12,7 +12,6 @@ import {
   TileTransitionScheduler,
   type LayoutSource,
   type SchedulerEvent,
-  type SchedulerSnapshot,
 } from "../apps/pas-de-geant/src/tile-transition-scheduler.js";
 import {
   assertAdmissibleCut,
@@ -20,6 +19,7 @@ import {
   type TileIdentity,
 } from "../apps/pas-de-geant/src/tile-transition-planner.js";
 import { calculateTileOnionPlan } from "../apps/pas-de-geant/src/tile-onion-core.js";
+import { TileVisibilityAdmission } from "../apps/pas-de-geant/src/tile-visibility-admission.js";
 
 function uniformCut(zoom: number): TileIdentity[] {
   const width = 2 ** zoom;
@@ -46,6 +46,7 @@ function refine(
 
 class FixtureLayoutSource implements LayoutSource<string> {
   constructor(private readonly cuts: Readonly<Record<string, readonly TileIdentity[]>>) {}
+
   calculate(target: string): readonly TileIdentity[] {
     const cut = this.cuts[target];
     if (!cut) throw new Error(`Unknown fixture ${target}.`);
@@ -53,394 +54,505 @@ class FixtureLayoutSource implements LayoutSource<string> {
   }
 }
 
-function eventCollector(events: SchedulerEvent[]) {
-  return (_snapshot: unknown, event?: SchedulerEvent): void => {
-    if (event) events.push(event);
-  };
+class ControlledProvider implements TileProvider<{ readonly key: string }> {
+  private nextRequestId = 1;
+  readonly requested: string[] = [];
+  readonly cancelled: string[] = [];
+  private readonly pending = new Map<
+    string,
+    {
+      readonly requestId: number;
+      readonly observer: (
+        result: TileProviderResult<{ readonly key: string }>,
+      ) => void;
+    }
+  >();
+
+  get pendingKeys(): readonly string[] {
+    return [...this.pending.keys()];
+  }
+
+  request(
+    tile: TileIdentity,
+    observer: (result: TileProviderResult<{ readonly key: string }>) => void,
+  ): TileRequestHandle {
+    const key = tileIdentityKey(tile);
+    const requestId = this.nextRequestId++;
+    this.requested.push(key);
+    this.pending.set(key, { requestId, observer });
+    return {
+      requestId,
+      cancel: () => {
+        this.pending.delete(key);
+        this.cancelled.push(key);
+      },
+    };
+  }
+
+  respond(key: string): void {
+    const pending = this.pending.get(key);
+    if (!pending) throw new Error(`No pending request for ${key}.`);
+    this.pending.delete(key);
+    pending.observer({ phase: "response", resource: { key } });
+  }
+
+  fail(key: string): void {
+    const pending = this.pending.get(key);
+    if (!pending) throw new Error(`No pending request for ${key}.`);
+    this.pending.delete(key);
+    pending.observer({ phase: "failure", reason: "fixture failure" });
+  }
 }
 
-describe("Deterministic fake tile provider", () => {
-  it("emits request, in-flight, then deterministic response", () => {
-    const provider = new FakeTileProvider({ latencyMs: 100, jitterMs: 0 });
-    const phases: string[] = [];
-    provider.subscribe((event) => phases.push(event.phase));
-    provider.request({ z: 2, x: 1, y: 1 }, (result) => phases.push(`observer:${result.phase}`));
+function createScheduler<Resource>(
+  cuts: Readonly<Record<string, readonly TileIdentity[]>>,
+  provider: TileProvider<Resource>,
+): TileTransitionScheduler<string, Resource> {
+  return new TileTransitionScheduler<string, Resource>(
+    "base",
+    new FixtureLayoutSource(cuts),
+    provider,
+  );
+}
 
-    expect(phases).toEqual(["request"]);
-    provider.advanceBy(50);
-    expect(phases).toEqual(["request", "in-flight", "observer:in-flight"]);
-    provider.advanceBy(50);
-    expect(phases).toEqual([
-      "request",
-      "in-flight",
-      "observer:in-flight",
-      "response",
-      "observer:response",
-    ]);
-  });
-
-  it("fails every first attempt reproducibly and succeeds on retry", () => {
-    const provider = new FakeTileProvider({
-      latencyMs: 10,
-      jitterMs: 0,
-      failureMode: "transient-first-attempt",
-    });
-    const results: string[] = [];
-    const request = (): void => {
-      provider.request({ z: 3, x: 2, y: 4 }, (result) => {
-        if (result.phase !== "in-flight") results.push(result.phase);
-      });
-      provider.advanceBy(10);
-    };
-    request();
-    request();
-    expect(results).toEqual(["failure", "response"]);
-  });
-
-  it("cancels without later delivering a response", () => {
-    const provider = new FakeTileProvider({ latencyMs: 10, jitterMs: 0 });
-    const phases: string[] = [];
-    const handle = provider.request({ z: 1, x: 0, y: 0 }, (result) =>
-      phases.push(result.phase),
-    );
-    handle.cancel();
-    provider.advanceBy(20);
-    expect(phases).toEqual([]);
-  });
-});
-
-describe("Tile transition scheduler", () => {
-  it("does not replan or advance the revision when a target keeps the requested cut", () => {
+describe("planner-bounded tile transition admission", () => {
+  it("performs no work for offscreen planner groups or tiles outside planner output", () => {
     const base = uniformCut(1);
-    const provider = new FakeTileProvider({ latencyMs: 10, jitterMs: 0 });
-    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
-      "first-position",
-      new FixtureLayoutSource({
-        "first-position": base,
-        "nearby-position": [...base].reverse(),
-      }),
-      provider,
-    );
-    const before = scheduler.snapshot;
-    const events: SchedulerEvent[] = [];
-    scheduler.subscribe(eventCollector(events));
-
-    expect(scheduler.updateTarget("nearby-position")).toBe(false);
-
-    expect(scheduler.snapshot.revision).toBe(before.revision);
-    expect(scheduler.snapshot.target).toBe("nearby-position");
-    expect(scheduler.snapshot.requestedCut).toEqual(before.requestedCut);
-    expect(scheduler.snapshot.graph).toBe(before.graph);
-    expect(events).toEqual([]);
-  });
-
-  it("keeps an active transition intact when a target retains its requested cut", () => {
-    const base = uniformCut(1);
-    const desired = refine(base, { z: 1, x: 0, y: 0 });
-    const provider = new FakeTileProvider({ latencyMs: 100, jitterMs: 0 });
-    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
-      "base",
-      new FixtureLayoutSource({
-        base,
-        desired,
-        "nearby-desired": [...desired].reverse(),
-      }),
-      provider,
-    );
-
-    expect(scheduler.updateTarget("desired")).toBe(true);
-    const before = scheduler.snapshot;
-    const requirementIds = before.requirements.map(({ requestId }) => requestId);
-    const events: SchedulerEvent[] = [];
-    scheduler.subscribe(eventCollector(events));
-
-    expect(scheduler.updateTarget("nearby-desired")).toBe(false);
-
-    expect(scheduler.snapshot.revision).toBe(before.revision);
-    expect(scheduler.snapshot.target).toBe("nearby-desired");
-    expect(scheduler.snapshot.graph).toBe(before.graph);
-    expect(scheduler.snapshot.requirements.map(({ requestId }) => requestId)).toEqual(
-      requirementIds,
-    );
-    expect(events).toEqual([]);
-  });
-
-  it("hydrates the initial committed fallback without changing its cut", () => {
-    const base = uniformCut(1);
-    const provider = new FakeTileProvider({ latencyMs: 10, jitterMs: 0 });
-    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
-      "base",
-      new FixtureLayoutSource({ base }),
-      provider,
-      { hydrateInitialResources: true },
-    );
-    const events: SchedulerEvent[] = [];
-    scheduler.subscribe(eventCollector(events));
-
-    expect(scheduler.snapshot.requirements).toHaveLength(base.length);
-    expect(scheduler.snapshot.graph.groups).toEqual([]);
-    provider.advanceBy(10);
-
-    expect(scheduler.snapshot.requirements).toEqual([]);
-    expect(scheduler.snapshot.committedCut.map(tileIdentityKey).sort()).toEqual(
-      base.map(tileIdentityKey).sort(),
-    );
-    expect(events.some(({ kind }) => kind === "atomic-swap")).toBe(false);
-    for (const tile of base) {
-      expect(scheduler.committedResource(tile)?.tile).toEqual(tile);
-    }
-  });
-
-  it("keeps a failed initial tile as a retryable committed gap", () => {
-    const base = uniformCut(1);
-    const provider = new FakeTileProvider({
-      latencyMs: 10,
-      jitterMs: 0,
-      failureMode: "transient-first-attempt",
-    });
-    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
-      "base",
-      new FixtureLayoutSource({ base }),
-      provider,
-      { hydrateInitialResources: true },
-    );
-
-    provider.advanceBy(10);
-    expect(scheduler.snapshot.requirements.every(({ state }) => state === "failed"))
-      .toBe(true);
-    expect(scheduler.snapshot.committedCut).toHaveLength(base.length);
-
-    scheduler.retryFailed();
-    provider.advanceBy(10);
-    expect(scheduler.snapshot.requirements).toEqual([]);
-    expect(base.every((tile) => scheduler.committedResource(tile))).toBe(true);
-  });
-
-  it("never punches a hole and commits a group only when every child is ready", () => {
-    const base = uniformCut(1);
-    const parent = { z: 1, x: 0, y: 0 };
-    const desired = refine(base, parent);
-    const provider = new FakeTileProvider({ latencyMs: 100, jitterMs: 0 });
-    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
-      "base",
-      new FixtureLayoutSource({ base, desired }),
-      provider,
-    );
-    const committedCuts: Array<readonly TileIdentity[]> = [];
-    const events: SchedulerEvent[] = [];
-    let lastNotified: SchedulerSnapshot<string> | undefined;
-    scheduler.subscribe((snapshot, event) => {
-      if (event) events.push(event);
-      committedCuts.push(snapshot.committedCut);
-      lastNotified = snapshot;
-    });
+    const desired = refine(base, base[0]!);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, desired }, provider);
 
     scheduler.updateTarget("desired");
-    provider.advanceBy(99);
-    expect(scheduler.snapshot.committedCut).toEqual(
-      expect.arrayContaining([expect.objectContaining(parent)]),
-    );
-    expect(events.some(({ kind }) => kind === "atomic-swap")).toBe(false);
-    provider.advanceBy(1);
+    expect(scheduler.snapshot.graph.groups).not.toHaveLength(0);
+    expect(scheduler.snapshot.requirements).toEqual([]);
+    expect(provider.requested).toEqual([]);
 
-    expect(events.filter(({ kind }) => kind === "atomic-swap")).toHaveLength(1);
-    expect(scheduler.snapshot.committedCut.map(tileIdentityKey)).not.toContain("1/0/0");
-    expect(lastNotified!.graph.groups).toEqual([]);
-    for (const cut of committedCuts) {
-      expect(() => assertAdmissibleCut(cut, "Emitted committed cut")).not.toThrow();
+    scheduler.updateVisibilityAdmission([{ z: 8, x: 100, y: 100 }]);
+    expect(scheduler.snapshot.requirements).toEqual([]);
+    expect(provider.requested).toEqual([]);
+  });
+
+  it("hydrates only visible members of the planner-owned committed cut", () => {
+    const base = uniformCut(1);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base }, provider);
+
+    scheduler.updateVisibilityAdmission([base[2]!, { z: 9, x: 1, y: 1 }]);
+
+    expect(provider.requested).toEqual([tileIdentityKey(base[2]!)]);
+    expect(scheduler.snapshot.requirements.map(({ tile }) => tileIdentityKey(tile)))
+      .toEqual([tileIdentityKey(base[2]!)]);
+    provider.respond(tileIdentityKey(base[2]!));
+    expect(scheduler.snapshot.requirements).toEqual([]);
+    expect(scheduler.committedResource(base[2]!)).toEqual({
+      key: tileIdentityKey(base[2]!),
+    });
+    for (const tile of base.filter((tile) => tile !== base[2])) {
+      expect(scheduler.committedResource(tile)).toBeUndefined();
     }
   });
 
-  it("reuses exact still-needed requests across a new target and cancels obsolete work", () => {
+  it("activates exactly the full planner batch when one replacement is visible", () => {
     const base = uniformCut(1);
-    const first = refine(base, { z: 1, x: 0, y: 0 });
-    const latest = refine(first, { z: 1, x: 1, y: 1 });
-    const provider = new FakeTileProvider({ latencyMs: 100, jitterMs: 0 });
-    const providerEvents: { phase: string; key: string; requestId: number }[] = [];
-    provider.subscribe((event) => providerEvents.push({
-      phase: event.phase,
-      key: tileIdentityKey(event.tile),
-      requestId: event.requestId,
-    }));
-    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
-      "base",
-      new FixtureLayoutSource({ base, first, latest }),
-      provider,
-    );
+    const desired = refine(base, base[0]!);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, desired }, provider);
+    scheduler.updateTarget("desired");
+    const graph = scheduler.snapshot.graph;
+    expect(graph.batches).toHaveLength(1);
 
-    scheduler.updateTarget("first");
-    const reusedKey = "2/0/0";
-    const reusedRequestId = providerEvents.find(({ key }) => key === reusedKey)!.requestId;
-    scheduler.updateTarget("latest");
+    scheduler.updateVisibilityAdmission([graph.groups[0]!.after[0]!]);
 
-    expect(providerEvents.filter(({ phase, key }) => phase === "request" && key === reusedKey))
-      .toHaveLength(1);
-    expect(scheduler.snapshot.requirements.find(({ tile }) => tileIdentityKey(tile) === reusedKey)?.requestId)
-      .toBe(reusedRequestId);
+    const declared = graph.batches[0]!.groupIds.flatMap((groupId) =>
+      graph.groups.find(({ id }) => id === groupId)!.after.map(tileIdentityKey)
+    ).sort();
+    expect([...provider.requested].sort()).toEqual(declared);
+    expect(scheduler.snapshot.requirements.map(({ tile }) => tileIdentityKey(tile)).sort())
+      .toEqual(declared);
+  });
 
-    scheduler.updateTarget("base");
-    expect(providerEvents.filter(({ phase }) => phase === "cancellation").length).toBeGreaterThan(0);
-    provider.advanceBy(200);
-    expect(scheduler.snapshot.committedCut.map(tileIdentityKey).sort()).toEqual(
-      base.map(tileIdentityKey).sort(),
+  it("activates exactly the planner-declared dependency closure", () => {
+    const base = calculateTileOnionPlan({
+      latitudeDegrees: 20,
+      longitudeDegrees: 179,
+      maxZoom: 5,
+    }).leaves;
+    const desired = calculateTileOnionPlan({
+      latitudeDegrees: 20,
+      longitudeDegrees: -90,
+      maxZoom: 5,
+    }).leaves;
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, desired }, provider);
+    scheduler.updateTarget("desired");
+    const graph = scheduler.snapshot.graph;
+    const selected = graph.batches.find(({ dependsOn }) => dependsOn.length > 0)!;
+    expect(selected).toBeDefined();
+    const batchesById = new Map(graph.batches.map((batch) => [batch.id, batch]));
+    const admittedBatchIds = new Set<string>();
+    const include = (batchId: string): void => {
+      if (admittedBatchIds.has(batchId)) return;
+      const batch = batchesById.get(batchId)!;
+      admittedBatchIds.add(batchId);
+      for (const dependencyId of batch.dependsOn) include(dependencyId);
+    };
+    include(selected.id);
+    expect(admittedBatchIds.size).toBeLessThan(graph.batches.length);
+    const selectedGroup = graph.groups.find(
+      ({ id }) => selected.groupIds.includes(id),
+    )!;
+
+    scheduler.updateVisibilityAdmission([selectedGroup.after[0]!]);
+
+    const expected = graph.batches
+      .filter(({ id }) => admittedBatchIds.has(id))
+      .flatMap(({ groupIds }) => groupIds)
+      .flatMap((groupId) =>
+        graph.groups.find(({ id }) => id === groupId)!.after.map(tileIdentityKey)
+      )
+      .sort();
+    expect([...provider.requested].sort()).toEqual(expected);
+    expect(provider.requested.length).toBeLessThan(
+      graph.groups.flatMap(({ after }) => after).length,
     );
   });
 
-  it("ignores a stale response from a cancelled request token", () => {
-    class HostileProvider implements TileProvider<FakeTileResource> {
-      nextId = 1;
-      observers = new Map<number, (result: TileProviderResult<FakeTileResource>) => void>();
-      tiles = new Map<number, TileIdentity>();
-      request(
-        tile: TileIdentity,
-        observer: (result: TileProviderResult<FakeTileResource>) => void,
-      ): TileRequestHandle {
-        const requestId = this.nextId++;
-        this.observers.set(requestId, observer);
-        this.tiles.set(requestId, tile);
-        return { requestId, cancel() {} };
-      }
-      respond(requestId: number): void {
-        this.observers.get(requestId)?.({
-          phase: "response",
-          resource: { tile: this.tiles.get(requestId)!, requestId, attempt: 1 },
+  it("executes an admitted dependent batch chain as exact planner swaps", () => {
+    const base = calculateTileOnionPlan({
+      latitudeDegrees: 20,
+      longitudeDegrees: 179,
+      maxZoom: 5,
+    }).leaves;
+    const desired = calculateTileOnionPlan({
+      latitudeDegrees: 20,
+      longitudeDegrees: -90,
+      maxZoom: 5,
+    }).leaves;
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, desired }, provider);
+    scheduler.updateTarget("desired");
+    const initialGraph = scheduler.snapshot.graph;
+    const dependentBatch = initialGraph.batches.find(
+      ({ dependsOn }) => dependsOn.length > 0,
+    )!;
+    expect(initialGraph.batches.length).toBeGreaterThan(1);
+    expect(dependentBatch).toBeDefined();
+
+    const batchPlans = new Map<string, {
+      readonly groupIds: readonly string[];
+      readonly groups: typeof initialGraph.groups;
+    }>();
+    const rememberBatches = (snapshot: typeof scheduler.snapshot): void => {
+      for (const batch of snapshot.graph.batches) {
+        batchPlans.set(batch.id, {
+          groupIds: batch.groupIds,
+          groups: snapshot.graph.groups,
         });
       }
-    }
-    const base = uniformCut(1);
-    const desired = refine(base, { z: 1, x: 0, y: 0 });
-    const provider = new HostileProvider();
-    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
-      "base",
-      new FixtureLayoutSource({ base, desired }),
-      provider,
+    };
+    rememberBatches(scheduler.snapshot);
+    const swaps: Array<{
+      readonly batchFound: boolean;
+      readonly before: readonly string[];
+      readonly expectedBefore: readonly string[];
+      readonly after: readonly string[];
+      readonly expectedAfter: readonly string[];
+    }> = [];
+    scheduler.subscribe((nextSnapshot, event) => {
+      if (event?.kind === "atomic-swap") {
+        const batch = batchPlans.get(event.batchId!);
+        const groups = batch?.groupIds.map((groupId) =>
+          batch.groups.find(({ id }) => id === groupId)!
+        ) ?? [];
+        swaps.push({
+          batchFound: batch !== undefined,
+          before: event.before?.map(tileIdentityKey).sort() ?? [],
+          expectedBefore: groups.flatMap(({ before }) => before)
+            .map(tileIdentityKey).sort(),
+          after: event.after?.map(tileIdentityKey).sort() ?? [],
+          expectedAfter: groups.flatMap(({ after }) => after)
+            .map(tileIdentityKey).sort(),
+        });
+      }
+      rememberBatches(nextSnapshot);
+    });
+    scheduler.updateVisibilityAdmission(
+      initialGraph.groups.flatMap(({ after }) => after),
     );
-    scheduler.updateTarget("desired");
-    const staleIds = scheduler.snapshot.requirements.map(({ requestId }) => requestId);
-    scheduler.updateTarget("base");
-    for (const requestId of staleIds) provider.respond(requestId);
 
-    expect(scheduler.snapshot.requirements).toEqual([]);
-    expect(scheduler.snapshot.committedCut.map(tileIdentityKey).sort()).toEqual(
-      base.map(tileIdentityKey).sort(),
+    const dependentKeys = new Set(
+      dependentBatch.groupIds.flatMap((groupId) =>
+        initialGraph.groups.find(({ id }) => id === groupId)!.after
+          .map(tileIdentityKey)
+      ),
     );
+    for (const key of [...provider.pendingKeys].filter((candidate) =>
+      dependentKeys.has(candidate)
+    )) provider.respond(key);
+    expect(swaps).toEqual([]);
+    while (scheduler.snapshot.graph.groups.length > 0) {
+      if (provider.pendingKeys.length === 0) {
+        scheduler.updateVisibilityAdmission(
+          scheduler.snapshot.graph.groups.flatMap(({ after }) => after),
+          scheduler.snapshot.revision,
+        );
+      }
+      expect(provider.pendingKeys.length).toBeGreaterThan(0);
+      provider.respond(provider.pendingKeys[0]!);
+    }
+
+    expect(swaps.length).toBeGreaterThan(1);
+    for (const swap of swaps) {
+      expect(swap.batchFound).toBe(true);
+      expect(swap.before).toEqual(swap.expectedBefore);
+      expect(swap.after).toEqual(swap.expectedAfter);
+    }
+    expect(new Set(scheduler.snapshot.committedCut.map(tileIdentityKey))).toEqual(
+      new Set(desired.map(tileIdentityKey)),
+    );
+    expect(scheduler.snapshot.graph.groups).toEqual([]);
   });
 
-  it("lets an independent group commit while a failed group stays covered", () => {
+  it("changes admission by intersection only and cancels removed work without failing it", () => {
     const base = uniformCut(1);
-    const blockedParent = { z: 1, x: 0, y: 0 };
-    const freeParent = { z: 1, x: 1, y: 1 };
-    const desired = refine(refine(base, blockedParent), freeParent);
-    const provider = new FakeTileProvider({
-      latencyMs: 10,
-      jitterMs: 0,
-      failureMode: "persistent-selected",
-      selectedFailureKey: "2/0/0",
+    const desired = refine(refine(base, base[0]!), base[3]!);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, desired }, provider);
+    const events: SchedulerEvent[] = [];
+    scheduler.subscribe((_snapshot, event) => {
+      if (event) events.push(event);
     });
-    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
-      "base",
-      new FixtureLayoutSource({ base, desired }),
-      provider,
-    );
     scheduler.updateTarget("desired");
-    provider.advanceBy(10);
+    const firstGroup = scheduler.snapshot.graph.groups[0]!;
+    const admittedKeys = firstGroup.after.map(tileIdentityKey).sort();
 
-    const committed = scheduler.snapshot.committedCut.map(tileIdentityKey);
-    expect(committed).toContain("1/0/0");
-    expect(committed).not.toContain("1/1/1");
-    expect(committed).toEqual(expect.arrayContaining(["2/2/2", "2/3/2", "2/2/3", "2/3/3"]));
-    expect(scheduler.snapshot.requirements.some(({ state }) => state === "failed")).toBe(true);
+    scheduler.updateVisibilityAdmission([firstGroup.after[0]!]);
+    expect([...provider.requested].sort()).toEqual(admittedKeys);
+    scheduler.updateVisibilityAdmission([{ z: 7, x: 1, y: 1 }]);
+
+    expect([...provider.cancelled].sort()).toEqual(admittedKeys);
+    expect(scheduler.snapshot.requirements).toEqual([]);
+    expect(scheduler.snapshot.graph.groups).not.toHaveLength(0);
+    expect(events.filter(({ kind }) => kind === "failure")).toEqual([]);
+  });
+
+  it("keeps an atomic replacement covered until every declared tile is ready", () => {
+    const base = uniformCut(1);
+    const parent = base[0]!;
+    const desired = refine(base, parent);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, desired }, provider);
+    scheduler.updateTarget("desired");
+    const group = scheduler.snapshot.graph.groups[0]!;
+    scheduler.updateVisibilityAdmission([group.after[0]!]);
+
+    for (const key of group.after.slice(0, -1).map(tileIdentityKey)) {
+      provider.respond(key);
+    }
+    expect(scheduler.snapshot.committedCut.map(tileIdentityKey)).toContain(
+      tileIdentityKey(parent),
+    );
+    provider.respond(tileIdentityKey(group.after.at(-1)!));
+
+    expect(scheduler.snapshot.committedCut.map(tileIdentityKey)).not.toContain(
+      tileIdentityKey(parent),
+    );
+    expect(new Set(scheduler.snapshot.committedCut.map(tileIdentityKey))).toEqual(
+      new Set(desired.map(tileIdentityKey)),
+    );
     expect(() => assertAdmissibleCut(scheduler.snapshot.committedCut)).not.toThrow();
   });
 
-  it("retries a transient failure and then commits the blocked group", () => {
+  it("lets an independent visible group commit while an offscreen group stays unresolved", () => {
     const base = uniformCut(1);
-    const desired = refine(base, { z: 1, x: 0, y: 0 });
-    const provider = new FakeTileProvider({
-      latencyMs: 10,
-      jitterMs: 0,
-      failureMode: "transient-first-attempt",
-    });
-    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
-      "base",
-      new FixtureLayoutSource({ base, desired }),
-      provider,
-    );
+    const offscreenParent = base[0]!;
+    const visibleParent = base[3]!;
+    const desired = refine(refine(base, offscreenParent), visibleParent);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, desired }, provider);
     scheduler.updateTarget("desired");
-    provider.advanceBy(10);
-    expect(scheduler.snapshot.requirements.every(({ state }) => state === "failed")).toBe(true);
-    expect(scheduler.snapshot.committedCut.map(tileIdentityKey)).toContain("1/0/0");
+    const visibleGroup = scheduler.snapshot.graph.groups.find(
+      ({ before }) => before.some(
+        (tile) => tileIdentityKey(tile) === tileIdentityKey(visibleParent),
+      ),
+    )!;
 
-    scheduler.retryFailed();
-    provider.advanceBy(10);
-    expect(scheduler.snapshot.requirements).toEqual([]);
-    expect(scheduler.snapshot.graph.groups).toEqual([]);
-    expect(scheduler.snapshot.committedCut.map(tileIdentityKey)).not.toContain("1/0/0");
+    scheduler.updateVisibilityAdmission([visibleGroup.after[0]!]);
+    for (const tile of visibleGroup.after) provider.respond(tileIdentityKey(tile));
+
+    const committed = scheduler.snapshot.committedCut.map(tileIdentityKey);
+    expect(committed).toContain(tileIdentityKey(offscreenParent));
+    expect(committed).not.toContain(tileIdentityKey(visibleParent));
+    expect(provider.requested.sort()).toEqual(
+      visibleGroup.after.map(tileIdentityKey).sort(),
+    );
+    expect(scheduler.snapshot.graph.groups).not.toHaveLength(0);
   });
 
-  it("does not retain a released resource as a warm cache entry", () => {
+  it("keeps a failed group local while another admitted group progresses", () => {
     const base = uniformCut(1);
-    const refined = refine(base, { z: 1, x: 0, y: 0 });
-    const provider = new FakeTileProvider({ latencyMs: 10, jitterMs: 0 });
-    const requests: string[] = [];
-    provider.subscribe((event) => {
-      if (event.phase === "request") requests.push(tileIdentityKey(event.tile));
-    });
-    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
-      "base",
-      new FixtureLayoutSource({ base, refined }),
-      provider,
+    const blockedParent = base[0]!;
+    const freeParent = base[3]!;
+    const desired = refine(refine(base, blockedParent), freeParent);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, desired }, provider);
+    scheduler.updateTarget("desired");
+    const groups = scheduler.snapshot.graph.groups;
+    const blocked = groups.find(({ before }) =>
+      before.some((tile) => tileIdentityKey(tile) === tileIdentityKey(blockedParent))
+    )!;
+    const free = groups.find(({ before }) =>
+      before.some((tile) => tileIdentityKey(tile) === tileIdentityKey(freeParent))
+    )!;
+    scheduler.updateVisibilityAdmission([blocked.after[0]!, free.after[0]!]);
+
+    provider.fail(tileIdentityKey(blocked.after[0]!));
+    for (const tile of blocked.after.slice(1)) provider.respond(tileIdentityKey(tile));
+    for (const tile of free.after) provider.respond(tileIdentityKey(tile));
+
+    const committed = scheduler.snapshot.committedCut.map(tileIdentityKey);
+    expect(committed).toContain(tileIdentityKey(blockedParent));
+    expect(committed).not.toContain(tileIdentityKey(freeParent));
+    expect(scheduler.snapshot.requirements).toContainEqual(
+      expect.objectContaining({
+        tile: blocked.after[0],
+        state: "failed",
+      }),
     );
-
-    scheduler.updateTarget("refined");
-    provider.advanceBy(10);
-    scheduler.updateTarget("base");
-    provider.advanceBy(10);
-    scheduler.updateTarget("refined");
-    provider.advanceBy(10);
-
-    expect(requests.filter((key) => key === "2/0/0")).toHaveLength(2);
-    expect(requests.filter((key) => key === "1/0/0")).toHaveLength(1);
   });
 
-  it("keeps every progressive complex swap admissible and commits before global completion", () => {
-    const first = calculateTileOnionPlan({
-      latitudeDegrees: 10,
-      longitudeDegrees: 0,
-      maxZoom: 5,
-    }).leaves;
-    const second = calculateTileOnionPlan({
-      latitudeDegrees: 10,
-      longitudeDegrees: 90,
-      maxZoom: 5,
-    }).leaves;
-    const provider = new FakeTileProvider({ latencyMs: 120, jitterMs: 90 });
-    const scheduler = new TileTransitionScheduler<string, FakeTileResource>(
-      "first",
-      new FixtureLayoutSource({ first, second }),
-      provider,
+  it("drops out-of-plan admission across replans until the current plan is admitted", () => {
+    const base = uniformCut(1);
+    const desired = refine(base, base[0]!);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, desired }, provider);
+    const visibleReplacement = desired.find(({ z }) => z === 2)!;
+    scheduler.updateVisibilityAdmission([visibleReplacement]);
+    expect(provider.requested).toEqual([]);
+
+    scheduler.updateTarget("desired");
+
+    const group = scheduler.snapshot.graph.groups[0]!;
+    expect(provider.requested).toEqual([]);
+    expect(scheduler.updateVisibilityAdmission(
+      [group.after[0]!],
+      scheduler.snapshot.revision - 1,
+    )).toBe(false);
+    expect(provider.requested).toEqual([]);
+
+    scheduler.updateVisibilityAdmission(
+      [group.after[0]!],
+      scheduler.snapshot.revision,
     );
-    const swapSnapshots: Array<readonly TileIdentity[]> = [];
-    let committedWhileWorkRemained = false;
-    scheduler.subscribe((snapshot, event) => {
-      if (event?.kind !== "atomic-swap") return;
-      swapSnapshots.push(snapshot.committedCut);
-      if (snapshot.graph.groups.length > 0) committedWhileWorkRemained = true;
-    });
+
+    expect(provider.requested.sort()).toEqual(group.after.map(tileIdentityKey).sort());
+    expect(provider.requested).not.toContain("2/2/0");
+  });
+
+  it("clears overlapping admission when a new planner revision is created", () => {
+    const base = uniformCut(1);
+    const first = refine(base, base[0]!);
+    const second = refine(first, base[3]!);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, first, second }, provider);
+    scheduler.updateTarget("first");
+    const firstGroup = scheduler.snapshot.graph.groups[0]!;
+    scheduler.updateVisibilityAdmission([firstGroup.after[0]!]);
+    const firstRequests = firstGroup.after.map(tileIdentityKey).sort();
+    expect([...provider.requested].sort()).toEqual(firstRequests);
 
     scheduler.updateTarget("second");
-    for (let index = 0; index < 20 && scheduler.snapshot.graph.groups.length > 0; index += 1) {
-      provider.advanceBy(25);
-    }
 
-    expect(swapSnapshots.length).toBeGreaterThan(1);
-    expect(committedWhileWorkRemained).toBe(true);
-    for (const cut of swapSnapshots) {
-      expect(() => assertAdmissibleCut(cut, "Progressive committed cut")).not.toThrow();
-    }
-    expect(scheduler.snapshot.graph.groups).toEqual([]);
-    expect(new Set(scheduler.snapshot.committedCut.map(tileIdentityKey))).toEqual(
-      new Set(second.map(tileIdentityKey)),
+    expect([...provider.cancelled].sort()).toEqual(firstRequests);
+    expect(scheduler.snapshot.requirements).toEqual([]);
+    expect(provider.requested).toHaveLength(firstRequests.length);
+
+    const overlappingGroup = scheduler.snapshot.graph.groups.find(({ before }) =>
+      before.some((tile) => tileIdentityKey(tile) === tileIdentityKey(base[0]!))
+    )!;
+    scheduler.updateVisibilityAdmission(
+      [overlappingGroup.after[0]!],
+      scheduler.snapshot.revision,
     );
+    expect(provider.requested).toHaveLength(firstRequests.length * 2);
+  });
+
+  it("keeps active admitted work intact when a new target has the same cut", () => {
+    const base = uniformCut(1);
+    const desired = refine(base, base[0]!);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, desired, alias: desired }, provider);
+    scheduler.updateTarget("desired");
+    const group = scheduler.snapshot.graph.groups[0]!;
+    scheduler.updateVisibilityAdmission([group.after[0]!]);
+    const revision = scheduler.snapshot.revision;
+    const requested = [...provider.requested];
+    const requirementKeys = scheduler.snapshot.requirements
+      .map(({ tile }) => tileIdentityKey(tile)).sort();
+
+    expect(scheduler.updateTarget("alias")).toBe(false);
+
+    expect(scheduler.snapshot.revision).toBe(revision);
+    expect(provider.requested).toEqual(requested);
+    expect(provider.cancelled).toEqual([]);
+    expect(scheduler.snapshot.requirements.map(({ tile }) =>
+      tileIdentityKey(tile)
+    ).sort()).toEqual(requirementKeys);
+  });
+
+  it("does not request again because visibility changes after committed hydration", () => {
+    const base = uniformCut(1);
+    const provider = new FakeTileProvider({ latencyMs: 1, jitterMs: 0 });
+    const requested: string[] = [];
+    provider.subscribe((event) => {
+      if (event.phase === "request") requested.push(tileIdentityKey(event.tile));
+    });
+    const scheduler = createScheduler<string | FakeTileResource>(
+      { base },
+      provider as TileProvider<string | FakeTileResource>,
+    );
+
+    scheduler.updateVisibilityAdmission([base[0]!]);
+    provider.advanceBy(1);
+    scheduler.updateVisibilityAdmission([]);
+    scheduler.updateVisibilityAdmission([base[0]!]);
+
+    expect(requested).toEqual([tileIdentityKey(base[0]!)]);
+  });
+
+  it("does not turn repeated movement or stopping updates into extra requests", () => {
+    const base = uniformCut(2);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base }, provider);
+    const admission = new TileVisibilityAdmission();
+    const firstView = {
+      footprint: [{ latitudeDegrees: -10, longitudeDegrees: -135 }],
+    };
+    const stoppedView = {
+      footprint: [{ latitudeDegrees: -10, longitudeDegrees: -45 }],
+    };
+    const apply = (view: typeof firstView): void => {
+      const visible = admission.update({
+        revision: scheduler.snapshot.revision,
+        committedTiles: scheduler.snapshot.committedCut,
+        replacementGroups: scheduler.snapshot.graph.groups,
+        view,
+      });
+      if (visible) scheduler.updateVisibilityAdmission(visible);
+    };
+
+    apply(firstView);
+    for (let cadence = 0; cadence < 5; cadence += 1) apply(firstView);
+    expect(provider.requested).toHaveLength(1);
+    provider.respond(provider.requested[0]!);
+
+    apply(stoppedView);
+    for (let cadence = 0; cadence < 5; cadence += 1) apply(stoppedView);
+    expect(provider.requested).toHaveLength(2);
+    provider.respond(provider.requested[1]!);
+    for (let cadence = 0; cadence < 5; cadence += 1) apply(stoppedView);
+
+    expect(provider.requested).toHaveLength(2);
+    expect(new Set(provider.requested)).toEqual(new Set(["2/0/2", "2/1/2"]));
   });
 });

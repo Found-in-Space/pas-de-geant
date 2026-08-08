@@ -24,6 +24,16 @@ export interface ImageryProvider {
   readonly tileSize: number;
   readonly minZoom: number;
   readonly maxZoom: number;
+  /** Returns an exact persistent-cache hit without starting network work. */
+  loadFromCache?(
+    address: TileIdentity,
+    signal: AbortSignal,
+  ): Promise<Blob | undefined>;
+  /** Loads an exact tile from the network and persists it when possible. */
+  loadFromNetwork?(
+    address: TileIdentity,
+    signal: AbortSignal,
+  ): Promise<Blob>;
   load(address: TileIdentity, signal: AbortSignal): Promise<Blob>;
 }
 
@@ -150,7 +160,7 @@ export class XyzImageryProvider implements ImageryProvider {
     );
   }
 
-  async load(address: TileIdentity, signal: AbortSignal): Promise<Blob> {
+  private url(address: TileIdentity): string {
     if (
       !isValidImageryAddress(address) ||
       address.z < this.minZoom ||
@@ -161,38 +171,64 @@ export class XyzImageryProvider implements ImageryProvider {
         "not-found",
       );
     }
-    const url = this.configuration.urlTemplate
+    return this.configuration.urlTemplate
       .replaceAll("{z}", String(address.z))
       .replaceAll("{x}", String(address.x))
       .replaceAll("{y}", String(address.y));
+  }
+
+  private async responseCache(
+    url: string,
+    signal: AbortSignal,
+  ): Promise<ImageryResponseCache | undefined> {
     const cacheStorage = this.options.cacheStorage === undefined
       ? browserCacheStorage()
       : this.options.cacheStorage;
-    let cache: ImageryResponseCache | undefined;
-    if (cacheStorage && isMapTilerUrl(url)) {
+    if (!cacheStorage || !isMapTilerUrl(url)) return undefined;
+    try {
+      const cache = await cacheStorage.open(MAPTILER_IMAGERY_CACHE_NAME);
+      ensureNotAborted(signal);
+      return cache;
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      return undefined;
+    }
+  }
+
+  async loadFromCache(
+    address: TileIdentity,
+    signal: AbortSignal,
+  ): Promise<Blob | undefined> {
+    const url = this.url(address);
+    const cache = await this.responseCache(url, signal);
+    if (!cache) return undefined;
+    try {
+      const cached = await cache.match(url);
+      ensureNotAborted(signal);
+      if (!cached?.ok) {
+        if (cached) await cache.delete(url);
+        return undefined;
+      }
       try {
-        cache = await cacheStorage.open(MAPTILER_IMAGERY_CACHE_NAME);
+        const blob = await imageBlob(cached);
         ensureNotAborted(signal);
-        const cached = await cache.match(url);
-        ensureNotAborted(signal);
-        if (cached?.ok) {
-          try {
-            const blob = await imageBlob(cached);
-            ensureNotAborted(signal);
-            return blob;
-          } catch (error) {
-            if (isAbortError(error)) throw error;
-            await cache.delete(url);
-          }
-        } else if (cached) {
-          await cache.delete(url);
-        }
+        return blob;
       } catch (error) {
         if (isAbortError(error)) throw error;
-        cache = undefined;
+        await cache.delete(url);
+        return undefined;
       }
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      return undefined;
     }
+  }
 
+  async loadFromNetwork(
+    address: TileIdentity,
+    signal: AbortSignal,
+  ): Promise<Blob> {
+    const url = this.url(address);
     const response = await (this.options.fetcher ?? fetch)(url, {
       cache: "default",
       mode: "cors",
@@ -211,6 +247,7 @@ export class XyzImageryProvider implements ImageryProvider {
         retryAfterMilliseconds(response.headers.get("retry-after")),
       );
     }
+    const cache = await this.responseCache(url, signal);
     const responseForCache = cache ? response.clone() : undefined;
     const blob = await imageBlob(response);
     ensureNotAborted(signal);
@@ -223,6 +260,11 @@ export class XyzImageryProvider implements ImageryProvider {
       }
     }
     return blob;
+  }
+
+  async load(address: TileIdentity, signal: AbortSignal): Promise<Blob> {
+    const cached = await this.loadFromCache(address, signal);
+    return cached ?? await this.loadFromNetwork(address, signal);
   }
 }
 

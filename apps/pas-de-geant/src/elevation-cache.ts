@@ -45,7 +45,16 @@ export interface ElevationCacheStorage {
 export interface ElevationCacheOptions {
   cacheStorage?: ElevationCacheStorage | null;
   fetcher?: typeof fetch;
+  /** Overrides development proxy routing, primarily for direct-loader tests. */
+  useProxy?: boolean;
 }
+
+export type ElevationPayload = CachedElevationPayload & {
+  readonly status: number;
+};
+
+/** The provider responded, but its successful response had no tile payload. */
+export class InvalidElevationPayloadError extends Error {}
 
 function browserCacheStorage(): ElevationCacheStorage | null {
   return typeof caches === "undefined" ? null : caches;
@@ -71,7 +80,7 @@ async function responsePayload(
   const bytes = await response.arrayBuffer();
   ensureNotAborted(signal);
   if (bytes.byteLength === 0) {
-    throw new Error("The elevation tile is empty.");
+    throw new InvalidElevationPayloadError("The elevation tile is empty.");
   }
   return {
     bytes,
@@ -79,48 +88,59 @@ async function responsePayload(
   };
 }
 
-export async function loadCachedElevation(
+/** Reads only persistent storage. A missing or unavailable cache is a miss. */
+export async function lookupCachedElevation(
+  address: TileIdentity,
+  signal: AbortSignal,
+  cacheStorage: ElevationCacheStorage | null = browserCacheStorage(),
+  useProxy = import.meta.env.DEV,
+): Promise<ElevationPayload | undefined> {
+  ensureNotAborted(signal);
+  if (useProxy || !cacheStorage) return undefined;
+  const url = elevationUrlForTile(address, false);
+  try {
+    const cache = await cacheStorage.open(MAPTERHORN_ELEVATION_CACHE_NAME);
+    ensureNotAborted(signal);
+    const cached = await cache.match(url);
+    ensureNotAborted(signal);
+    if (!cached) return undefined;
+    if (!cached.ok) {
+      await cache.delete(url);
+      return undefined;
+    }
+    try {
+      return {
+        ...(await responsePayload(cached, signal)),
+        cacheStatus: "hit",
+        status: cached.status,
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
+      await cache.delete(url);
+      return undefined;
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
+    return undefined;
+  }
+}
+
+/** Fetches only from the provider, then opportunistically persists success. */
+export async function loadElevationFromNetwork(
   address: TileIdentity,
   signal: AbortSignal,
   options: ElevationCacheOptions = {},
-): Promise<CachedElevationPayload & { status: number }> {
-  const url = elevationUrlForTile(address);
+): Promise<ElevationPayload> {
   const fetcher = options.fetcher ?? fetch;
-  const proxied = import.meta.env.DEV;
+  const proxied = options.useProxy ?? import.meta.env.DEV;
+  const url = elevationUrlForTile(address, proxied);
   const cacheStorage =
     proxied
       ? null
       : options.cacheStorage === undefined
       ? browserCacheStorage()
       : options.cacheStorage;
-  let cache: ElevationResponseCache | undefined;
-  let cacheFailed = false;
-  if (cacheStorage) {
-    try {
-      cache = await cacheStorage.open(MAPTERHORN_ELEVATION_CACHE_NAME);
-      ensureNotAborted(signal);
-      const cached = await cache.match(url);
-      ensureNotAborted(signal);
-      if (cached?.ok) {
-        try {
-          return {
-            ...(await responsePayload(cached, signal)),
-            cacheStatus: "hit",
-            status: cached.status,
-          };
-        } catch (error) {
-          if (error instanceof Error && error.name === "AbortError") throw error;
-          await cache.delete(url);
-        }
-      } else if (cached) {
-        await cache.delete(url);
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") throw error;
-      cacheFailed = true;
-      cache = undefined;
-    }
-  }
+  ensureNotAborted(signal);
 
   const response = await fetcher(url, {
     cache: "default",
@@ -136,12 +156,12 @@ export async function loadCachedElevation(
     return {
       bytes: new ArrayBuffer(0),
       contentType: response.headers.get("content-type") ?? "",
-      cacheStatus: cacheFailed ? "error" : "unavailable",
+      cacheStatus: "unavailable",
       status,
       ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     };
   }
-  const responseForCache = cache ? response.clone() : undefined;
+  const responseForCache = cacheStorage ? response.clone() : undefined;
   const payload = await responsePayload(response, signal);
   const proxyCacheStatus = response.headers.get(
     "x-pas-de-geant-tile-cache",
@@ -152,18 +172,47 @@ export async function loadCachedElevation(
       : proxyCacheStatus === "MISS"
       ? "stored"
       : "unavailable"
-    : cacheFailed
-    ? "error"
     : "unavailable";
-  if (cache && responseForCache) {
+  if (cacheStorage && responseForCache) {
     try {
+      const cache = await cacheStorage.open(MAPTERHORN_ELEVATION_CACHE_NAME);
+      ensureNotAborted(signal);
       await cache.put(url, responseForCache);
+      ensureNotAborted(signal);
       cacheStatus = "stored";
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
       cacheStatus = "error";
     }
   }
   return { ...payload, cacheStatus, status };
+}
+
+/** Backwards-compatible cache-first composition for non-scheduled callers. */
+export async function loadCachedElevation(
+  address: TileIdentity,
+  signal: AbortSignal,
+  options: ElevationCacheOptions = {},
+): Promise<ElevationPayload> {
+  const proxied = options.useProxy ?? import.meta.env.DEV;
+  const cacheStorage =
+    proxied
+      ? null
+      : options.cacheStorage === undefined
+      ? browserCacheStorage()
+      : options.cacheStorage;
+  const cached = await lookupCachedElevation(
+    address,
+    signal,
+    cacheStorage,
+    proxied,
+  );
+  if (cached) return cached;
+  return loadElevationFromNetwork(address, signal, {
+    ...options,
+    cacheStorage,
+    useProxy: proxied,
+  });
 }
 
 export async function deleteCachedElevation(

@@ -10,9 +10,13 @@ export type TileSchedulerCommand =
   | {
       readonly kind: "initialize";
       readonly target: TileLayoutTarget;
-      readonly hydrateInitialResources: boolean;
     }
   | { readonly kind: "target"; readonly target: TileLayoutTarget }
+  | {
+      readonly kind: "visibility-admission";
+      readonly revision: number;
+      readonly tiles: readonly TileIdentity[];
+    }
   | { readonly kind: "retry" }
   | {
       readonly kind: "resource-result";

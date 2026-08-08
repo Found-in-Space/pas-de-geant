@@ -86,12 +86,9 @@ import {
 } from "./realtime-agent.js";
 import { TerrainSurface } from "./terrain-surface.js";
 import {
-  parseTileDeltaZoomCapArguments,
   parseTileMaxZoomArguments,
   parseTilePixelRatioArguments,
   parseTileRecalculationArguments,
-  parseTileViewDistanceArguments,
-  parseTileViewOverheadArguments,
   type TileDebugControlsReadback,
   type TileDebugTarget,
 } from "./tile-debug-controls.js";
@@ -112,7 +109,7 @@ import { SatelliteLayer } from "./satellite-layer.js";
 import {
   intersectEllipsoidRay,
   type GeographicPoint,
-} from "./view-residency.js";
+} from "./view-visibility.js";
 import {
   geographicTravelFromWorld,
   geographicViewHeadingDegrees,
@@ -145,9 +142,6 @@ interface PasDeGeantDebugApi {
   }): Record<string, unknown>;
   setTilePixelRatio(target: TileDebugTarget, ratio: number): unknown;
   setMaxZ(target: TileDebugTarget, zoom: number | null): unknown;
-  setDeltaZ(target: TileDebugTarget, zoom: number | null): unknown;
-  setViewDistance(target: TileDebugTarget, enabled: boolean): unknown;
-  setViewOverhead(percent: number): unknown;
   setTileRecalculation(target: TileDebugTarget, enabled: boolean): unknown;
   setOverlays(options: { terrain?: boolean; textures?: boolean }): unknown;
   setRendering(enabled: boolean): Record<string, unknown>;
@@ -684,13 +678,13 @@ function appendTerrainFootprint(viewCamera: THREE.Camera): void {
       terrainRayLocalDirection
         .subVectors(terrainRayLocalPoint, terrainRayLocalOrigin)
         .normalize();
-      intersectEllipsoidRay(
+      if (!intersectEllipsoidRay(
         terrainRayLocalOrigin,
         terrainRayLocalDirection,
         TERRAIN_EQUATORIAL_RADIUS,
         TERRAIN_POLAR_RADIUS,
         terrainSurfacePoint,
-      );
+      )) continue;
       const point = terrainFootprint[terrainFootprintLength] ?? {
         latitudeDegrees: 0,
         longitudeDegrees: 0,
@@ -996,21 +990,6 @@ const voiceAgent = new RealtimeVoiceAgent({
     set_tile_max_zoom(argumentsValue) {
       return terrain.setTileMaxZoom(
         parseTileMaxZoomArguments(argumentsValue),
-      );
-    },
-    set_tile_view_distance(argumentsValue) {
-      return terrain.setTileViewDistance(
-        parseTileViewDistanceArguments(argumentsValue),
-      );
-    },
-    set_tile_view_overhead(argumentsValue) {
-      return terrain.setTileViewOverhead(
-        parseTileViewOverheadArguments(argumentsValue),
-      );
-    },
-    set_tile_delta_zoom_cap(argumentsValue) {
-      return terrain.setTileDeltaZoomCap(
-        parseTileDeltaZoomCapArguments(argumentsValue),
       );
     },
     set_tile_recalculation(argumentsValue) {
@@ -1869,23 +1848,6 @@ function applyTileControlReadback(controls: TileDebugControlsReadback): void {
     target: "textures",
     value: controls.textures.max_zoom,
   });
-  terrain.setTileViewDistance({
-    target: "terrain",
-    enabled: controls.terrain.view_distance_enabled,
-  });
-  terrain.setTileViewDistance({
-    target: "textures",
-    enabled: controls.textures.view_distance_enabled,
-  });
-  terrain.setTileDeltaZoomCap({
-    target: "terrain",
-    value: controls.terrain.delta_zoom_cap,
-  });
-  terrain.setTileDeltaZoomCap({
-    target: "textures",
-    value: controls.textures.delta_zoom_cap,
-  });
-  terrain.setTileViewOverhead(controls.view_overhead_percent);
   terrain.setTileRecalculation({
     target: "terrain",
     enabled: controls.terrain.recalculation_enabled,
@@ -1903,7 +1865,7 @@ const debugApi: PasDeGeantDebugApi = {
       marks: "mark(name?), marks(), clearMetrics()",
       benchmark: "beginBenchmark(options?), then freeze with setTileRecalculation(\"both\", false) once planner work is zero; endBenchmark() restores the captured session",
       position: "setLocation(lat, lon), setScale(radiusM), setRadialMultiplier(value), setView({pitchRadians?, yawRadians?}), reset()",
-      tiles: "setTilePixelRatio(target, ratio), setMaxZ(target, z|null), setDeltaZ(target, z|null), setViewDistance(target, enabled), setViewOverhead(percent), setTileRecalculation(target, enabled)",
+      tiles: "setTilePixelRatio(target, ratio), setMaxZ(target, z|null), setTileRecalculation(target, enabled)",
       rendering: "setRendering(enabled), setInputEnabled(enabled), setFoveation(0..1), setFramebufferScale(value), setDesktopPixelRatio(value)",
       layers: "setOverlays({terrain?, textures?}), setLayerVisibility(name, visible)",
       targets: 'tile target: "terrain", "textures", or "both"',
@@ -1965,9 +1927,6 @@ const debugApi: PasDeGeantDebugApi = {
       screenPixelsPerSourcePixel: 1,
     });
     terrain.setTileMaxZoom({ target: "both", value: null });
-    terrain.setTileDeltaZoomCap({ target: "both", value: null });
-    terrain.setTileViewDistance({ target: "both", enabled: true });
-    terrain.setTileViewOverhead(25);
     setTileOverlayVisible(false);
     setTextureTileOverlayVisible(false);
     renderingEnabled = true;
@@ -2068,26 +2027,6 @@ const debugApi: PasDeGeantDebugApi = {
       throw new Error("zoom must be a nonnegative integer or null.");
     }
     return terrain.setTileMaxZoom({ target: debugTileTarget(target), value: zoom });
-  },
-  setDeltaZ(target, zoom) {
-    if (zoom !== null && (!Number.isInteger(zoom) || zoom < 0)) {
-      throw new Error("zoom must be a nonnegative integer or null.");
-    }
-    return terrain.setTileDeltaZoomCap({
-      target: debugTileTarget(target),
-      value: zoom,
-    });
-  },
-  setViewDistance(target, enabled) {
-    return terrain.setTileViewDistance({
-      target: debugTileTarget(target),
-      enabled,
-    });
-  },
-  setViewOverhead(percent) {
-    const value = finiteDebugNumber(percent, "percent");
-    if (value < 0) throw new Error("percent must be nonnegative.");
-    return terrain.setTileViewOverhead(value);
   },
   setTileRecalculation(target, enabled) {
     return terrain.setTileRecalculation({
