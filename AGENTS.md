@@ -1,5 +1,15 @@
 # Project workflow
 
+## Quest debugging
+
+- Before debugging the Quest, read the ADB and DevTools setup in
+  `apps/pas-de-geant/README.md` and use the repository helper in
+  `scripts/quest-debug.mjs`.
+- Use the Meta Quest Developer Hub ADB binary directly:
+  `/Applications/Meta Quest Developer Hub.app/Contents/Resources/bin/adb`.
+  Do not assume `adb` is available on `PATH` and do not substitute a different
+  Android SDK installation.
+
 - Treat local development as the default. Do not save, publish, or deploy a
   version with OpenAI Sites unless the user explicitly asks for a Sites
   deployment in the current request.
