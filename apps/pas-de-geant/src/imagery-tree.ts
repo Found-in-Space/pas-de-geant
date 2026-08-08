@@ -184,22 +184,19 @@ export function reconcileImageryTree(
     current: ImageryTreeNode,
     next: DesiredImageryLeaf,
   ): ImageryTreeNode => {
-    if (isImage(current)) {
-      if (next.image === BLUE_MARBLE_IMAGERY_KEY) return current;
-      if (!options.isResident(next.image)) return current;
-      if (
-        current.image !== BLUE_MARBLE_IMAGERY_KEY &&
-        options.sourceZoom(current.image) > options.sourceZoom(next.image)
-      ) return current;
-      const replacement = options.imageNode(next.image);
-      return current.image === replacement.image ? current : replacement;
-    }
-    const children = current.children.map((child) =>
-      mergeLeaf(child, next)
-    ) as unknown as ImageryChildrenNode["children"];
-    return children.every((child, index) => child === current.children[index])
+    // The planner owns active detail. Keep existing photography only while its
+    // exact planned replacement is unavailable or represents a missing-tile
+    // fallback; once a normal replacement is resident, coarsening must collapse
+    // the old fine subtree instead of leaving it active indefinitely.
+    if (
+      next.image === BLUE_MARBLE_IMAGERY_KEY ||
+      next.fallbackFromNotFound ||
+      !options.isResident(next.image)
+    ) return current;
+    const replacement = options.imageNode(next.image);
+    return isImage(current) && current.image === replacement.image
       ? current
-      : Object.freeze({ children: Object.freeze(children) });
+      : replacement;
   };
 
   return merge(committed, desired);
