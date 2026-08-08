@@ -26,6 +26,47 @@ function commaSeparated(value: string | undefined): readonly string[] {
     .filter(Boolean);
 }
 
+function optionalCommaSeparated(
+  value: string | undefined,
+): readonly string[] | undefined {
+  return value?.trim() ? commaSeparated(value) : undefined;
+}
+
+function stringRecord(
+  value: unknown,
+  description: string,
+): Readonly<Record<string, string>> | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${description} must be an object of string values.`);
+  }
+  const entries = Object.entries(value);
+  if (!entries.every(([, headerValue]) => typeof headerValue === "string")) {
+    throw new Error(`${description} must contain only string values.`);
+  }
+  return Object.fromEntries(entries) as Record<string, string>;
+}
+
+function configuredHeaders(
+  value: string | undefined,
+  description: string,
+): Readonly<Record<string, string>> | undefined {
+  return !value?.trim()
+    ? undefined
+    : stringRecord(JSON.parse(value), description);
+}
+
+function stringList(
+  value: unknown,
+  description: string,
+): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
+    throw new Error(`${description} must be an array of strings.`);
+  }
+  return value;
+}
+
 function tileScheme(value: string | undefined): TileProxyScheme {
   if (!value || value === "xyz") return "xyz";
   if (value === "tms") return "tms";
@@ -86,6 +127,14 @@ function configuredTileProviders(
           : undefined,
       ),
       ...(ignored ? { cacheKeyIgnoredSearchParameters: ignored } : {}),
+      upstreamHeaders: stringRecord(
+        configuration.upstreamHeaders,
+        `Tile proxy provider ${provider} upstreamHeaders`,
+      ),
+      forwardRequestHeaders: stringList(
+        configuration.forwardRequestHeaders,
+        `Tile proxy provider ${provider} forwardRequestHeaders`,
+      ),
       maxConcurrency: optionalProviderNumber(
         configuration,
         "maxConcurrency",
@@ -149,6 +198,14 @@ export default defineConfig(({ mode }) => {
   const textureScheme = tileScheme(
     serverEnvironment.PAS_DE_GEANT_TILE_PROXY_TEXTURES_SCHEME,
   );
+  const textureUpstreamHeaders = configuredHeaders(
+    serverEnvironment.PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_HEADERS_JSON,
+    "Texture proxy upstream headers",
+  );
+  const textureForwardRequestHeaders = optionalCommaSeparated(
+    serverEnvironment
+      .PAS_DE_GEANT_TILE_PROXY_TEXTURES_FORWARD_REQUEST_HEADERS,
+  );
   const providers: Record<string, TileProxyProviderOptions> = {
     elevation: {
       urlTemplate:
@@ -157,6 +214,15 @@ export default defineConfig(({ mode }) => {
         MAPTERHORN_ELEVATION_URL_TEMPLATE,
       scheme: tileScheme(
         serverEnvironment.PAS_DE_GEANT_TILE_PROXY_ELEVATION_SCHEME,
+      ),
+      upstreamHeaders: configuredHeaders(
+        serverEnvironment
+          .PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_HEADERS_JSON,
+        "Elevation proxy upstream headers",
+      ),
+      forwardRequestHeaders: optionalCommaSeparated(
+        serverEnvironment
+          .PAS_DE_GEANT_TILE_PROXY_ELEVATION_FORWARD_REQUEST_HEADERS,
       ),
     },
   };
@@ -170,10 +236,14 @@ export default defineConfig(({ mode }) => {
       urlTemplate:
         selectImageryVariant(baseTextureConfiguration, null).urlTemplate,
       scheme: textureScheme,
+      upstreamHeaders: textureUpstreamHeaders,
+      forwardRequestHeaders: textureForwardRequestHeaders,
     };
     providers["textures-source"] = {
       urlTemplate: baseTextureConfiguration.urlTemplate,
       scheme: textureScheme,
+      upstreamHeaders: textureUpstreamHeaders,
+      forwardRequestHeaders: textureForwardRequestHeaders,
     };
   }
   Object.assign(
@@ -185,6 +255,13 @@ export default defineConfig(({ mode }) => {
   const appDirectory = fileURLToPath(new URL(".", import.meta.url));
   const tileProxyMiddleware = createTileProxyMiddleware({
     providers,
+    upstreamHeaders: configuredHeaders(
+      serverEnvironment.PAS_DE_GEANT_TILE_PROXY_UPSTREAM_HEADERS_JSON,
+      "Default tile proxy upstream headers",
+    ),
+    forwardRequestHeaders: optionalCommaSeparated(
+      serverEnvironment.PAS_DE_GEANT_TILE_PROXY_FORWARD_REQUEST_HEADERS,
+    ),
     cacheDirectory: resolve(
       appDirectory,
       serverEnvironment.PAS_DE_GEANT_TILE_PROXY_CACHE_DIRECTORY ||

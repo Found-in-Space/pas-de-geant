@@ -203,16 +203,17 @@ open forward proxy.
 The initial registry exposes `textures`, the diagnostic `textures-source`, and
 `elevation`. Each provider has its own request coalescing, throttle queue, and
 cache namespace below the repository's ignored `.cache/tiles` directory. By
-default, each queue permits two upstream requests at a time and spaces starts
-by 250 ms. A provider's `Retry-After` pauses only its own queue; rate-limit
-responses without that header use a five-second fallback. Production builds
-and previews keep the configured direct provider URLs.
+default, each queue permits 16 upstream requests at a time and spaces starts
+by 10 ms (about 100 starts per second). A provider's `Retry-After` pauses only
+its own queue; rate-limit responses without that header use a five-second
+fallback. Production builds and previews keep the configured direct provider
+URLs.
 
 The development defaults can be tuned in `.env.local`:
 
 ```sh
-PAS_DE_GEANT_TILE_PROXY_MAX_CONCURRENCY=2
-PAS_DE_GEANT_TILE_PROXY_MIN_INTERVAL_MS=250
+PAS_DE_GEANT_TILE_PROXY_MAX_CONCURRENCY=16
+PAS_DE_GEANT_TILE_PROXY_MIN_INTERVAL_MS=10
 PAS_DE_GEANT_TILE_PROXY_DEFAULT_TTL_MS=86400000
 PAS_DE_GEANT_TILE_PROXY_UPSTREAM_BACKOFF_MS=5000
 PAS_DE_GEANT_TILE_PROXY_CACHE_DIRECTORY=../../.cache/tiles
@@ -221,6 +222,12 @@ PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE=
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_SCHEME=xyz
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_TEMPLATE=https://tiles.mapterhorn.com/{z}/{x}/{y}.webp
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_SCHEME=xyz
+PAS_DE_GEANT_TILE_PROXY_UPSTREAM_HEADERS_JSON={}
+PAS_DE_GEANT_TILE_PROXY_FORWARD_REQUEST_HEADERS=origin,referer,user-agent
+PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_HEADERS_JSON=
+PAS_DE_GEANT_TILE_PROXY_TEXTURES_FORWARD_REQUEST_HEADERS=
+PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_HEADERS_JSON=
+PAS_DE_GEANT_TILE_PROXY_ELEVATION_FORWARD_REQUEST_HEADERS=
 PAS_DE_GEANT_TILE_PROXY_PROVIDERS_JSON=
 ```
 
@@ -232,10 +239,19 @@ query-parameter list keeps rotating credentials out of cache identity; set it
 to the parameter names used by the configured providers. URL templates may put
 `{z}`, `{x}`, and `{y}` in any order and may include extensions and query
 parameters. Set a provider's scheme to `tms` when its upstream Y axis is
-inverted. Additional provider IDs and per-provider overrides can be supplied as
-a JSON object in `PAS_DE_GEANT_TILE_PROXY_PROVIDERS_JSON`; each record accepts
-`urlTemplate`, `scheme`, and the throttle/cache settings shown above in
-camelCase.
+inverted. Fixed upstream headers are configured as a JSON object. Incoming
+headers are forwarded only when named in the comma-separated forwarding list;
+this is useful for providers that validate `Origin`, `Referer`, or
+`User-Agent`. Fixed values take precedence over forwarded values. The texture
+and elevation variables override the shared defaults for their respective
+providers.
+
+Additional provider IDs and per-provider overrides can be supplied as a JSON
+object in `PAS_DE_GEANT_TILE_PROXY_PROVIDERS_JSON`; each record accepts
+`urlTemplate`, `scheme`, `upstreamHeaders`, `forwardRequestHeaders`, and the
+throttle/cache settings shown above in camelCase. Forwarded headers do not vary
+the cache identity, so they should identify or authorize the same tile content
+rather than select a different representation.
 
 Mapterhorn publishes its endpoint and source-level attribution at
 <https://mapterhorn.com/data-access/> and

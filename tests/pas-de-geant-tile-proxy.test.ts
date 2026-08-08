@@ -1,5 +1,9 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type {
+  IncomingHttpHeaders,
+  IncomingMessage,
+  ServerResponse,
+} from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -27,11 +31,19 @@ afterEach(async () => {
   );
 });
 
-function request(url: string, method = "GET"): IncomingMessage {
+function request(
+  url: string,
+  method = "GET",
+  headers: IncomingHttpHeaders = {},
+): IncomingMessage {
   return {
     url,
     method,
-    headers: { host: "local.test", origin: "http://local.test" },
+    headers: {
+      host: "local.test",
+      origin: "http://local.test",
+      ...headers,
+    },
   } as IncomingMessage;
 }
 
@@ -189,6 +201,83 @@ describe("development tile proxy", () => {
     );
   });
 
+  it("forwards selected client headers and applies configured upstream headers", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async (_input, init) => {
+      const headers = new Headers(init?.headers);
+      expect(headers.get("origin")).toBe("https://configured.example.test");
+      expect(headers.get("referer")).toBe("http://local.test/globe");
+      expect(headers.get("user-agent")).toBe("Example Headset/1.0");
+      expect(headers.get("x-provider-token")).toBe("configured-token");
+      expect(headers.has("cookie")).toBe(false);
+      return new Response(new Uint8Array([1]), {
+        headers: {
+          "cache-control": "no-store",
+          "content-type": "image/jpeg",
+        },
+      });
+    });
+    const middleware = createTileProxyMiddleware({
+      cacheDirectory: await cacheDirectory(),
+      minimumIntervalMs: 0,
+      fetchImplementation,
+      providers: {
+        textures: {
+          urlTemplate: "https://textures.example.test/{z}/{x}/{y}.jpg",
+          upstreamHeaders: {
+            origin: "https://configured.example.test",
+            "x-provider-token": "configured-token",
+          },
+          forwardRequestHeaders: ["origin", "referer", "user-agent"],
+        },
+      },
+    });
+    const recorded = responseRecorder();
+
+    await middleware(
+      request("/api/tiles/textures/3/4/2", "GET", {
+        referer: "http://local.test/globe",
+        "user-agent": "Example Headset/1.0",
+        cookie: "session=not-forwarded",
+      }),
+      recorded.response,
+      () => undefined,
+    );
+
+    expect(recorded.status()).toBe(200);
+    expect(recorded.headers.get("cache-control")).toBe("no-store");
+    expect(fetchImplementation).toHaveBeenCalledOnce();
+  });
+
+  it("uses the fallback lifetime for device caching when upstream omits one", async () => {
+    const middleware = createTileProxyMiddleware({
+      cacheDirectory: await cacheDirectory(),
+      defaultCacheTtlMs: 120_000,
+      minimumIntervalMs: 0,
+      fetchImplementation: vi.fn(async () =>
+        new Response(new Uint8Array([1]), {
+          headers: { "content-type": "image/jpeg" },
+        })
+      ),
+      providers: {
+        textures: {
+          urlTemplate: "https://textures.example.test/{z}/{x}/{y}.jpg",
+        },
+      },
+    });
+    const recorded = responseRecorder();
+
+    await middleware(
+      request("/api/tiles/textures/3/4/2"),
+      recorded.response,
+      () => undefined,
+    );
+
+    expect(recorded.status()).toBe(200);
+    expect(recorded.headers.get("cache-control")).toBe(
+      "public, max-age=120",
+    );
+  });
+
   it("selects providers with independent persistent cache namespaces", async () => {
     const fetchImplementation = vi.fn<typeof fetch>(async (input) => {
       const elevation = String(input).startsWith(
@@ -227,6 +316,9 @@ describe("development tile proxy", () => {
       expect(first.status()).toBe(200);
       expect(first.headers.get("x-pas-de-geant-tile-provider")).toBe(provider);
       expect(first.headers.get("x-pas-de-geant-tile-cache")).toBe("MISS");
+      expect(first.headers.get("cache-control")).toBe(
+        "public, max-age=3600",
+      );
       expect([...first.body()]).toEqual([provider === "elevation" ? 2 : 1]);
 
       const revisited = responseRecorder();
@@ -236,6 +328,9 @@ describe("development tile proxy", () => {
         () => undefined,
       );
       expect(revisited.headers.get("x-pas-de-geant-tile-cache")).toBe("HIT");
+      expect(revisited.headers.get("cache-control")).toBe(
+        "public, max-age=3600",
+      );
     }
     expect(fetchImplementation).toHaveBeenCalledTimes(2);
 

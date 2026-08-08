@@ -1,16 +1,32 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type {
+  IncomingHttpHeaders,
+  IncomingMessage,
+  ServerResponse,
+} from "node:http";
 import { join } from "node:path";
 import { isAllowedRequestOrigin } from "./realtime-token-server.js";
 import { TILE_PROXY_PATH } from "./tile-proxy.js";
 import type { TileIdentity } from "./tile-transition-planner.js";
 
-const DEFAULT_MAX_CONCURRENCY = 2;
-const DEFAULT_MINIMUM_INTERVAL_MS = 250;
+const DEFAULT_MAX_CONCURRENCY = 16;
+const DEFAULT_MINIMUM_INTERVAL_MS = 10;
 const DEFAULT_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_UPSTREAM_BACKOFF_MS = 5_000;
 const PROVIDER_ID = /^[a-z0-9][a-z0-9_-]*$/;
+const UPSTREAM_MANAGED_HEADERS = new Set([
+  "connection",
+  "content-length",
+  "host",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
 
 interface CachedTileMetadata {
   readonly version: 1;
@@ -47,6 +63,10 @@ export interface TileProxyResult extends UpstreamTile {
 export interface TileProxyProviderOptions {
   readonly urlTemplate: string;
   readonly scheme?: TileProxyScheme;
+  /** Fixed headers added to every request made to this provider. */
+  readonly upstreamHeaders?: Readonly<Record<string, string>>;
+  /** Incoming request headers copied to the provider when present. */
+  readonly forwardRequestHeaders?: readonly string[];
   readonly cacheKeyIgnoredSearchParameters?: readonly string[];
   readonly maxConcurrency?: number;
   readonly minimumIntervalMs?: number;
@@ -57,6 +77,8 @@ export interface TileProxyProviderOptions {
 export interface TileProxyOptions {
   readonly cacheDirectory: string;
   readonly providers: Readonly<Record<string, TileProxyProviderOptions>>;
+  readonly upstreamHeaders?: Readonly<Record<string, string>>;
+  readonly forwardRequestHeaders?: readonly string[];
   readonly cacheKeyIgnoredSearchParameters?: readonly string[];
   readonly maxConcurrency?: number;
   readonly minimumIntervalMs?: number;
@@ -274,6 +296,53 @@ function validAddress(address: TileIdentity): boolean {
   return Number.isSafeInteger(width) && address.x < width && address.y < width;
 }
 
+function validatedHeaderName(name: string): string {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) throw new Error("Tile proxy header names cannot be empty.");
+  if (UPSTREAM_MANAGED_HEADERS.has(normalized)) {
+    throw new Error(
+      `Tile proxy cannot override transport-managed header ${normalized}.`,
+    );
+  }
+  const headers = new Headers();
+  headers.set(normalized, "validate");
+  return normalized;
+}
+
+function configuredUpstreamHeaders(
+  values: Readonly<Record<string, string>> | undefined,
+): Headers {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(values ?? {})) {
+    headers.set(validatedHeaderName(name), value);
+  }
+  return headers;
+}
+
+function forwardedHeaderNames(values: readonly string[] | undefined): string[] {
+  return [
+    ...new Set((values ?? []).map((name) => validatedHeaderName(name))),
+  ];
+}
+
+function upstreamRequestHeaders(
+  incoming: IncomingHttpHeaders,
+  forwardedNames: readonly string[],
+  configured: Headers,
+): Headers {
+  const headers = new Headers({
+    Accept: "image/avif,image/webp,image/*,*/*;q=0.8",
+  });
+  for (const name of forwardedNames) {
+    const value = incoming[name];
+    if (value === undefined) continue;
+    headers.set(name, Array.isArray(value) ? value.join(", ") : value);
+  }
+  // Explicit provider configuration wins over copied client values.
+  configured.forEach((value, name) => headers.set(name, value));
+  return headers;
+}
+
 export class TileProxyService {
   private readonly fetchImplementation: typeof fetch;
   private readonly now: () => number;
@@ -281,6 +350,8 @@ export class TileProxyService {
   private readonly upstreamBackoffMs: number;
   private readonly cacheKeyIgnoredSearchParameters: readonly string[];
   private readonly scheme: TileProxyScheme;
+  private readonly upstreamHeaders: Headers;
+  private readonly forwardRequestHeaders: readonly string[];
   private readonly throttle: UpstreamThrottle;
   private readonly inFlight = new Map<string, Promise<UpstreamTile>>();
 
@@ -297,6 +368,10 @@ export class TileProxyService {
           .filter(Boolean) ?? [],
       ),
     ];
+    this.upstreamHeaders = configuredUpstreamHeaders(options.upstreamHeaders);
+    this.forwardRequestHeaders = forwardedHeaderNames(
+      options.forwardRequestHeaders,
+    );
     this.fetchImplementation = options.fetchImplementation ?? fetch;
     this.now = options.now ?? Date.now;
     this.defaultCacheTtlMs = nonNegativeInteger(
@@ -317,7 +392,10 @@ export class TileProxyService {
     );
   }
 
-  async load(address: TileIdentity): Promise<TileProxyResult> {
+  async load(
+    address: TileIdentity,
+    requestHeaders: IncomingHttpHeaders = {},
+  ): Promise<TileProxyResult> {
     if (!validAddress(address)) {
       throw new Error("The tile proxy received an invalid XYZ address.");
     }
@@ -333,7 +411,7 @@ export class TileProxyService {
     if (active) {
       return { ...(await active), cacheStatus: "COALESCED" };
     }
-    const request = this.loadUpstream(url, identity);
+    const request = this.loadUpstream(url, identity, requestHeaders);
     this.inFlight.set(identity, request);
     try {
       return { ...(await request), cacheStatus: "MISS" };
@@ -407,10 +485,18 @@ export class TileProxyService {
     };
   }
 
-  private async loadUpstream(url: URL, identity: string): Promise<UpstreamTile> {
+  private async loadUpstream(
+    url: URL,
+    identity: string,
+    requestHeaders: IncomingHttpHeaders,
+  ): Promise<UpstreamTile> {
     const response = await this.throttle.schedule(() =>
       this.fetchImplementation(url, {
-        headers: { Accept: "image/avif,image/webp,image/*,*/*;q=0.8" },
+        headers: upstreamRequestHeaders(
+          requestHeaders,
+          this.forwardRequestHeaders,
+          this.upstreamHeaders,
+        ),
       })
     );
     const body = Buffer.from(await response.arrayBuffer());
@@ -428,15 +514,25 @@ export class TileProxyService {
       this.now(),
       this.defaultCacheTtlMs,
     );
+    const cacheableResult = result.cacheControl || lifetimeMs <= 0
+      ? result
+      : {
+        ...result,
+        cacheControl: `public, max-age=${Math.floor(lifetimeMs / 1_000)}`,
+      };
     if (
       response.ok &&
       body.byteLength > 0 &&
       result.contentType.toLowerCase().startsWith("image/") &&
       lifetimeMs > 0
     ) {
-      await this.writeCached(identity, result, this.now() + lifetimeMs);
+      await this.writeCached(
+        identity,
+        cacheableResult,
+        this.now() + lifetimeMs,
+      );
     }
-    return result;
+    return cacheableResult;
   }
 
   private async writeCached(
@@ -497,6 +593,9 @@ function mergedProviderOptions(
 ): TileProxyProviderOptions {
   return {
     ...provider,
+    upstreamHeaders: provider.upstreamHeaders ?? defaults.upstreamHeaders,
+    forwardRequestHeaders:
+      provider.forwardRequestHeaders ?? defaults.forwardRequestHeaders,
     cacheKeyIgnoredSearchParameters:
       provider.cacheKeyIgnoredSearchParameters ??
       defaults.cacheKeyIgnoredSearchParameters,
@@ -578,7 +677,7 @@ export function createTileProxyMiddleware(options: TileProxyOptions) {
       return;
     }
     try {
-      const tile = await service.load(parsed.address);
+      const tile = await service.load(parsed.address, request.headers);
       if (response.destroyed) return;
       response.statusCode = tile.status;
       response.statusMessage = tile.statusText;
@@ -586,9 +685,9 @@ export function createTileProxyMiddleware(options: TileProxyOptions) {
       response.setHeader("Content-Length", tile.body.byteLength);
       response.setHeader("X-Pas-De-Geant-Tile-Cache", tile.cacheStatus);
       response.setHeader("X-Pas-De-Geant-Tile-Provider", parsed.provider);
-      // The proxy owns persistence and invalidation. Browser caching would
-      // hide provider switches behind the stable canonical client URL.
-      response.setHeader("Cache-Control", "no-store");
+      if (tile.cacheControl) {
+        response.setHeader("Cache-Control", tile.cacheControl);
+      }
       if (tile.etag) response.setHeader("ETag", tile.etag);
       if (tile.lastModified) {
         response.setHeader("Last-Modified", tile.lastModified);
