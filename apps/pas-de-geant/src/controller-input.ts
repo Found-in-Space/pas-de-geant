@@ -5,6 +5,7 @@ export interface ControllerIntent {
   scaleAxis: number;
   radialAxis: number;
   boost: boolean;
+  turnAxis: number;
   toggleTileOverlay: boolean;
   toggleTextureTileOverlay: boolean;
   toggleAgent: boolean;
@@ -58,6 +59,7 @@ export function controllerIntent(
   const rightButtons = right?.gamepad?.buttons ?? [];
   const aPressed = rightButtons[4]?.pressed ?? rightButtons[0]?.pressed ?? false;
   const bPressed = rightButtons[5]?.pressed ?? rightButtons[1]?.pressed ?? false;
+  const leftTriggerPressed = (leftButtons[0]?.value ?? 0) > 0.55;
   const xPressed = leftButtons[4]?.pressed ?? false;
   const yPressed = leftButtons[5]?.pressed ?? false;
   const toggleAgent = aPressed && !latch.a;
@@ -73,13 +75,12 @@ export function controllerIntent(
     nowMs - latch.bStartedAt >= 900;
   if (!bPressed || reset) latch.bStartedAt = null;
   return {
-    travel: new Vector2(travelX, travelY),
+    travel: new Vector2(leftTriggerPressed ? 0 : travelX, travelY),
     // Up increases scale; right increases radial exaggeration.
     scaleAxis: scaleAxis === 0 ? 0 : -scaleAxis,
     radialAxis,
-    boost:
-      (leftButtons[0]?.value ?? 0) > 0.55 ||
-      (leftButtons[1]?.value ?? 0) > 0.55,
+    boost: (leftButtons[1]?.value ?? 0) > 0.55,
+    turnAxis: leftTriggerPressed ? travelX : 0,
     toggleTileOverlay,
     toggleTextureTileOverlay,
     toggleAgent,

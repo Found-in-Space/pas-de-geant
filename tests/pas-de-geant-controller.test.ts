@@ -96,6 +96,41 @@ describe("Pas de Géant controller regressions", () => {
     expect(controllerIntent(session, 48, latch).toggleAgent).toBe(true);
   });
 
+  it("uses trigger-modified left-stick horizontal input to turn", () => {
+    const trigger = { pressed: false, value: 0 };
+    const grip = { pressed: false, value: 0 };
+    const stick = [0, 0, 0, 0];
+    const session = {
+      inputSources: [
+        {
+          handedness: "left",
+          gamepad: {
+            axes: stick,
+            buttons: [trigger, grip],
+          },
+        },
+      ],
+    } as unknown as XRSession;
+    const latch = freshButtonLatch();
+
+    stick[2] = 0.75;
+    const travelling = controllerIntent(session, 0, latch);
+    expect(travelling.turnAxis).toBe(0);
+    expect(travelling.travel.x).toBeGreaterThan(0);
+
+    trigger.pressed = true;
+    trigger.value = 1;
+    stick[3] = -0.5;
+    const turning = controllerIntent(session, 0, latch);
+    expect(turning.turnAxis).toBeGreaterThan(0);
+    expect(turning.travel.x).toBe(0);
+    expect(turning.travel.y).toBeLessThan(0);
+
+    grip.pressed = true;
+    grip.value = 1;
+    expect(controllerIntent(session, 16, latch).boost).toBe(true);
+  });
+
   it("maps right-stick vertical to scale and horizontal to radial amplification", () => {
     const stick = [0, 0, 0, 0];
     const session = {

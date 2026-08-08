@@ -503,6 +503,7 @@ const buttonLatch = freshButtonLatch();
 const worldRotationQuaternion = new THREE.Quaternion();
 const worldRotationPivot = new THREE.Vector3();
 const worldUp = new THREE.Vector3(0, 1, 0);
+const XR_TURN_RATE_DEGREES_PER_SECOND = 120;
 let handPanelVisible = true;
 let handPanelNorthDirection: HandPanelDirection = { x: 0, y: -1 };
 let pointerActive = false;
@@ -620,6 +621,14 @@ function setViewDirection(argumentsValue: unknown): Record<string, unknown> {
     requested_degrees: command.degrees,
     ...viewDirectionState(),
   };
+}
+
+function rotateViewDirection(degrees: number): void {
+  worldRotationRadians = worldRotationForViewDirection(
+    worldRotationRadians,
+    0,
+    { mode: "relative", degrees },
+  );
 }
 
 function setTileOverlayVisible(visible: boolean): void {
@@ -1132,6 +1141,11 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
   const session = renderer.xr.getSession();
   if (!session) return;
   const intent = controllerIntent(session, nowMs, buttonLatch);
+  if (intent.turnAxis !== 0) {
+    rotateViewDirection(
+      intent.turnAxis * XR_TURN_RATE_DEGREES_PER_SECOND * deltaSeconds,
+    );
+  }
   renderer.xr.getCamera().getWorldQuaternion(xrViewQuaternion);
   const travel = headRelativeTravel(intent.travel, xrViewQuaternion);
   if (travel.lengthSq() > 1) travel.normalize();

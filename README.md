@@ -38,7 +38,8 @@ Then open `http://localhost:4197` in the headset.
 ## Quest controls
 
 - Left stick: head-relative travel
-- Left trigger: faster travel
+- Left trigger + left stick left/right: turn the view
+- Left grip: faster travel
 - Right stick vertical: whole-planet scale
 - Right stick horizontal: terrain and altitude exaggeration
 - X: toggle committed terrain-tile tint and boundary outlines

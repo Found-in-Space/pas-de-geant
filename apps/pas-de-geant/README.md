@@ -92,7 +92,8 @@ re-entering; foveation can change during a session.
 ## Controls
 
 - Left stick: head-relative travel
-- Left trigger: faster travel
+- Left trigger + left stick left/right: turn the view
+- Left grip: faster travel
 - Right stick vertical: whole-planet scale
 - Right stick horizontal: radial terrain and altitude exaggeration
 - X: toggle committed terrain-tile tint and boundaries
