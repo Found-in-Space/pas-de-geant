@@ -681,7 +681,7 @@ describe("independent photographic imagery pipeline", () => {
     expect(refined.children[3]).not.toBe(parent);
   });
 
-  it("never lets normal planner coarsening or a 404 fallback lower active detail", () => {
+  it("follows resident planner coarsening without degrading to missing imagery", () => {
     const fine: ImageryTreeNode = Object.freeze({
       children: Object.freeze([
         Object.freeze({ image: "11/0/0" }),
@@ -692,12 +692,19 @@ describe("independent photographic imagery pipeline", () => {
     });
     const resident = new Set(["10/0/0", "9/0/0"]);
 
+    expect(reconcileForTest(
+      fine,
+      { image: "10/0/0", fallbackFromNotFound: false },
+      new Set(),
+    )).toBe(fine);
     const normal = reconcileForTest(
       fine,
       { image: "10/0/0", fallbackFromNotFound: false },
       resident,
     );
-    expect(normal).toBe(fine);
+    expect(normal).toEqual({ image: "10/0/0" });
+    expect(imageryTreeNodeCount(normal)).toBe(1);
+    expect(imageryTreeSourceKeys(normal)).toEqual(new Set(["10/0/0"]));
     const fallback = reconcileForTest(
       fine,
       { image: "9/0/0", fallbackFromNotFound: true },
@@ -719,11 +726,10 @@ describe("independent photographic imagery pipeline", () => {
     );
   });
 
-  it("fills only lower-quality branches when a resident coarser leaf returns", () => {
-    const fine = Object.freeze({ image: "12/0/0" });
+  it("collapses mixed active branches to a resident planner leaf", () => {
     const committed: ImageryTreeNode = Object.freeze({
       children: Object.freeze([
-        fine,
+        Object.freeze({ image: "12/0/0" }),
         Object.freeze({ image: BLUE_MARBLE_IMAGERY_KEY }),
         Object.freeze({ image: "10/0/1" }),
         Object.freeze({ image: BLUE_MARBLE_IMAGERY_KEY }),
@@ -735,10 +741,8 @@ describe("independent photographic imagery pipeline", () => {
       new Set(["11/0/0"]),
     );
 
-    if (!("children" in merged)) throw new Error("Expected mixed detail.");
-    expect(merged.children[0]).toBe(fine);
-    expect(merged.children.map((child) => "image" in child && child.image))
-      .toEqual(["12/0/0", "11/0/0", "11/0/0", "11/0/0"]);
+    expect(merged).toEqual({ image: "11/0/0" });
+    expect(imageryTreeNodeCount(merged)).toBe(1);
   });
 
   it("path-copies only the refined branch and retains unchanged subtree identity", () => {
