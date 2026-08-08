@@ -20,6 +20,11 @@ change planet scale, C/V to change radial exaggeration, and Backspace to reset.
 WebXR requires a secure context. A USB-connected Quest can use an Android
 reverse tunnel:
 
+Before running any ADB command, open Meta Quest Developer Hub and confirm that
+the headset is connected and authorized there. Use the ADB associated with
+that working Developer Hub connection before trying another ADB installation;
+`adb` below refers to that executable.
+
 ```sh
 adb reverse tcp:4197 tcp:4197
 ```
@@ -66,21 +71,27 @@ pasDeGeantDebug.beginBenchmark({
 })
 ```
 
-The repository helper uses Meta Quest Developer Hub's bundled ADB, opens its
+The repository helper checks Meta Quest Developer Hub's ADB first, opens the
 Quest Browser DevTools socket, and combines the runtime snapshot with device
 GPU busy/clock, CPU clocks, browser-process memory, battery, and thermal data:
 
 ```sh
 npm run quest:debug -- snapshot
 npm run quest:debug -- device
+npm run quest:debug -- targets
 npm run quest:debug -- call setLocation '[45.88,6.89]'
 npm run quest:debug -- call setMaxZ '["textures",14]'
 ```
 
-Set `PAS_DE_GEANT_ADB` only if ADB is installed somewhere other than Meta
-Quest Developer Hub's standard macOS location. The helper forwards local port
-9222 to `chrome_devtools_remote`; Chrome can inspect the same endpoint at
-`http://127.0.0.1:9222`.
+Run `targets` before opening the browser console. It forwards local port 9222
+to the Quest Browser's `chrome_devtools_remote` socket and lists the available
+pages. Open `http://127.0.0.1:9222/json/list` in a desktop browser, find the Pas
+de Géant page, open its `devtoolsFrontendUrl`, and select the Console tab.
+
+If the helper reports that no device is available or authorized, return to
+Meta Quest Developer Hub and restore its connection before trying another
+ADB. Set `PAS_DE_GEANT_ADB` only after checking Developer Hub and confirming
+that the working ADB is installed in a nonstandard location.
 
 `setRendering(false)` keeps simulation and tile work running but skips the
 Three.js render call, which separates main-thread simulation cost from render

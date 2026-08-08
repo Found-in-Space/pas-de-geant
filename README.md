@@ -29,11 +29,19 @@ reset.
 WebXR requires a secure context. A USB-connected Quest can use an Android
 reverse tunnel so its browser sees the local server as device-local:
 
+Before running any ADB command, open Meta Quest Developer Hub and confirm that
+the headset is connected and authorized there. Use the ADB associated with
+that working Developer Hub connection before trying another ADB installation;
+`adb` below refers to that executable.
+
 ```sh
 adb reverse tcp:4197 tcp:4197
 ```
 
 Then open `http://localhost:4197` in the headset.
+
+The detailed app README documents the repository helper and how to open the
+Quest Browser JavaScript console through its DevTools connection.
 
 ## Quest controls
 
