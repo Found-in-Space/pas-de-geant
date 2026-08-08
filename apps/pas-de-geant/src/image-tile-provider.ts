@@ -13,6 +13,11 @@ import type {
   TileProviderResult,
   TileRequestHandle,
 } from "./tile-provider.js";
+import {
+  isSessionFatalStatus,
+  TileRequestCircuit,
+  type TileRequestFailureMetadata,
+} from "./tile-request-circuit.js";
 
 export type ImageTileKind = "imagery" | "terrain";
 export const ELEVATION_TILE_PIXELS = 512;
@@ -105,6 +110,7 @@ interface SourceJob {
   state: "queued" | "in-flight";
   hot: boolean;
   controller?: AbortController;
+  probe?: boolean;
 }
 
 function immutableTile(tile: TileIdentity): TileIdentity {
@@ -142,13 +148,48 @@ function errorReason(error: unknown): string {
   return error instanceof Error ? error.message : "Tile image loading failed.";
 }
 
-class HttpTileError extends Error {
+export class HttpTileError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly retryAfterMs?: number,
   ) {
     super(message);
   }
+}
+
+function imageFailureMetadata(error: unknown): TileRequestFailureMetadata {
+  if (isAbortError(error)) return { systemic: false };
+  if (error instanceof HttpTileError) {
+    return {
+      systemic:
+        isSessionFatalStatus(error.status) ||
+        error.status === 429 ||
+        error.status >= 500,
+      status: error.status,
+      ...(error.retryAfterMs === undefined
+        ? {}
+        : { retryAfterMs: error.retryAfterMs }),
+      ...(isSessionFatalStatus(error.status) ? { retryable: false } : {}),
+    };
+  }
+  return { systemic: error instanceof TypeError };
+}
+
+function failureResult(
+  error: unknown,
+): Extract<TileProviderResult<never>, { phase: "failure" }> {
+  return {
+    phase: "failure",
+    reason: errorReason(error),
+    ...(error instanceof HttpTileError ? { status: error.status } : {}),
+    ...(error instanceof HttpTileError && error.retryAfterMs !== undefined
+      ? { retryAfterMs: error.retryAfterMs }
+      : {}),
+    ...(error instanceof HttpTileError && isSessionFatalStatus(error.status)
+      ? { retryable: false }
+      : {}),
+  };
 }
 
 function elevationCacheStatus(
@@ -245,6 +286,8 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
   private failureTotal = 0;
   private byteTotal = 0;
   private loadDurationTotalMs = 0;
+  private readonly circuit = new TileRequestCircuit();
+  private lastCircuitError: unknown;
 
   constructor(private readonly options: ImageTileProviderOptions) {
     this.mode = options.mode;
@@ -266,13 +309,16 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
         this.successfulLoadTotal === 0
           ? 0
           : this.loadDurationTotalMs / this.successfulLoadTotal,
-      queued: [...this.jobs.values()].filter(({ state }) => state === "queued")
-        .length,
+      queued: this.queue.length,
       inFlight: this.activeJobCount,
       decodedSourceCount: this.sourceCache.size,
       estimatedDecodedBytes:
         this.sourceCache.size * this.tilePixels * this.tilePixels * 4,
     });
+  }
+
+  get retryDiagnostics() {
+    return this.circuit.diagnostics;
   }
 
   /** Retains decoded images only for the current view/transition working set. */
@@ -411,26 +457,52 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
     if (job && job.consumers.size === 0) {
       this.jobs.delete(key);
       if (job.state === "in-flight") {
+        this.circuit.recordCancellation(job.probe === true);
         this.activeJobCount = Math.max(0, this.activeJobCount - 1);
         job.controller?.abort();
         this.pump();
+      } else {
+        const queueIndex = this.queue.indexOf(job);
+        if (queueIndex >= 0) this.queue.splice(queueIndex, 1);
       }
     }
     this.emit();
   }
 
   private pump(): void {
+    if (
+      this.activeJobCount >= this.options.concurrency ||
+      this.queue.length === 0
+    ) return;
+    if (!this.circuit.mayStart()) {
+      if (this.circuit.state === "disabled") {
+        const error = this.lastCircuitError ?? new Error(
+          "Tile image requests are disabled for this session.",
+        );
+        queueMicrotask(() => this.failQueued(error));
+      }
+      return;
+    }
+    this.queue.sort(
+      (first, second) =>
+        Number(second.hot) - Number(first.hot) ||
+        second.priorityZoom - first.priorityZoom ||
+        second.sourceTile.z - first.sourceTile.z,
+    );
     while (this.activeJobCount < this.options.concurrency) {
-      this.queue.sort(
-        (first, second) =>
-          Number(second.hot) - Number(first.hot) ||
-          second.priorityZoom - first.priorityZoom ||
-          second.sourceTile.z - first.sourceTile.z,
-      );
+      while (
+        this.queue.length > 0 &&
+        (!this.jobs.has(this.queue[0]!.key) ||
+          this.queue[0]!.consumers.size === 0)
+      ) this.queue.shift();
+      if (this.queue.length === 0) return;
+      const start = this.circuit.tryStart();
+      if (!start) return;
       const job = this.queue.shift();
       if (!job) return;
       if (this.jobs.get(job.key) !== job || job.consumers.size === 0) continue;
       job.state = "in-flight";
+      job.probe = start === "probe";
       job.controller = new AbortController();
       this.activeJobCount += 1;
       this.sourceLoadTotal += 1;
@@ -440,7 +512,23 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
       const startedAt = performance.now();
       void this.options.loadSource(job.sourceTile, job.controller.signal).then(
         (source) => this.complete(job, source, performance.now() - startedAt),
-        (error: unknown) => this.fail(job, error),
+        (error: unknown) => {
+          if (this.jobs.get(job.key) !== job) return;
+          // Elevation 404 is a successful no-data probe at the surface layer.
+          // It must restore concurrency just like a decoded elevation tile.
+          let tripped = false;
+          if (error instanceof HttpTileError && error.status === 404) {
+            this.circuit.recordSuccess(job.probe === true);
+          } else {
+            tripped = this.circuit.recordFailure(
+              imageFailureMetadata(error),
+              job.probe === true,
+            );
+          }
+          if (tripped) this.lastCircuitError = error;
+          if (tripped) this.failQueued(error);
+          this.fail(job, error);
+        },
       );
     }
     this.emit();
@@ -452,6 +540,7 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
     loadDurationMs: number,
   ): void {
     if (this.jobs.get(job.key) !== job) return;
+    this.circuit.recordSuccess(job.probe === true);
     const loaded: LoadedSource = Object.freeze({
       ...source,
       loadDurationMs,
@@ -487,14 +576,29 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
         const consumer = this.consumers.get(requestId);
         if (!consumer?.active) continue;
         consumer.observer({
-          phase: "failure",
-          reason: errorReason(error),
-          ...(error instanceof HttpTileError ? { status: error.status } : {}),
+          ...failureResult(error),
         });
         this.consumers.delete(requestId);
       }
     }
     this.finish(job);
+  }
+
+  /** A provider-wide failure must not drain pending work into the outage. */
+  private failQueued(error: unknown): void {
+    const queued = this.queue.splice(0);
+    for (const job of queued) {
+      if (this.jobs.get(job.key) !== job) continue;
+      this.jobs.delete(job.key);
+      this.failureTotal += 1;
+      for (const requestId of job.consumers) {
+        const consumer = this.consumers.get(requestId);
+        if (!consumer?.active) continue;
+        consumer.observer(failureResult(error));
+        this.consumers.delete(requestId);
+      }
+    }
+    if (queued.length > 0) this.emit();
   }
 
   private finish(job: SourceJob): void {
@@ -573,6 +677,7 @@ export function createElevationTileProvider(): ImageTileProvider {
         throw new HttpTileError(
           payload.status,
           `Elevation tile ${tileIdentityKey(source)} failed with ${payload.status}.`,
+          payload.retryAfterMs,
         );
       }
       const blob = new Blob([payload.bytes], { type: payload.contentType });

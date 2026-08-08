@@ -45,6 +45,10 @@ export class ElevationTileProvider implements TileProvider<ElevationTileResource
     return this.elevationProvider.metrics;
   }
 
+  get retryDiagnostics() {
+    return this.elevationProvider.retryDiagnostics;
+  }
+
   retainSourceTiles(tiles: Iterable<TileIdentity>): void {
     this.elevationProvider.retainSourceTiles(tiles);
   }

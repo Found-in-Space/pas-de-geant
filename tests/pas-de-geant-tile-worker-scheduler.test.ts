@@ -47,6 +47,107 @@ function snapshot(revision: number, committedCut = [{ z: 0, x: 0, y: 0 }]) {
 }
 
 describe("Tile worker scheduler bridge", () => {
+  it("honors Retry-After before retrying a rate-limited round", () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      const observers: Array<Parameters<TileProvider<string>["request"]>[1]> = [];
+      const scheduler = new TileWorkerScheduler(layoutTarget(0), {
+        provider: {
+          request: (_tile, observer) => {
+            observers.push(observer);
+            return { requestId: observers.length, cancel() {} };
+          },
+        },
+        createWorker: () => worker,
+        retryDelayMs: 250,
+        retryMaxDelayMs: 1_000,
+      });
+      const tile = { z: 0, x: 0, y: 0 };
+      worker.emit({ kind: "snapshot", snapshot: snapshot(1, [tile]) });
+      scheduler.updateResourceDemand([tile]);
+      observers[0]!({
+        phase: "failure",
+        reason: "limited",
+        status: 429,
+        retryAfterMs: 30_000,
+      });
+
+      expect(scheduler.debugState.retry).toMatchObject({
+        scheduled_delay_ms: 30_000,
+        last_status: 429,
+      });
+      vi.advanceTimersByTime(29_999);
+      expect(observers).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(observers).toHaveLength(2);
+      scheduler.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps fatal provider state terminal across later demand changes", () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      const observers: Array<Parameters<TileProvider<string>["request"]>[1]> = [];
+      const provider: TileProvider<string> = {
+        request: (_tile, observer) => {
+          observers.push(observer);
+          return { requestId: observers.length, cancel() {} };
+        },
+      };
+      const scheduler = new TileWorkerScheduler(layoutTarget(0), {
+        provider,
+        createWorker: () => worker,
+        retryDelayMs: 250,
+      });
+      const first = { z: 1, x: 0, y: 0 };
+      const second = { z: 1, x: 1, y: 0 };
+      worker.emit({
+        kind: "snapshot",
+        snapshot: snapshot(1, [first, second]),
+      });
+      scheduler.updateResourceDemand([first]);
+      observers[0]!({
+        phase: "failure",
+        reason: "forbidden",
+        status: 403,
+        retryable: false,
+      });
+      scheduler.updateResourceDemand([second]);
+      worker.emit({
+        kind: "resource-request",
+        tile: second,
+        key: "1/1/0",
+        requestId: 91,
+      });
+      vi.advanceTimersByTime(60_000);
+
+      expect(observers).toHaveLength(1);
+      expect(worker.commands).toContainEqual({
+        kind: "resource-result",
+        key: "1/1/0",
+        requestId: 91,
+        result: {
+          phase: "failure",
+          reason: "forbidden",
+          status: 403,
+          retryable: false,
+        },
+      });
+      expect(worker.commands.some(({ kind }) => kind === "retry")).toBe(false);
+      expect(scheduler.debugState.retry).toMatchObject({
+        automatic_retry_enabled: false,
+        last_status: 403,
+      });
+      scheduler.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("tracks requested and in-flight phases for transition and residency requests", () => {
     const worker = new FakeWorker();
     const observers = new Map<string, Parameters<TileProvider<unknown>["request"]>[1]>();
@@ -462,7 +563,12 @@ describe("Tile worker scheduler bridge", () => {
       };
       const scheduler = new TileWorkerScheduler(
         layoutTarget(0),
-        { provider, createWorker: () => worker, retryDelayMs: 250 },
+        {
+          provider,
+          createWorker: () => worker,
+          retryDelayMs: 250,
+          retryRandom: () => 0,
+        },
       );
       worker.emit({
         kind: "event",
@@ -503,6 +609,7 @@ describe("Tile worker scheduler bridge", () => {
           createWorker: () => worker,
           retryDelayMs: 250,
           retryMaxDelayMs: 1_000,
+          retryRandom: () => 0,
         },
       );
       const first = { z: 1, x: 0, y: 0 };
@@ -514,7 +621,7 @@ describe("Tile worker scheduler bridge", () => {
       scheduler.updateResourceDemand([first]);
 
       observers[0]!({ phase: "failure", reason: "offline" });
-      expect(scheduler.debugState.retry).toEqual({
+      expect(scheduler.debugState.retry).toMatchObject({
         failed_rounds: 0,
         scheduled_delay_ms: 250,
       });
@@ -524,7 +631,7 @@ describe("Tile worker scheduler bridge", () => {
       expect(observers).toHaveLength(2);
 
       observers[1]!({ phase: "failure", reason: "still offline" });
-      expect(scheduler.debugState.retry).toEqual({
+      expect(scheduler.debugState.retry).toMatchObject({
         failed_rounds: 1,
         scheduled_delay_ms: 500,
       });
@@ -532,7 +639,7 @@ describe("Tile worker scheduler bridge", () => {
       expect(observers).toHaveLength(3);
 
       observers[2]!({ phase: "response", resource: "loaded" });
-      expect(scheduler.debugState.retry).toEqual({
+      expect(scheduler.debugState.retry).toMatchObject({
         failed_rounds: 0,
         scheduled_delay_ms: null,
       });

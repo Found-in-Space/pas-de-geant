@@ -1,4 +1,8 @@
 import type { TileIdentity } from "./tile-transition-planner.js";
+import {
+  isSessionFatalStatus,
+  retryAfterMilliseconds,
+} from "./tile-request-circuit.js";
 
 function isValidImageryAddress(address: TileIdentity): boolean {
   const width = 2 ** address.z;
@@ -60,8 +64,9 @@ declare global {
 export class ImageryRequestError extends Error {
   constructor(
     message: string,
-    readonly kind: "not-found" | "transient" | "malformed",
+    readonly kind: "not-found" | "transient" | "malformed" | "fatal",
     readonly status?: number,
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = "ImageryRequestError";
@@ -194,10 +199,16 @@ export class XyzImageryProvider implements ImageryProvider {
       signal,
     });
     if (!response.ok) {
+      const kind = response.status === 404
+        ? "not-found"
+        : isSessionFatalStatus(response.status)
+        ? "fatal"
+        : "transient";
       throw new ImageryRequestError(
         `Imagery tile request failed with ${response.status}.`,
-        response.status === 404 ? "not-found" : "transient",
+        kind,
         response.status,
+        retryAfterMilliseconds(response.headers.get("retry-after")),
       );
     }
     const responseForCache = cache ? response.clone() : undefined;

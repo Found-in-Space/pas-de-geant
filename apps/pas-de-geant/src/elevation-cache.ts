@@ -1,4 +1,5 @@
 import type { TileIdentity } from "./tile-transition-planner.js";
+import { retryAfterMilliseconds } from "./tile-request-circuit.js";
 
 function mapterhornUrlForTile(address: TileIdentity): string {
   return `https://tiles.mapterhorn.com/${address.z}/${address.x}/${address.y}.webp`;
@@ -17,6 +18,7 @@ export interface CachedElevationPayload {
   bytes: ArrayBuffer;
   contentType: string;
   cacheStatus: ElevationCacheStatus;
+  retryAfterMs?: number;
 }
 
 export interface ElevationResponseCache {
@@ -114,11 +116,15 @@ export async function loadCachedElevation(
   ensureNotAborted(signal);
   const status = response.status;
   if (!response.ok) {
+    const retryAfterMs = retryAfterMilliseconds(
+      response.headers.get("retry-after"),
+    );
     return {
       bytes: new ArrayBuffer(0),
       contentType: response.headers.get("content-type") ?? "",
       cacheStatus: cacheFailed ? "error" : "unavailable",
       status,
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     };
   }
   const responseForCache = cache ? response.clone() : undefined;

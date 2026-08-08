@@ -15,6 +15,7 @@ import type {
   TileProviderResult,
   TileRequestHandle,
 } from "./tile-provider.js";
+import type { TileRequestCircuitDiagnostics } from "./tile-request-circuit.js";
 import type {
   TileSchedulerCommand,
   TileSchedulerMessage,
@@ -34,6 +35,8 @@ export interface TileWorkerSchedulerOptions<Resource> {
   readonly retryDelayMs?: number;
   /** When set above the base cadence, failed retry rounds back off to this. */
   readonly retryMaxDelayMs?: number;
+  /** Random source used to desynchronise exponential retries. */
+  readonly retryRandom?: () => number;
   /** Demand known before the worker can emit its initial hydration requests. */
   readonly initialResourceDemand?: Iterable<TileIdentity>;
 }
@@ -57,6 +60,10 @@ export interface TileWorkerSchedulerDebugState {
   readonly retry: {
     readonly failed_rounds: number;
     readonly scheduled_delay_ms: number | null;
+    readonly scheduled_at_ms: number | null;
+    readonly automatic_retry_enabled: boolean;
+    readonly last_status: number | null;
+    readonly circuit: TileRequestCircuitDiagnostics | null;
   };
 }
 
@@ -106,6 +113,12 @@ export class TileWorkerScheduler<Resource> {
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private retryAttempt = 0;
   private retryScheduledDelayMs: number | undefined;
+  private retryScheduledAtMs: number | undefined;
+  private automaticRetryEnabled = true;
+  private lastFailureStatus: number | undefined;
+  private terminalFailure:
+    | Extract<TileProviderResult<never>, { phase: "failure" }>
+    | undefined;
   private snapshotValue: SchedulerSnapshot<TileLayoutTarget>;
 
   constructor(
@@ -174,6 +187,10 @@ export class TileWorkerScheduler<Resource> {
       retry: {
         failed_rounds: this.retryAttempt,
         scheduled_delay_ms: this.retryScheduledDelayMs ?? null,
+        scheduled_at_ms: this.retryScheduledAtMs ?? null,
+        automatic_retry_enabled: this.automaticRetryEnabled,
+        last_status: this.lastFailureStatus ?? null,
+        circuit: this.options.provider.retryDiagnostics ?? null,
       },
     };
   }
@@ -251,7 +268,7 @@ export class TileWorkerScheduler<Resource> {
   }
 
   retryFailed(): void {
-    if (this.disposed) return;
+    if (this.disposed || !this.automaticRetryEnabled) return;
     this.worker.postMessage({ kind: "retry" });
     this.hydrateDemandedCommitted();
   }
@@ -265,6 +282,7 @@ export class TileWorkerScheduler<Resource> {
     this.listeners.clear();
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
     this.retryScheduledDelayMs = undefined;
+    this.retryScheduledAtMs = undefined;
     this.worker.terminate();
   }
 
@@ -292,7 +310,8 @@ export class TileWorkerScheduler<Resource> {
       }
       for (const listener of this.listeners)
         listener(this.snapshotValue, message.event);
-      if (message.event.kind === "failure") this.scheduleRetry();
+      if (message.event.kind === "failure")
+        this.scheduleRetry(message.event);
       return;
     }
     if (message.snapshot.revision < this.snapshotValue.revision) return;
@@ -320,6 +339,15 @@ export class TileWorkerScheduler<Resource> {
         key: message.key,
         requestId: message.requestId,
         result: { phase: "response", resource: undefined },
+      });
+      return;
+    }
+    if (this.terminalFailure) {
+      this.worker.postMessage({
+        kind: "resource-result",
+        key: message.key,
+        requestId: message.requestId,
+        result: this.terminalFailure,
       });
       return;
     }
@@ -398,7 +426,7 @@ export class TileWorkerScheduler<Resource> {
         this.resetRetryIfSatisfied();
         this.notifyResourceChange();
       } else {
-        this.scheduleRetry();
+        this.scheduleRetry(result);
       }
     });
     if (this.requests.get(key) === provisional) provisional.handle = handle;
@@ -415,7 +443,11 @@ export class TileWorkerScheduler<Resource> {
   }
 
   private hydrateDemandedCommitted(): void {
-    if (!this.demandedResources || this.retryTimer !== undefined) return;
+    if (
+      !this.demandedResources ||
+      this.retryTimer !== undefined ||
+      !this.automaticRetryEnabled
+    ) return;
     const demandedResources = this.demandedResources;
     const hydrate = (tile: TileIdentity): void => {
       const key = tileIdentityKey(tile);
@@ -469,26 +501,72 @@ export class TileWorkerScheduler<Resource> {
     });
   }
 
-  private scheduleRetry(): void {
+  private scheduleRetry(
+    failure?: {
+      readonly reason?: string;
+      readonly status?: number;
+      readonly retryAfterMs?: number;
+      readonly retryable?: boolean;
+    },
+  ): void {
+    if (failure?.status !== undefined) this.lastFailureStatus = failure.status;
+    if (failure?.retryable === false) {
+      this.automaticRetryEnabled = false;
+      this.terminalFailure = {
+        phase: "failure",
+        reason: failure.reason ?? "Tile provider requests are disabled.",
+        ...(failure.status === undefined ? {} : { status: failure.status }),
+        ...(failure.retryAfterMs === undefined
+          ? {}
+          : { retryAfterMs: failure.retryAfterMs }),
+        retryable: false,
+      };
+      if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
+      this.retryTimer = undefined;
+      this.retryScheduledDelayMs = undefined;
+      this.retryScheduledAtMs = undefined;
+      return;
+    }
     const baseDelay = this.options.retryDelayMs;
     if (
       baseDelay === undefined ||
       baseDelay < 0 ||
-      this.retryTimer !== undefined
+      !this.automaticRetryEnabled
     ) return;
     const configuredMaximum = this.options.retryMaxDelayMs;
     const maximumDelay = configuredMaximum === undefined ||
         !Number.isFinite(configuredMaximum)
       ? baseDelay
       : Math.max(baseDelay, configuredMaximum);
-    const delay = Math.min(
+    const hintedDelay = failure?.retryAfterMs;
+    const hasHint = hintedDelay !== undefined &&
+      Number.isFinite(hintedDelay) && hintedDelay >= 0;
+    const random = Math.min(
+      1,
+      Math.max(0, (this.options.retryRandom ?? Math.random)()),
+    );
+    const cappedExponentialDelay = Math.min(
       maximumDelay,
       baseDelay * 2 ** Math.min(this.retryAttempt, 52),
     );
+    // Downward jitter preserves the configured maximum while preventing
+    // clients from synchronising once exponential retries reach that cap.
+    const exponentialDelay = cappedExponentialDelay * (1 - random * 0.2);
+    const delay = hasHint ? hintedDelay : exponentialDelay;
+    const scheduledAt = Date.now() + delay;
+    if (this.retryTimer !== undefined) {
+      if (
+        !hasHint ||
+        scheduledAt <= (this.retryScheduledAtMs ?? Number.POSITIVE_INFINITY)
+      ) return;
+      clearTimeout(this.retryTimer);
+    }
     this.retryScheduledDelayMs = delay;
+    this.retryScheduledAtMs = scheduledAt;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;
       this.retryScheduledDelayMs = undefined;
+      this.retryScheduledAtMs = undefined;
       this.retryAttempt += 1;
       if (!this.disposed) this.retryFailed();
     }, delay);
@@ -501,6 +579,7 @@ export class TileWorkerScheduler<Resource> {
     ) return;
     this.retryAttempt = 0;
     this.retryScheduledDelayMs = undefined;
+    this.retryScheduledAtMs = undefined;
     if (this.retryTimer !== undefined) {
       clearTimeout(this.retryTimer);
       this.retryTimer = undefined;

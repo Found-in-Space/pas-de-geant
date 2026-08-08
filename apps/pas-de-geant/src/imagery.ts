@@ -43,6 +43,10 @@ import type {
   TileProviderResult,
   TileRequestHandle,
 } from "./tile-provider.js";
+import {
+  TileRequestCircuit,
+  type TileRequestFailureMetadata,
+} from "./tile-request-circuit.js";
 import type { SchedulerSnapshot } from "./tile-transition-scheduler.js";
 import {
   tileIdentityKey,
@@ -82,14 +86,26 @@ const FINE_IMAGERY_SETTLE_MS = 750;
 const IMAGERY_MOVEMENT_THRESHOLD_M = 0.1;
 const TRANSIENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
 
-function shouldStopQueuedImagery(error: unknown): boolean {
+function imageryFailureMetadata(
+  error: unknown,
+): TileRequestFailureMetadata {
   if (
     typeof error === "object" &&
     error !== null &&
     "name" in error &&
     error.name === "AbortError"
-  ) return false;
-  return !(error instanceof ImageryRequestError) || error.kind === "transient";
+  ) return { systemic: false };
+  if (error instanceof ImageryRequestError) {
+    return {
+      systemic: error.kind === "transient" || error.kind === "fatal",
+      ...(error.status === undefined ? {} : { status: error.status }),
+      ...(error.retryAfterMs === undefined
+        ? {}
+        : { retryAfterMs: error.retryAfterMs }),
+      ...(error.kind === "fatal" ? { retryable: false } : {}),
+    };
+  }
+  return { systemic: true };
 }
 
 export function stitchImageryGutter(
@@ -396,9 +412,10 @@ interface SourceJob {
   state: "queued" | "active";
   hot: boolean;
   controller?: AbortController;
+  probe?: boolean;
 }
 
-/** Scheduler provider whose 404s resolve as no-data and whose other errors retry. */
+/** Scheduler provider whose 404s resolve as no-data and whose failures are classified. */
 export class ScheduledImageryProvider
   implements TileProvider<ImageryTileResource>
 {
@@ -412,6 +429,8 @@ export class ScheduledImageryProvider
   private requestTotal = 0;
   private sourceLoadTotal = 0;
   private decodeTotal = 0;
+  private readonly circuit = new TileRequestCircuit();
+  private lastCircuitError: unknown;
 
   constructor(
     readonly source: ImageryProvider,
@@ -437,6 +456,10 @@ export class ScheduledImageryProvider
       queued: this.queuedJobs.length,
       inFlight: this.activeJobCount,
     };
+  }
+
+  get retryDiagnostics() {
+    return this.circuit.diagnostics;
   }
 
   request(
@@ -530,19 +553,42 @@ export class ScheduledImageryProvider
       const index = this.queuedJobs.indexOf(job);
       if (index >= 0) this.queuedJobs.splice(index, 1);
     } else {
+      this.circuit.recordCancellation(job.probe === true);
       job.controller?.abort();
     }
   }
 
   private pumpJobs(): void {
+    if (
+      this.activeJobCount >= MAX_CONCURRENT_REQUESTS ||
+      this.queuedJobs.length === 0
+    ) return;
+    if (!this.circuit.mayStart()) {
+      if (this.circuit.state === "disabled") {
+        const error = this.lastCircuitError ?? new Error(
+          "Imagery requests are disabled for this session.",
+        );
+        queueMicrotask(() => this.failQueuedJobs(error));
+      }
+      return;
+    }
     this.queuedJobs.sort((first, second) =>
       Number(second.hot) - Number(first.hot)
     );
     while (this.activeJobCount < MAX_CONCURRENT_REQUESTS) {
+      while (
+        this.queuedJobs.length > 0 &&
+        (!this.jobs.has(this.queuedJobs[0]!.key) ||
+          this.queuedJobs[0]!.consumers.size === 0)
+      ) this.queuedJobs.shift();
+      if (this.queuedJobs.length === 0) return;
+      const start = this.circuit.tryStart();
+      if (!start) return;
       const job = this.queuedJobs.shift();
       if (!job) return;
       if (!this.jobs.has(job.key) || job.consumers.size === 0) continue;
       job.state = "active";
+      job.probe = start === "probe";
       job.controller = new AbortController();
       this.activeJobCount += 1;
       this.sourceLoadTotal += 1;
@@ -553,10 +599,15 @@ export class ScheduledImageryProvider
         .then(
           (result) => this.completeJob(job, result),
           (error: unknown) => {
+            if (this.jobs.get(job.key) !== job) return;
+            const metadata = imageryFailureMetadata(error);
+            const tripped = this.circuit.recordFailure(
+              metadata,
+              job.probe === true,
+            );
+            if (tripped) this.lastCircuitError = error;
             this.failJob(job, error);
-            if (shouldStopQueuedImagery(error)) {
-              this.failQueuedJobs(error);
-            }
+            if (tripped) this.failQueuedJobs(error);
           },
         )
         .finally(() => {
@@ -568,6 +619,7 @@ export class ScheduledImageryProvider
 
   private completeJob(job: SourceJob, result: SourceResult): void {
     if (this.jobs.get(job.key) !== job) return;
+    this.circuit.recordSuccess(job.probe === true);
     this.jobs.delete(job.key);
     for (const requestId of job.consumers) {
       const request = this.requests.get(requestId);
@@ -603,6 +655,13 @@ export class ScheduledImageryProvider
           error instanceof Error ? error.message : "Imagery request failed.",
         ...(error instanceof ImageryRequestError && error.status
           ? { status: error.status }
+          : {}),
+        ...(error instanceof ImageryRequestError &&
+            error.retryAfterMs !== undefined
+          ? { retryAfterMs: error.retryAfterMs }
+          : {}),
+        ...(error instanceof ImageryRequestError && error.kind === "fatal"
+          ? { retryable: false }
           : {}),
       });
     }

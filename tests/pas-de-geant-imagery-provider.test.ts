@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ImageryRequestError,
   MAPTILER_IMAGERY_CACHE_NAME,
   type ImageryCacheStorage,
   type ImageryResponseCache,
@@ -42,6 +43,52 @@ function cacheStorage(cache: MemoryResponseCache): ImageryCacheStorage {
 }
 
 describe("XYZ imagery provider cache", () => {
+  it("classifies 429 responses and parses both Retry-After forms", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-08T10:00:00Z"));
+    try {
+      const retryAt = new Date(Date.now() + 45_000).toUTCString();
+      for (const [header, expected] of [
+        ["12", 12_000],
+        [retryAt, 45_000],
+      ] as const) {
+        const provider = new XyzImageryProvider(configuration, {
+          cacheStorage: null,
+          fetcher: vi.fn(async () => new Response("limited", {
+            status: 429,
+            headers: { "retry-after": header },
+          })),
+        });
+        const failure = await provider.load(
+          { z: 6, x: 32, y: 20 },
+          new AbortController().signal,
+        ).catch((error: unknown) => error);
+
+        expect(failure).toBeInstanceOf(ImageryRequestError);
+        expect(failure).toMatchObject({
+          kind: "transient",
+          status: 429,
+          retryAfterMs: expected,
+        });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("classifies access failures as fatal for the browser session", async () => {
+    const provider = new XyzImageryProvider(configuration, {
+      cacheStorage: null,
+      fetcher: vi.fn(async () => new Response("forbidden", { status: 403 })),
+    });
+    const failure = await provider.load(
+      { z: 6, x: 32, y: 20 },
+      new AbortController().signal,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ kind: "fatal", status: 403 });
+  });
+
   it("persists successful MapTiler tiles across provider instances", async () => {
     const cache = new MemoryResponseCache();
     const fetcher = vi.fn(async () =>

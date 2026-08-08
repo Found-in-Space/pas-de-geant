@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ancestorAtZoom,
   selectImageryZoom,
@@ -985,6 +985,61 @@ describe("independent photographic imagery pipeline", () => {
       new Blob(["image"], { type: "image/png" }),
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
+    scheduled.dispose();
+  });
+
+  it("uses one imagery probe before restoring source-request concurrency", async () => {
+    let attempts = 0;
+    let rejectInitial!: (error: unknown) => void;
+    let resolveProbe!: (blob: Blob) => void;
+    const provider: ImageryProvider = {
+      id: "half-open-probe-fixture",
+      attribution: "fixture",
+      tileSize: 512,
+      minZoom: 3,
+      maxZoom: 3,
+      load: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return await new Promise<Blob>((_resolve, reject) => {
+            rejectInitial = reject;
+          });
+        }
+        if (attempts === 2) {
+          return await new Promise<Blob>((resolve) => {
+            resolveProbe = resolve;
+          });
+        }
+        return new Blob(["image"], { type: "image/png" });
+      },
+    };
+    const scheduled = new ScheduledImageryProvider(
+      provider,
+      async () => new Uint8Array([1, 2, 3, 4]),
+    );
+    scheduled.request({ z: 3, x: 0, y: 0 }, () => {});
+    expect(attempts).toBe(1);
+    rejectInitial(new ImageryRequestError("limited", "transient", 429, 0));
+    await vi.waitFor(() =>
+      expect(scheduled.retryDiagnostics.state).toBe("open"),
+    );
+
+    const responses: number[] = [];
+    for (let x = 1; x <= 3; x += 1) {
+      scheduled.request({ z: 3, x, y: 0 }, (result) => {
+        if (result.phase === "response") responses.push(x);
+      });
+    }
+    expect(attempts).toBe(2);
+    expect(scheduled.retryDiagnostics).toMatchObject({
+      state: "half-open",
+      probe_in_flight: true,
+    });
+
+    resolveProbe(new Blob(["image"], { type: "image/png" }));
+    await vi.waitFor(() => expect(attempts).toBe(4));
+    await vi.waitFor(() => expect(responses).toHaveLength(3));
+    expect(scheduled.retryDiagnostics.state).toBe("closed");
     scheduled.dispose();
   });
 

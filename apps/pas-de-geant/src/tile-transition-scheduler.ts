@@ -60,6 +60,9 @@ export interface SchedulerEvent {
   readonly tile?: TileIdentity;
   readonly requestId?: number;
   readonly reason?: string;
+  readonly status?: number;
+  readonly retryAfterMs?: number;
+  readonly retryable?: boolean;
   readonly batchId?: string;
   readonly groupIds?: readonly string[];
   readonly before?: readonly TileIdentity[];
@@ -341,6 +344,13 @@ export class TileTransitionScheduler<Target, Resource> {
         tile: requirement.tile,
         requestId,
         reason: result.reason,
+        ...(result.status === undefined ? {} : { status: result.status }),
+        ...(result.retryAfterMs === undefined
+          ? {}
+          : { retryAfterMs: result.retryAfterMs }),
+        ...(result.retryable === undefined
+          ? {}
+          : { retryable: result.retryable }),
       });
       return;
     }
