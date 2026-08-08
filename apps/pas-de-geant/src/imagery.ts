@@ -4,6 +4,8 @@ import {
   ancestorAtZoom,
   imageryKey,
   mercatorPointForImagery,
+  normalizedMercatorYForLatitude,
+  renderedImageryTileWidthM,
   selectImageryZoom,
   wrapImageryX,
   type ImageryAddress,
@@ -62,11 +64,12 @@ import {
   type TilePipelineDebugControls,
 } from "./tile-debug-controls.js";
 import {
-  classifyHotResidency,
+  classifyHotAndForecastResidency,
   classifyWarmResidency,
   hotResidencySignature,
   sameResidencyKeys,
   warmResidencySignature,
+  type MercatorForecastDisplacement,
   type ViewResidencyInput,
 } from "./view-residency.js";
 
@@ -82,12 +85,10 @@ export { normalizedMercatorYForLatitude } from "./imagery-core.js";
 const IMAGERY_GUTTER_PIXELS = 8;
 const MAX_CONCURRENT_REQUESTS = 6;
 const MAX_UPLOADS_PER_FRAME = 2;
-const FINE_IMAGERY_SETTLE_MS = 750;
-const IMAGERY_MOVEMENT_THRESHOLD_M = 0.1;
-const FAST_IMAGERY_ENTER_MPS = 3;
-const FAST_IMAGERY_EXIT_MPS = 2.2;
-const FAST_IMAGERY_HOLD_MS = 250;
 const IMAGERY_VELOCITY_FILTER_MS = 180;
+const FORECAST_QUANTIZATION_STEPS_PER_TILE = 2;
+const DEFAULT_ASSET_READY_MS = 750;
+const ASSET_READY_FILTER_WEIGHT = 0.2;
 const TRANSIENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
 
 function imageryFailureMetadata(
@@ -175,86 +176,75 @@ export interface ImageryCoordinateBounds {
   readonly south: number;
 }
 
-function surfaceMovementM(
-  firstLatitudeDegrees: number,
+function wrappedLongitudeDeltaRadians(
   firstLongitudeDegrees: number,
-  second: ImageryView,
+  secondLongitudeDegrees: number,
 ): number {
   const radians = Math.PI / 180;
-  const firstLatitude = firstLatitudeDegrees * radians;
-  const secondLatitude = second.latitudeDegrees * radians;
-  const latitudeDelta = secondLatitude - firstLatitude;
   const rawLongitudeDelta =
-    (second.longitudeDegrees - firstLongitudeDegrees) * radians;
-  const longitudeDelta =
-    ((rawLongitudeDelta + Math.PI) % (Math.PI * 2) + Math.PI * 2) %
+    (secondLongitudeDegrees - firstLongitudeDegrees) * radians;
+  return ((rawLongitudeDelta + Math.PI) % (Math.PI * 2) + Math.PI * 2) %
       (Math.PI * 2) - Math.PI;
-  const haversine =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(firstLatitude) * Math.cos(secondLatitude) *
-      Math.sin(longitudeDelta / 2) ** 2;
-  const angle = 2 * Math.atan2(
-    Math.sqrt(Math.max(0, haversine)),
-    Math.sqrt(Math.max(0, 1 - haversine)),
-  );
-  return angle * Math.max(0.001, second.displayRadiusM);
 }
 
-export type ImageryMovementState = "still" | "moving" | "fast";
+export interface ImageryMovementForecast {
+  readonly topologyZoom: number;
+  readonly velocityEastMps: number;
+  readonly velocityNorthMps: number;
+  readonly speedMps: number;
+  readonly estimatedReadyMs: number;
+  readonly predictedTravelM: number;
+  readonly finestTileWidthM: number;
+  readonly predictedTravelTileSpans: number;
+  readonly deferSpeculativeWarm: boolean;
+  readonly displacement: MercatorForecastDisplacement;
+  /** Changes only at half-fine-tile displacement boundaries. */
+  readonly signature: number;
+}
 
-/** Holds back fine imagery according to frame-rate-independent surface speed. */
-export class ImageryFineTileGate {
-  private anchorLatitudeDegrees: number | undefined;
-  private anchorLongitudeDegrees = 0;
+/**
+ * Predicts which warm imagery can be useful when its payload is ready. Motion
+ * affects admission only; the returned topology zoom is always the planner's
+ * desired zoom.
+ */
+export class ImageryMovementAdmission {
   private sampleLatitudeDegrees: number | undefined;
   private sampleLongitudeDegrees = 0;
   private sampleTimeMs: number | undefined;
-  private lastMovementMs: number | undefined;
-  private lastFastMs: number | undefined;
-  private filteredVelocityMps = 0;
-  private fast = false;
-  private stateValue: ImageryMovementState = "still";
-  private warmDemandDeferredValue = false;
+  private filteredVelocityEastMps = 0;
+  private filteredVelocityNorthMps = 0;
+  /** Reused because this policy is sampled on every rendered frame. */
+  private readonly forecastValue = {
+    topologyZoom: 0,
+    velocityEastMps: 0,
+    velocityNorthMps: 0,
+    speedMps: 0,
+    estimatedReadyMs: DEFAULT_ASSET_READY_MS,
+    predictedTravelM: 0,
+    finestTileWidthM: 1,
+    predictedTravelTileSpans: 0,
+    deferSpeculativeWarm: false,
+    displacement: { x: 0, y: 0 },
+    signature: 0,
+  };
 
   constructor(initialView?: ImageryView) {
     if (!initialView) return;
-    this.anchorLatitudeDegrees = initialView.latitudeDegrees;
-    this.anchorLongitudeDegrees = initialView.longitudeDegrees;
     this.sampleLatitudeDegrees = initialView.latitudeDegrees;
     this.sampleLongitudeDegrees = initialView.longitudeDegrees;
   }
 
-  get state(): ImageryMovementState {
-    return this.stateValue;
+  /** Live read-only view, reused across updates to avoid frame allocations. */
+  get forecast(): ImageryMovementForecast {
+    return this.forecastValue;
   }
 
-  get velocityMps(): number {
-    return this.filteredVelocityMps;
-  }
-
-  get warmDemandDeferred(): boolean {
-    return this.warmDemandDeferredValue;
-  }
-
-  targetZoom(
+  update(
     view: ImageryView,
     desiredZoom: number,
-    minimumZoom: number,
+    estimatedReadyMs: number,
     nowMs: number,
-  ): number {
-    if (this.anchorLatitudeDegrees === undefined) {
-      this.anchorLatitudeDegrees = view.latitudeDegrees;
-      this.anchorLongitudeDegrees = view.longitudeDegrees;
-    } else if (surfaceMovementM(
-      this.anchorLatitudeDegrees,
-      this.anchorLongitudeDegrees,
-      view,
-    ) >= IMAGERY_MOVEMENT_THRESHOLD_M) {
-      this.anchorLatitudeDegrees = view.latitudeDegrees;
-      this.anchorLongitudeDegrees = view.longitudeDegrees;
-      this.lastMovementMs = nowMs;
-    }
-
+  ): ImageryMovementForecast {
     if (this.sampleLatitudeDegrees === undefined) {
       this.sampleLatitudeDegrees = view.latitudeDegrees;
       this.sampleLongitudeDegrees = view.longitudeDegrees;
@@ -266,44 +256,92 @@ export class ImageryFineTileGate {
     } else {
       const elapsedMs = nowMs - this.sampleTimeMs;
       if (elapsedMs > 0) {
-        const distanceM = surfaceMovementM(
-          this.sampleLatitudeDegrees,
+        const radians = Math.PI / 180;
+        const radius = Math.max(0.001, view.displayRadiusM);
+        const meanLatitude = Math.max(
+          -WEB_MERCATOR_MAX_LATITUDE,
+          Math.min(
+            WEB_MERCATOR_MAX_LATITUDE,
+            (this.sampleLatitudeDegrees + view.latitudeDegrees) * 0.5,
+          ),
+        ) * radians;
+        const seconds = elapsedMs / 1_000;
+        const instantaneousEastMps = wrappedLongitudeDeltaRadians(
           this.sampleLongitudeDegrees,
-          view,
-        );
-        const instantaneousVelocityMps = distanceM * 1_000 / elapsedMs;
+          view.longitudeDegrees,
+        ) * Math.cos(meanLatitude) * radius / seconds;
+        const instantaneousNorthMps =
+          (view.latitudeDegrees - this.sampleLatitudeDegrees) * radians *
+          radius / seconds;
         const filterWeight = 1 - Math.exp(
           -elapsedMs / IMAGERY_VELOCITY_FILTER_MS,
         );
-        this.filteredVelocityMps +=
-          (instantaneousVelocityMps - this.filteredVelocityMps) * filterWeight;
+        this.filteredVelocityEastMps +=
+          (instantaneousEastMps - this.filteredVelocityEastMps) *
+          filterWeight;
+        this.filteredVelocityNorthMps +=
+          (instantaneousNorthMps - this.filteredVelocityNorthMps) *
+          filterWeight;
         this.sampleTimeMs = nowMs;
         this.sampleLatitudeDegrees = view.latitudeDegrees;
         this.sampleLongitudeDegrees = view.longitudeDegrees;
       }
     }
 
-    this.fast = this.fast
-      ? this.filteredVelocityMps >= FAST_IMAGERY_EXIT_MPS
-      : this.filteredVelocityMps >= FAST_IMAGERY_ENTER_MPS;
-    if (this.fast) this.lastFastMs = nowMs;
-    const fastHolding = this.lastFastMs !== undefined &&
-      Math.max(0, nowMs - this.lastFastMs) < FAST_IMAGERY_HOLD_MS;
-    const settling = this.lastMovementMs !== undefined &&
-      Math.max(0, nowMs - this.lastMovementMs) < FINE_IMAGERY_SETTLE_MS;
-    this.stateValue = fastHolding ? "fast" : settling ? "moving" : "still";
-    if (this.stateValue === "fast") this.warmDemandDeferredValue = true;
-    else if (this.stateValue === "still") {
-      this.warmDemandDeferredValue = false;
-    }
-    return Math.max(
-      minimumZoom,
-      desiredZoom - (this.stateValue === "fast"
-        ? 2
-        : this.stateValue === "moving"
-        ? 1
-        : 0),
+    const speedMps = Math.hypot(
+      this.filteredVelocityEastMps,
+      this.filteredVelocityNorthMps,
     );
+    const readyMs = Math.max(0, estimatedReadyMs);
+    const readinessSeconds = readyMs / 1_000;
+    const predictedTravelM = speedMps * readinessSeconds;
+    const finestTileWidthM = renderedImageryTileWidthM(
+      view.latitudeDegrees,
+      view.displayRadiusM,
+      desiredZoom,
+    );
+    const predictedTravelTileSpans = predictedTravelM / finestTileWidthM;
+    const width = 2 ** Math.max(0, Math.floor(desiredZoom));
+    const latitude = Math.max(
+      -WEB_MERCATOR_MAX_LATITUDE,
+      Math.min(WEB_MERCATOR_MAX_LATITUDE, view.latitudeDegrees),
+    ) * Math.PI / 180;
+    const normalizedMetres = 2 * Math.PI *
+      Math.max(0.001, view.displayRadiusM) * Math.cos(latitude);
+    const rawX = this.filteredVelocityEastMps * readinessSeconds /
+      normalizedMetres;
+    let rawY = -this.filteredVelocityNorthMps * readinessSeconds /
+      normalizedMetres;
+    const currentY = normalizedMercatorYForLatitude(view.latitudeDegrees);
+    rawY = Math.max(0, Math.min(1, currentY + rawY)) - currentY;
+    const quantizedX = Math.round(
+      rawX * width * FORECAST_QUANTIZATION_STEPS_PER_TILE,
+    );
+    const quantizedY = Math.round(
+      rawY * width * FORECAST_QUANTIZATION_STEPS_PER_TILE,
+    );
+    const deferSpeculativeWarm = predictedTravelTileSpans >= 1;
+    let signature = Math.imul(2_166_136_261 ^ quantizedX, 16_777_619);
+    signature = Math.imul(signature ^ quantizedY, 16_777_619);
+    signature = Math.imul(
+      signature ^ Number(deferSpeculativeWarm),
+      16_777_619,
+    ) >>> 0;
+    this.forecastValue.topologyZoom = desiredZoom;
+    this.forecastValue.velocityEastMps = this.filteredVelocityEastMps;
+    this.forecastValue.velocityNorthMps = this.filteredVelocityNorthMps;
+    this.forecastValue.speedMps = speedMps;
+    this.forecastValue.estimatedReadyMs = readyMs;
+    this.forecastValue.predictedTravelM = predictedTravelM;
+    this.forecastValue.finestTileWidthM = finestTileWidthM;
+    this.forecastValue.predictedTravelTileSpans = predictedTravelTileSpans;
+    this.forecastValue.deferSpeculativeWarm = deferSpeculativeWarm;
+    this.forecastValue.displacement.x =
+      quantizedX / FORECAST_QUANTIZATION_STEPS_PER_TILE / width;
+    this.forecastValue.displacement.y =
+      quantizedY / FORECAST_QUANTIZATION_STEPS_PER_TILE / width;
+    this.forecastValue.signature = signature;
+    return this.forecastValue;
   }
 }
 
@@ -319,16 +357,20 @@ export function imageryTargetForView(
   });
 }
 
-export function imageryDemandForMovement(
+/** Defers only speculative warm work that has neither started nor loaded. */
+export function imageryDemandForAdmission(
   fullDemand: readonly TileIdentity[],
   hotKeys: ReadonlySet<string>,
-  warmDemandDeferred: boolean,
-  isResident: (tile: TileIdentity) => boolean,
+  forecastKeys: ReadonlySet<string>,
+  deferSpeculativeWarm: boolean,
+  isResidentOrInFlight: (tile: TileIdentity) => boolean,
 ): readonly TileIdentity[] {
-  if (!warmDemandDeferred) return fullDemand;
-  return fullDemand.filter((tile) =>
-    hotKeys.has(tileIdentityKey(tile)) || isResident(tile)
-  );
+  if (!deferSpeculativeWarm) return fullDemand;
+  return fullDemand.filter((tile) => {
+    const key = tileIdentityKey(tile);
+    return hotKeys.has(key) || forecastKeys.has(key) ||
+      isResidentOrInFlight(tile);
+  });
 }
 
 /** Earth-fixed normalized Web Mercator bounds for one terrain mesh. */
@@ -499,6 +541,7 @@ interface SourceJob {
   probe?: boolean;
   warmRamp?: boolean;
   succeeded?: boolean;
+  startedAtMs?: number;
 }
 
 /** Scheduler provider whose 404s resolve as no-data and whose failures are classified. */
@@ -519,6 +562,7 @@ export class ScheduledImageryProvider
   private warmRampActive = false;
   private warmRampLimit = MAX_CONCURRENT_REQUESTS;
   private warmRampInFlight = 0;
+  private successfulReadyDurationMs = DEFAULT_ASSET_READY_MS;
   private readonly circuit = new TileRequestCircuit();
   private lastCircuitError: unknown;
 
@@ -530,7 +574,13 @@ export class ScheduledImageryProvider
       signal: AbortSignal,
     ) => Promise<Uint8Array> = async (blob) =>
       new Uint8Array(await blob.arrayBuffer()),
+    private readonly now: () => number = () => performance.now(),
   ) {}
+
+  /** Rolling successful source+decode time; no per-frame history scan. */
+  get estimatedAssetReadyMs(): number {
+    return this.successfulReadyDurationMs;
+  }
 
   get metrics(): {
     requestTotal: number;
@@ -541,6 +591,7 @@ export class ScheduledImageryProvider
     inFlight: number;
     warmRampActive: boolean;
     warmRampLimit: number;
+    estimatedAssetReadyMs: number;
   } {
     return {
       requestTotal: this.requestTotal,
@@ -551,6 +602,7 @@ export class ScheduledImageryProvider
       inFlight: this.activeJobCount,
       warmRampActive: this.warmRampActive,
       warmRampLimit: this.warmRampLimit,
+      estimatedAssetReadyMs: this.estimatedAssetReadyMs,
     };
   }
 
@@ -558,7 +610,7 @@ export class ScheduledImageryProvider
     return this.circuit.diagnostics;
   }
 
-  /** Restores speculative warm traffic additively after fast travel. */
+  /** Restores speculative warm traffic additively after forecast deferral. */
   beginWarmRamp(): void {
     this.warmRampActive = true;
     this.warmRampLimit = 1;
@@ -702,6 +754,7 @@ export class ScheduledImageryProvider
       job.warmRamp = this.warmRampActive && !job.hot;
       if (job.warmRamp) this.warmRampInFlight += 1;
       job.controller = new AbortController();
+      job.startedAtMs = this.now();
       this.activeJobCount += 1;
       this.sourceLoadTotal += 1;
       for (const requestId of job.consumers) {
@@ -743,6 +796,12 @@ export class ScheduledImageryProvider
 
   private completeJob(job: SourceJob, result: SourceResult): void {
     if (this.jobs.get(job.key) !== job) return;
+    if (job.startedAtMs !== undefined) {
+      const durationMs = Math.max(0, this.now() - job.startedAtMs);
+      this.successfulReadyDurationMs +=
+        (durationMs - this.successfulReadyDurationMs) *
+        ASSET_READY_FILTER_WEIGHT;
+    }
     this.circuit.recordSuccess(job.probe === true);
     job.succeeded = true;
     this.jobs.delete(job.key);
@@ -1264,19 +1323,20 @@ export class ImageryVirtualTexture {
   private snapshot: SchedulerSnapshot<TileLayoutTarget>;
   private target: TileLayoutTarget;
   private desiredZoom: number | undefined;
-  private readonly fineTileGate: ImageryFineTileGate;
+  private readonly movementAdmission: ImageryMovementAdmission;
+  private readonly movementForecast: ImageryMovementForecast;
   private desiredSourceKeySet = new Set<string>();
   private nextPoolGeneration = 1;
   private hotKeys = new Set<string>();
+  private forecastKeys = new Set<string>();
   private warmKeys = new Set<string>();
   private residencyInput?: ViewResidencyInput;
   private hotViewSignature = -1;
   private hotRevision = -2;
   private warmViewSignature = -1;
   private warmRevision = -2;
-  private residencyWarmDemandDeferred: boolean | undefined;
-  private movementState: ImageryMovementState = "still";
-  private warmDemandDeferred = false;
+  private residencyAdmissionDeferred: boolean | undefined;
+  private deferSpeculativeWarm = false;
   private uploadTotal = 0;
   private targetSubmissionTotal = 0;
   private targetSubmissionSuppressedTotal = 0;
@@ -1314,7 +1374,13 @@ export class ImageryVirtualTexture {
           tilePixels: imageryProvider.tileSize,
         })
       : 0;
-    this.fineTileGate = new ImageryFineTileGate(initialView);
+    this.movementAdmission = new ImageryMovementAdmission(initialView);
+    this.movementForecast = this.movementAdmission.update(
+      initialView,
+      zoom,
+      DEFAULT_ASSET_READY_MS,
+      performance.now(),
+    );
     this.target = imageryTargetForView(initialView, zoom);
     this.lastObservedTargetLatitudeDegrees = this.target.latitudeDegrees;
     this.lastObservedTargetLongitudeDegrees = this.target.longitudeDegrees;
@@ -1439,19 +1505,22 @@ export class ImageryVirtualTexture {
       maxTopologyZoom: this.debugControls.maxZoom,
     });
     this.desiredZoom = zoom;
-    const targetZoom = this.fineTileGate.targetZoom(
+    this.movementAdmission.update(
       view,
       zoom,
-      this.provider.source.minZoom,
+      this.provider.estimatedAssetReadyMs,
       performance.now(),
     );
-    const wasWarmDemandDeferred = this.warmDemandDeferred;
-    this.movementState = this.fineTileGate.state;
-    this.warmDemandDeferred = this.fineTileGate.warmDemandDeferred;
-    if (wasWarmDemandDeferred && !this.warmDemandDeferred) {
+    const wasAdmissionDeferred = this.deferSpeculativeWarm;
+    this.deferSpeculativeWarm =
+      this.movementForecast.deferSpeculativeWarm;
+    if (wasAdmissionDeferred && !this.deferSpeculativeWarm) {
       this.provider.beginWarmRamp();
     }
-    const target = imageryTargetForView(view, targetZoom);
+    const target = imageryTargetForView(
+      view,
+      this.movementForecast.topologyZoom,
+    );
     const observedCoordinatesChanged =
       target.latitudeDegrees !== this.lastObservedTargetLatitudeDegrees ||
       target.longitudeDegrees !== this.lastObservedTargetLongitudeDegrees;
@@ -1538,9 +1607,16 @@ export class ImageryVirtualTexture {
           this.migrationObsoleteUploadAvoidedTotal,
       },
       movement: {
-        state: this.movementState,
-        surface_velocity_mps: this.fineTileGate.velocityMps,
-        warm_demand_deferred: this.warmDemandDeferred,
+        velocity_east_mps: this.movementForecast.velocityEastMps,
+        velocity_north_mps: this.movementForecast.velocityNorthMps,
+        surface_speed_mps: this.movementForecast.speedMps,
+        estimated_asset_ready_ms: this.movementForecast.estimatedReadyMs,
+        predicted_travel_m: this.movementForecast.predictedTravelM,
+        finest_tile_width_m: this.movementForecast.finestTileWidthM,
+        predicted_travel_tile_spans:
+          this.movementForecast.predictedTravelTileSpans,
+        speculative_warm_deferred: this.deferSpeculativeWarm,
+        forecast_tile_count: this.forecastKeys.size,
         target_submission_total: this.targetSubmissionTotal,
         target_submission_suppressed_total:
           this.targetSubmissionSuppressedTotal,
@@ -1573,9 +1649,14 @@ export class ImageryVirtualTexture {
     residencyClassificationTotal: number;
     hotResidencyClassificationTotal: number;
     warmResidencyClassificationTotal: number;
-    surfaceVelocityMps: number;
-    movementState: ImageryMovementState;
-    warmDemandDeferred: boolean;
+    surfaceSpeedMps: number;
+    velocityEastMps: number;
+    velocityNorthMps: number;
+    estimatedAssetReadyMs: number;
+    predictedTravelM: number;
+    predictedTravelTileSpans: number;
+    deferSpeculativeWarm: boolean;
+    forecastTileCount: number;
     targetSubmissionTotal: number;
     targetSubmissionSuppressedTotal: number;
     deferredWarmTileOccurrenceTotal: number;
@@ -1614,9 +1695,15 @@ export class ImageryVirtualTexture {
       residencyClassificationTotal: this.residencyClassificationTotal,
       hotResidencyClassificationTotal: this.hotResidencyClassificationTotal,
       warmResidencyClassificationTotal: this.warmResidencyClassificationTotal,
-      surfaceVelocityMps: this.fineTileGate.velocityMps,
-      movementState: this.movementState,
-      warmDemandDeferred: this.warmDemandDeferred,
+      surfaceSpeedMps: this.movementForecast.speedMps,
+      velocityEastMps: this.movementForecast.velocityEastMps,
+      velocityNorthMps: this.movementForecast.velocityNorthMps,
+      estimatedAssetReadyMs: this.movementForecast.estimatedReadyMs,
+      predictedTravelM: this.movementForecast.predictedTravelM,
+      predictedTravelTileSpans:
+        this.movementForecast.predictedTravelTileSpans,
+      deferSpeculativeWarm: this.deferSpeculativeWarm,
+      forecastTileCount: this.forecastKeys.size,
       targetSubmissionTotal: this.targetSubmissionTotal,
       targetSubmissionSuppressedTotal: this.targetSubmissionSuppressedTotal,
       deferredWarmTileOccurrenceTotal: this.deferredWarmTileOccurrenceTotal,
@@ -2116,10 +2203,17 @@ export class ImageryVirtualTexture {
         this.residencyInput.footprint.length === 0) ||
       this.snapshot.committedCut.length === 0
     ) return;
-    const hotSignature = hotResidencySignature(
+    const visibleSignature = hotResidencySignature(
       this.target.maxZoom,
       this.residencyInput,
     );
+    const forecastSignature = this.deferSpeculativeWarm
+      ? this.movementForecast.signature
+      : 0;
+    const hotSignature = Math.imul(
+      visibleSignature ^ forecastSignature,
+      16_777_619,
+    ) >>> 0;
     const warmSignature = warmResidencySignature(
       this.target.maxZoom,
       this.residencyInput,
@@ -2130,16 +2224,19 @@ export class ImageryVirtualTexture {
       this.snapshot.revision !== this.hotRevision;
     const warmNeedsClassification =
       warmSignature !== this.warmViewSignature ||
-      this.snapshot.revision !== this.warmRevision ||
-      this.warmDemandDeferred !== this.residencyWarmDemandDeferred;
-    if (!hotNeedsClassification && !warmNeedsClassification) return;
+      this.snapshot.revision !== this.warmRevision;
+    const admissionDeferralChanged =
+      this.deferSpeculativeWarm !== this.residencyAdmissionDeferred;
+    if (
+      !hotNeedsClassification &&
+      !warmNeedsClassification &&
+      !admissionDeferralChanged
+    ) return;
     this.hotViewSignature = hotSignature;
     this.hotRevision = this.snapshot.revision;
     this.warmViewSignature = warmSignature;
     this.warmRevision = this.snapshot.revision;
-    const warmDemandDeferralChanged =
-      this.warmDemandDeferred !== this.residencyWarmDemandDeferred;
-    this.residencyWarmDemandDeferred = this.warmDemandDeferred;
+    this.residencyAdmissionDeferred = this.deferSpeculativeWarm;
     this.residencyClassificationTotal += 1;
     if (hotNeedsClassification) this.hotResidencyClassificationTotal += 1;
     if (warmNeedsClassification) this.warmResidencyClassificationTotal += 1;
@@ -2150,10 +2247,15 @@ export class ImageryVirtualTexture {
     ]) workingCut.set(tileIdentityKey(tile), tile);
     const workingTiles = [...workingCut.values()];
     if (hotNeedsClassification) {
-      this.hotKeys = new Set(classifyHotResidency(
+      const classified = classifyHotAndForecastResidency(
         workingTiles,
         this.residencyInput,
-      ));
+        this.deferSpeculativeWarm
+          ? this.movementForecast.displacement
+          : undefined,
+      );
+      this.hotKeys = new Set(classified.hot);
+      this.forecastKeys = new Set(classified.forecast);
     }
     let warmChanged = false;
     const eligible = eligiblePayloadTiles(
@@ -2178,8 +2280,8 @@ export class ImageryVirtualTexture {
     );
     if (
       !warmChanged &&
-      !warmDemandDeferralChanged &&
-      !(this.warmDemandDeferred && hotNeedsClassification)
+      !admissionDeferralChanged &&
+      !(this.deferSpeculativeWarm && hotNeedsClassification)
     ) {
       this.scheduler.updateResourcePriority(hot);
       return;
@@ -2191,11 +2293,12 @@ export class ImageryVirtualTexture {
       this.debugControls.viewDistanceEnabled,
       this.warmKeys,
     );
-    const demanded = imageryDemandForMovement(
+    const demanded = imageryDemandForAdmission(
       fullDemanded,
       this.hotKeys,
-      this.warmDemandDeferred,
-      (tile) => this.scheduler!.committedResource(tile) !== undefined,
+      this.forecastKeys,
+      this.deferSpeculativeWarm,
+      (tile) => this.scheduler!.hasResidentOrInFlightResource(tile),
     );
     this.deferredWarmTileCount = fullDemanded.length - demanded.length;
     this.deferredWarmTileOccurrenceTotal += this.deferredWarmTileCount;

@@ -158,6 +158,20 @@ interface MercatorEnvelope {
   readonly maximumY: number;
 }
 
+export interface MercatorForecastDisplacement {
+  /** Wrapped Mercator x displacement, quantized by the movement policy. */
+  readonly x: number;
+  /** Mercator y displacement, positive towards the south. */
+  readonly y: number;
+}
+
+export interface HotAndForecastResidency {
+  /** Tiles intersecting the visible footprint at its current position. */
+  readonly hot: ReadonlySet<string>;
+  /** Tiles intersecting the current-to-forecast swept footprint. */
+  readonly forecast: ReadonlySet<string>;
+}
+
 function normalizedMercatorPoint(point: GeographicPoint): {
   x: number;
   y: number;
@@ -220,6 +234,27 @@ function intersectsExpandedFootprint(
     north <= envelope.maximumY + guard;
 }
 
+function sweptFootprintEnvelope(
+  envelope: MercatorEnvelope,
+  displacement: MercatorForecastDisplacement,
+): MercatorEnvelope {
+  const displacedMinimumY = Math.max(
+    0,
+    Math.min(1, envelope.minimumY + displacement.y),
+  );
+  const displacedMaximumY = Math.max(
+    0,
+    Math.min(1, envelope.maximumY + displacement.y),
+  );
+  return {
+    referenceX: envelope.referenceX,
+    minimumX: Math.min(envelope.minimumX, envelope.minimumX + displacement.x),
+    maximumX: Math.max(envelope.maximumX, envelope.maximumX + displacement.x),
+    minimumY: Math.min(envelope.minimumY, displacedMinimumY),
+    maximumY: Math.max(envelope.maximumY, displacedMaximumY),
+  };
+}
+
 function inverseMercatorLatitude(y: number): number {
   return Math.atan(Math.sinh(Math.PI * (1 - 2 * y)));
 }
@@ -276,18 +311,54 @@ export function classifyHotResidency(
   input: ViewResidencyInput,
 ): ReadonlySet<string> {
   const hot = new Set<string>();
+  classifyHotAndForecastInto(cut, input, hot);
+  return hot;
+}
+
+function classifyHotAndForecastInto(
+  cut: readonly TileIdentity[],
+  input: ViewResidencyInput,
+  hot: Set<string>,
+  forecast?: Set<string>,
+  displacement?: MercatorForecastDisplacement,
+): void {
   const envelope = footprintEnvelope(input);
+  const swept = forecast && displacement
+    ? sweptFootprintEnvelope(envelope, displacement)
+    : undefined;
   const maximumZoom = cut.reduce(
     (maximum, tile) => Math.max(maximum, tile.z),
     0,
   );
   const finestTileSpan = 1 / 2 ** maximumZoom;
   for (const tile of cut) {
+    const key = tileIdentityKey(tile);
     if (intersectsExpandedFootprint(tile, envelope, finestTileSpan)) {
-      hot.add(tileIdentityKey(tile));
+      hot.add(key);
+    }
+    if (
+      forecast && swept &&
+      intersectsExpandedFootprint(tile, swept, finestTileSpan)
+    ) {
+      forecast.add(key);
     }
   }
-  return hot;
+}
+
+/**
+ * Classifies current and predicted visibility together. Forecast admission is
+ * deliberately folded into the existing hot cut scan: when enabled it adds
+ * only one translated-envelope AABB check per tile.
+ */
+export function classifyHotAndForecastResidency(
+  cut: readonly TileIdentity[],
+  input: ViewResidencyInput,
+  displacement?: MercatorForecastDisplacement,
+): HotAndForecastResidency {
+  const hot = new Set<string>();
+  const forecast = new Set<string>();
+  classifyHotAndForecastInto(cut, input, hot, forecast, displacement);
+  return { hot, forecast };
 }
 
 export function classifyWarmResidency(

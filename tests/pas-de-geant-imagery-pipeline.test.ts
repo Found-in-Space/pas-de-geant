@@ -4,10 +4,10 @@ import {
   selectImageryZoom,
 } from "../apps/pas-de-geant/src/imagery-core.js";
 import {
-  ImageryFineTileGate,
+  ImageryMovementAdmission,
   ImageryWorkerClient,
   ScheduledImageryProvider,
-  imageryDemandForMovement,
+  imageryDemandForAdmission,
   imageryLayerUploadPlan,
   imageryMigrationReady,
   imageryPoolGrowthCapacity,
@@ -17,6 +17,9 @@ import {
   planImageryPoolMigrationRetarget,
   type ImageryWorkerPort,
 } from "../apps/pas-de-geant/src/imagery.js";
+import {
+  classifyHotAndForecastResidency,
+} from "../apps/pas-de-geant/src/view-residency.js";
 import {
   generateImageryMipChain,
   imageryMipDimensions,
@@ -77,167 +80,149 @@ function reconcileForTest(
 }
 
 describe("independent photographic imagery pipeline", () => {
-  it("loads one coarser imagery level while moving, then refines after settling", () => {
+  it("keeps planner topology at the desired zoom throughout movement", () => {
+    const radius = 1_000;
     const initial = {
-      displayRadiusM: 1_000,
-      latitudeDegrees: 0,
-      longitudeDegrees: 0,
-    };
-    const gate = new ImageryFineTileGate(initial);
-
-    expect(gate.targetZoom(initial, 13, 0, 0)).toBe(13);
-    const moved = { ...initial, longitudeDegrees: 0.01 };
-    expect(gate.targetZoom(moved, 13, 0, 100)).toBe(12);
-    expect(gate.targetZoom(moved, 13, 0, 849)).toBe(12);
-    expect(gate.targetZoom(moved, 13, 0, 850)).toBe(13);
-  });
-
-  it("accumulates slow travel instead of treating each small step as stillness", () => {
-    const initial = {
-      displayRadiusM: 1_000,
-      latitudeDegrees: 0,
-      longitudeDegrees: 0,
-    };
-    const gate = new ImageryFineTileGate(initial);
-
-    expect(gate.targetZoom(
-      { ...initial, longitudeDegrees: 0.003 },
-      13,
-      0,
-      100,
-    )).toBe(13);
-    expect(gate.targetZoom(
-      { ...initial, longitudeDegrees: 0.006 },
-      13,
-      0,
-      200,
-    )).toBe(12);
-  });
-
-  it("keeps sustained ordinary travel at one level coarser", () => {
-    const radius = 1_000;
-    const gate = new ImageryFineTileGate({
-      displayRadiusM: radius,
-      latitudeDegrees: 0,
-      longitudeDegrees: 0,
-    });
-    gate.targetZoom({
-      displayRadiusM: radius,
-      latitudeDegrees: 0,
-      longitudeDegrees: 0,
-    }, 14, 0, 0);
-    let longitudeDegrees = 0;
-    for (let timeMs = 100; timeMs <= 1_000; timeMs += 100) {
-      longitudeDegrees += 1.35 * 0.1 / radius * 180 / Math.PI;
-      expect(gate.targetZoom({
-        displayRadiusM: radius,
-        latitudeDegrees: 0,
-        longitudeDegrees,
-      }, 14, 0, timeMs)).toBe(13);
-    }
-    expect(gate.state).toBe("moving");
-    expect(gate.velocityMps).toBeLessThan(2);
-  });
-
-  it("uses fast hysteresis across irregular frames and restores detail in stages", () => {
-    const radius = 1_000;
-    const view = {
       displayRadiusM: radius,
       latitudeDegrees: 0,
       longitudeDegrees: 0,
     };
-    const gate = new ImageryFineTileGate(view);
-    gate.targetZoom(view, 14, 0, 0);
-    let timeMs = 0;
-    let longitudeDegrees = 0;
-    const travel = (speedMps: number, elapsedMs: number): number => {
-      timeMs += elapsedMs;
-      longitudeDegrees += speedMps * elapsedMs / 1_000 / radius * 180 / Math.PI;
-      return gate.targetZoom({
-        ...view,
-        longitudeDegrees,
-      }, 14, 0, timeMs);
+    const admission = new ImageryMovementAdmission(initial);
+    admission.update(initial, 13, 1_000, 0);
+    const moved = {
+      ...initial,
+      longitudeDegrees: 100 / radius * 180 / Math.PI,
     };
 
-    for (const elapsedMs of [40, 160, 75, 225, 50]) {
-      travel(4.2, elapsedMs);
-    }
-    expect(gate.state).toBe("fast");
-    expect(gate.velocityMps).toBeGreaterThan(3);
-    expect(travel(2.5, 200)).toBe(12);
-    expect(travel(2.5, 200)).toBe(12);
+    const forecast = admission.update(moved, 13, 1_000, 1_000);
 
-    timeMs += 200;
-    expect(gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs))
-      .toBe(12);
-    timeMs += 60;
-    expect(gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs))
-      .toBe(13);
-    timeMs += 500;
-    expect(gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs))
-      .toBe(14);
+    expect(forecast.predictedTravelTileSpans).toBeGreaterThan(1);
+    expect(forecast.deferSpeculativeWarm).toBe(true);
+    expect(forecast.topologyZoom).toBe(13);
+    expect(imageryTargetForView(moved, forecast.topologyZoom).maxZoom).toBe(13);
   });
 
-  it("keeps warm demand deferred through ordinary travel until stationary settling", () => {
-    const radius = 1_000;
-    const view = {
-      displayRadiusM: radius,
-      latitudeDegrees: 0,
-      longitudeDegrees: 0,
-    };
-    const gate = new ImageryFineTileGate(view);
-    gate.targetZoom(view, 14, 0, 0);
-    let timeMs = 0;
-    let longitudeDegrees = 0;
-    const travel = (speedMps: number, elapsedMs: number): number => {
-      timeMs += elapsedMs;
-      longitudeDegrees += speedMps * elapsedMs / 1_000 / radius * 180 / Math.PI;
-      return gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs);
-    };
-
-    for (let sample = 0; sample < 6; sample += 1) travel(4.2, 100);
-    expect(gate.state).toBe("fast");
-    expect(gate.warmDemandDeferred).toBe(true);
-
-    for (let sample = 0; sample < 8; sample += 1) travel(1.35, 100);
-    expect(gate.state).toBe("moving");
-    expect(gate.warmDemandDeferred).toBe(true);
-    expect(imageryDemandForMovement(
-      [{ z: 3, x: 0, y: 0 }],
-      new Set(),
-      gate.warmDemandDeferred,
-      () => false,
-    )).toEqual([]);
-
-    timeMs += 749;
-    expect(gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs))
-      .toBe(13);
-    expect(gate.warmDemandDeferred).toBe(true);
-    timeMs += 1;
-    expect(gate.targetZoom({ ...view, longitudeDegrees }, 14, 0, timeMs))
-      .toBe(14);
-    expect(gate.state).toBe("still");
-    expect(gate.warmDemandDeferred).toBe(false);
-  });
-
-  it("defers only new non-hot warm imagery while moving fast", () => {
+  it("keeps current-hot, predicted, resident, and in-flight warm demand", () => {
     const hot = { z: 3, x: 0, y: 0 };
-    const residentWarm = { z: 3, x: 1, y: 0 };
-    const newWarm = { z: 3, x: 2, y: 0 };
-    const full = [hot, residentWarm, newWarm];
+    const predictedWarm = { z: 3, x: 1, y: 0 };
+    const residentWarm = { z: 3, x: 2, y: 0 };
+    const inFlightWarm = { z: 3, x: 3, y: 0 };
+    const speculativeWarm = { z: 3, x: 4, y: 0 };
+    const full = [
+      hot,
+      predictedWarm,
+      residentWarm,
+      inFlightWarm,
+      speculativeWarm,
+    ];
 
-    expect(imageryDemandForMovement(
+    expect(imageryDemandForAdmission(
       full,
       new Set([tileKey(hot)]),
+      new Set([tileKey(predictedWarm)]),
       true,
-      (tile) => tileKey(tile) === tileKey(residentWarm),
-    )).toEqual([hot, residentWarm]);
-    expect(imageryDemandForMovement(
+      (tile) => [residentWarm, inFlightWarm].some((retained) =>
+        tileKey(tile) === tileKey(retained)
+      ),
+    )).toEqual([hot, predictedWarm, residentWarm, inFlightWarm]);
+  });
+
+  it("admits the full warm working set below one predicted tile span", () => {
+    const stationary = {
+      displayRadiusM: 1_000,
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+    };
+    const admission = new ImageryMovementAdmission(stationary);
+    const forecast = admission.update(stationary, 3, 1_000, 0);
+    const full = [
+      { z: 3, x: 0, y: 0 },
+      { z: 3, x: 1, y: 0 },
+      { z: 3, x: 2, y: 0 },
+    ];
+
+    expect(imageryDemandForAdmission(
       full,
-      new Set([tileKey(hot)]),
-      false,
+      new Set(),
+      new Set(),
+      forecast.deferSpeculativeWarm,
       () => false,
     )).toBe(full);
+    expect(forecast.predictedTravelTileSpans).toBeLessThan(1);
+  });
+
+  it("admits forward forecast tiles while leaving side and behind warm tiles speculative", () => {
+    const cut = [
+      { z: 4, x: 5, y: 8 },
+      { z: 4, x: 8, y: 8 },
+      { z: 4, x: 11, y: 8 },
+      { z: 4, x: 8, y: 4 },
+    ];
+    const input = {
+      underfoot: { latitudeDegrees: 0, longitudeDegrees: 0 },
+      footprint: [] as const,
+      displayRadiusM: 1_000,
+      observerHeightWorldM: 0,
+    };
+
+    const classified = classifyHotAndForecastResidency(
+      cut,
+      input,
+      { x: 3 / 16, y: 0 },
+    );
+    const demanded = imageryDemandForAdmission(
+      cut,
+      classified.hot,
+      classified.forecast,
+      true,
+      () => false,
+    );
+
+    expect(demanded).toContainEqual({ z: 4, x: 8, y: 8 });
+    expect(demanded).toContainEqual({ z: 4, x: 11, y: 8 });
+    expect(demanded).not.toContainEqual({ z: 4, x: 5, y: 8 });
+    expect(demanded).not.toContainEqual({ z: 4, x: 8, y: 4 });
+  });
+
+  it("wraps eastward velocity at the antimeridian and quantizes its forecast signature", () => {
+    const radius = 1_000;
+    const initial = {
+      displayRadiusM: radius,
+      latitudeDegrees: 0,
+      longitudeDegrees: 179.9,
+    };
+    const admission = new ImageryMovementAdmission(initial);
+    admission.update(initial, 12, 1_000, 0);
+    const moved = { ...initial, longitudeDegrees: -179.9 };
+    const forecast = admission.update(moved, 12, 1_000, 1_000);
+    const velocityEastMps = forecast.velocityEastMps;
+    const displacementX = forecast.displacement.x;
+    const forecastSignature = forecast.signature;
+    const jitteredSignature =
+      admission.update(moved, 12, 1_001, 1_000).signature;
+    const materiallyLaterSignature =
+      admission.update(moved, 12, 2_000, 1_000).signature;
+
+    expect(velocityEastMps).toBeGreaterThan(0);
+    expect(displacementX).toBeGreaterThan(0);
+    expect(jitteredSignature).toBe(forecastSignature);
+    expect(materiallyLaterSignature).not.toBe(forecastSignature);
+
+    const antimeridian = classifyHotAndForecastResidency(
+      [
+        { z: 4, x: 15, y: 8 },
+        { z: 4, x: 1, y: 8 },
+      ],
+      {
+        underfoot: { latitudeDegrees: 0, longitudeDegrees: 179.9 },
+        footprint: [],
+        displayRadiusM: radius,
+        observerHeightWorldM: 0,
+      },
+      { x: 2 / 16, y: 0 },
+    );
+    expect(antimeridian.hot).toContain("4/15/8");
+    expect(antimeridian.forecast).toContain("4/1/8");
   });
 
   it("builds a complete padded mip chain with averaged pixels through 1 x 1", () => {
@@ -1045,6 +1030,42 @@ describe("independent photographic imagery pipeline", () => {
       });
     });
     expect(loads).toBe(2);
+    scheduled.dispose();
+  });
+
+  it("updates its bounded readiness estimate when source and decode complete", async () => {
+    let nowMs = 0;
+    let resolveLoad!: (blob: Blob) => void;
+    const provider: ImageryProvider = {
+      id: "readiness-fixture",
+      attribution: "fixture",
+      tileSize: 512,
+      minZoom: 0,
+      maxZoom: 0,
+      load: async () => await new Promise<Blob>((resolve) => {
+        resolveLoad = resolve;
+      }),
+    };
+    const scheduled = new ScheduledImageryProvider(
+      provider,
+      async () => {
+        nowMs = 500;
+        return new Uint8Array([1, 2, 3, 4]);
+      },
+      () => nowMs,
+    );
+    const seededEstimate = scheduled.estimatedAssetReadyMs;
+    const completed = new Promise<void>((resolve) => {
+      scheduled.request({ z: 0, x: 0, y: 0 }, (result) => {
+        if (result.phase === "response") resolve();
+      });
+    });
+
+    resolveLoad(new Blob(["tile"], { type: "image/png" }));
+    await completed;
+
+    expect(scheduled.estimatedAssetReadyMs).toBeLessThan(seededEstimate);
+    expect(scheduled.estimatedAssetReadyMs).toBeGreaterThan(500);
     scheduled.dispose();
   });
 

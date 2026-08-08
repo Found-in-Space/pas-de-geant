@@ -210,6 +210,13 @@ export class TileWorkerScheduler<Resource> {
     return this.resources.get(tileIdentityKey(tile));
   }
 
+  /** Loaded payloads and provider work that has actually begun are retained. */
+  hasResidentOrInFlightResource(tile: TileIdentity): boolean {
+    const key = tileIdentityKey(tile);
+    return this.resources.has(key) ||
+      this.requests.get(key)?.phase === "in-flight";
+  }
+
   /**
    * Changes expensive payload residency without changing topology. An
    * undefined demand preserves the historical hydrate-everything behaviour.

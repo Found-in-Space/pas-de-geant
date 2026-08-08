@@ -162,9 +162,10 @@ describe("Tile worker scheduler bridge", () => {
       { provider, createWorker: () => worker },
     );
 
+    const transition = { z: 1, x: 0, y: 0 };
     worker.emit({
       kind: "resource-request",
-      tile: { z: 1, x: 0, y: 0 },
+      tile: transition,
       key: "1/0/0",
       requestId: 7,
     });
@@ -173,12 +174,14 @@ describe("Tile worker scheduler bridge", () => {
       in_flight: 0,
       total_outstanding: 1,
     });
+    expect(scheduler.hasResidentOrInFlightResource(transition)).toBe(false);
     observers.get("1/0/0")!({ phase: "in-flight" });
     expect(scheduler.debugState.transition_owned).toEqual({
       requested: 0,
       in_flight: 1,
       total_outstanding: 1,
     });
+    expect(scheduler.hasResidentOrInFlightResource(transition)).toBe(true);
 
     const committed = { z: 0, x: 0, y: 0 };
     worker.emit({ kind: "snapshot", snapshot: snapshot(1, [committed]) });
@@ -202,6 +205,8 @@ describe("Tile worker scheduler bridge", () => {
       },
       demanded_payload_count: 1,
     });
+    observers.get("0/0/0")!({ phase: "response", resource: {} });
+    expect(scheduler.hasResidentOrInFlightResource(committed)).toBe(true);
     scheduler.dispose();
   });
 
