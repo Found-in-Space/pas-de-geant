@@ -448,7 +448,7 @@ describe("planner-and-horizon tile transition scheduler", () => {
     expect(provider.requested).not.toContain("2/2/0");
   });
 
-  it("clears stale horizon retention when a new planner revision is created", () => {
+  it("retains overlapping horizon work when a new planner revision is created", () => {
     const base = uniformCut(1);
     const first = refine(base, base[0]!);
     const second = refine(first, base[3]!);
@@ -462,8 +462,10 @@ describe("planner-and-horizon tile transition scheduler", () => {
 
     scheduler.updateTarget("second");
 
-    expect([...provider.cancelled].sort()).toEqual(firstRequests);
-    expect(scheduler.snapshot.requirements).toEqual([]);
+    expect(provider.cancelled).toEqual([]);
+    expect(scheduler.snapshot.requirements.map(({ tile }) =>
+      tileIdentityKey(tile)
+    ).sort()).toEqual(firstRequests);
     expect(provider.requested).toHaveLength(firstRequests.length);
 
     const overlappingGroup = scheduler.snapshot.graph.groups.find(({ before }) =>
@@ -473,7 +475,62 @@ describe("planner-and-horizon tile transition scheduler", () => {
       [overlappingGroup.after[0]!],
       scheduler.snapshot.revision,
     );
-    expect(provider.requested).toHaveLength(firstRequests.length * 2);
+    expect(provider.requested).toHaveLength(firstRequests.length);
+    expect(provider.cancelled).toEqual([]);
+  });
+
+  it("reconciles only the requirement diff when targets partially overlap", () => {
+    const base = uniformCut(1);
+    const sharedParent = base[0]!;
+    const removedParent = base[1]!;
+    const addedParent = base[3]!;
+    const first = refine(refine(base, sharedParent), removedParent);
+    const second = refine(refine(base, sharedParent), addedParent);
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, first, second }, provider);
+    scheduler.updateTarget("first");
+    const firstGroups = scheduler.snapshot.graph.groups;
+    scheduler.updateHorizonCulling(
+      firstGroups.flatMap(({ after }) => after),
+      scheduler.snapshot.revision,
+    );
+    const sharedKeys = firstGroups.find(({ before }) =>
+      before.some((tile) => tileIdentityKey(tile) === tileIdentityKey(sharedParent))
+    )!.after.map(tileIdentityKey).sort();
+    const removedKeys = firstGroups.find(({ before }) =>
+      before.some((tile) => tileIdentityKey(tile) === tileIdentityKey(removedParent))
+    )!.after.map(tileIdentityKey).sort();
+
+    scheduler.updateTarget("second");
+
+    expect([...provider.cancelled].sort()).toEqual(removedKeys);
+    expect(scheduler.snapshot.requirements.map(({ tile }) =>
+      tileIdentityKey(tile)
+    ).sort()).toEqual(sharedKeys);
+    expect(provider.requested.filter((key) => sharedKeys.includes(key)).sort())
+      .toEqual(sharedKeys);
+
+    const addedGroup = scheduler.snapshot.graph.groups.find(({ before }) =>
+      before.some((tile) => tileIdentityKey(tile) === tileIdentityKey(addedParent))
+    )!;
+    scheduler.updateHorizonCulling(
+      [
+        ...scheduler.snapshot.graph.groups.find(({ before }) =>
+          before.some((tile) =>
+            tileIdentityKey(tile) === tileIdentityKey(sharedParent)
+          )
+        )!.after,
+        ...addedGroup.after,
+      ],
+      scheduler.snapshot.revision,
+    );
+
+    const addedKeys = addedGroup.after.map(tileIdentityKey).sort();
+    expect(provider.requested.filter((key) => sharedKeys.includes(key)).sort())
+      .toEqual(sharedKeys);
+    expect(provider.requested.filter((key) => addedKeys.includes(key)).sort())
+      .toEqual(addedKeys);
+    expect([...provider.cancelled].sort()).toEqual(removedKeys);
   });
 
   it("keeps active horizon-retained work intact when a new target has the same cut", () => {

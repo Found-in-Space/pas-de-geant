@@ -281,9 +281,12 @@ export class TileTransitionScheduler<Target, Resource> {
 
   private replan(): void {
     this.graphValue = planTransition(this.committed.values(), this.requested.values());
-    // Horizon classification belongs to a planner revision. The main thread
-    // will classify the new planner-owned candidates before work continues.
-    this.horizonPlannerCandidates.clear();
+    // The view owner classifies the current plan with the latest observer state
+    // before submitting a new target. Preserve that classification wherever
+    // the new plan has the same candidates so target changes reconcile the
+    // requirement diff instead of cancelling and restarting shared work. A
+    // subsequent classification for this revision adds and removes the rest.
+    this.restrictHorizonToCurrentPlan();
     this.reconcileHorizonCulling();
   }
 
