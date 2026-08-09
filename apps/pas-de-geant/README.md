@@ -54,6 +54,13 @@ tile/source request-decode-upload metrics, recent resource timing,
 WebGL capabilities, and browser heap. `mark(name)` retains a named snapshot;
 control changes and `clearMetrics()` start a clean frame window.
 
+The reproducible high-zoom Amsterdam-to-Rotterdam browser audit is documented
+in [AMSTERDAM_ROTTERDAM_TILE_AUDIT.md](./AMSTERDAM_ROTTERDAM_TILE_AUDIT.md).
+It records the exact route, warm-up and arrival conditions, temporary full-cut
+audit exposure, actual in-app Browser failure and Playwright fallback, complete
+browser/server configuration, verbatim temporary test source, executed
+commands, metric definitions, cache caveats, and the before/after results.
+
 For repeatable measurements, `beginBenchmark(options)` captures the live
 session, disables walking and controller-driven scale changes, resets the
 render/tile controls, and moves to an exact location. Let both planner queues

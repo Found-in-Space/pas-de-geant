@@ -1,0 +1,495 @@
+test("audits high-zoom travel from Amsterdam to Rotterdam after planned-delta ordering", async ({ page }) => {
+  test.setTimeout(600_000);
+
+  await page.addInitScript(() => {
+    type FetchEvent = {
+      provider: "terrain" | "textures";
+      key: string;
+      z: number;
+      startedAt: number;
+      completedAt?: number;
+      status?: number;
+      failed?: string;
+      startedPlanned: boolean;
+      startedRequired: boolean;
+      completedRelevant?: boolean;
+    };
+    const routeWindow = window as Window & {
+      __ROUTE_FETCH_EVENTS__?: FetchEvent[];
+      pasDeGeantDebug?: {
+        tileAudit(): {
+          terrain: {
+            planned: string[];
+            committed: string[];
+            requirements: { key: string; state: string }[];
+          };
+          textures: {
+            planned: string[];
+            committed: string[];
+            requirements: { key: string; state: string }[];
+          };
+        };
+      };
+    };
+    routeWindow.__ROUTE_FETCH_EVENTS__ = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const request = input instanceof Request ? input : undefined;
+      const url = request?.url ?? String(input);
+      const match = new URL(url, location.href).pathname.match(
+        /^\/api\/tiles\/(elevation|textures(?:-source)?)\/(\d+)\/(\d+)\/(\d+)$/,
+      );
+      if (!match) return originalFetch(input, init);
+      const provider = match[1] === "elevation" ? "terrain" : "textures";
+      const key = `${match[2]}/${match[3]}/${match[4]}`;
+      const audit = routeWindow.pasDeGeantDebug?.tileAudit()[provider];
+      const event: FetchEvent = {
+        provider,
+        key,
+        z: Number(match[2]),
+        startedAt: performance.now(),
+        startedPlanned: audit?.planned.includes(key) ?? false,
+        startedRequired:
+          audit?.requirements.some((requirement) => requirement.key === key) ??
+          false,
+      };
+      routeWindow.__ROUTE_FETCH_EVENTS__!.push(event);
+      try {
+        const response = await originalFetch(input, init);
+        event.completedAt = performance.now();
+        event.status = response.status;
+        const completedAudit =
+          routeWindow.pasDeGeantDebug?.tileAudit()[provider];
+        event.completedRelevant = completedAudit
+          ? completedAudit.planned.includes(key) ||
+            completedAudit.committed.includes(key) ||
+            completedAudit.requirements.some(
+              (requirement) => requirement.key === key,
+            )
+          : false;
+        return response;
+      } catch (error) {
+        event.completedAt = performance.now();
+        event.failed = error instanceof Error ? error.name : String(error);
+        throw error;
+      }
+    };
+  });
+  await page.reload();
+  await expect(page.locator("#loading-state")).toBeHidden({ timeout: 20_000 });
+
+  const amsterdam = { latitude: 52.3676, longitude: 4.9041 };
+  const rotterdam = { latitude: 51.9244, longitude: 4.4777 };
+  const tileKey = (latitude: number, longitude: number, z: number) => {
+    const count = 2 ** z;
+    const latitudeRadians = latitude * Math.PI / 180;
+    const x = Math.floor((longitude + 180) / 360 * count);
+    const y = Math.floor(
+      (1 - Math.log(
+        Math.tan(latitudeRadians) + 1 / Math.cos(latitudeRadians),
+      ) / Math.PI) / 2 * count,
+    );
+    return `${z}/${x}/${Math.max(0, Math.min(count - 1, y))}`;
+  };
+
+  await page.evaluate(({ amsterdam }) => {
+    const debug = window.pasDeGeantDebug!;
+    debug.beginBenchmark({
+      latitudeDegrees: amsterdam.latitude,
+      longitudeDegrees: amsterdam.longitude,
+      displayRadiusM: 1_500,
+    });
+    debug.setTileRecalculation("both", true);
+  }, { amsterdam });
+
+  const readState = () => page.evaluate(() => {
+    const snapshot = window.pasDeGeantDebug!.snapshot() as {
+      planner: {
+        terrain: {
+          planner_revision: number;
+          planner_target: { maxZoom: number };
+          payload_tile_requests: {
+            planner_requests: {
+              requested: number;
+              in_flight: number;
+              total_outstanding: number;
+            };
+          };
+          source_jobs: { queued: number; in_flight: number };
+        };
+        textures: {
+          planner_revision: number;
+          planner_target: { maxZoom: number };
+          payload_tile_requests: {
+            planner_requests: {
+              requested: number;
+              in_flight: number;
+              total_outstanding: number;
+            };
+          };
+          source_jobs: { queued: number; in_flight: number };
+        };
+      };
+    };
+    return {
+      now: performance.now(),
+      planner: snapshot.planner,
+      audit: window.pasDeGeantDebug!.tileAudit(),
+    };
+  });
+
+  const warmStartedAt = Date.now();
+  let warmState = await readState();
+  let amsterdamTerrainKey = "";
+  let amsterdamTextureKey = "";
+  let warmSeconds = 0;
+  for (; warmSeconds < 240; warmSeconds += 1) {
+    const terrainZ = warmState.planner.terrain.planner_target.maxZoom;
+    const textureZ = warmState.planner.textures.planner_target.maxZoom;
+    amsterdamTerrainKey = tileKey(
+      amsterdam.latitude,
+      amsterdam.longitude,
+      terrainZ,
+    );
+    amsterdamTextureKey = tileKey(
+      amsterdam.latitude,
+      amsterdam.longitude,
+      textureZ,
+    );
+    if (
+      warmState.audit.terrain.committed.includes(amsterdamTerrainKey) &&
+      warmState.audit.textures.committed.includes(amsterdamTextureKey)
+    ) break;
+    if (warmSeconds > 0 && warmSeconds % 30 === 0) {
+      console.log("WARM_PROGRESS", JSON.stringify({
+        seconds: warmSeconds,
+        terrainKey: amsterdamTerrainKey,
+        terrainReady:
+          warmState.audit.terrain.committed.includes(amsterdamTerrainKey),
+        terrainOutstanding:
+          warmState.planner.terrain.payload_tile_requests.planner_requests
+            .total_outstanding,
+        textureKey: amsterdamTextureKey,
+        textureReady:
+          warmState.audit.textures.committed.includes(amsterdamTextureKey),
+        textureOutstanding:
+          warmState.planner.textures.payload_tile_requests.planner_requests
+            .total_outstanding,
+      }));
+    }
+    await page.waitForTimeout(1_000);
+    warmState = await readState();
+  }
+  expect(
+    warmState.audit.terrain.committed.includes(amsterdamTerrainKey),
+    `Amsterdam terrain ${amsterdamTerrainKey} did not become committed`,
+  ).toBe(true);
+  expect(
+    warmState.audit.textures.committed.includes(amsterdamTextureKey),
+    `Amsterdam texture ${amsterdamTextureKey} did not become committed`,
+  ).toBe(true);
+
+  await page.evaluate(() => {
+    const routeWindow = window as Window & { __ROUTE_FETCH_EVENTS__?: unknown[] };
+    routeWindow.__ROUTE_FETCH_EVENTS__ = [];
+    window.pasDeGeantDebug!.clearMetrics();
+  });
+
+  const travel = await page.evaluate(async ({ amsterdam, rotterdam }) => {
+    const debug = window.pasDeGeantDebug!;
+    const startedAt = performance.now();
+    let nextSampleAt = startedAt;
+    let updateCount = 0;
+    const samples: Array<{
+      at: number;
+      terrainRevision: number;
+      textureRevision: number;
+      terrainPlanned: string[];
+      texturePlanned: string[];
+      terrainQueue: number;
+      terrainInFlight: number;
+      terrainOutstanding: number;
+      textureQueue: number;
+      textureInFlight: number;
+      textureOutstanding: number;
+    }> = [];
+    await new Promise<void>((resolve) => {
+      const update = (now: number) => {
+        const progress = Math.min(1, (now - startedAt) / 20_000);
+        debug.setLocation(
+          amsterdam.latitude +
+            (rotterdam.latitude - amsterdam.latitude) * progress,
+          amsterdam.longitude +
+            (rotterdam.longitude - amsterdam.longitude) * progress,
+        );
+        updateCount += 1;
+        if (now >= nextSampleAt || progress === 1) {
+          const snapshot = debug.snapshot() as {
+            planner: {
+              terrain: {
+                planner_revision: number;
+                payload_tile_requests: {
+                  planner_requests: { total_outstanding: number };
+                };
+                source_jobs: { queued: number; in_flight: number };
+              };
+              textures: {
+                planner_revision: number;
+                payload_tile_requests: {
+                  planner_requests: { total_outstanding: number };
+                };
+                source_jobs: { queued: number; in_flight: number };
+              };
+            };
+          };
+          const audit = debug.tileAudit();
+          samples.push({
+            at: now,
+            terrainRevision: snapshot.planner.terrain.planner_revision,
+            textureRevision: snapshot.planner.textures.planner_revision,
+            terrainPlanned: audit.terrain.planned,
+            texturePlanned: audit.textures.planned,
+            terrainQueue: snapshot.planner.terrain.source_jobs.queued,
+            terrainInFlight: snapshot.planner.terrain.source_jobs.in_flight,
+            terrainOutstanding:
+              snapshot.planner.terrain.payload_tile_requests.planner_requests
+                .total_outstanding,
+            textureQueue: snapshot.planner.textures.source_jobs.queued,
+            textureInFlight: snapshot.planner.textures.source_jobs.in_flight,
+            textureOutstanding:
+              snapshot.planner.textures.payload_tile_requests.planner_requests
+                .total_outstanding,
+          });
+          nextSampleAt = now + 250;
+        }
+        if (progress === 1) resolve();
+        else requestAnimationFrame(update);
+      };
+      requestAnimationFrame(update);
+    });
+    return {
+      startedAt,
+      endedAt: performance.now(),
+      updateCount,
+      samples,
+    };
+  }, { amsterdam, rotterdam });
+
+  let arrivalState = await readState();
+  let rotterdamTerrainKey = tileKey(
+    rotterdam.latitude,
+    rotterdam.longitude,
+    arrivalState.planner.terrain.planner_target.maxZoom,
+  );
+  let rotterdamTextureKey = tileKey(
+    rotterdam.latitude,
+    rotterdam.longitude,
+    arrivalState.planner.textures.planner_target.maxZoom,
+  );
+  let terrainCommittedAt: number | undefined;
+  let textureCommittedAt: number | undefined;
+  const postArrivalSamples = [];
+  for (let seconds = 0; seconds <= 120; seconds += 1) {
+    arrivalState = await readState();
+    rotterdamTerrainKey = tileKey(
+      rotterdam.latitude,
+      rotterdam.longitude,
+      arrivalState.planner.terrain.planner_target.maxZoom,
+    );
+    rotterdamTextureKey = tileKey(
+      rotterdam.latitude,
+      rotterdam.longitude,
+      arrivalState.planner.textures.planner_target.maxZoom,
+    );
+    const terrainReady =
+      arrivalState.audit.terrain.committed.includes(rotterdamTerrainKey);
+    const textureReady =
+      arrivalState.audit.textures.committed.includes(rotterdamTextureKey);
+    if (terrainReady && terrainCommittedAt === undefined) {
+      terrainCommittedAt = arrivalState.now;
+    }
+    if (textureReady && textureCommittedAt === undefined) {
+      textureCommittedAt = arrivalState.now;
+    }
+    postArrivalSamples.push({
+      at: arrivalState.now,
+      terrainQueue: arrivalState.planner.terrain.source_jobs.queued,
+      terrainInFlight: arrivalState.planner.terrain.source_jobs.in_flight,
+      terrainOutstanding:
+        arrivalState.planner.terrain.payload_tile_requests.planner_requests
+          .total_outstanding,
+      textureQueue: arrivalState.planner.textures.source_jobs.queued,
+      textureInFlight: arrivalState.planner.textures.source_jobs.in_flight,
+      textureOutstanding:
+        arrivalState.planner.textures.payload_tile_requests.planner_requests
+          .total_outstanding,
+    });
+    if (terrainReady && textureReady) break;
+    if (seconds > 0 && seconds % 30 === 0) {
+      console.log("ARRIVAL_PROGRESS", JSON.stringify({
+        seconds,
+        terrainKey: rotterdamTerrainKey,
+        terrainReady,
+        terrainOutstanding:
+          arrivalState.planner.terrain.payload_tile_requests.planner_requests
+            .total_outstanding,
+        textureKey: rotterdamTextureKey,
+        textureReady,
+        textureOutstanding:
+          arrivalState.planner.textures.payload_tile_requests.planner_requests
+            .total_outstanding,
+      }));
+    }
+    await page.waitForTimeout(1_000);
+  }
+
+  const fetchEvents = await page.evaluate(() => {
+    const routeWindow = window as Window & { __ROUTE_FETCH_EVENTS__?: unknown[] };
+    return routeWindow.__ROUTE_FETCH_EVENTS__ ?? [];
+  }) as Array<{
+    provider: "terrain" | "textures";
+    key: string;
+    z: number;
+    startedAt: number;
+    completedAt?: number;
+    status?: number;
+    failed?: string;
+    startedPlanned: boolean;
+    startedRequired: boolean;
+    completedRelevant?: boolean;
+  }>;
+
+  const summarizeEvents = (provider: "terrain" | "textures") => {
+    const events = fetchEvents.filter((event) => event.provider === provider);
+    const counts = new Map<string, number>();
+    for (const event of events) {
+      counts.set(event.key, (counts.get(event.key) ?? 0) + 1);
+    }
+    return {
+      started: events.length,
+      completed: events.filter((event) => event.completedAt !== undefined &&
+        event.failed === undefined).length,
+      aborted: events.filter((event) => event.failed === "AbortError").length,
+      pending: events.filter((event) => event.completedAt === undefined).length,
+      unique: counts.size,
+      duplicateStarts: [...counts.values()].filter((count) => count > 1)
+        .reduce((total, count) => total + count - 1, 0),
+      startedDuringTravel: events.filter(
+        (event) => event.startedAt <= travel.endedAt,
+      ).length,
+      startedAfterTravel: events.filter(
+        (event) => event.startedAt > travel.endedAt,
+      ).length,
+      notPlannedAtStart: events.filter(
+        (event) => !event.startedPlanned && !event.startedRequired,
+      ).length,
+      staleSuccessfulCompletions: events.filter(
+        (event) => event.status !== undefined && event.failed === undefined &&
+          event.completedRelevant === false,
+      ).length,
+      zoomStarts: Object.fromEntries(
+        [...new Set(events.map((event) => event.z))]
+          .sort((first, second) => second - first)
+          .map((z) => [z, events.filter((event) => event.z === z).length]),
+      ),
+    };
+  };
+  const destinationTiming = (provider: "terrain" | "textures", key: string) => {
+    const events = fetchEvents
+      .filter((event) => event.provider === provider && event.key === key)
+      .sort((first, second) => first.startedAt - second.startedAt);
+    return events[0]
+      ? {
+          startRelativeToArrivalMs: Math.round(
+            events[0].startedAt - travel.endedAt,
+          ),
+          networkCompleteRelativeToArrivalMs:
+            events[0].completedAt === undefined
+              ? null
+              : Math.round(events[0].completedAt - travel.endedAt),
+          status: events[0].status ?? null,
+          failed: events[0].failed ?? null,
+        }
+      : null;
+  };
+  const allSamples = [...travel.samples, ...postArrivalSamples];
+  const plannedChurn = (
+    samples: typeof travel.samples,
+    field: "terrainPlanned" | "texturePlanned",
+  ) => {
+    let additions = 0;
+    let removals = 0;
+    let revisions = 0;
+    for (let index = 1; index < samples.length; index += 1) {
+      const previous = new Set(samples[index - 1]![field]);
+      const current = new Set(samples[index]![field]);
+      if (
+        field === "terrainPlanned"
+          ? samples[index - 1]!.terrainRevision === samples[index]!.terrainRevision
+          : samples[index - 1]!.textureRevision === samples[index]!.textureRevision
+      ) continue;
+      revisions += 1;
+      additions += [...current].filter((key) => !previous.has(key)).length;
+      removals += [...previous].filter((key) => !current.has(key)).length;
+    }
+    return { sampledRevisions: revisions, additions, removals };
+  };
+  const result = {
+    warm: {
+      durationMs: Date.now() - warmStartedAt,
+      secondsPolled: warmSeconds,
+      terrainKey: amsterdamTerrainKey,
+      textureKey: amsterdamTextureKey,
+      terrainOutstandingAtDeparture:
+        warmState.planner.terrain.payload_tile_requests.planner_requests
+          .total_outstanding,
+      textureOutstandingAtDeparture:
+        warmState.planner.textures.payload_tile_requests.planner_requests
+          .total_outstanding,
+    },
+    travel: {
+      durationMs: Math.round(travel.endedAt - travel.startedAt),
+      updateCount: travel.updateCount,
+      sampledPlannedChurn: {
+        terrain: plannedChurn(travel.samples, "terrainPlanned"),
+        textures: plannedChurn(travel.samples, "texturePlanned"),
+      },
+    },
+    destination: {
+      terrainKey: rotterdamTerrainKey,
+      textureKey: rotterdamTextureKey,
+      terrainFetch: destinationTiming("terrain", rotterdamTerrainKey),
+      textureFetch: destinationTiming("textures", rotterdamTextureKey),
+      terrainCommittedRelativeToArrivalMs:
+        terrainCommittedAt === undefined
+          ? null
+          : Math.round(terrainCommittedAt - travel.endedAt),
+      textureCommittedRelativeToArrivalMs:
+        textureCommittedAt === undefined
+          ? null
+          : Math.round(textureCommittedAt - travel.endedAt),
+    },
+    terrain: summarizeEvents("terrain"),
+    textures: summarizeEvents("textures"),
+    peaks: {
+      terrainQueue: Math.max(...allSamples.map((sample) => sample.terrainQueue)),
+      terrainInFlight: Math.max(
+        ...allSamples.map((sample) => sample.terrainInFlight),
+      ),
+      terrainOutstanding: Math.max(
+        ...allSamples.map((sample) => sample.terrainOutstanding),
+      ),
+      textureQueue: Math.max(...allSamples.map((sample) => sample.textureQueue)),
+      textureInFlight: Math.max(
+        ...allSamples.map((sample) => sample.textureInFlight),
+      ),
+      textureOutstanding: Math.max(
+        ...allSamples.map((sample) => sample.textureOutstanding),
+      ),
+    },
+  };
+  console.log("ROUTE_AUDIT", JSON.stringify(result, null, 2));
+
+  expect(result.peaks.terrainInFlight).toBeLessThanOrEqual(4);
+  expect(result.peaks.textureInFlight).toBeLessThanOrEqual(6);
+});

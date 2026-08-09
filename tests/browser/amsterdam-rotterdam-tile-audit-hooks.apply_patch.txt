@@ -1,0 +1,89 @@
+# Exact temporary apply_patch inputs used for the recorded route audit.
+# Apply both blocks in order with the Codex apply_patch tool.
+# These are diagnostics only and must be reversed after the run.
+
+# Recorded patch 1
+*** Begin Patch
+*** Update File: /Users/kws/work/fis/pas-de-geant/apps/pas-de-geant/src/imagery.ts
+@@
+   getPlannerState() {
+@@
+   }
++
++  getPlannerAuditState() {
++    return {
++      revision: this.snapshot.revision,
++      committed: this.snapshot.committedCut.map(tileIdentityKey),
++      planned: this.snapshot.requestedCut.map(tileIdentityKey),
++      requirements: this.snapshot.requirements.map(({ tile, state }) => ({
++        key: tileIdentityKey(tile),
++        state,
++      })),
++    };
++  }
+*** Update File: /Users/kws/work/fis/pas-de-geant/apps/pas-de-geant/src/terrain-surface.ts
+@@
+   getTilePlannerState() {
+@@
+   }
++
++  getTilePlannerAuditState() {
++    return {
++      terrain: {
++        revision: this.snapshot.revision,
++        committed: this.snapshot.committedCut.map(tileIdentityKey),
++        planned: this.snapshot.requestedCut.map(tileIdentityKey),
++        requirements: this.snapshot.requirements.map(({ tile, state }) => ({
++          key: tileIdentityKey(tile),
++          state,
++        })),
++      },
++      textures: this.imagery.getPlannerAuditState(),
++    };
++  }
+*** Update File: /Users/kws/work/fis/pas-de-geant/apps/pas-de-geant/src/main.ts
+@@
+   snapshot(): Record<string, unknown>;
++  tileAudit(): ReturnType<TerrainSurface["getTilePlannerAuditState"]>;
+@@
+       snapshot: "snapshot() — controls, frames, renderer, tiles, network, browser",
++      tileAudit: "tileAudit() — exact committed/planned tile identities and requirements",
+@@
+   snapshot: debugSnapshot,
++  tileAudit: () => terrain.getTilePlannerAuditState(),
+*** End Patch
+# Recorded patch 2
+*** Begin Patch
+*** Update File: /Users/kws/work/fis/pas-de-geant/tests/browser/test-globals.d.ts
+@@
+   interface Window {
++    pasDeGeantDebug?: {
++      snapshot(): Record<string, unknown>;
++      tileAudit(): {
++        terrain: {
++          revision: number;
++          committed: string[];
++          planned: string[];
++          requirements: { key: string; state: string }[];
++        };
++        textures: {
++          revision: number;
++          committed: string[];
++          planned: string[];
++          requirements: { key: string; state: string }[];
++        };
++      };
++      clearMetrics(): void;
++      beginBenchmark(options?: {
++        latitudeDegrees?: number;
++        longitudeDegrees?: number;
++        displayRadiusM?: number;
++        radialMultiplier?: number;
++      }): Record<string, unknown>;
++      setLocation(latitudeDegrees: number, longitudeDegrees: number): unknown;
++      setTileRecalculation(
++        target: "terrain" | "textures" | "both",
++        enabled: boolean,
++      ): unknown;
++    };
+*** End Patch
