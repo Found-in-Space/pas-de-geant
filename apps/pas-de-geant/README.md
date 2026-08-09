@@ -61,6 +61,13 @@ audit exposure, actual in-app Browser failure and Playwright fallback, complete
 browser/server configuration, verbatim temporary test source, executed
 commands, metric definitions, cache caveats, and the before/after results.
 
+The unattended Meta Quest 3 WebXR emulator testbed is documented in
+[QUEST_3_WEBXR_EMULATOR_TESTBED.md](./QUEST_3_WEBXR_EMULATOR_TESTBED.md). It
+uses Meta IWER and Playwright to enter a stereo emulated session, run a fixed
+Pisa scale-15,000 look-around scenario, capture views and runtime state, and
+exercise headset poses without a physical headset. Emulator frame timings are
+host-browser timings, not Quest hardware performance measurements.
+
 For repeatable measurements, `beginBenchmark(options)` captures the live
 session, disables walking and controller-driven scale changes, resets the
 render/tile controls, and moves to an exact location. Let both planner queues

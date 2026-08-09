@@ -17,6 +17,7 @@
   },
   "include": [
     "playwright.pas-de-geant.config.ts",
+    "playwright.pas-de-geant-xr.config.ts",
     "vitest.config.ts",
     "tests/**/*.ts"
   ]

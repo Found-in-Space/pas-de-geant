@@ -2,6 +2,9 @@ import type {
   ImageryProvider,
   XyzImageryConfiguration,
 } from "../../apps/pas-de-geant/src/imagery-provider.js";
+import type {
+  PasDeGeantXrEmulatorApi,
+} from "../../apps/pas-de-geant/src/bootstrap.js";
 
 declare global {
   interface Window {
@@ -17,6 +20,23 @@ declare global {
       latitudeDegrees: number,
       longitudeDegrees: number,
     ) => void;
+    pasDeGeantXrEmulator?: PasDeGeantXrEmulatorApi;
+    pasDeGeantDebug?: {
+      snapshot(): Record<string, unknown>;
+      clearMetrics(): void;
+      beginBenchmark(options?: {
+        latitudeDegrees?: number;
+        longitudeDegrees?: number;
+        displayRadiusM?: number;
+        radialMultiplier?: number;
+      }): Record<string, unknown>;
+      endBenchmark(): Record<string, unknown>;
+      setScale(displayRadiusM: number): Record<string, unknown>;
+      setTileRecalculation(
+        target: "terrain" | "textures" | "both",
+        enabled: boolean,
+      ): unknown;
+    };
   }
 }
 

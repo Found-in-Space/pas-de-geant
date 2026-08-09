@@ -23,6 +23,7 @@
     "quest:debug": "node scripts/quest-debug.mjs",
     "test": "vitest run",
     "test:browser": "playwright test --config playwright.pas-de-geant.config.ts",
+    "test:browser:xr": "playwright test --config playwright.pas-de-geant-xr.config.ts",
     "typecheck": "tsc --build --pretty false && tsc --project tsconfig.tools.json --pretty false"
   },
   "engines": {
