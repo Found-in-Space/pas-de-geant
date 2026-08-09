@@ -347,6 +347,7 @@ export class TileTransitionScheduler<Target, Resource> {
     >();
     for (const [key, tile] of this.committed) {
       if (
+        this.requested.has(key) &&
         this.horizonPlannerCandidates.has(key) &&
         !this.hydratedCommitted.has(key)
       ) {
@@ -360,7 +361,7 @@ export class TileTransitionScheduler<Target, Resource> {
         const group = this.groupById(groupId);
         for (const tile of group.after) {
           const key = tileIdentityKey(tile);
-          if (!this.committed.has(key)) {
+          if (this.requested.has(key) && !this.committed.has(key)) {
             needed.set(key, { tile, kind: "replacement" });
           }
         }
@@ -390,7 +391,11 @@ export class TileTransitionScheduler<Target, Resource> {
       this.requirements.delete(key);
     }
 
-    for (const [key, { tile, kind }] of needed) {
+    const orderedNeeded = [...needed].sort(([, first], [, second]) =>
+      second.tile.z - first.tile.z ||
+      compareTileIdentities(first.tile, second.tile)
+    );
+    for (const [key, { tile, kind }] of orderedNeeded) {
       if (!this.requirements.has(key)) this.requestTile(tile, kind);
     }
     this.attemptCommits();

@@ -355,21 +355,12 @@ export function planTransition(
       retained.push(after.leaf);
       return;
     }
-    if (before.leaf) {
-      const immediateChildren = [0, 1, 2, 3].map(
-        (index) => copyIdentity(after.children.get(index)!.address),
-      );
-      groups.push(freezesGroup(
-        before.address,
-        [before.leaf],
-        immediateChildren,
-      ));
-      return;
-    }
-    if (after.leaf) {
+    if (before.leaf || after.leaf) {
       const beforeLeaves: TileIdentity[] = [];
+      const afterLeaves: TileIdentity[] = [];
       collectLeaves(before, beforeLeaves);
-      groups.push(freezesGroup(before.address, beforeLeaves, [after.leaf]));
+      collectLeaves(after, afterLeaves);
+      groups.push(freezesGroup(before.address, beforeLeaves, afterLeaves));
       return;
     }
     for (let index = 0; index < 4; index += 1) {

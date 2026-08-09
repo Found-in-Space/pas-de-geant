@@ -131,6 +131,33 @@ describe("planner-and-horizon tile transition scheduler", () => {
     expect(provider.requested).toEqual([]);
   });
 
+  it("requests only planned tiles in descending zoom order", () => {
+    const base = uniformCut(1);
+    const desired = calculateTileOnionPlan({
+      latitudeDegrees: 52.3676,
+      longitudeDegrees: 4.9041,
+      maxZoom: 5,
+    }).leaves;
+    const provider = new ControlledProvider();
+    const scheduler = createScheduler({ base, desired }, provider);
+    scheduler.updateTarget("desired");
+    scheduler.updateHorizonCulling(
+      scheduler.snapshot.graph.groups.flatMap(({ after }) => after),
+      scheduler.snapshot.revision,
+    );
+
+    const plannedKeys = new Set(desired.map(tileIdentityKey));
+    expect(provider.requested.length).toBeGreaterThan(0);
+    expect(provider.requested.every((key) => plannedKeys.has(key))).toBe(true);
+    const requestedZooms = provider.requested.map((key) =>
+      Number(key.slice(0, key.indexOf("/")))
+    );
+    expect(new Set(requestedZooms).size).toBeGreaterThan(1);
+    expect(requestedZooms).toEqual(
+      [...requestedZooms].sort((first, second) => second - first),
+    );
+  });
+
   it("hydrates only horizon-retained members of the planner-owned committed cut", () => {
     const base = uniformCut(1);
     const provider = new ControlledProvider();

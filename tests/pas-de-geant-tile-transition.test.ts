@@ -140,32 +140,22 @@ describe("Topology-only tile transition planner", () => {
     );
   });
 
-  it("plans deep refinement as local parent-to-immediate-child steps", () => {
+  it("plans deep refinement directly to the requested leaves", () => {
     const committed = uniformCut(1);
     const requested = uniformCut(3);
-    const first = planTransition(committed, requested);
+    const graph = planTransition(committed, requested);
 
-    expect(first.groups).toHaveLength(4);
-    expect(first.groups.every((group) =>
+    expect(graph.groups).toHaveLength(4);
+    expect(graph.groups.every((group) =>
       group.before.length === 1 &&
-      group.after.length === 4 &&
-      group.after.every((tile) => tile.z === 2)
-    )).toBe(true);
-    expect(first.groups.flatMap((group) => group.after).some(
-      (tile) => tile.z === 3,
-    )).toBe(false);
-    expect(first.groups.every((group) =>
-      group.after.every((tile) => Object.isFrozen(tile))
-    )).toBe(true);
-
-    const hybrid = applyGroups(committed, [first.groups[0]!]);
-    const second = planTransition(hybrid, requested);
-    const local = second.groups.filter((group) => group.region.z === 2);
-    expect(local).toHaveLength(4);
-    expect(local.every((group) =>
-      group.before.length === 1 &&
-      group.after.length === 4 &&
+      group.after.length === 16 &&
       group.after.every((tile) => tile.z === 3)
+    )).toBe(true);
+    expect(new Set(graph.groups.flatMap((group) => group.after).map(
+      tileIdentityKey,
+    ))).toEqual(new Set(requested.map(tileIdentityKey)));
+    expect(graph.groups.every((group) =>
+      group.after.every((tile) => Object.isFrozen(tile))
     )).toBe(true);
   });
 
@@ -286,7 +276,7 @@ describe("Topology-only tile transition planner", () => {
       touchesAcrossSeam(first, second),
     )).toBe(true);
 
-    // Replanning after every batch keeps each progressive hybrid cut balanced.
+    // Replanning after every batch keeps each partial target cut balanced.
     let hybrid: readonly TileIdentity[] = committed;
     let nextGraph = graph;
     let steps = 0;
