@@ -1,4 +1,5 @@
 import {
+  TileLayoutSubmissionGate,
   normalizeTileLayoutTarget,
   type TileLayoutTarget,
 } from "./tile-layout-source.js";
@@ -129,6 +130,10 @@ export class TileWorkerScheduler<Resource> {
     cancel: 0,
     eviction: 0,
   };
+  /** State after the latest target posted to the worker. */
+  private targetGate: TileLayoutSubmissionGate;
+  /** Reused preview state for the latest coalesced observer target. */
+  private candidateTargetGate: TileLayoutSubmissionGate;
   private snapshotValue: SchedulerSnapshot<TileLayoutTarget>;
 
   constructor(
@@ -136,6 +141,10 @@ export class TileWorkerScheduler<Resource> {
     private readonly options: TileWorkerSchedulerOptions<Resource>,
   ) {
     const normalizedInitialTarget = normalizeTileLayoutTarget(initialTarget);
+    this.targetGate = new TileLayoutSubmissionGate(normalizedInitialTarget);
+    this.candidateTargetGate = new TileLayoutSubmissionGate(
+      normalizedInitialTarget,
+    );
     this.snapshotValue = initialSnapshot(normalizedInitialTarget);
     this.worker =
       options.createWorker?.() ??
@@ -238,18 +247,23 @@ export class TileWorkerScheduler<Resource> {
     if (this.retainWorkingSetResources()) this.notifyResourceChange();
   }
 
-  updateTarget(target: TileLayoutTarget): void {
+  updateTarget(target: TileLayoutTarget): boolean {
+    if (this.disposed) return false;
     const normalized = normalizeTileLayoutTarget(target);
     if (
       this.pendingTarget &&
       this.sameTarget(this.pendingTarget, normalized)
-    ) return;
-    if (
-      !this.targetInFlight &&
-      this.sameTarget(this.snapshotValue.target, normalized)
-    ) return;
+    ) return false;
+    this.candidateTargetGate.copyStateFrom(this.targetGate);
+    if (!this.candidateTargetGate.update(normalized)) {
+      // A newer observation can make an unsent candidate unnecessary. Keep
+      // the gate aligned with the state the worker will actually receive.
+      this.pendingTarget = undefined;
+      return false;
+    }
     this.pendingTarget = normalized;
     this.flushTarget();
+    return true;
   }
 
   retryFailed(): void {
@@ -548,6 +562,9 @@ export class TileWorkerScheduler<Resource> {
       const latest = this.pendingTarget;
       this.pendingTarget = undefined;
       if (!latest || this.disposed) return;
+      const postedGate = this.candidateTargetGate;
+      this.candidateTargetGate = this.targetGate;
+      this.targetGate = postedGate;
       this.targetInFlight = true;
       this.worker.postMessage({ kind: "target", target: latest });
     });

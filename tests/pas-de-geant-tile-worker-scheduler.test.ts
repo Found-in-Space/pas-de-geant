@@ -12,6 +12,7 @@ import type {
   TileProviderResult,
 } from "../apps/pas-de-geant/src/tile-provider.js";
 import type { TileIdentity } from "../apps/pas-de-geant/src/tile-transition-planner.js";
+import { tileBounds } from "../apps/pas-de-geant/src/tile-onion-core.js";
 import { ScheduledImageryProvider } from "../apps/pas-de-geant/src/imagery.js";
 import type { ImageryProvider } from "../apps/pas-de-geant/src/imagery-provider.js";
 
@@ -21,6 +22,16 @@ function layoutTarget(
   longitudeDegrees = 0,
 ) {
   return { maxZoom, latitudeDegrees, longitudeDegrees };
+}
+
+function layoutTargetForTile(z: number, x: number, y: number) {
+  const width = 2 ** z;
+  const bounds = tileBounds({ z, x: ((x % width) + width) % width, y });
+  return layoutTarget(
+    z,
+    (bounds.north + bounds.south) * 0.5,
+    (bounds.west + bounds.east) * 0.5,
+  );
 }
 
 class FakeWorker implements TileSchedulerWorker {
@@ -530,27 +541,95 @@ describe("Tile worker scheduler planner bridge", () => {
   it("serializes targets and keeps only the latest pending target", async () => {
     const worker = new FakeWorker();
     const harness = providerHarness<string>();
-    const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+    const scheduler = new TileWorkerScheduler(
+      layoutTargetForTile(14, 8_000, 8_000),
+      {
+      provider: harness.provider,
+      createWorker: () => worker,
+      },
+    );
+
+    const first = layoutTargetForTile(14, 8_004, 8_000);
+    const second = layoutTargetForTile(14, 8_008, 8_000);
+    const third = layoutTargetForTile(14, 8_012, 8_000);
+    expect(scheduler.updateTarget(first)).toBe(true);
+    expect(scheduler.updateTarget(second)).toBe(true);
+    await Promise.resolve();
+    expect(worker.commands.at(-1)).toEqual({
+      kind: "target",
+      target: second,
+    });
+    expect(scheduler.updateTarget(third)).toBe(true);
+    await Promise.resolve();
+    expect(worker.commands.filter(({ kind }) => kind === "target")).toHaveLength(1);
+    worker.emit({ kind: "target-applied", target: second });
+    await Promise.resolve();
+    expect(worker.commands.at(-1)).toEqual({
+      kind: "target",
+      target: third,
+    });
+    scheduler.dispose();
+  });
+
+  it("cancels an unsent shift after immediate reversal", async () => {
+    const worker = new FakeWorker();
+    const harness = providerHarness<string>();
+    const scheduler = new TileWorkerScheduler(
+      layoutTargetForTile(14, 8_000, 8_000),
+      {
+        provider: harness.provider,
+        createWorker: () => worker,
+      },
+    );
+    const before = scheduler.debugState;
+
+    expect(scheduler.updateTarget(layoutTargetForTile(14, 8_003, 8_000)))
+      .toBe(false);
+    expect(scheduler.updateTarget(layoutTargetForTile(14, 8_004, 8_000)))
+      .toBe(true);
+    expect(scheduler.updateTarget(layoutTargetForTile(14, 8_003, 8_000)))
+      .toBe(false);
+    await Promise.resolve();
+
+    expect(worker.commands.filter(({ kind }) => kind === "target"))
+      .toHaveLength(0);
+    expect(harness.requested).toEqual([]);
+    expect(scheduler.debugState.resource_releases).toEqual(
+      before.resource_releases,
+    );
+    expect(scheduler.debugState.resident_payload_count).toBe(
+      before.resident_payload_count,
+    );
+    scheduler.dispose();
+  });
+
+  it("retargets an unsent candidate from the worker's actual anchor", async () => {
+    const worker = new FakeWorker();
+    const harness = providerHarness<string>();
+    const initial = layoutTargetForTile(14, 8_000, 8_000);
+    const shifted = layoutTargetForTile(14, 8_004, 8_000);
+    const scheduler = new TileWorkerScheduler(initial, {
       provider: harness.provider,
       createWorker: () => worker,
     });
 
-    scheduler.updateTarget(layoutTarget(2, 1, 0));
-    scheduler.updateTarget(layoutTarget(2, 2, 0));
+    expect(scheduler.updateTarget(shifted)).toBe(true);
+    expect(scheduler.updateTarget(initial)).toBe(false);
     await Promise.resolve();
-    expect(worker.commands.at(-1)).toEqual({
-      kind: "target",
-      target: layoutTarget(2, 2, 0),
-    });
-    scheduler.updateTarget(layoutTarget(2, 3, 0));
+    expect(worker.commands.filter(({ kind }) => kind === "target"))
+      .toEqual([]);
+
+    expect(scheduler.updateTarget(shifted)).toBe(true);
     await Promise.resolve();
-    expect(worker.commands.filter(({ kind }) => kind === "target")).toHaveLength(1);
-    worker.emit({ kind: "target-applied", target: layoutTarget(2, 2, 0) });
+    expect(worker.commands.filter(({ kind }) => kind === "target"))
+      .toEqual([{ kind: "target", target: shifted }]);
+
+    expect(scheduler.updateTarget(initial)).toBe(true);
+    expect(scheduler.updateTarget(shifted)).toBe(false);
+    worker.emit({ kind: "target-applied", target: shifted });
     await Promise.resolve();
-    expect(worker.commands.at(-1)).toEqual({
-      kind: "target",
-      target: layoutTarget(2, 3, 0),
-    });
+    expect(worker.commands.filter(({ kind }) => kind === "target"))
+      .toEqual([{ kind: "target", target: shifted }]);
     scheduler.dispose();
   });
 });

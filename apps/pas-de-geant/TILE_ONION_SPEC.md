@@ -7,8 +7,9 @@ Pas de Géant and its standalone visual debugging page.
 
 The interactive implementation is the standalone `/demos/tile-onion.html`
 page. It accepts coordinates or clicks on a flat Mercator world and its polar
-selection gutters, and exposes maximum zoom, mode, anchor, active zoom counts,
-pole lock, and the complete committed XYZ leaf list.
+selection gutters, and exposes maximum zoom, mode, the retained anchor,
+underfoot row and column, active zoom counts, pole lock, and the complete
+committed XYZ leaf list.
 
 ## Purpose
 
@@ -107,26 +108,42 @@ north or south neighbour does not exist, or at zooms too coarse to contain the
 required number of distinct tiles. Those cases use the boundary behaviour
 specified below.
 
-## Fixed inner mesh
+## Stateful inner mesh
 
 The normal inner mesh is an `8x8` block at the selected finest zoom. The tile
-containing the user is constrained to the central `4x4` area:
+containing the user remains within rows and columns `1` through `6` of the
+retained anchor:
 
 ```text
 ........
-........
-..XXXX..
-..XXXX..
-..XXXX..
-..XXXX..
-........
+.XXXXXX.
+.XXXXXX.
+.XXXXXX.
+.XXXXXX.
+.XXXXXX.
+.XXXXXX.
 ........
 ```
 
 `X` marks every permitted position of the underfoot tile within one anchored
-inner mesh. This provides at least two complete finest-resolution tiles in
-every cardinal and diagonal direction, exceeding the required one-tile
-minimum.
+inner mesh. Initialization places the observer in a middle row and column
+(normally index `3`; edge clamping can select the other retained rows). This
+always preserves the required complete finest-resolution neighbour in every
+cardinal and diagonal direction.
+
+The anchor is state, not a bucket recalculated independently for each
+coordinate. Movement within rows and columns `1` through `6` retains the
+anchor and produces the same topology signature. Entering outer column or row
+`7` shifts that axis forward by four tiles, placing the underfoot tile at
+index `3`. Entering outer column or row `0` shifts that axis backward by four
+tiles, placing the underfoot tile at index `4`. A diagonal entry shifts both
+axes in the same plan. Moving back after a shift remains inside the new dead
+band and must not restore the old anchor.
+
+A jump across multiple boundaries is coalesced directly to one anchor around
+the latest underfoot tile. It does not create or replay intermediate plans.
+Changing zoom or entering or leaving a planner mode resets and recentres the
+normal anchor.
 
 The inner mesh anchor moves on a four-tile cadence. Consecutive horizontal or
 vertical anchors therefore share half of their finest tiles. A diagonal move
@@ -207,6 +224,9 @@ committed rendered coverage.
 The calculator can always produce the desired next plan immediately. A loader
 cannot guarantee readiness under unbounded movement or unavailable data; it
 must keep the previous committed plan until the required replacement is ready.
+
+The plan signature describes the emitted topology only. Observer coordinates
+within a retained anchor are diagnostic state and do not alter that signature.
 
 ## Web Mercator boundary mode
 

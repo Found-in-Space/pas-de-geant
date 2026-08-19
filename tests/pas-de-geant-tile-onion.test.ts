@@ -2,10 +2,39 @@ import { describe, expect, it } from "vitest";
 import {
   WEB_MERCATOR_MAX_LATITUDE,
   calculateTileOnionPlan,
+  tileBounds,
   tileKey,
   type TileAddress,
   type TileOnionPlan,
 } from "../apps/pas-de-geant/src/tile-onion-core.js";
+
+function planAtTile(
+  z: number,
+  x: number,
+  y: number,
+  previous?: TileOnionPlan,
+): TileOnionPlan {
+  const width = 2 ** z;
+  const bounds = tileBounds({ z, x: ((x % width) + width) % width, y });
+  return calculateTileOnionPlan({
+    latitudeDegrees: (bounds.north + bounds.south) * 0.5,
+    longitudeDegrees: (bounds.west + bounds.east) * 0.5,
+    maxZoom: z,
+    ...(previous ? { previousState: previous.state } : {}),
+  });
+}
+
+function underfootCell(plan: TileOnionPlan): { column: number; row: number } {
+  const underfoot = plan.underfoot!;
+  const width = 2 ** plan.effectiveZoom;
+  const unwrappedX = underfoot.x + Math.round(
+    (plan.anchor.x + 3.5 - underfoot.x) / width,
+  ) * width;
+  return {
+    column: unwrappedX - plan.anchor.x,
+    row: underfoot.y - plan.anchor.y,
+  };
+}
 
 function normalizedArea(address: TileAddress): number {
   return 1 / 4 ** address.z;
@@ -194,6 +223,175 @@ describe("The provider-independent tile onion", () => {
         }
       }
       expectBalancedQuadtreeCut(plan);
+    }
+  });
+
+  it("retains rows and columns 1-6, shifts once at 0/7, and resists reversal", () => {
+    const cases = [
+      {
+        interior: [[8_001, 8_000], [8_002, 8_000], [8_003, 8_000]],
+        boundary: [8_004, 8_000],
+        landed: { column: 3, row: 3 },
+        reversal: [8_003, 8_000],
+      },
+      {
+        interior: [[7_999, 8_000], [7_998, 8_000]],
+        boundary: [7_997, 8_000],
+        landed: { column: 4, row: 3 },
+        reversal: [7_998, 8_000],
+      },
+      {
+        interior: [[8_000, 8_001], [8_000, 8_002], [8_000, 8_003]],
+        boundary: [8_000, 8_004],
+        landed: { column: 3, row: 3 },
+        reversal: [8_000, 8_003],
+      },
+      {
+        interior: [[8_000, 7_999], [8_000, 7_998]],
+        boundary: [8_000, 7_997],
+        landed: { column: 3, row: 4 },
+        reversal: [8_000, 7_998],
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      let plan = planAtTile(14, 8_000, 8_000);
+      const originalSignature = plan.signature;
+      const originalAnchor = { ...plan.anchor };
+      for (const [x, y] of testCase.interior) {
+        plan = planAtTile(14, x, y, plan);
+        expect(plan.anchor).toEqual(originalAnchor);
+        expect(plan.signature).toBe(originalSignature);
+      }
+      const shifted = planAtTile(
+        14,
+        testCase.boundary[0],
+        testCase.boundary[1],
+        plan,
+      );
+      expect(shifted.anchor).not.toEqual(originalAnchor);
+      expect(underfootCell(shifted)).toEqual(testCase.landed);
+      const reversed = planAtTile(
+        14,
+        testCase.reversal[0],
+        testCase.reversal[1],
+        shifted,
+      );
+      expect(reversed.anchor).toEqual(shifted.anchor);
+      expect(reversed.signature).toBe(shifted.signature);
+      expect(reversed.signature).not.toBe(originalSignature);
+    }
+  });
+
+  it("shifts both axes once on diagonal entry without flip-flopping", () => {
+    for (const [entryX, entryY, landed] of [
+      [8_004, 8_004, { column: 3, row: 3 }],
+      [7_997, 7_997, { column: 4, row: 4 }],
+    ] as const) {
+      const first = planAtTile(14, 8_000, 8_000);
+      const shifted = planAtTile(14, entryX, entryY, first);
+      expect(underfootCell(shifted)).toEqual(landed);
+      expect(shifted.anchor.x).not.toBe(first.anchor.x);
+      expect(shifted.anchor.y).not.toBe(first.anchor.y);
+
+      const xDirection = Math.sign(entryX - 8_000);
+      const yDirection = Math.sign(entryY - 8_000);
+      const reversed = planAtTile(
+        14,
+        entryX - xDirection,
+        entryY - yDirection,
+        shifted,
+      );
+      expect(reversed.anchor).toEqual(shifted.anchor);
+      expect(reversed.signature).toBe(shifted.signature);
+    }
+  });
+
+  it("coalesces a multi-cell jump directly around the latest location", () => {
+    const first = planAtTile(14, 8_000, 8_000);
+    const jumped = planAtTile(14, 8_060, 7_950, first);
+    expect(underfootCell(jumped)).toEqual({ column: 3, row: 4 });
+    expect(jumped.anchor.x).toBe(8_057);
+    expect(jumped.anchor.y).toBe(7_946);
+
+    const reversed = planAtTile(14, 8_059, 7_951, jumped);
+    expect(reversed.anchor).toEqual(jumped.anchor);
+    expect(reversed.signature).toBe(jumped.signature);
+  });
+
+  it("resets the retained anchor when zoom or planner mode changes", () => {
+    const first = planAtTile(14, 8_000, 8_000);
+    const shifted = planAtTile(14, 8_004, 8_000, first);
+    const bounds = tileBounds({ z: 14, x: 8_003, y: 8_000 });
+    const latitudeDegrees = (bounds.north + bounds.south) * 0.5;
+    const longitudeDegrees = (bounds.west + bounds.east) * 0.5;
+    const zoomReset = calculateTileOnionPlan({
+      latitudeDegrees,
+      longitudeDegrees,
+      maxZoom: 13,
+      previousState: shifted.state,
+    });
+    expect(zoomReset.state.normalAnchor?.z).toBe(13);
+    expect(underfootCell(zoomReset).column).toBe(3);
+
+    const boundary = calculateTileOnionPlan({
+      latitudeDegrees: WEB_MERCATOR_MAX_LATITUDE + 0.1,
+      longitudeDegrees,
+      maxZoom: 14,
+      previousState: shifted.state,
+    });
+    expect(boundary.mode).toBe("north-boundary");
+    expect(boundary.state.normalAnchor).toBeUndefined();
+    const modeReset = calculateTileOnionPlan({
+      latitudeDegrees,
+      longitudeDegrees,
+      maxZoom: 14,
+      previousState: boundary.state,
+    });
+    expect(underfootCell(modeReset)).toEqual({ column: 3, row: 3 });
+    expect(modeReset.anchor).not.toEqual(shifted.anchor);
+  });
+
+  it("retains unwrapped continuity across the antimeridian", () => {
+    const width = 2 ** 14;
+    let plan = planAtTile(14, width - 2, 8_000);
+    const original = { ...plan.anchor };
+    for (const x of [width - 1, 0, 1]) {
+      plan = planAtTile(14, x, 8_000, plan);
+      expect(plan.anchor).toEqual(original);
+    }
+    const shifted = planAtTile(14, 2, 8_000, plan);
+    expect(shifted.anchor.x).toBe(width - 1);
+    expect(underfootCell(shifted).column).toBe(3);
+    const reversed = planAtTile(14, 1, 8_000, shifted);
+    expect(reversed.anchor).toEqual(shifted.anchor);
+  });
+
+  it("keeps whole-world low zoom plans stable under movement", () => {
+    for (const maxZoom of [2, 3]) {
+      let plan = calculateTileOnionPlan({
+        latitudeDegrees: 0,
+        longitudeDegrees: -170,
+        maxZoom,
+      });
+      const signature = plan.signature;
+      const width = 2 ** maxZoom;
+      for (const longitudeDegrees of [-80, 0, 80, 170]) {
+        plan = calculateTileOnionPlan({
+          latitudeDegrees: 20,
+          longitudeDegrees,
+          maxZoom,
+          previousState: plan.state,
+        });
+        expect(plan.anchor).toEqual({
+          z: maxZoom,
+          x: 0,
+          y: 0,
+          width,
+          height: width,
+        });
+        expect(plan.signature).toBe(signature);
+      }
     }
   });
 

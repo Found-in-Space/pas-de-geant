@@ -35,7 +35,6 @@ import {
 } from "./imagery-provider.js";
 import {
   normalizeTileLayoutTarget,
-  tileLayoutTargetNeedsSubmission,
   type TileLayoutTarget,
 } from "./tile-layout-source.js";
 import type {
@@ -1134,10 +1133,9 @@ export class ImageryVirtualTexture {
     const observedCoordinatesChanged =
       target.latitudeDegrees !== this.lastObservedTargetLatitudeDegrees ||
       target.longitudeDegrees !== this.lastObservedTargetLongitudeDegrees;
-    if (tileLayoutTargetNeedsSubmission(this.target, target)) {
+    if (this.scheduler.updateTarget(target)) {
       this.target = target;
       this.targetSubmissionTotal += 1;
-      this.scheduler.updateTarget(target);
     } else if (observedCoordinatesChanged) {
       this.targetSubmissionSuppressedTotal += 1;
     }

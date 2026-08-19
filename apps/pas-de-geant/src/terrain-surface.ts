@@ -15,7 +15,6 @@ import {
 import { observerTileZoom } from "./observer-tile-zoom.js";
 import {
   normalizeTileLayoutTarget,
-  tileLayoutTargetNeedsSubmission,
   type TileLayoutTarget,
 } from "./tile-layout-source.js";
 import {
@@ -611,9 +610,8 @@ export class TerrainSurface {
         this.debugControls.terrain.screenPixelsPerSourcePixel,
       maxTopologyZoom: this.debugControls.terrain.maxZoom,
     });
-    if (tileLayoutTargetNeedsSubmission(this.currentTarget, target)) {
+    if (this.scheduler.updateTarget(target)) {
       this.currentTarget = target;
-      this.scheduler.updateTarget(target);
     }
   }
 

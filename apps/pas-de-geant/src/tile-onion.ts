@@ -42,6 +42,9 @@ const modeBadge = requiredElement<HTMLElement>("mode-badge");
 const coordinateReadout = requiredElement<HTMLElement>("coordinate-readout");
 const zoomReadout = requiredElement<HTMLElement>("zoom-readout");
 const underfootReadout = requiredElement<HTMLElement>("underfoot-readout");
+const underfootCellReadout = requiredElement<HTMLElement>(
+  "underfoot-cell-readout",
+);
 const anchorReadout = requiredElement<HTMLElement>("anchor-readout");
 const fineCountReadout = requiredElement<HTMLElement>("fine-count-readout");
 const leafCountReadout = requiredElement<HTMLElement>("leaf-count-readout");
@@ -298,6 +301,18 @@ function renderDiagnostics(plan: TileOnionPlan): void {
   underfootReadout.textContent = plan.underfoot
     ? `${plan.underfoot.z}/${plan.underfoot.x}/${plan.underfoot.y}`
     : "outside Mercator";
+  if (plan.underfoot && plan.mode === "normal") {
+    const worldWidth = 2 ** plan.effectiveZoom;
+    const unwrappedUnderfootX = plan.underfoot.x + Math.round(
+      (plan.anchor.x + (plan.anchor.width - 1) * 0.5 - plan.underfoot.x) /
+        worldWidth,
+    ) * worldWidth;
+    underfootCellReadout.textContent =
+      `column ${unwrappedUnderfootX - plan.anchor.x} · ` +
+      `row ${plan.underfoot.y - plan.anchor.y}`;
+  } else {
+    underfootCellReadout.textContent = "not in normal mode";
+  }
   anchorReadout.textContent =
     `z${plan.anchor.z} · ${plan.anchor.x}, ${plan.anchor.y} · ` +
     `${plan.anchor.width}×${plan.anchor.height}`;
@@ -333,6 +348,9 @@ function renderDiagnostics(plan: TileOnionPlan): void {
   document.body.dataset.tileOnionMode = plan.mode;
   document.body.dataset.tileOnionZoom = String(plan.effectiveZoom);
   document.body.dataset.tileOnionLeaves = String(plan.leaves.length);
+  document.body.dataset.tileOnionCell = plan.underfoot && plan.mode === "normal"
+    ? underfootCellReadout.textContent
+    : "boundary";
 }
 
 function calculate(): void {

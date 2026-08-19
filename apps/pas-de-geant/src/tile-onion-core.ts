@@ -36,6 +36,8 @@ export interface TileOnionState {
   effectiveZoom: number;
   boundaryLongitudeDegrees: number;
   poleLocked: boolean;
+  /** Unwrapped normal-mode anchor retained across observer movement. */
+  normalAnchor: TileOnionAnchor | undefined;
 }
 
 export interface TileOnionPlanOptions {
@@ -100,16 +102,30 @@ export function mercatorPoint(
   longitudeDegrees: number,
   zoom: number,
 ): { x: number; y: number } {
+  return {
+    x: mercatorTileX(longitudeDegrees, zoom),
+    y: mercatorTileY(latitudeDegrees, zoom),
+  };
+}
+
+export function mercatorTileX(
+  longitudeDegrees: number,
+  zoom: number,
+): number {
+  return (wrapLongitude(longitudeDegrees) + 180) / 360 * 2 ** zoom;
+}
+
+export function mercatorTileY(
+  latitudeDegrees: number,
+  zoom: number,
+): number {
   const latitude = clampMercatorLatitude(latitudeDegrees) * Math.PI / 180;
   const width = 2 ** zoom;
-  return {
-    x: (wrapLongitude(longitudeDegrees) + 180) / 360 * width,
-    y:
-      (1 -
-        Math.log(Math.tan(latitude) + 1 / Math.cos(latitude)) / Math.PI) /
-      2 *
-      width,
-  };
+  return (
+    (1 - Math.log(Math.tan(latitude) + 1 / Math.cos(latitude)) / Math.PI) /
+    2 *
+    width
+  );
 }
 
 export function tileBounds(
@@ -126,7 +142,7 @@ export function tileBounds(
   };
 }
 
-function normalizedZoom(value: number): number {
+export function normalizedTileOnionZoom(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
@@ -135,6 +151,78 @@ export function tileOnionAnchorOrigin(tile: number): number {
     Math.floor((tile - TILE_ONION_FINE_MARGIN) / TILE_ONION_ANCHOR_STRIDE) *
     TILE_ONION_ANCHOR_STRIDE
   );
+}
+
+function resetNormalAnchor(
+  anchor: TileOnionAnchor,
+  zoom: number,
+  underfootX: number,
+  underfootY: number,
+): void {
+  const worldWidth = 2 ** zoom;
+  anchor.z = zoom;
+  if (worldWidth <= TILE_ONION_FINE_SIZE) {
+    anchor.x = 0;
+    anchor.y = 0;
+    anchor.width = worldWidth;
+    anchor.height = worldWidth;
+    return;
+  }
+  anchor.x = underfootX - 3;
+  anchor.y = Math.max(
+    0,
+    Math.min(worldWidth - TILE_ONION_FINE_SIZE, underfootY - 3),
+  );
+  anchor.width = TILE_ONION_FINE_SIZE;
+  anchor.height = TILE_ONION_FINE_SIZE;
+}
+
+/**
+ * Advances the canonical normal-mode anchor in place. The hot-path caller
+ * owns the object, so retained movement performs no allocation.
+ */
+export function updateTileOnionNormalAnchor(
+  anchor: TileOnionAnchor,
+  zoom: number,
+  wrappedUnderfootX: number,
+  underfootY: number,
+): boolean {
+  const worldWidth = 2 ** zoom;
+  const expectedSize = Math.min(TILE_ONION_FINE_SIZE, worldWidth);
+  if (
+    anchor.z !== zoom ||
+    anchor.width !== expectedSize ||
+    anchor.height !== expectedSize
+  ) {
+    resetNormalAnchor(anchor, zoom, wrappedUnderfootX, underfootY);
+    return true;
+  }
+  if (worldWidth <= TILE_ONION_FINE_SIZE) return false;
+
+  const unwrappedUnderfootX = wrappedUnderfootX + Math.round(
+    (anchor.x + (TILE_ONION_FINE_SIZE - 1) * 0.5 - wrappedUnderfootX) /
+      worldWidth,
+  ) * worldWidth;
+  const column = unwrappedUnderfootX - anchor.x;
+  const row = underfootY - anchor.y;
+  let nextX = anchor.x;
+  let nextY = anchor.y;
+
+  if (column <= 0) nextX = unwrappedUnderfootX - 4;
+  else if (column >= TILE_ONION_FINE_SIZE - 1) {
+    nextX = unwrappedUnderfootX - 3;
+  }
+  if (row <= 0) nextY = underfootY - 4;
+  else if (row >= TILE_ONION_FINE_SIZE - 1) nextY = underfootY - 3;
+  nextY = Math.max(
+    0,
+    Math.min(worldWidth - TILE_ONION_FINE_SIZE, nextY),
+  );
+
+  if (nextX === anchor.x && nextY === anchor.y) return false;
+  anchor.x = nextX;
+  anchor.y = nextY;
+  return true;
 }
 
 function targetTiles(
@@ -332,6 +420,7 @@ function normalPlanTarget(
   latitudeDegrees: number,
   longitudeDegrees: number,
   zoom: number,
+  previousState: TileOnionState | undefined,
 ): {
   underfoot: TileAddress;
   anchor: TileOnionAnchor;
@@ -344,31 +433,25 @@ function normalPlanTarget(
     x: wrapTileX(Math.floor(point.x), zoom),
     y: Math.max(0, Math.min(worldWidth - 1, Math.floor(point.y))),
   };
-  if (worldWidth < TILE_ONION_FINE_SIZE) {
-    const finestTiles = targetTiles(zoom, 0, 0, worldWidth, worldWidth);
-    return {
-      underfoot,
-      anchor: { z: zoom, x: 0, y: 0, width: worldWidth, height: worldWidth },
-      finestTiles,
-    };
-  }
-  const originX = tileOnionAnchorOrigin(Math.floor(point.x));
-  const originY = tileOnionAnchorOrigin(underfoot.y);
+  const previousAnchor =
+    previousState?.mode === "normal" &&
+      previousState.requestedMaxZoom === zoom &&
+      previousState.effectiveZoom === zoom
+      ? previousState.normalAnchor
+      : undefined;
+  const anchor: TileOnionAnchor = previousAnchor
+    ? { ...previousAnchor }
+    : { z: -1, x: 0, y: 0, width: 0, height: 0 };
+  updateTileOnionNormalAnchor(anchor, zoom, underfoot.x, underfoot.y);
   return {
     underfoot,
-    anchor: {
-      z: zoom,
-      x: originX,
-      y: originY,
-      width: TILE_ONION_FINE_SIZE,
-      height: TILE_ONION_FINE_SIZE,
-    },
+    anchor,
     finestTiles: targetTiles(
       zoom,
-      originX,
-      originY,
-      TILE_ONION_FINE_SIZE,
-      TILE_ONION_FINE_SIZE,
+      anchor.x,
+      anchor.y,
+      anchor.width,
+      anchor.height,
     ),
   };
 }
@@ -393,17 +476,19 @@ function boundaryPlanTarget(
   };
 }
 
-function modeForCoordinates(
+export function tileOnionModeForCoordinates(
   latitudeDegrees: number,
-  longitudeDegrees: number,
+  _longitudeDegrees: number,
   zoom: number,
 ): TileOnionMode {
   if (latitudeDegrees > WEB_MERCATOR_MAX_LATITUDE) return "north-boundary";
   if (latitudeDegrees < -WEB_MERCATOR_MAX_LATITUDE) return "south-boundary";
   const worldWidth = 2 ** zoom;
   if (worldWidth < TILE_ONION_FINE_SIZE) return "normal";
-  const point = mercatorPoint(latitudeDegrees, longitudeDegrees, zoom);
-  const row = Math.max(0, Math.min(worldWidth - 1, Math.floor(point.y)));
+  const row = Math.max(
+    0,
+    Math.min(worldWidth - 1, Math.floor(mercatorTileY(latitudeDegrees, zoom))),
+  );
   if (row < TILE_ONION_FINE_MARGIN) return "north-boundary";
   if (row > worldWidth - TILE_ONION_FINE_MARGIN - 1) {
     return "south-boundary";
@@ -420,8 +505,8 @@ export function calculateTileOnionPlan(
   const longitudeDegrees = Number.isFinite(options.longitudeDegrees)
     ? wrapLongitude(options.longitudeDegrees)
     : 0;
-  const requestedMaxZoom = normalizedZoom(options.maxZoom);
-  const mode = modeForCoordinates(
+  const requestedMaxZoom = normalizedTileOnionZoom(options.maxZoom);
+  const mode = tileOnionModeForCoordinates(
     latitudeDegrees,
     longitudeDegrees,
     requestedMaxZoom,
@@ -440,6 +525,7 @@ export function calculateTileOnionPlan(
       latitudeDegrees,
       longitudeDegrees,
       effectiveZoom,
+      options.previousState,
     );
     underfoot = target.underfoot;
     anchor = target.anchor;
@@ -483,6 +569,7 @@ export function calculateTileOnionPlan(
     effectiveZoom,
     boundaryLongitudeDegrees,
     poleLocked,
+    normalAnchor: mode === "normal" ? { ...anchor } : undefined,
   };
   return {
     mode,
@@ -495,15 +582,6 @@ export function calculateTileOnionPlan(
     leaves,
     boundary,
     state,
-    signature: [
-      mode,
-      requestedMaxZoom,
-      effectiveZoom,
-      anchor.x,
-      anchor.y,
-      boundaryLongitudeDegrees.toFixed(8),
-      poleLocked ? "locked" : "tracking",
-      ...leaves.map((tile) => `${tileKey(tile)}:${tile.role}`),
-    ].join("|"),
+    signature: leaves.map(tileKey).join("|"),
   };
 }
