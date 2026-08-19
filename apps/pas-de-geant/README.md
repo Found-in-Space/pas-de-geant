@@ -230,6 +230,7 @@ PAS_DE_GEANT_TILE_PROXY_MAX_CONCURRENCY=16
 PAS_DE_GEANT_TILE_PROXY_MIN_INTERVAL_MS=10
 PAS_DE_GEANT_TILE_PROXY_DEFAULT_TTL_MS=86400000
 PAS_DE_GEANT_TILE_PROXY_UPSTREAM_BACKOFF_MS=5000
+PAS_DE_GEANT_TILE_PROXY_TEXTURES_FALLBACK_TTL_MS=60000
 PAS_DE_GEANT_TILE_PROXY_CACHE_DIRECTORY=../../.cache/tiles
 PAS_DE_GEANT_TILE_PROXY_CACHE_KEY_IGNORED_QUERY_PARAMETERS=key
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE=
@@ -245,9 +246,15 @@ PAS_DE_GEANT_TILE_PROXY_ELEVATION_FORWARD_REQUEST_HEADERS=
 PAS_DE_GEANT_TILE_PROXY_PROVIDERS_JSON=
 ```
 
-The fallback TTL applies only when an otherwise cacheable image response does
-not publish an explicit lifetime. `no-store` and `private` responses are never
-written to disk. The cache has no automatic size eviction; remove
+When a texture upstream returns 429 or 503, the proxy observes its
+provider-local backoff and returns a correctly sized black fallback tile with
+HTTP 200. The response is marked by `X-Pas-De-Geant-Tile-Fallback` and cached
+by the client for `PAS_DE_GEANT_TILE_PROXY_TEXTURES_FALLBACK_TTL_MS` (60
+seconds by default); it is never written into the persistent tile cache. Cache
+hits remain available while the upstream is backed off. The default cache TTL
+applies only when an otherwise cacheable image response does not publish an
+explicit lifetime. `no-store` and `private` responses are never written to
+disk. The cache has no automatic size eviction; remove
 `.cache/tiles` manually when a clean development run is needed. The ignored
 query-parameter list keeps rotating credentials out of cache identity; set it
 to the parameter names used by the configured providers. URL templates may put
@@ -263,7 +270,9 @@ providers.
 Additional provider IDs and per-provider overrides can be supplied as a JSON
 object in `PAS_DE_GEANT_TILE_PROXY_PROVIDERS_JSON`; each record accepts
 `urlTemplate`, `scheme`, `upstreamHeaders`, `forwardRequestHeaders`, and the
-throttle/cache settings shown above in camelCase. Forwarded headers do not vary
+throttle/cache settings shown above in camelCase. A generic provider can opt
+into the same fallback behavior with `fallbackTilePixels` and `fallbackTtlMs`.
+Forwarded headers do not vary
 the cache identity, so they should identify or authorize the same tile content
 rather than select a different representation.
 

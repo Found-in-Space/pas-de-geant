@@ -143,6 +143,142 @@ describe("development tile proxy", () => {
     expect([...cached.body]).toEqual([1, 2, 3]);
   });
 
+  it("serves cached imagery and synthetic tiles while its upstream is backed off", async () => {
+    let now = 0;
+    let upstreamAttempt = 0;
+    const fetchImplementation = vi.fn<typeof fetch>(async () => {
+      upstreamAttempt += 1;
+      if (upstreamAttempt === 2) {
+        return new Response("limited", {
+          status: 429,
+          headers: {
+            "content-type": "text/plain",
+            "retry-after": "60",
+          },
+        });
+      }
+      return new Response(new Uint8Array([1, 2, 3]), {
+        headers: {
+          "cache-control": upstreamAttempt === 1
+            ? "public, max-age=3600"
+            : "no-store",
+          "content-type": "image/jpeg",
+        },
+      });
+    });
+    const service = new TileProxyService({
+      cacheDirectory: await cacheDirectory(),
+      urlTemplate: "https://tiles.example.test/{z}/{x}/{y}.jpg",
+      fetchImplementation,
+      minimumIntervalMs: 0,
+      fallbackTilePixels: 256,
+      fallbackTtlMs: 60_000,
+      now: () => now,
+    });
+    const cachedAddress = { z: 3, x: 1, y: 1 };
+    expect((await service.load(cachedAddress)).cacheStatus).toBe("MISS");
+
+    const limited = await service.load({ z: 3, x: 2, y: 1 });
+    expect(limited).toMatchObject({
+      status: 200,
+      contentType: "image/png",
+      cacheControl: "public, max-age=60",
+      cacheStatus: "FALLBACK",
+      fallback: "upstream-backoff",
+    });
+    expect(limited.retryAfter).toBeUndefined();
+    expect([...limited.body.subarray(0, 8)]).toEqual([
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a,
+    ]);
+    expect(limited.body.readUInt32BE(16)).toBe(256);
+    expect(limited.body.readUInt32BE(20)).toBe(256);
+
+    expect((await service.load(cachedAddress)).cacheStatus).toBe("HIT");
+    expect((await service.load({ z: 3, x: 3, y: 1 })).cacheStatus).toBe(
+      "FALLBACK",
+    );
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+
+    now = 60_000;
+    expect((await service.load({ z: 3, x: 4, y: 1 })).cacheStatus).toBe(
+      "MISS",
+    );
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+  });
+
+  it("contains fallback backoff within one proxy provider", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async (input) => {
+      if (String(input).startsWith("https://textures.example.test")) {
+        return new Response("limited", {
+          status: 429,
+          headers: { "retry-after": "120" },
+        });
+      }
+      return new Response(new Uint8Array([7]), {
+        headers: {
+          "cache-control": "no-store",
+          "content-type": "image/webp",
+        },
+      });
+    });
+    const middleware = createTileProxyMiddleware({
+      cacheDirectory: await cacheDirectory(),
+      minimumIntervalMs: 0,
+      fetchImplementation,
+      providers: {
+        textures: {
+          urlTemplate: "https://textures.example.test/{z}/{x}/{y}.jpg",
+          fallbackTilePixels: 256,
+          fallbackTtlMs: 60_000,
+        },
+        elevation: {
+          urlTemplate: "https://elevation.example.test/{z}/{x}/{y}.webp",
+        },
+      },
+    });
+
+    const texture = responseRecorder();
+    await middleware(
+      request("/api/tiles/textures/3/1/1"),
+      texture.response,
+      () => undefined,
+    );
+    expect(texture.status()).toBe(200);
+    expect(texture.headers.get("x-pas-de-geant-tile-cache")).toBe("FALLBACK");
+    expect(texture.headers.get("x-pas-de-geant-tile-fallback")).toBe(
+      "upstream-backoff",
+    );
+    expect(texture.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(texture.headers.get("retry-after")).toBeUndefined();
+
+    const deferredTexture = responseRecorder();
+    await middleware(
+      request("/api/tiles/textures/3/2/1"),
+      deferredTexture.response,
+      () => undefined,
+    );
+    expect(deferredTexture.headers.get("x-pas-de-geant-tile-cache")).toBe(
+      "FALLBACK",
+    );
+
+    const elevation = responseRecorder();
+    await middleware(
+      request("/api/tiles/elevation/3/1/1"),
+      elevation.response,
+      () => undefined,
+    );
+    expect(elevation.status()).toBe(200);
+    expect(elevation.headers.get("x-pas-de-geant-tile-cache")).toBe("MISS");
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+  });
+
   it("does not exceed the configured upstream concurrency", async () => {
     const directory = await cacheDirectory();
     const releases: Array<() => void> = [];

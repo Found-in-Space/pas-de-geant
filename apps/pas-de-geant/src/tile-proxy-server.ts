@@ -6,6 +6,7 @@ import type {
   ServerResponse,
 } from "node:http";
 import { join } from "node:path";
+import { deflateSync } from "node:zlib";
 import { isAllowedRequestOrigin } from "./realtime-token-server.js";
 import { TILE_PROXY_PATH } from "./tile-proxy.js";
 import type { TileIdentity } from "./tile-transition-planner.js";
@@ -14,6 +15,7 @@ const DEFAULT_MAX_CONCURRENCY = 16;
 const DEFAULT_MINIMUM_INTERVAL_MS = 10;
 const DEFAULT_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_UPSTREAM_BACKOFF_MS = 5_000;
+const DEFAULT_FALLBACK_TTL_MS = 60_000;
 const PROVIDER_ID = /^[a-z0-9][a-z0-9_-]*$/;
 const UPSTREAM_MANAGED_HEADERS = new Set([
   "connection",
@@ -50,10 +52,11 @@ interface UpstreamTile {
   readonly etag?: string;
   readonly lastModified?: string;
   readonly retryAfter?: string;
+  readonly fallback?: "upstream-backoff";
   readonly body: Buffer;
 }
 
-export type TileProxyCacheStatus = "HIT" | "MISS" | "COALESCED";
+export type TileProxyCacheStatus = "HIT" | "MISS" | "COALESCED" | "FALLBACK";
 export type TileProxyScheme = "xyz" | "tms";
 
 export interface TileProxyResult extends UpstreamTile {
@@ -72,6 +75,9 @@ export interface TileProxyProviderOptions {
   readonly minimumIntervalMs?: number;
   readonly defaultCacheTtlMs?: number;
   readonly upstreamBackoffMs?: number;
+  /** Enables a valid black PNG while this provider's upstream is backed off. */
+  readonly fallbackTilePixels?: number;
+  readonly fallbackTtlMs?: number;
 }
 
 export interface TileProxyOptions {
@@ -104,6 +110,7 @@ class UpstreamThrottle {
   private readonly queue: QueuedRequest<unknown>[] = [];
   private active = 0;
   private nextStartAtMs = 0;
+  private backoffUntilMs = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
@@ -125,11 +132,14 @@ class UpstreamThrottle {
 
   pauseFor(milliseconds: number): void {
     if (!Number.isFinite(milliseconds) || milliseconds <= 0) return;
-    this.nextStartAtMs = Math.max(
-      this.nextStartAtMs,
-      this.now() + Math.floor(milliseconds),
-    );
+    const until = this.now() + Math.floor(milliseconds);
+    this.backoffUntilMs = Math.max(this.backoffUntilMs, until);
+    this.nextStartAtMs = Math.max(this.nextStartAtMs, until);
     this.armTimer();
+  }
+
+  get backedOff(): boolean {
+    return this.now() < this.backoffUntilMs;
   }
 
   private pump(): void {
@@ -157,6 +167,61 @@ class UpstreamThrottle {
       this.pump();
     }, delayMs);
   }
+}
+
+const PNG_SIGNATURE = Buffer.from([
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a,
+]);
+const CRC32_TABLE = Array.from({ length: 256 }, (_, value) => {
+  let crc = value;
+  for (let bit = 0; bit < 8; bit += 1) {
+    crc = (crc & 1) === 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+  }
+  return crc >>> 0;
+});
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const typeBytes = Buffer.from(type, "ascii");
+  const chunk = Buffer.alloc(12 + data.byteLength);
+  chunk.writeUInt32BE(data.byteLength, 0);
+  typeBytes.copy(chunk, 4);
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(
+    crc32(chunk.subarray(4, 8 + data.byteLength)),
+    8 + data.byteLength,
+  );
+  return chunk;
+}
+
+/** Produces a compact, opaque, solid-black RGB tile without image dependencies. */
+function blackPng(pixels: number): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(pixels, 0);
+  header.writeUInt32BE(pixels, 4);
+  header[8] = 8;
+  header[9] = 2;
+  const scanlines = Buffer.alloc((pixels * 3 + 1) * pixels);
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(scanlines)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 function positiveInteger(value: number | undefined, fallback: number): number {
@@ -353,6 +418,8 @@ export class TileProxyService {
   private readonly upstreamHeaders: Headers;
   private readonly forwardRequestHeaders: readonly string[];
   private readonly throttle: UpstreamThrottle;
+  private readonly fallbackBody: Buffer | undefined;
+  private readonly fallbackTtlMs: number;
   private readonly inFlight = new Map<string, Promise<UpstreamTile>>();
 
   constructor(private readonly options: TileProxyServiceOptions) {
@@ -382,6 +449,20 @@ export class TileProxyService {
       options.upstreamBackoffMs,
       DEFAULT_UPSTREAM_BACKOFF_MS,
     );
+    if (
+      options.fallbackTilePixels !== undefined &&
+      (!Number.isSafeInteger(options.fallbackTilePixels) ||
+        options.fallbackTilePixels <= 0)
+    ) {
+      throw new Error("Tile proxy fallback dimensions must be a positive integer.");
+    }
+    this.fallbackBody = options.fallbackTilePixels === undefined
+      ? undefined
+      : blackPng(options.fallbackTilePixels);
+    this.fallbackTtlMs = nonNegativeInteger(
+      options.fallbackTtlMs,
+      DEFAULT_FALLBACK_TTL_MS,
+    );
     this.throttle = new UpstreamThrottle(
       positiveInteger(options.maxConcurrency, DEFAULT_MAX_CONCURRENCY),
       nonNegativeInteger(
@@ -407,17 +488,41 @@ export class TileProxyService {
     const cached = await this.readCached(identity);
     if (cached) return this.cachedResult(cached, "HIT");
 
+    if (this.fallbackBody && this.throttle.backedOff) {
+      return this.fallbackResult();
+    }
+
     const active = this.inFlight.get(identity);
     if (active) {
-      return { ...(await active), cacheStatus: "COALESCED" };
+      const tile = await active;
+      return {
+        ...tile,
+        cacheStatus: tile.fallback ? "FALLBACK" : "COALESCED",
+      };
     }
     const request = this.loadUpstream(url, identity, requestHeaders);
     this.inFlight.set(identity, request);
     try {
-      return { ...(await request), cacheStatus: "MISS" };
+      const tile = await request;
+      return {
+        ...tile,
+        cacheStatus: tile.fallback ? "FALLBACK" : "MISS",
+      };
     } finally {
       if (this.inFlight.get(identity) === request) this.inFlight.delete(identity);
     }
+  }
+
+  private fallbackResult(): TileProxyResult {
+    return {
+      status: 200,
+      statusText: "OK",
+      contentType: "image/png",
+      cacheControl: `public, max-age=${Math.floor(this.fallbackTtlMs / 1_000)}`,
+      fallback: "upstream-backoff",
+      body: this.fallbackBody!,
+      cacheStatus: "FALLBACK",
+    };
   }
 
   async delete(address: TileIdentity): Promise<boolean> {
@@ -508,6 +613,7 @@ export class TileProxyService {
           retryAfterMilliseconds(result.retryAfter, this.now()),
         ),
       );
+      if (this.fallbackBody) return this.fallbackResult();
     }
     const lifetimeMs = cacheLifetimeMilliseconds(
       response.headers,
@@ -691,6 +797,9 @@ export function createTileProxyMiddleware(options: TileProxyOptions) {
       if (tile.etag) response.setHeader("ETag", tile.etag);
       if (tile.lastModified) {
         response.setHeader("Last-Modified", tile.lastModified);
+      }
+      if (tile.fallback) {
+        response.setHeader("X-Pas-De-Geant-Tile-Fallback", tile.fallback);
       }
       if (tile.retryAfter) {
         response.setHeader("Retry-After", tile.retryAfter);

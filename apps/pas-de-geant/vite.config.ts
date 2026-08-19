@@ -151,6 +151,14 @@ function configuredTileProviders(
         configuration,
         "upstreamBackoffMs",
       ),
+      fallbackTilePixels: optionalProviderNumber(
+        configuration,
+        "fallbackTilePixels",
+      ),
+      fallbackTtlMs: optionalProviderNumber(
+        configuration,
+        "fallbackTtlMs",
+      ),
     };
   }
   return providers;
@@ -206,6 +214,9 @@ export default defineConfig(({ mode }) => {
     serverEnvironment
       .PAS_DE_GEANT_TILE_PROXY_TEXTURES_FORWARD_REQUEST_HEADERS,
   );
+  const textureFallbackTtlMs = optionalNumber(
+    serverEnvironment.PAS_DE_GEANT_TILE_PROXY_TEXTURES_FALLBACK_TTL_MS,
+  ) ?? 60_000;
   const providers: Record<string, TileProxyProviderOptions> = {
     elevation: {
       urlTemplate:
@@ -231,19 +242,27 @@ export default defineConfig(({ mode }) => {
       urlTemplate: textureUrlTemplate,
       attribution: serverEnvironment.VITE_IMAGERY_ATTRIBUTION ||
         "Configured imagery",
+      tileSize: optionalNumber(serverEnvironment.VITE_IMAGERY_TILE_SIZE),
     };
+    const selectedTextureConfiguration = selectImageryVariant(
+      baseTextureConfiguration,
+      null,
+    );
     providers.textures = {
-      urlTemplate:
-        selectImageryVariant(baseTextureConfiguration, null).urlTemplate,
+      urlTemplate: selectedTextureConfiguration.urlTemplate,
       scheme: textureScheme,
       upstreamHeaders: textureUpstreamHeaders,
       forwardRequestHeaders: textureForwardRequestHeaders,
+      fallbackTilePixels: selectedTextureConfiguration.tileSize ?? 256,
+      fallbackTtlMs: textureFallbackTtlMs,
     };
     providers["textures-source"] = {
       urlTemplate: baseTextureConfiguration.urlTemplate,
       scheme: textureScheme,
       upstreamHeaders: textureUpstreamHeaders,
       forwardRequestHeaders: textureForwardRequestHeaders,
+      fallbackTilePixels: baseTextureConfiguration.tileSize ?? 256,
+      fallbackTtlMs: textureFallbackTtlMs,
     };
   }
   Object.assign(
