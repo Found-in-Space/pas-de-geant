@@ -57,6 +57,12 @@ import {
   type NormalizedTerrainLodOptions,
   type TerrainLodOptions,
 } from "./terrain-lod.js";
+import {
+  createTerrainRenderVisibilityEntry,
+  TerrainRenderVisibility,
+  type TerrainRenderVisibilityEntry,
+  type TerrainRenderVisibilityMetrics,
+} from "./terrain-render-visibility.js";
 
 const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 const SKIRT_DEPTH_WORLD_METRES = 0.02;
@@ -79,6 +85,7 @@ export interface TerrainRuntimeMetrics {
   readonly committedLeafCount: number;
   readonly horizonTerrainTileCount: number;
   readonly horizonClassificationTotal: number;
+  readonly renderVisibility: TerrainRenderVisibilityMetrics;
   readonly imagery: ReturnType<ImageryVirtualTexture["getMetrics"]>;
   readonly elevation: {
     readonly decodedSourceCount: number;
@@ -101,6 +108,7 @@ export interface TerrainSurfaceOptions {
 interface SurfaceMesh {
   readonly tile: TileIdentity;
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  readonly visibilityEntry: TerrainRenderVisibilityEntry;
   elevation?: ImageTileResource;
   elevationTexture?: THREE.Texture;
 }
@@ -492,6 +500,8 @@ export class TerrainSurface {
   private readonly stagedElevations = new Map<string, HTMLImageElement>();
   private readonly renderer: THREE.WebGLRenderer;
   private readonly terrainLod: NormalizedTerrainLodOptions;
+  private readonly renderVisibility: TerrainRenderVisibility;
+  private readonly polarVisibilityEntries: TerrainRenderVisibilityEntry[] = [];
   private readonly emptyTexture: THREE.DataTexture;
   private readonly sharedUniforms: Record<string, THREE.IUniform>;
   private readonly unsubscribe: () => void;
@@ -507,6 +517,14 @@ export class TerrainSurface {
     this.terrainLod = normalizeTerrainLodOptions(
       MAPTERHORN_ELEVATION_PROVIDER_METADATA,
       options.terrainLod,
+    );
+    this.renderVisibility = new TerrainRenderVisibility(
+      this.group,
+      MAPTERHORN_ELEVATION_PROVIDER_METADATA.elevationBoundsMetres,
+    );
+    this.renderVisibility.updateDisplacement(
+      options.initialView.radialMultiplier,
+      options.initialView.displayRadiusM,
     );
     this.latestView = options.initialView;
     this.group.name = "terrain-surface";
@@ -561,6 +579,7 @@ export class TerrainSurface {
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
     };
     this.addPolarCaps();
+    this.syncRenderVisibilityEntries();
     this.imagery.update({
       displayRadiusM: options.initialView.displayRadiusM,
       latitudeDegrees: options.initialView.latitudeDegrees,
@@ -595,6 +614,10 @@ export class TerrainSurface {
       view.radialMultiplier / (EARTH_MEAN_RADIUS_KM * 1_000);
     this.sharedUniforms.normalizedSkirtDepth!.value =
       SKIRT_DEPTH_WORLD_METRES / view.displayRadiusM;
+    this.renderVisibility.updateDisplacement(
+      view.radialMultiplier,
+      view.displayRadiusM,
+    );
     this.horizonView = view;
     this.imagery.update({
       displayRadiusM: view.displayRadiusM,
@@ -631,6 +654,7 @@ export class TerrainSurface {
       committedLeafCount: this.snapshot.committedCut.length,
       horizonTerrainTileCount: horizon.horizonTileCount,
       horizonClassificationTotal: horizon.classificationTotal,
+      renderVisibility: this.renderVisibility.metrics,
       imagery: this.imagery.getMetrics(),
       elevation: {
         decodedSourceCount: elevation.decodedSourceCount,
@@ -651,6 +675,24 @@ export class TerrainSurface {
 
   setTextureTileOverlayVisible(visible: boolean): void {
     this.sharedUniforms.textureOverlayVisible!.value = visible ? 1 : 0;
+  }
+
+  get renderCullingEnabled(): boolean {
+    return this.renderVisibility.enabled;
+  }
+
+  updateRenderVisibility(camera: THREE.Camera): void {
+    if (!this.group.visible) return;
+    this.renderVisibility.update(camera);
+  }
+
+  setRenderCullingEnabled(enabled: boolean): boolean {
+    this.renderVisibility.setEnabled(enabled);
+    return this.renderVisibility.enabled;
+  }
+
+  clearRenderVisibilityMetrics(): void {
+    this.renderVisibility.clearMetrics();
   }
 
   getTileDebugControls(): TileDebugControlsReadback {
@@ -731,6 +773,7 @@ export class TerrainSurface {
       this.releaseTexture(this.elevationTextures, image);
     }
     this.stagedElevations.clear();
+    this.renderVisibility.setEntries([]);
     this.elevationTextures.dispose();
     this.emptyTexture.dispose();
     for (const child of [...this.group.children]) {
@@ -765,6 +808,7 @@ export class TerrainSurface {
       this.group.remove(entry.mesh);
       this.disposeMesh(entry.mesh);
     }
+    this.syncRenderVisibilityEntries();
   }
 
   private applyHorizonCulling(): void {
@@ -813,7 +857,11 @@ export class TerrainSurface {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `surface-tile:${tileIdentityKey(tile)}`;
     mesh.frustumCulled = false;
-    return { tile: Object.freeze({ ...tile }), mesh };
+    return {
+      tile: Object.freeze({ ...tile }),
+      mesh,
+      visibilityEntry: createTerrainRenderVisibilityEntry(mesh, true),
+    };
   }
 
   private addPolarCaps(): void {
@@ -833,7 +881,18 @@ export class TerrainSurface {
       mesh.name = "flat-polar-cap";
       mesh.frustumCulled = false;
       this.group.add(mesh);
+      this.polarVisibilityEntries.push(
+        createTerrainRenderVisibilityEntry(mesh, false),
+      );
     }
+  }
+
+  private syncRenderVisibilityEntries(): void {
+    const entries = [...this.polarVisibilityEntries];
+    for (const mesh of this.meshes.values()) {
+      entries.push(mesh.visibilityEntry);
+    }
+    this.renderVisibility.setEntries(entries);
   }
 
   private surfaceMaterial(values: {

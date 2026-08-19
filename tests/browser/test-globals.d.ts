@@ -32,6 +32,7 @@ declare global {
       }): Record<string, unknown>;
       endBenchmark(): Record<string, unknown>;
       setScale(displayRadiusM: number): Record<string, unknown>;
+      setTerrainRenderCulling(enabled: boolean): Record<string, unknown>;
       setTileRecalculation(
         target: "terrain" | "textures" | "both",
         enabled: boolean,

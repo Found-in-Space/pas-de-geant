@@ -23,6 +23,10 @@ describe("Terrain LOD configuration", () => {
       tilePixels: 512,
       maxSourceZoom: 12,
       attribution: "Mapterhorn · Terrarium elevation tiles",
+      elevationBoundsMetres: {
+        minimum: -32_768,
+        maximum: 32_767 + 255 / 256,
+      },
     });
     expect([
       terrainSegmentsForZoom(0, options.segmentTiers),

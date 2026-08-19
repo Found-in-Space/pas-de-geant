@@ -139,6 +139,7 @@ interface PasDeGeantDebugApi {
   setTileRecalculation(target: TileDebugTarget, enabled: boolean): unknown;
   setOverlays(options: { terrain?: boolean; textures?: boolean }): unknown;
   setRendering(enabled: boolean): Record<string, unknown>;
+  setTerrainRenderCulling(enabled: boolean): Record<string, unknown>;
   setInputEnabled(enabled: boolean): Record<string, unknown>;
   setFoveation(value: number): Record<string, unknown>;
   setFramebufferScale(value: number): Record<string, unknown>;
@@ -391,6 +392,9 @@ const terrain = new TerrainSurface({
   },
 });
 planetRoot.add(terrain.group);
+scene.onBeforeRender = (_renderer, _scene, renderCamera): void => {
+  terrain.updateRenderVisibility(renderCamera);
+};
 const aircraftLayer = new AircraftLayer();
 planetRoot.add(aircraftLayer.group);
 const satelliteLayer = new SatelliteLayer();
@@ -1558,6 +1562,7 @@ interface BenchmarkRestoreState {
   readonly tileOverlayVisible: boolean;
   readonly textureTileOverlayVisible: boolean;
   readonly renderingEnabled: boolean;
+  readonly terrainRenderCullingEnabled: boolean;
   readonly simulationInputEnabled: boolean;
   readonly foveation: number | undefined;
   readonly layers: {
@@ -1603,6 +1608,7 @@ function debugControlState(): Record<string, unknown> {
       textures: textureTileOverlayVisible,
     },
     renderingEnabled,
+    terrainRenderCullingEnabled: terrain.renderCullingEnabled,
     simulationInputEnabled,
     benchmarkActive: benchmarkRestoreState !== undefined,
     foveation: renderer.xr.getFoveation() ?? null,
@@ -1733,6 +1739,7 @@ function captureBenchmarkRestoreState(): BenchmarkRestoreState {
     tileOverlayVisible,
     textureTileOverlayVisible,
     renderingEnabled,
+    terrainRenderCullingEnabled: terrain.renderCullingEnabled,
     simulationInputEnabled,
     foveation: renderer.xr.getFoveation(),
     layers: {
@@ -1794,6 +1801,7 @@ const debugApi: PasDeGeantDebugApi = {
       position: "setLocation(lat, lon), setScale(radiusM), setRadialMultiplier(value), setView({pitchRadians?, yawRadians?}), reset()",
       tiles: "setTilePixelRatio(target, ratio), setMaxZ(target, z|null), setTileRecalculation(target, enabled)",
       rendering: "setRendering(enabled), setInputEnabled(enabled), setFoveation(0..1), setFramebufferScale(value), setDesktopPixelRatio(value)",
+      terrainRenderCulling: "setTerrainRenderCulling(enabled) — same-build render-only visibility A/B",
       layers: "setOverlays({terrain?, textures?}), setLayerVisibility(name, visible)",
       targets: 'tile target: "terrain", "textures", or "both"',
     };
@@ -1809,6 +1817,7 @@ const debugApi: PasDeGeantDebugApi = {
   },
   clearMetrics() {
     frameTelemetry.clear();
+    terrain.clearRenderVisibilityMetrics();
     performance.clearResourceTimings();
     debugMarks.clear();
   },
@@ -1856,6 +1865,7 @@ const debugApi: PasDeGeantDebugApi = {
     terrain.setTileMaxZoom({ target: "both", value: null });
     setTileOverlayVisible(false);
     setTextureTileOverlayVisible(false);
+    terrain.setRenderCullingEnabled(true);
     renderingEnabled = true;
     terrain.group.visible = true;
     celestialSphere.object3d.visible = true;
@@ -1866,6 +1876,7 @@ const debugApi: PasDeGeantDebugApi = {
     updatePresentation();
     terrain.setTileRecalculation({ target: "both", enabled: true });
     frameTelemetry.clear();
+    terrain.clearRenderVisibilityMetrics();
     performance.clearResourceTimings();
     debugMarks.clear();
     return {
@@ -1893,6 +1904,7 @@ const debugApi: PasDeGeantDebugApi = {
     setTileOverlayVisible(restore.tileOverlayVisible);
     setTextureTileOverlayVisible(restore.textureTileOverlayVisible);
     renderingEnabled = restore.renderingEnabled;
+    terrain.setRenderCullingEnabled(restore.terrainRenderCullingEnabled);
     terrain.group.visible = restore.layers.terrain;
     atmosphere.mesh.visible = restore.layers.atmosphere;
     celestialSphere.object3d.visible = restore.layers.stars;
@@ -1903,6 +1915,7 @@ const debugApi: PasDeGeantDebugApi = {
     }
     setSimulationInputEnabled(restore.simulationInputEnabled);
     frameTelemetry.clear();
+    terrain.clearRenderVisibilityMetrics();
     return debugControlState();
   },
   reset() {
@@ -1973,6 +1986,12 @@ const debugApi: PasDeGeantDebugApi = {
   setRendering(enabled) {
     renderingEnabled = enabled;
     frameTelemetry.clear();
+    return debugControlState();
+  },
+  setTerrainRenderCulling(enabled) {
+    terrain.setRenderCullingEnabled(enabled);
+    frameTelemetry.clear();
+    terrain.clearRenderVisibilityMetrics();
     return debugControlState();
   },
   setInputEnabled(enabled) {

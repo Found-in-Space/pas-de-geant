@@ -27,6 +27,11 @@ import {
 export type ImageTileKind = "imagery" | "terrain";
 export interface ElevationProviderMetadata extends ElevationSourceConstraints {
   readonly attribution: string;
+  /** Conservative decoded elevation range used only for render visibility. */
+  readonly elevationBoundsMetres?: {
+    readonly minimum: number;
+    readonly maximum: number;
+  };
 }
 
 export const MAPTERHORN_ELEVATION_PROVIDER_METADATA:
@@ -34,6 +39,10 @@ export const MAPTERHORN_ELEVATION_PROVIDER_METADATA:
     tilePixels: 512,
     maxSourceZoom: 12,
     attribution: "Mapterhorn · Terrarium elevation tiles",
+    elevationBoundsMetres: Object.freeze({
+      minimum: -32_768,
+      maximum: 32_767 + 255 / 256,
+    }),
   });
 
 export type ImageTileCacheStatus =
