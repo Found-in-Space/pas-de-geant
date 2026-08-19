@@ -19,10 +19,23 @@ import {
   type TileRequestFailureMetadata,
 } from "./tile-request-circuit.js";
 import { TileSourceLoadQueue } from "./tile-source-load-queue.js";
+import {
+  elevationSourceZoomForTile,
+  type ElevationSourceConstraints,
+} from "./terrain-lod.js";
 
 export type ImageTileKind = "imagery" | "terrain";
-export const ELEVATION_TILE_PIXELS = 512;
-export const ELEVATION_MAX_ZOOM = 12;
+export interface ElevationProviderMetadata extends ElevationSourceConstraints {
+  readonly attribution: string;
+}
+
+export const MAPTERHORN_ELEVATION_PROVIDER_METADATA:
+  ElevationProviderMetadata = Object.freeze({
+    tilePixels: 512,
+    maxSourceZoom: 12,
+    attribution: "Mapterhorn · Terrarium elevation tiles",
+  });
+
 export type ImageTileCacheStatus =
   | "memory"
   | "shared"
@@ -128,6 +141,19 @@ function ancestorAtZoom(tile: TileIdentity, zoom: number): TileIdentity {
     x: Math.floor(tile.x / divisor),
     y: Math.floor(tile.y / divisor),
   };
+}
+
+export function elevationSourceMapping(
+  tile: TileIdentity,
+  maxElevationSourceZoom: number,
+): SourceMapping {
+  return sourceMapping(
+    tile,
+    ancestorAtZoom(
+      tile,
+      elevationSourceZoomForTile(tile, maxElevationSourceZoom),
+    ),
+  );
 }
 
 function isAbortError(error: unknown): boolean {
@@ -492,11 +518,12 @@ async function decodeElevationSource(
   source: TileIdentity,
   payload: ElevationPayload,
   signal: AbortSignal,
+  expectedPixels: number,
 ): Promise<SourceImageLoad> {
   const blob = new Blob([payload.bytes], { type: payload.contentType });
   try {
     return {
-      image: await decodeBlobImage(blob, ELEVATION_TILE_PIXELS, signal),
+      image: await decodeBlobImage(blob, expectedPixels, signal),
       byteLength: payload.bytes.byteLength,
       cacheStatus: elevationCacheStatus(payload.cacheStatus),
     };
@@ -506,18 +533,26 @@ async function decodeElevationSource(
   }
 }
 
-export function createElevationTileProvider(): ImageTileProvider {
+export function createElevationTileProvider(
+  metadata: ElevationProviderMetadata,
+  maxElevationSourceZoom: number,
+): ImageTileProvider {
   return new ImageTileProvider({
     mode: "terrain",
-    tilePixels: ELEVATION_TILE_PIXELS,
-    attribution: "Mapterhorn · Terrarium elevation tiles",
+    tilePixels: metadata.tilePixels,
+    attribution: metadata.attribution,
     concurrency: 4,
     resolveSource: (tile) =>
-      sourceMapping(tile, ancestorAtZoom(tile, ELEVATION_MAX_ZOOM)),
+      elevationSourceMapping(tile, maxElevationSourceZoom),
     loadFromCache: async (source, signal) => {
       const payload = await lookupCachedElevation(source, signal);
       if (!payload) return undefined;
-      return decodeElevationSource(source, payload, signal);
+      return decodeElevationSource(
+        source,
+        payload,
+        signal,
+        metadata.tilePixels,
+      );
     },
     loadSource: async (source, signal) => {
       const payload = await loadElevationFromNetwork(source, signal);
@@ -528,7 +563,12 @@ export function createElevationTileProvider(): ImageTileProvider {
           payload.retryAfterMs,
         );
       }
-      return decodeElevationSource(source, payload, signal);
+      return decodeElevationSource(
+        source,
+        payload,
+        signal,
+        metadata.tilePixels,
+      );
     },
   });
 }

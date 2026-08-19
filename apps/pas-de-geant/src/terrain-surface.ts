@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { ImageTexturePool } from "./image-texture-pool.js";
 import {
   createElevationTileProvider,
+  MAPTERHORN_ELEVATION_PROVIDER_METADATA,
   type ImageTileResource,
 } from "./image-tile-provider.js";
 import type { ImageryProvider } from "./imagery-provider.js";
@@ -51,6 +52,12 @@ import {
   WGS84_A_KM,
   WGS84_B_KM,
 } from "./planet-state.js";
+import {
+  normalizeTerrainLodOptions,
+  terrainSegmentsForZoom,
+  type NormalizedTerrainLodOptions,
+  type TerrainLodOptions,
+} from "./terrain-lod.js";
 
 const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 const SKIRT_DEPTH_WORLD_METRES = 0.02;
@@ -88,6 +95,7 @@ export interface TerrainSurfaceOptions {
   readonly renderer: THREE.WebGLRenderer;
   readonly baseTexture: THREE.Texture;
   readonly imageryProvider?: ImageryProvider;
+  readonly terrainLod?: TerrainLodOptions;
   readonly initialView: TerrainSurfaceView;
 }
 
@@ -216,12 +224,6 @@ function geodeticVertex(
       -cosineLatitude * Math.sin(longitude),
     ).normalize(),
   };
-}
-
-function segmentsForTile(tile: TileIdentity): number {
-  if (tile.z >= 10) return 64;
-  if (tile.z >= 7) return 32;
-  return 16;
 }
 
 function patchGeometry(
@@ -490,6 +492,7 @@ export class TerrainSurface {
   >();
   private readonly stagedElevations = new Map<string, HTMLImageElement>();
   private readonly renderer: THREE.WebGLRenderer;
+  private readonly terrainLod: NormalizedTerrainLodOptions;
   private readonly emptyTexture: THREE.DataTexture;
   private readonly sharedUniforms: Record<string, THREE.IUniform>;
   private readonly unsubscribe: () => void;
@@ -502,13 +505,20 @@ export class TerrainSurface {
 
   constructor(options: TerrainSurfaceOptions) {
     this.renderer = options.renderer;
+    this.terrainLod = normalizeTerrainLodOptions(
+      MAPTERHORN_ELEVATION_PROVIDER_METADATA,
+      options.terrainLod,
+    );
     this.latestView = options.initialView;
     this.group.name = "terrain-surface";
     options.baseTexture.wrapS = THREE.RepeatWrapping;
     options.baseTexture.wrapT = THREE.ClampToEdgeWrapping;
     options.baseTexture.needsUpdate = true;
 
-    const elevationProvider = createElevationTileProvider();
+    const elevationProvider = createElevationTileProvider(
+      MAPTERHORN_ELEVATION_PROVIDER_METADATA,
+      this.terrainLod.maxElevationSourceZoom,
+    );
     this.imagery = new ImageryVirtualTexture(
       options.renderer,
       options.baseTexture,
@@ -785,7 +795,10 @@ export class TerrainSurface {
   }
 
   private createTileMesh(tile: TileIdentity): SurfaceMesh {
-    const segments = segmentsForTile(tile);
+    const segments = terrainSegmentsForZoom(
+      tile.z,
+      this.terrainLod.segmentTiers,
+    );
     const bounds = tileBounds(tile);
     const imageryBounds = imageryBoundsForGeographicBounds(bounds);
     const geometry = patchGeometry(bounds, segments, segments);
