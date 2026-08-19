@@ -170,6 +170,56 @@ describe("independent photographic imagery pipeline", () => {
     expect(imageryLayerUploadPlan(7, 4, chain.slice(0, -1))).toBeUndefined();
   });
 
+  it("uploads ready imagery until the wall-clock frame slice expires", () => {
+    const texture = Object.create(ImageryVirtualTexture.prototype) as any;
+    const pendingUploadKeys = ["first", "second", "third", "next-frame"];
+    const migration = {
+      pendingUploadKeys,
+      pendingUploadSet: new Set(pendingUploadKeys),
+      pendingUploadHead: 0,
+    };
+    texture.migration = migration;
+    texture.nowMs = vi.fn()
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(100.4)
+      .mockReturnValueOnce(101.2)
+      .mockReturnValueOnce(102.1);
+    texture.uploadMigrationKey = vi.fn(() => true);
+
+    expect(texture.uploadPendingChains(migration, 2)).toBe(3);
+    expect(texture.uploadMigrationKey.mock.calls.map(
+      ([, key]: [unknown, string]) => key,
+    ))
+      .toEqual(["first", "second", "third"]);
+    expect(migration.pendingUploadHead).toBe(3);
+    expect(migration.pendingUploadSet).toEqual(new Set(["next-frame"]));
+  });
+
+  it("scans unavailable imagery and still completes one slow ready upload", () => {
+    const texture = Object.create(ImageryVirtualTexture.prototype) as any;
+    const pendingUploadKeys = ["cold-a", "cold-b", "ready", "next-frame"];
+    const migration = {
+      pendingUploadKeys,
+      pendingUploadSet: new Set(pendingUploadKeys),
+      pendingUploadHead: 0,
+    };
+    texture.migration = migration;
+    texture.nowMs = vi.fn()
+      .mockReturnValueOnce(200)
+      .mockReturnValueOnce(203);
+    texture.uploadMigrationKey = vi.fn(
+      (_migration: unknown, key: string) => key === "ready",
+    );
+
+    expect(texture.uploadPendingChains(migration, 2)).toBe(1);
+    expect(texture.uploadMigrationKey.mock.calls.map(
+      ([, key]: [unknown, string]) => key,
+    ))
+      .toEqual(["cold-a", "cold-b", "ready"]);
+    expect(migration.pendingUploadHead).toBe(3);
+    expect(migration.pendingUploadSet).toEqual(new Set(["next-frame"]));
+  });
+
   it("coalesces worker remips and ignores a stale stitched-base revision", () => {
     class FakeWorker implements ImageryWorkerPort {
       readonly commands: ImageryDecoderCommand[] = [];

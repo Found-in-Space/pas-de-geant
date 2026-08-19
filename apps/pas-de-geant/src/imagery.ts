@@ -72,7 +72,7 @@ export {
 export { normalizedMercatorYForLatitude } from "./imagery-core.js";
 const IMAGERY_GUTTER_PIXELS = 8;
 const MAX_CONCURRENT_REQUESTS = 6;
-const MAX_UPLOADS_PER_FRAME = 2;
+const MAX_UPLOAD_TIME_PER_FRAME_MS = 2;
 const TRANSIENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
 
 function sameTileKeys(
@@ -1372,7 +1372,7 @@ export class ImageryVirtualTexture {
       }
       this.uploadPendingChains(
         this.migration,
-        MAX_UPLOADS_PER_FRAME,
+        MAX_UPLOAD_TIME_PER_FRAME_MS,
       );
       if (this.migrationComplete()) this.promoteMigration();
       return;
@@ -1399,7 +1399,10 @@ export class ImageryVirtualTexture {
       const compactCapacity = imageryReplacementPoolCapacity(candidateKeys.size);
       if (this.activePool.layers > compactCapacity) {
         this.startMigration(candidateRoot, candidateKeys);
-        this.uploadPendingChains(this.migration!, MAX_UPLOADS_PER_FRAME);
+        this.uploadPendingChains(
+          this.migration!,
+          MAX_UPLOAD_TIME_PER_FRAME_MS,
+        );
         if (this.migrationComplete()) this.promoteMigration();
       }
       this.pruneRecords();
@@ -1410,7 +1413,7 @@ export class ImageryVirtualTexture {
     const migration = this.migration!;
     this.uploadPendingChains(
       migration,
-      MAX_UPLOADS_PER_FRAME,
+      MAX_UPLOAD_TIME_PER_FRAME_MS,
     );
     if (this.migrationComplete()) this.promoteMigration();
     this.pruneRecords();
@@ -1542,25 +1545,29 @@ export class ImageryVirtualTexture {
 
   private uploadPendingChains(
     migration: PoolMigration,
-    budget: number,
+    budgetMs: number,
   ): number {
+    const startedAtMs = this.nowMs();
     let uploaded = 0;
-    let examined = 0;
-    while (
-      examined < budget &&
-      migration.pendingUploadHead < migration.pendingUploadKeys.length
-    ) {
+    while (migration.pendingUploadHead < migration.pendingUploadKeys.length) {
       const key = migration.pendingUploadKeys[migration.pendingUploadHead++]!;
       migration.pendingUploadSet.delete(key);
-      examined += 1;
       if (this.uploadMigrationKey(migration, key)) uploaded += 1;
       if (this.migration !== migration) return uploaded;
+      // Scan unavailable work freely so it cannot hold ready uploads behind a
+      // count-based queue limit. Once useful work has happened, keep each mip
+      // chain atomic and yield after the frame's upload time slice expires.
+      if (uploaded > 0 && this.nowMs() - startedAtMs >= budgetMs) break;
     }
     if (migration.pendingUploadHead === migration.pendingUploadKeys.length) {
       migration.pendingUploadKeys.length = 0;
       migration.pendingUploadHead = 0;
     }
     return uploaded;
+  }
+
+  private nowMs(): number {
+    return performance.now();
   }
 
   private uploadMigrationKey(
