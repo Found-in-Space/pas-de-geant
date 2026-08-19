@@ -709,8 +709,16 @@ interface PoolMigration {
   pendingUploadSet: Set<string>;
   pendingUploadHead: number;
   remainingUploadCount: number;
+  /** Latest uploads that exist only in unpublished candidate slots. */
+  readonly candidateUploadKeys: Set<string>;
   /** A larger backing texture must be swapped in at publication time. */
   readonly replacesActivePool: boolean;
+}
+
+interface PoolMigrationStartPlan {
+  readonly revisions: Map<string, number>;
+  readonly retained: ImageryPoolMigrationPlan;
+  readonly capacity: ImageryPoolCapacityPlan;
 }
 
 interface ImageryTreeTextures {
@@ -778,6 +786,7 @@ export interface ImageryPoolMigrationPlan {
 export interface ImageryPoolMigrationRetargetPlan {
   readonly slots: Map<string, number>;
   readonly uploadedRevisions: Map<string, number>;
+  readonly releasedCandidateKeys: readonly string[];
   readonly releasedCandidateSlots: readonly number[];
   readonly missingKeys: readonly string[];
 }
@@ -826,29 +835,52 @@ export function planImageryPoolMigrationRetarget(
       uploadedRevisions.set(key, uploaded);
     }
   }
+  const releasedCandidateKeys: string[] = [];
   const releasedCandidateSlots: number[] = [];
   const visibleSlotNumbers = new Set(visibleSlots.values());
   for (const [key, slot] of candidateSlots) {
     if (nextDemand.has(key) || visibleSlotNumbers.has(slot)) continue;
+    releasedCandidateKeys.push(key);
     releasedCandidateSlots.push(slot);
   }
   return {
     slots,
     uploadedRevisions,
+    releasedCandidateKeys,
     releasedCandidateSlots,
     missingKeys,
   };
 }
 
+export interface ImageryPoolCapacityPlan {
+  readonly capacity: number;
+  readonly concurrentDemand: number;
+  readonly grows: boolean;
+}
+
 /**
- * A replacement pool contains exactly one layer per candidate source. The
- * visible pool remains alive until publication, so no outgoing page needs a
- * slot in the replacement allocation.
+ * Keeps the current high-water mark while reserving every slot that must
+ * coexist during an atomic copy-on-write publication.
  */
-export function imageryReplacementPoolCapacity(
-  demandedCount: number,
-): number {
-  return Math.max(1, demandedCount);
+export function planImageryPoolCapacity(options: {
+  readonly currentCapacity: number;
+  readonly structuralDemand: number;
+  readonly activeUsed: number;
+  readonly requiredAdditionalSlots: number;
+}): ImageryPoolCapacityPlan {
+  const concurrentDemand =
+    options.activeUsed + options.requiredAdditionalSlots;
+  const capacity = Math.max(
+    1,
+    options.currentCapacity,
+    options.structuralDemand,
+    concurrentDemand,
+  );
+  return {
+    capacity,
+    concurrentDemand,
+    grows: capacity > options.currentCapacity,
+  };
 }
 
 /**
@@ -931,6 +963,15 @@ export class ImageryVirtualTexture {
   private migrationSupersededTotal = 0;
   private migrationReusedUploadTotal = 0;
   private migrationObsoleteUploadAvoidedTotal = 0;
+  private migrationCapacityRestartTotal = 0;
+  private poolCreationTotal = 0;
+  private poolDisposalTotal = 0;
+  private poolGrowthTotal = 0;
+  private inPlaceUploadTotal = 0;
+  private replacementPoolUploadTotal = 0;
+  private discardedCandidateUploadTotal = 0;
+  private allocatedPoolLayers = 0;
+  private peakAllocatedPoolLayers = 0;
   private debugControls: TilePipelineDebugControls = {
     ...DEFAULT_TILE_DEBUG_CONTROLS.textures,
   };
@@ -1165,18 +1206,35 @@ export class ImageryVirtualTexture {
         committed_topology_tile_count: this.snapshot.committedCut.length,
       },
       imagery_uploads: {
+        pool_generation: metrics.poolGeneration,
         active_layer_count: metrics.activeLayerCount,
         pool_capacity: metrics.poolCapacity,
         pool_used: metrics.poolUsed,
         pool_free: metrics.poolFree,
+        pool_creation_total: metrics.poolCreationTotal,
+        pool_disposal_total: metrics.poolDisposalTotal,
+        pool_growth_total: metrics.poolGrowthTotal,
         resident_source_page_count: metrics.residentSourcePageCount,
         resident_gpu_page_count: metrics.residentGpuPageCount,
         migration_active: this.migration !== undefined,
         migration_layer_count: metrics.migrationLayerCount,
         migration_superseded_total: this.migrationSupersededTotal,
+        migration_capacity_restart_total:
+          metrics.migrationCapacityRestartTotal,
         migration_reused_upload_total: this.migrationReusedUploadTotal,
         migration_obsolete_upload_avoided_total:
           this.migrationObsoleteUploadAvoidedTotal,
+        in_place_upload_total: metrics.inPlaceUploadTotal,
+        in_place_upload_estimated_bytes:
+          metrics.inPlaceUploadEstimatedBytes,
+        replacement_pool_upload_total: metrics.replacementPoolUploadTotal,
+        replacement_pool_upload_estimated_bytes:
+          metrics.replacementPoolUploadEstimatedBytes,
+        discarded_candidate_upload_total:
+          metrics.discardedCandidateUploadTotal,
+        discarded_candidate_upload_estimated_bytes:
+          metrics.discardedCandidateUploadEstimatedBytes,
+        peak_estimated_gpu_bytes: metrics.peakEstimatedGpuBytes,
       },
       planner_updates: {
         target_submission_total: this.targetSubmissionTotal,
@@ -1190,10 +1248,14 @@ export class ImageryVirtualTexture {
     committedLeafCount: number;
     horizonTileCount: number;
     recordCount: number;
+    poolGeneration: number;
     activeLayerCount: number;
     poolCapacity: number;
     poolUsed: number;
     poolFree: number;
+    poolCreationTotal: number;
+    poolDisposalTotal: number;
+    poolGrowthTotal: number;
     residentSourcePageCount: number;
     residentGpuPageCount: number;
     migrationLayerCount: number;
@@ -1201,13 +1263,21 @@ export class ImageryVirtualTexture {
     sourceLoadTotal: number;
     decodeTotal: number;
     uploadTotal: number;
+    inPlaceUploadTotal: number;
+    inPlaceUploadEstimatedBytes: number;
+    replacementPoolUploadTotal: number;
+    replacementPoolUploadEstimatedBytes: number;
+    discardedCandidateUploadTotal: number;
+    discardedCandidateUploadEstimatedBytes: number;
     estimatedCpuBytes: number;
     estimatedGpuBytes: number;
+    peakEstimatedGpuBytes: number;
     horizonClassificationTotal: number;
     targetSubmissionTotal: number;
     targetSubmissionSuppressedTotal: number;
     sourceCancellationTotal: number;
     migrationSupersededTotal: number;
+    migrationCapacityRestartTotal: number;
     migrationReusedUploadTotal: number;
     migrationObsoleteUploadAvoidedTotal: number;
   } {
@@ -1221,10 +1291,14 @@ export class ImageryVirtualTexture {
       committedLeafCount: this.snapshot.committedCut.length,
       horizonTileCount: horizon.horizonTileCount,
       recordCount: this.records.size,
+      poolGeneration: this.activePool.generation,
       activeLayerCount: this.activePool.layers,
       poolCapacity: this.activePool.layers,
       poolUsed: this.activePool.layers - this.activePool.freeSlots.length,
       poolFree: this.activePool.freeSlots.length,
+      poolCreationTotal: this.poolCreationTotal,
+      poolDisposalTotal: this.poolDisposalTotal,
+      poolGrowthTotal: this.poolGrowthTotal,
       residentSourcePageCount: this.records.size,
       residentGpuPageCount: this.activePool.slots.size,
       migrationLayerCount: this.migration?.replacesActivePool
@@ -1234,17 +1308,25 @@ export class ImageryVirtualTexture {
       sourceLoadTotal: provider?.sourceLoadTotal ?? 0,
       decodeTotal: provider?.decodeTotal ?? 0,
       uploadTotal: this.uploadTotal,
+      inPlaceUploadTotal: this.inPlaceUploadTotal,
+      inPlaceUploadEstimatedBytes:
+        this.inPlaceUploadTotal * mipBytesPerLayer,
+      replacementPoolUploadTotal: this.replacementPoolUploadTotal,
+      replacementPoolUploadEstimatedBytes:
+        this.replacementPoolUploadTotal * mipBytesPerLayer,
+      discardedCandidateUploadTotal: this.discardedCandidateUploadTotal,
+      discardedCandidateUploadEstimatedBytes:
+        this.discardedCandidateUploadTotal * mipBytesPerLayer,
       estimatedCpuBytes: this.records.size * mipBytesPerLayer,
-      estimatedGpuBytes:
-        (this.activePool.layers + (this.migration?.replacesActivePool
-          ? this.migration.pool.layers
-          : 0)) *
-        mipBytesPerLayer,
+      estimatedGpuBytes: this.allocatedPoolLayers * mipBytesPerLayer,
+      peakEstimatedGpuBytes:
+        this.peakAllocatedPoolLayers * mipBytesPerLayer,
       horizonClassificationTotal: horizon.classificationTotal,
       targetSubmissionTotal: this.targetSubmissionTotal,
       targetSubmissionSuppressedTotal: this.targetSubmissionSuppressedTotal,
       sourceCancellationTotal: provider?.sourceCancellationTotal ?? 0,
       migrationSupersededTotal: this.migrationSupersededTotal,
+      migrationCapacityRestartTotal: this.migrationCapacityRestartTotal,
       migrationReusedUploadTotal: this.migrationReusedUploadTotal,
       migrationObsoleteUploadAvoidedTotal:
         this.migrationObsoleteUploadAvoidedTotal,
@@ -1258,9 +1340,9 @@ export class ImageryVirtualTexture {
     this.workerClient?.dispose();
     this.activeTreeTextures.nodes.dispose();
     this.activeTreeTextures.images.dispose();
-    this.activePool.texture.dispose();
+    this.disposePool(this.activePool);
     if (this.migration?.replacesActivePool) {
-      this.migration.pool.texture.dispose();
+      this.disposePool(this.migration.pool);
     }
     this.stagingTexture.dispose();
     this.records.clear();
@@ -1333,6 +1415,12 @@ export class ImageryVirtualTexture {
     texture.source.dataReady = false;
     texture.needsUpdate = true;
     this.renderer.initTexture(texture);
+    this.poolCreationTotal += 1;
+    this.allocatedPoolLayers += layers;
+    this.peakAllocatedPoolLayers = Math.max(
+      this.peakAllocatedPoolLayers,
+      this.allocatedPoolLayers,
+    );
     return {
       generation: this.nextPoolGeneration++,
       texture,
@@ -1341,6 +1429,12 @@ export class ImageryVirtualTexture {
       uploadedRevisions: new Map(),
       freeSlots: Array.from({ length: layers }, (_, index) => layers - index - 1),
     };
+  }
+
+  private disposePool(pool: ImageryPool): void {
+    pool.texture.dispose();
+    this.poolDisposalTotal += 1;
+    this.allocatedPoolLayers -= pool.layers;
   }
 
   private stage(resource: ImageryTileResource | undefined): void {
@@ -1356,6 +1450,38 @@ export class ImageryVirtualTexture {
     };
     this.records.set(key, record);
     this.stitchNeighbours(record);
+  }
+
+  private structuralPoolDemand(): number {
+    return Math.max(
+      this.snapshot.committedCut.length,
+      this.snapshot.requestedCut.length,
+    );
+  }
+
+  private planPoolMigration(
+    demanded: ReadonlySet<string>,
+  ): PoolMigrationStartPlan {
+    const revisions = new Map<string, number>();
+    for (const key of demanded) {
+      revisions.set(key, this.records.get(key)?.revision ?? 0);
+    }
+    const retained = planImageryPoolMigration(
+      this.activePool.slots,
+      this.activePool.uploadedRevisions,
+      demanded,
+      revisions,
+    );
+    return {
+      revisions,
+      retained,
+      capacity: planImageryPoolCapacity({
+        currentCapacity: this.activePool.layers,
+        structuralDemand: this.structuralPoolDemand(),
+        activeUsed: this.activePool.slots.size,
+        requiredAdditionalSlots: retained.requiredAdditionalSlots,
+      }),
+    };
   }
 
   private processUploads(): void {
@@ -1383,12 +1509,13 @@ export class ImageryVirtualTexture {
 
     const candidateRoot = this.readyCandidateRoot();
     const candidateKeys = imageryTreeSourceKeys(candidateRoot);
+    const poolPlan = this.planPoolMigration(candidateKeys);
     const activeEncoding = this.encodeTreeForPool(
       candidateRoot,
       this.activePool,
     );
 
-    if (activeEncoding) {
+    if (activeEncoding && !poolPlan.capacity.grows) {
       if (candidateRoot !== this.committedRoot) {
         this.publishTree(
           candidateRoot,
@@ -1396,20 +1523,11 @@ export class ImageryVirtualTexture {
           this.activePool,
         );
       }
-      const compactCapacity = imageryReplacementPoolCapacity(candidateKeys.size);
-      if (this.activePool.layers > compactCapacity) {
-        this.startMigration(candidateRoot, candidateKeys);
-        this.uploadPendingChains(
-          this.migration!,
-          MAX_UPLOAD_TIME_PER_FRAME_MS,
-        );
-        if (this.migrationComplete()) this.promoteMigration();
-      }
       this.pruneRecords();
       return;
     }
 
-    this.startMigration(candidateRoot, candidateKeys);
+    this.startMigration(candidateRoot, candidateKeys, poolPlan);
     const migration = this.migration!;
     this.uploadPendingChains(
       migration,
@@ -1487,25 +1605,15 @@ export class ImageryVirtualTexture {
   private startMigration(
     root: ImageryTreeNode,
     demanded: Set<string>,
+    planned = this.planPoolMigration(demanded),
   ): void {
-    const revisions = new Map<string, number>();
-    for (const key of demanded) {
-      revisions.set(key, this.records.get(key)?.revision ?? 0);
-    }
-    const retained = planImageryPoolMigration(
-      this.activePool.slots,
-      this.activePool.uploadedRevisions,
-      demanded,
-      revisions,
-    );
-    const candidateCapacity = imageryReplacementPoolCapacity(demanded.size);
-    const replacesActivePool =
-      retained.requiredAdditionalSlots > this.activePool.freeSlots.length ||
-      this.activePool.layers > candidateCapacity;
+    const { revisions, retained, capacity } = planned;
+    const replacesActivePool = capacity.grows;
     // DataArrayTexture storage cannot resize in place. A replacement remains
     // separate from the visible generation until every candidate layer exists.
+    if (replacesActivePool) this.poolGrowthTotal += 1;
     const pool = replacesActivePool
-      ? this.createPool(candidateCapacity)
+      ? this.createPool(capacity.capacity)
       : this.activePool;
     const slots = replacesActivePool
       ? new Map<string, number>()
@@ -1517,7 +1625,7 @@ export class ImageryVirtualTexture {
       if (slots.has(key)) continue;
       const slot = pool.freeSlots.pop();
       if (slot === undefined) {
-        if (replacesActivePool) pool.texture.dispose();
+        if (replacesActivePool) this.disposePool(pool);
         throw new Error("The candidate imagery pool does not match its tree.");
       }
       slots.set(key, slot);
@@ -1538,6 +1646,7 @@ export class ImageryVirtualTexture {
       pendingUploadSet: new Set(pendingUploadKeys),
       pendingUploadHead: 0,
       remainingUploadCount: pendingUploadKeys.length,
+      candidateUploadKeys: new Set(),
       replacesActivePool,
     };
     this.candidateDirty = false;
@@ -1589,7 +1698,7 @@ export class ImageryVirtualTexture {
     ) {
       const replacement = pool.freeSlots.pop();
       if (replacement === undefined) {
-        this.restartMigration(migration);
+        this.restartMigrationForCapacity(migration);
         return false;
       }
       slot = replacement;
@@ -1599,8 +1708,16 @@ export class ImageryVirtualTexture {
     if ((migration.uploadedRevisions.get(key) ?? 0) >= record.mipRevision) {
       return false;
     }
+    const replacesCandidateUpload = migration.candidateUploadKeys.has(key);
     if (!this.uploadMipChain(pool, slot, record.mipLevels)) return false;
+    if (replacesCandidateUpload) this.discardedCandidateUploadTotal += 1;
     migration.uploadedRevisions.set(key, record.mipRevision);
+    migration.candidateUploadKeys.add(key);
+    if (migration.replacesActivePool) {
+      this.replacementPoolUploadTotal += 1;
+    } else {
+      this.inPlaceUploadTotal += 1;
+    }
     migration.remainingUploadCount = Math.max(
       0,
       migration.remainingUploadCount - 1,
@@ -1608,10 +1725,15 @@ export class ImageryVirtualTexture {
     return true;
   }
 
-  private restartMigration(migration: PoolMigration): void {
+  private restartMigrationForCapacity(
+    migration: PoolMigration,
+    root = migration.root,
+    demanded = new Set(migration.demandedKeys),
+  ): void {
     if (this.migration !== migration) return;
+    this.migrationCapacityRestartTotal += 1;
     this.abandonMigration(migration);
-    this.startMigration(migration.root, new Set(migration.demandedKeys));
+    this.startMigration(root, demanded);
   }
 
   private retargetMigration(
@@ -1624,16 +1746,13 @@ export class ImageryVirtualTexture {
       migration.demandedKeys,
       demanded,
     );
-    if (!demandChanged && root === migration.root) return;
-    this.migrationSupersededTotal += 1;
-    if (
-      migration.replacesActivePool &&
-      migration.pool.layers !== imageryReplacementPoolCapacity(demanded.size)
-    ) {
-      this.abandonMigration(migration);
-      this.startMigration(root, demanded);
+    const nextPoolPlan = this.planPoolMigration(demanded);
+    if (migration.pool.layers < nextPoolPlan.capacity.capacity) {
+      this.restartMigrationForCapacity(migration, root, demanded);
       return;
     }
+    if (!demandChanged && root === migration.root) return;
+    this.migrationSupersededTotal += 1;
     let avoided = 0;
     for (const key of migration.demandedKeys) {
       if (demanded.has(key)) continue;
@@ -1657,9 +1776,13 @@ export class ImageryVirtualTexture {
       plan.missingKeys.length >
         migration.pool.freeSlots.length + plan.releasedCandidateSlots.length
     ) {
-      this.abandonMigration(migration);
-      this.startMigration(root, demanded);
+      this.restartMigrationForCapacity(migration, root, demanded);
       return;
+    }
+    for (const key of plan.releasedCandidateKeys) {
+      if (migration.candidateUploadKeys.delete(key)) {
+        this.discardedCandidateUploadTotal += 1;
+      }
     }
     for (const slot of plan.releasedCandidateSlots) {
       migration.pool.freeSlots.push(slot);
@@ -1698,8 +1821,11 @@ export class ImageryVirtualTexture {
 
   private abandonMigration(migration: PoolMigration): void {
     if (this.migration !== migration) return;
+    this.discardedCandidateUploadTotal +=
+      migration.candidateUploadKeys.size;
+    migration.candidateUploadKeys.clear();
     if (migration.replacesActivePool) {
-      migration.pool.texture.dispose();
+      this.disposePool(migration.pool);
     } else {
       migration.pool.freeSlots.length = 0;
       const activeSlots = new Set(migration.pool.slots.values());
@@ -1796,7 +1922,7 @@ export class ImageryVirtualTexture {
       if (!retainedSlots.has(slot)) migration.pool.freeSlots.push(slot);
     }
     this.publishTree(migration.root, textures, migration.pool);
-    if (migration.replacesActivePool) previousPool.texture.dispose();
+    if (migration.replacesActivePool) this.disposePool(previousPool);
   }
 
   private refreshDesiredTree(): void {
@@ -1890,9 +2016,6 @@ export class ImageryVirtualTexture {
     previousTextures.nodes.dispose();
     previousTextures.images.dispose();
     this.releasePoolSlots(pool, this.committedSourceKeys);
-    if (
-      pool.layers > imageryReplacementPoolCapacity(this.committedSourceKeys.size)
-    ) this.candidateDirty = true;
     this.pruneRecords();
   }
 

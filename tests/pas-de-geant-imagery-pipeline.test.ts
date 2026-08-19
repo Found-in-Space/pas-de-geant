@@ -9,9 +9,9 @@ import {
   ScheduledImageryProvider,
   imageryLayerUploadPlan,
   imageryMigrationReady,
-  imageryReplacementPoolCapacity,
   imageryTargetForView,
   planImageryMigrationUploadDemand,
+  planImageryPoolCapacity,
   planImageryPoolMigration,
   planImageryPoolMigrationRetarget,
   type ImageryWorkerPort,
@@ -54,6 +54,25 @@ function tileKey(tile: TileIdentity): string {
 function parseTileKey(key: string): TileIdentity {
   const [z, x, y] = key.split("/").map(Number);
   return { z: z!, x: x!, y: y! };
+}
+
+function fakeImageryPool(
+  layers: number,
+  slots: ReadonlyMap<string, number> = new Map(),
+  uploadedRevisions: ReadonlyMap<string, number> = new Map(),
+) {
+  const occupied = new Set(slots.values());
+  return {
+    generation: 17,
+    texture: { dispose: vi.fn() },
+    layers,
+    slots: new Map(slots),
+    uploadedRevisions: new Map(uploadedRevisions),
+    freeSlots: Array.from(
+      { length: layers },
+      (_, index) => layers - index - 1,
+    ).filter((slot) => !occupied.has(slot)),
+  };
 }
 
 function reconcileForTest(
@@ -220,6 +239,63 @@ describe("independent photographic imagery pipeline", () => {
     expect(migration.pendingUploadSet).toEqual(new Set(["next-frame"]));
   });
 
+  it("attributes in-place, replacement, and discarded candidate uploads", () => {
+    const texture = Object.create(ImageryVirtualTexture.prototype) as any;
+    const activePool = fakeImageryPool(2);
+    texture.activePool = activePool;
+    texture.records = new Map([
+      ["in-place", {
+        revision: 1,
+        mipRevision: 1,
+        mipLevels: [],
+      }],
+      ["replacement", {
+        revision: 1,
+        mipRevision: 1,
+        mipLevels: [],
+      }],
+    ]);
+    texture.uploadMipChain = vi.fn(() => true);
+    texture.inPlaceUploadTotal = 0;
+    texture.replacementPoolUploadTotal = 0;
+    texture.discardedCandidateUploadTotal = 0;
+    const inPlaceMigration = {
+      pool: activePool,
+      slots: new Map([["in-place", 1]]),
+      uploadedRevisions: new Map(),
+      remainingUploadCount: 1,
+      candidateUploadKeys: new Set(),
+      replacesActivePool: false,
+    };
+
+    expect(texture.uploadMigrationKey(inPlaceMigration, "in-place")).toBe(true);
+    texture.records.get("in-place").revision = 2;
+    texture.records.get("in-place").mipRevision = 2;
+    inPlaceMigration.remainingUploadCount = 1;
+    expect(texture.uploadMigrationKey(inPlaceMigration, "in-place")).toBe(true);
+
+    const replacementMigration = {
+      pool: fakeImageryPool(2),
+      slots: new Map([["replacement", 0]]),
+      uploadedRevisions: new Map(),
+      remainingUploadCount: 1,
+      candidateUploadKeys: new Set(),
+      replacesActivePool: true,
+    };
+    expect(texture.uploadMigrationKey(replacementMigration, "replacement"))
+      .toBe(true);
+
+    expect(texture.inPlaceUploadTotal).toBe(2);
+    expect(texture.replacementPoolUploadTotal).toBe(1);
+    expect(texture.discardedCandidateUploadTotal).toBe(1);
+    expect(inPlaceMigration.candidateUploadKeys).toEqual(
+      new Set(["in-place"]),
+    );
+    expect(replacementMigration.candidateUploadKeys).toEqual(
+      new Set(["replacement"]),
+    );
+  });
+
   it("coalesces worker remips and ignores a stale stitched-base revision", () => {
     class FakeWorker implements ImageryWorkerPort {
       readonly commands: ImageryDecoderCommand[] = [];
@@ -370,10 +446,190 @@ describe("independent photographic imagery pipeline", () => {
     expect(uploadDemand.pendingKeys).toEqual(["visited"]);
   });
 
-  it("sizes replacement GPU storage to the candidate generation", () => {
-    expect(imageryReplacementPoolCapacity(0)).toBe(1);
-    expect(imageryReplacementPoolCapacity(5)).toBe(5);
-    expect(imageryReplacementPoolCapacity(3)).toBe(3);
+  it("keeps a structural and copy-on-write pool high-water mark", () => {
+    expect(planImageryPoolCapacity({
+      currentCapacity: 1,
+      structuralDemand: 100,
+      activeUsed: 0,
+      requiredAdditionalSlots: 5,
+    })).toEqual({
+      capacity: 100,
+      concurrentDemand: 5,
+      grows: true,
+    });
+
+    expect(planImageryPoolCapacity({
+      currentCapacity: 100,
+      structuralDemand: 100,
+      activeUsed: 100,
+      requiredAdditionalSlots: 25,
+    })).toEqual({
+      capacity: 125,
+      concurrentDemand: 125,
+      grows: true,
+    });
+
+    expect(planImageryPoolCapacity({
+      currentCapacity: 125,
+      structuralDemand: 80,
+      activeUsed: 80,
+      requiredAdditionalSlots: 5,
+    })).toEqual({
+      capacity: 125,
+      concurrentDemand: 85,
+      grows: false,
+    });
+  });
+
+  it("tracks pool allocation, disposal, and peak simultaneous layers", () => {
+    const texture = Object.create(ImageryVirtualTexture.prototype) as any;
+    texture.renderer = {
+      capabilities: { getMaxAnisotropy: () => 1 },
+      initTexture: vi.fn(),
+    };
+    texture.paddedSize = 2;
+    texture.nextPoolGeneration = 1;
+    texture.poolCreationTotal = 0;
+    texture.poolDisposalTotal = 0;
+    texture.allocatedPoolLayers = 0;
+    texture.peakAllocatedPoolLayers = 0;
+
+    const active = texture.createPool(2);
+    const candidate = texture.createPool(3);
+    expect(texture.poolCreationTotal).toBe(2);
+    expect(texture.allocatedPoolLayers).toBe(5);
+    expect(texture.peakAllocatedPoolLayers).toBe(5);
+
+    texture.disposePool(active);
+    expect(active.texture.dispose).toBeDefined();
+    expect(texture.poolDisposalTotal).toBe(1);
+    expect(texture.allocatedPoolLayers).toBe(3);
+    expect(texture.peakAllocatedPoolLayers).toBe(5);
+
+    texture.disposePool(candidate);
+  });
+
+  it("stages a partial copy-on-write migration without replacing a roomy pool", () => {
+    const texture = Object.create(ImageryVirtualTexture.prototype) as any;
+    const activePool = fakeImageryPool(
+      5,
+      new Map([
+        ["retained", 0],
+        ["changed", 1],
+        ["outgoing", 2],
+      ]),
+      new Map([
+        ["retained", 3],
+        ["changed", 2],
+        ["outgoing", 4],
+      ]),
+    );
+    texture.activePool = activePool;
+    texture.snapshot = {
+      committedCut: [{}, {}, {}],
+      requestedCut: [{}, {}, {}],
+    };
+    texture.records = new Map([
+      ["retained", { revision: 3 }],
+      ["changed", { revision: 4 }],
+      ["incoming", { revision: 1 }],
+    ]);
+    texture.poolGrowthTotal = 0;
+    texture.candidateDirty = true;
+
+    texture.startMigration(
+      { image: BLUE_MARBLE_IMAGERY_KEY },
+      new Set(["retained", "changed", "incoming"]),
+    );
+
+    expect(texture.migration.pool).toBe(activePool);
+    expect(texture.migration.replacesActivePool).toBe(false);
+    expect(texture.migration.slots.get("retained")).toBe(0);
+    expect(new Set([
+      texture.migration.slots.get("changed"),
+      texture.migration.slots.get("incoming"),
+    ])).toEqual(new Set([3, 4]));
+    expect(texture.migration.uploadedRevisions).toEqual(
+      new Map([["retained", 3]]),
+    );
+    expect(texture.migration.pendingUploadKeys).toEqual([
+      "changed",
+      "incoming",
+    ]);
+    expect(activePool.slots).toEqual(new Map([
+      ["retained", 0],
+      ["changed", 1],
+      ["outgoing", 2],
+    ]));
+    expect(texture.poolGrowthTotal).toBe(0);
+  });
+
+  it("releases outgoing slots after publication without shrinking capacity", () => {
+    const texture = Object.create(ImageryVirtualTexture.prototype) as any;
+    const pool = fakeImageryPool(
+      5,
+      new Map([
+        ["retained", 0],
+        ["outgoing", 1],
+        ["superseded-revision", 2],
+      ]),
+      new Map([
+        ["retained", 3],
+        ["outgoing", 1],
+        ["superseded-revision", 2],
+      ]),
+    );
+
+    texture.releasePoolSlots(pool, new Set(["retained"]));
+
+    expect(pool.layers).toBe(5);
+    expect(pool.slots).toEqual(new Map([["retained", 0]]));
+    expect(pool.uploadedRevisions).toEqual(new Map([["retained", 3]]));
+    expect(new Set(pool.freeSlots)).toEqual(new Set([1, 2, 3, 4]));
+  });
+
+  it("grows once to the exact concurrent copy-on-write demand", () => {
+    const texture = Object.create(ImageryVirtualTexture.prototype) as any;
+    texture.activePool = fakeImageryPool(
+      3,
+      new Map([
+        ["retained", 0],
+        ["changed", 1],
+        ["outgoing", 2],
+      ]),
+      new Map([
+        ["retained", 3],
+        ["changed", 2],
+        ["outgoing", 4],
+      ]),
+    );
+    texture.snapshot = {
+      committedCut: [{}, {}, {}],
+      requestedCut: [{}, {}, {}],
+    };
+    texture.records = new Map([
+      ["retained", { revision: 3 }],
+      ["changed", { revision: 4 }],
+      ["incoming", { revision: 1 }],
+    ]);
+    texture.poolGrowthTotal = 0;
+    texture.candidateDirty = true;
+    texture.createPool = vi.fn((layers: number) => fakeImageryPool(layers));
+
+    texture.startMigration(
+      { image: BLUE_MARBLE_IMAGERY_KEY },
+      new Set(["retained", "changed", "incoming"]),
+    );
+
+    expect(texture.createPool).toHaveBeenCalledWith(5);
+    expect(texture.migration.pool.layers).toBe(5);
+    expect(texture.migration.replacesActivePool).toBe(true);
+    expect(texture.migration.pendingUploadKeys).toEqual([
+      "retained",
+      "changed",
+      "incoming",
+    ]);
+    expect(texture.poolGrowthTotal).toBe(1);
   });
 
   it("reuses partial uploads across repeated migration supersedes without releasing visible slots", () => {
@@ -395,6 +651,7 @@ describe("independent photographic imagery pipeline", () => {
       visible,
       new Set(["retained", "staged", "incoming"]),
     );
+    expect(first.releasedCandidateKeys).toEqual(["obsolete"]);
     expect(first.releasedCandidateSlots).toEqual([3]);
     expect(first.releasedCandidateSlots).not.toContain(1);
     expect(first.missingKeys).toEqual(["incoming"]);
@@ -415,7 +672,120 @@ describe("independent photographic imagery pipeline", () => {
       ["retained", 3],
       ["incoming", 1],
     ]));
+    expect(second.releasedCandidateKeys).toEqual(["staged"]);
     expect(second.releasedCandidateSlots).toEqual([2]);
+  });
+
+  it("retargets a different-sized candidate within capacity without restarting", () => {
+    const texture = Object.create(ImageryVirtualTexture.prototype) as any;
+    texture.activePool = fakeImageryPool(
+      2,
+      new Map([["a", 0]]),
+      new Map([["a", 1]]),
+    );
+    texture.snapshot = {
+      committedCut: [{}],
+      requestedCut: [{}, {}, {}, {}],
+    };
+    texture.records = new Map(
+      ["a", "b", "c", "d", "e"].map((key) => [key, { revision: 1 }]),
+    );
+    texture.migrationSupersededTotal = 0;
+    texture.migrationReusedUploadTotal = 0;
+    texture.migrationObsoleteUploadAvoidedTotal = 0;
+    texture.migrationCapacityRestartTotal = 0;
+    texture.discardedCandidateUploadTotal = 0;
+    const candidatePool = fakeImageryPool(
+      5,
+      new Map([
+        ["a", 0],
+        ["b", 1],
+        ["c", 2],
+      ]),
+      new Map([
+        ["a", 1],
+        ["b", 1],
+        ["c", 1],
+      ]),
+    );
+    const migration = {
+      pool: candidatePool,
+      root: { image: "old-root" },
+      demandedKeys: new Set(["a", "b", "c"]),
+      slots: new Map(candidatePool.slots),
+      uploadedRevisions: new Map(candidatePool.uploadedRevisions),
+      pendingUploadKeys: [],
+      pendingUploadSet: new Set(),
+      pendingUploadHead: 0,
+      remainingUploadCount: 0,
+      candidateUploadKeys: new Set(["a", "b", "c"]),
+      replacesActivePool: true,
+    };
+    texture.migration = migration;
+    const nextRoot = { image: "next-root" };
+
+    texture.retargetMigration(
+      migration,
+      nextRoot,
+      new Set(["a", "b", "d", "e"]),
+    );
+
+    expect(texture.migration).toBe(migration);
+    expect(migration.root).toBe(nextRoot);
+    expect(migration.slots.get("a")).toBe(0);
+    expect(migration.slots.get("b")).toBe(1);
+    expect(new Set([migration.slots.get("d"), migration.slots.get("e")]))
+      .toEqual(new Set([2, 3]));
+    expect(migration.uploadedRevisions).toEqual(new Map([
+      ["a", 1],
+      ["b", 1],
+    ]));
+    expect(migration.pendingUploadKeys).toEqual(["d", "e"]);
+    expect(migration.candidateUploadKeys).toEqual(new Set(["a", "b"]));
+    expect(texture.migrationCapacityRestartTotal).toBe(0);
+    expect(texture.migrationReusedUploadTotal).toBe(2);
+    expect(texture.discardedCandidateUploadTotal).toBe(1);
+  });
+
+  it("restarts a candidate only when its real high-water demand grows", () => {
+    const texture = Object.create(ImageryVirtualTexture.prototype) as any;
+    texture.activePool = fakeImageryPool(
+      2,
+      new Map([["active", 0]]),
+      new Map([["active", 1]]),
+    );
+    texture.snapshot = {
+      committedCut: [{}],
+      requestedCut: [{}, {}, {}, {}, {}],
+    };
+    texture.records = new Map(
+      ["a", "b", "c", "d"].map((key) => [key, { revision: 1 }]),
+    );
+    texture.migrationCapacityRestartTotal = 0;
+    const migration = {
+      pool: fakeImageryPool(4),
+      root: { image: "old-root" },
+      demandedKeys: new Set(["a"]),
+      slots: new Map([["a", 0]]),
+      uploadedRevisions: new Map([["a", 1]]),
+      pendingUploadKeys: [],
+      pendingUploadSet: new Set(),
+      pendingUploadHead: 0,
+      remainingUploadCount: 0,
+      candidateUploadKeys: new Set(["a"]),
+      replacesActivePool: true,
+    };
+    texture.migration = migration;
+    texture.abandonMigration = vi.fn();
+    texture.startMigration = vi.fn();
+    const nextRoot = { image: "next-root" };
+    const nextDemand = new Set(["a", "b", "c", "d"]);
+
+    texture.retargetMigration(migration, nextRoot, nextDemand);
+
+    expect(texture.migrationCapacityRestartTotal).toBe(1);
+    expect(texture.abandonMigration).toHaveBeenCalledWith(migration);
+    expect(texture.startMigration).toHaveBeenCalledWith(nextRoot, nextDemand);
   });
 
   it("queues the one unsatisfied migration page ahead of many reused uploads", () => {
