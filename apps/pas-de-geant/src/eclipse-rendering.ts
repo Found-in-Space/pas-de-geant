@@ -150,11 +150,14 @@ class RetainedConeSurface {
   private readonly positions: Float32Array;
   private readonly rayOrigins: Float32Array;
   private readonly coneToEarthFixed = new THREE.Matrix4();
+  private readonly edgeColor: THREE.Color;
 
   constructor(
     color: number,
+    edgeColor: number,
     opacity: number,
   ) {
+    this.edgeColor = new THREE.Color(edgeColor);
     const vertexCount =
       (this.radialSegments + 1) * (this.lengthSegments + 1);
     this.positions = new Float32Array(vertexCount * 3);
@@ -184,26 +187,30 @@ class RetainedConeSurface {
       opacity,
       side: THREE.DoubleSide,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
+      toneMapped: false,
     });
     material.onBeforeCompile = (shader) => {
       shader.uniforms["coneToEarthFixed"] = {
         value: this.coneToEarthFixed,
       };
       shader.uniforms["wgs84DisplayAxes"] = { value: WGS84_DISPLAY_AXES };
+      shader.uniforms["coneEdgeColor"] = { value: this.edgeColor };
       shader.vertexShader = shader.vertexShader
         .replace(
           "#include <common>",
           `#include <common>
 attribute vec3 coneRayOrigin;
 varying vec3 vConeRayOrigin;
-varying vec3 vConePosition;`,
+varying vec3 vConePosition;
+varying vec3 vConeViewPosition;`,
         )
         .replace(
           "#include <begin_vertex>",
           `#include <begin_vertex>
 vConeRayOrigin = coneRayOrigin;
-vConePosition = transformed;`,
+vConePosition = transformed;
+vConeViewPosition = ( modelViewMatrix * vec4( transformed, 1.0 ) ).xyz;`,
         );
       shader.fragmentShader = shader.fragmentShader
         .replace(
@@ -211,8 +218,10 @@ vConePosition = transformed;`,
           `#include <common>
 uniform mat4 coneToEarthFixed;
 uniform vec3 wgs84DisplayAxes;
+uniform vec3 coneEdgeColor;
 varying vec3 vConeRayOrigin;
-varying vec3 vConePosition;`,
+varying vec3 vConePosition;
+varying vec3 vConeViewPosition;`,
         )
         .replace(
           "#include <clipping_planes_fragment>",
@@ -235,10 +244,29 @@ if ( segmentA > 0.0 && discriminant >= 0.0 ) {
     ( entry > 0.00001 && entry < 0.9995 ) ||
     ( exit > 0.00001 && exit < 0.9995 )
   ) discard;
-}`,
+}
+
+// Keep the shadow readable at grazing angles without turning its boundary
+// into a luminous wireframe. The interior remains genuinely darker than the
+// surrounding light field; only a thin, cool edge receives a little colour.
+vec3 coneViewNormal = normalize( cross(
+  dFdx( vConeViewPosition ),
+  dFdy( vConeViewPosition )
+) );
+float coneGrazing = 1.0 - abs( dot(
+  coneViewNormal,
+  normalize( -vConeViewPosition )
+) );
+float coneEdge = smoothstep( 0.72, 0.98, coneGrazing );
+diffuseColor.rgb = mix(
+  diffuseColor.rgb,
+  coneEdgeColor,
+  coneEdge * 0.52
+);
+diffuseColor.a *= mix( 0.82, 1.16, coneEdge );`,
         );
     };
-    material.customProgramCacheKey = () => "pas-de-geant-eclipse-cone-v1";
+    material.customProgramCacheKey = () => "pas-de-geant-eclipse-cone-v2";
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 3;
@@ -288,12 +316,14 @@ export class RetainedShadowCones {
   readonly group = new THREE.Group();
 
   private readonly penumbra = new RetainedConeSurface(
-    0xf2b94d,
-    0.13,
+    0x02060e,
+    0x31445a,
+    0.2,
   );
   private readonly central = new RetainedConeSurface(
-    0x9d7cff,
-    0.26,
+    0x010207,
+    0x3a435b,
+    0.46,
   );
 
   constructor() {
@@ -310,6 +340,76 @@ export class RetainedShadowCones {
     this.penumbra.dispose();
     this.central.dispose();
     this.group.remove(...this.group.children);
+  }
+}
+
+export class EclipseLightField {
+  readonly object: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
+
+  private readonly cameraPosition = new THREE.Vector3();
+  private readonly sunDirection = new THREE.Vector3(1, 0, 0);
+
+  constructor() {
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        sunDirection: { value: this.sunDirection },
+      },
+      vertexShader: `
+varying vec3 vWorldDirection;
+
+void main() {
+  vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
+  vWorldDirection = worldPosition.xyz - cameraPosition;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+}`,
+      fragmentShader: `
+uniform vec3 sunDirection;
+varying vec3 vWorldDirection;
+
+void main() {
+  vec3 direction = normalize( vWorldDirection );
+  float sunAlignment = dot( direction, normalize( sunDirection ) );
+  float broadSolarGlow = pow( 0.5 + 0.5 * sunAlignment, 1.7 );
+  float nearSolarGlow = pow( max( sunAlignment, 0.0 ), 18.0 );
+  float verticalLift = 0.5 + 0.5 * direction.y;
+
+  vec3 deepSpace = vec3( 0.0018, 0.0034, 0.0085 );
+  vec3 diffuseLight = vec3( 0.0038, 0.0064, 0.0125 );
+  vec3 solarLight = vec3( 0.022, 0.012, 0.0045 );
+  vec3 colour = deepSpace + diffuseLight * ( 0.72 + 0.28 * verticalLift );
+  colour += solarLight * ( 0.18 * broadSolarGlow + 0.32 * nearSolarGlow );
+
+  gl_FragColor = vec4( colour, 1.0 );
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`,
+      side: THREE.BackSide,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    this.object = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 32, 18),
+      material,
+    );
+    this.object.name = "eclipse-light-field";
+    this.object.scale.setScalar(VISIBLE_SUN_FAR_M * 0.75);
+    this.object.frustumCulled = false;
+    this.object.renderOrder = -10;
+  }
+
+  update(camera: THREE.Camera, systemSunWorldPosition: THREE.Vector3): void {
+    camera.getWorldPosition(this.cameraPosition);
+    this.object.position.copy(this.cameraPosition);
+    this.sunDirection
+      .copy(systemSunWorldPosition)
+      .sub(this.cameraPosition)
+      .normalize();
+  }
+
+  dispose(): void {
+    this.object.geometry.dispose();
+    this.object.material.dispose();
   }
 }
 

@@ -36,6 +36,7 @@ import {
 } from "./eclipse-observer.js";
 import { eclipseControllerIntent } from "./eclipse-controller-input.js";
 import {
+  EclipseLightField,
   EclipseFootprints,
   RetainedShadowCones,
   VISIBLE_SUN_FAR_M,
@@ -152,6 +153,8 @@ scene.add(new THREE.HemisphereLight(0x7998c2, 0x05050a, 0.42));
 const sunLight = new THREE.DirectionalLight(0xffe6ae, 3.8);
 sunLight.target.position.set(0, 0, 0);
 physicalRoot.add(sunLight, sunLight.target);
+const lightField = new EclipseLightField();
+scene.add(lightField.object);
 const visibleSun = new VisibleSun();
 scene.add(visibleSun.object);
 
@@ -1186,6 +1189,7 @@ function render(nowMs: number): void {
   updateHandPanel(nowMs, viewCamera);
   sunWorldPosition.copy(sunStagePosition);
   modelRoot.localToWorld(sunWorldPosition);
+  lightField.update(viewCamera, sunWorldPosition);
   visibleSun.update(
     viewCamera,
     sunWorldPosition,
@@ -1201,6 +1205,7 @@ window.addEventListener("beforeunload", () => {
   panelRuntime.dispose();
   cones.dispose();
   footprints.dispose();
+  lightField.dispose();
   visibleSun.dispose();
   earth.geometry.dispose();
   earth.material.dispose();
