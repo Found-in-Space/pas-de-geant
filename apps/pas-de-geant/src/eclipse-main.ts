@@ -22,7 +22,18 @@ import { VRButton } from "three/addons/webxr/VRButton.js";
 import {
   freshButtonLatch,
   isHandTrackingInputSource,
+  stickForSource,
 } from "./controller-input.js";
+import {
+  beginObserverOneGrip,
+  beginObserverTwoGrip,
+  observerPositionForView,
+  updateObserverOneGrip,
+  updateObserverTwoGrip,
+  type EclipseObserverTransform,
+  type ObserverOneGripGesture,
+  type ObserverTwoGripGesture,
+} from "./eclipse-observer.js";
 import { eclipseControllerIntent } from "./eclipse-controller-input.js";
 import {
   EclipseFootprints,
@@ -43,19 +54,12 @@ import {
   type EclipsePanelState,
 } from "./eclipse-panel.js";
 import {
-  applyStageTransform,
-  beginOneGrip,
-  beginTwoGrip,
   presetFocus,
-  presetStageTransform,
-  stageTransform,
-  updateOneGrip,
-  updateTwoGrip,
+  presetMetresPerEarthRadius,
+  presetViewDistance,
   type EclipseStageFrame,
   type EclipseStageTransform,
   type GripPose,
-  type OneGripGesture,
-  type TwoGripGesture,
 } from "./eclipse-stage.js";
 import {
   eclipseYearFromEventId,
@@ -128,6 +132,10 @@ const camera = new THREE.PerspectiveCamera(
   VISIBLE_SUN_FAR_M,
 );
 camera.position.set(0, 1.65, 0);
+const observerRig = new THREE.Group();
+observerRig.name = "eclipse-observer-rig";
+observerRig.add(camera);
+scene.add(observerRig);
 
 const modelRoot = new THREE.Group();
 modelRoot.name = "eclipse-stage-root";
@@ -139,20 +147,6 @@ earthFixedRoot.matrixAutoUpdate = false;
 physicalRoot.add(earthFixedRoot);
 modelRoot.add(physicalRoot);
 scene.add(modelRoot);
-
-const floorReference = new THREE.GridHelper(6, 12, 0x214052, 0x112632);
-floorReference.name = "eclipse-room-floor-reference";
-floorReference.position.y = 0.002;
-floorReference.visible = false;
-const floorMaterials = Array.isArray(floorReference.material)
-  ? floorReference.material
-  : [floorReference.material];
-for (const material of floorMaterials) {
-  material.transparent = true;
-  material.opacity = 0.22;
-  material.depthWrite = false;
-}
-scene.add(floorReference);
 
 scene.add(new THREE.HemisphereLight(0x7998c2, 0x05050a, 0.42));
 const sunLight = new THREE.DirectionalLight(0xffe6ae, 3.8);
@@ -227,6 +221,7 @@ interface ExperienceState {
   voice: RealtimeAgentStatus;
   frame: EclipseFrame;
   stage: EclipseStageTransform;
+  observer: EclipseObserverTransform;
 }
 
 const worker = new EclipseWorkerClient();
@@ -257,15 +252,19 @@ const state: ExperienceState = {
     quaternion: new THREE.Quaternion(),
     metresPerEarthRadius: 0.09,
   },
+  observer: {
+    position: new THREE.Vector3(),
+    quaternion: new THREE.Quaternion(),
+  },
 };
 
 let inertialToStage: THREE.Matrix4 | null = null;
 let peakStageFrame: EclipseStageFrame | null = null;
 const stageToEarthFixed = new THREE.Matrix4();
 const moonStagePosition = new THREE.Vector3();
+const sunStagePosition = new THREE.Vector3();
+const sunWorldPosition = new THREE.Vector3();
 const shadowAxisStage = new THREE.Vector3(1, 0, 0);
-const sunDirectionStage = new THREE.Vector3(-1, 0, 0);
-let sunAngularRadiusRad = THREE.MathUtils.degToRad(0.266);
 
 function currentStageFrame(): EclipseStageFrame {
   return {
@@ -295,13 +294,11 @@ function updateSceneFrame(frame: EclipseFrame): void {
   moonStagePosition.copy(
     ecefKmToDisplay(frame.moonEcefKm).applyMatrix4(earthFixedToStage),
   );
+  sunStagePosition.copy(
+    ecefKmToDisplay(frame.sunEcefKm).applyMatrix4(earthFixedToStage),
+  );
   shadowAxisStage.copy(
     displayDirection(frame.direction)
-      .transformDirection(earthFixedToStage)
-      .normalize(),
-  );
-  sunDirectionStage.copy(
-    displayDirection(frame.sunEcefKm)
       .transformDirection(earthFixedToStage)
       .normalize(),
   );
@@ -321,24 +318,50 @@ function updateSceneFrame(frame: EclipseFrame): void {
     coneToEarthFixed: stageToEarthFixed,
   });
   footprints.update(frame.penumbraRings, frame.centralRings);
-  sunAngularRadiusRad = Math.asin(SUN_RADIUS_KM / frame.sunMoonDistanceKm);
-  sunLight.position.copy(sunDirectionStage).multiplyScalar(100);
+  sunLight.position.copy(sunStagePosition);
 }
 
 function applyPreset(preset: EclipseViewPreset): void {
   state.activePreset = preset;
   state.lastPreset = preset;
-  commitStageTransform(presetStageTransform(preset, stageFrameForPreset(preset)));
+  const metresPerEarthRadius = presetMetresPerEarthRadius(preset);
+  commitSystemScale(metresPerEarthRadius);
+  const focusWorld = presetFocus(preset, stageFrameForPreset(preset))
+    .multiplyScalar(metresPerEarthRadius);
+  commitObserverTransform({
+    position: observerPositionForView(
+      focusWorld,
+      presetViewDistance(preset),
+      camera.position,
+      camera.quaternion,
+      observerRig.quaternion,
+    ),
+    quaternion: observerRig.quaternion,
+  });
   syncPresentation();
 }
 
-function commitStageTransform(transform: EclipseStageTransform): void {
+function commitSystemScale(metresPerEarthRadius: number): void {
   state.stage = {
-    position: transform.position.clone(),
-    quaternion: transform.quaternion.clone(),
-    metresPerEarthRadius: transform.metresPerEarthRadius,
+    position: new THREE.Vector3(),
+    quaternion: new THREE.Quaternion(),
+    metresPerEarthRadius,
   };
-  applyStageTransform(modelRoot, state.stage);
+  modelRoot.position.set(0, 0, 0);
+  modelRoot.quaternion.identity();
+  modelRoot.scale.setScalar(metresPerEarthRadius);
+  modelRoot.updateMatrixWorld(true);
+}
+
+function commitObserverTransform(transform: EclipseObserverTransform): void {
+  state.observer = {
+    position: transform.position.clone(),
+    quaternion: transform.quaternion.clone().normalize(),
+  };
+  observerRig.position.copy(state.observer.position);
+  observerRig.quaternion.copy(state.observer.quaternion);
+  observerRig.scale.set(1, 1, 1);
+  observerRig.updateMatrixWorld(true);
 }
 
 function resetEclipseStage(): Record<string, unknown> {
@@ -350,19 +373,20 @@ function setStageScale(metresPerEarthRadius: number): void {
   if (!Number.isFinite(metresPerEarthRadius) || metresPerEarthRadius <= 0) {
     throw new Error("metresPerEarthRadius must be positive and finite.");
   }
-  modelRoot.updateMatrixWorld(true);
   const focus = state.activePreset
     ? presetFocus(state.activePreset, stageFrameForPreset(state.activePreset))
     : new THREE.Vector3();
-  const worldFocus = focus.clone().applyMatrix4(modelRoot.matrixWorld);
-  const transformedFocus = focus
-    .clone()
-    .multiplyScalar(metresPerEarthRadius)
-    .applyQuaternion(modelRoot.quaternion);
-  modelRoot.scale.setScalar(metresPerEarthRadius);
-  modelRoot.position.copy(worldFocus).sub(transformedFocus);
-  modelRoot.updateMatrixWorld(true);
-  state.stage = stageTransform(modelRoot);
+  const oldFocusWorld = focus.clone().multiplyScalar(
+    state.stage.metresPerEarthRadius,
+  );
+  const newFocusWorld = focus.clone().multiplyScalar(metresPerEarthRadius);
+  commitSystemScale(metresPerEarthRadius);
+  commitObserverTransform({
+    position: state.observer.position.clone().add(
+      newFocusWorld.sub(oldFocusWorld),
+    ),
+    quaternion: state.observer.quaternion,
+  });
   state.activePreset = null;
   syncPresentation();
 }
@@ -676,7 +700,7 @@ const controllerBindings: ControllerBinding[] = [0, 1].map((index) => {
   controller.addEventListener("disconnected", () => {
     binding.inputSource = undefined;
   });
-  scene.add(controller, grip);
+  observerRig.add(controller, grip);
   return binding;
 });
 
@@ -823,17 +847,20 @@ const secondGripPose: GripPose = {
   position: new THREE.Vector3(),
   quaternion: new THREE.Quaternion(),
 };
-let oneGripGesture: OneGripGesture | null = null;
-let twoGripGesture: TwoGripGesture | null = null;
+let oneGripGesture: ObserverOneGripGesture | null = null;
+let twoGripGesture: ObserverTwoGripGesture | null = null;
 let gestureCount = 0;
 
-function readGripPose(binding: ControllerBinding, target: GripPose): GripPose {
-  binding.grip.getWorldPosition(target.position);
-  binding.grip.getWorldQuaternion(target.quaternion);
+function readGripReferencePose(
+  binding: ControllerBinding,
+  target: GripPose,
+): GripPose {
+  target.position.copy(binding.grip.position);
+  target.quaternion.copy(binding.grip.quaternion);
   return target;
 }
 
-function updateStageManipulation(): void {
+function updateObserverGripNavigation(): void {
   const active = controllerBindings.filter((binding) =>
     binding.inputSource &&
     (binding.inputSource.gamepad?.buttons[1]?.value ?? 0) > 0.55
@@ -845,38 +872,92 @@ function updateStageManipulation(): void {
     twoGripGesture = null;
     if (nextCount === 1) {
       const binding = active[0]!;
-      oneGripGesture = beginOneGrip(
-        readGripPose(binding, firstGripPose),
-        state.stage,
+      oneGripGesture = beginObserverOneGrip(
+        readGripReferencePose(binding, firstGripPose),
+        state.observer,
       );
     } else if (nextCount === 2) {
-      twoGripGesture = beginTwoGrip(
-        readGripPose(active[0]!, firstGripPose),
-        readGripPose(active[1]!, secondGripPose),
-        state.stage,
+      twoGripGesture = beginObserverTwoGrip(
+        readGripReferencePose(active[0]!, firstGripPose),
+        readGripReferencePose(active[1]!, secondGripPose),
+        state.observer,
       );
     }
   }
   if (nextCount === 1 && oneGripGesture) {
-    commitStageTransform(
-      updateOneGrip(
+    commitObserverTransform(
+      updateObserverOneGrip(
         oneGripGesture,
-        readGripPose(active[0]!, firstGripPose),
+        readGripReferencePose(active[0]!, firstGripPose),
       ),
     );
     state.activePreset = null;
     syncPresentation();
   } else if (nextCount === 2 && twoGripGesture) {
-    commitStageTransform(
-      updateTwoGrip(
+    commitObserverTransform(
+      updateObserverTwoGrip(
         twoGripGesture,
-        readGripPose(active[0]!, firstGripPose),
-        readGripPose(active[1]!, secondGripPose),
+        readGripReferencePose(active[0]!, firstGripPose),
+        readGripReferencePose(active[1]!, secondGripPose),
       ),
     );
     state.activePreset = null;
     syncPresentation();
   }
+}
+
+const observerFlightDirection = new THREE.Vector3();
+const observerViewQuaternion = new THREE.Quaternion();
+const observerFlightRight = new THREE.Vector3();
+const observerFlightUp = new THREE.Vector3();
+const observerFlightForward = new THREE.Vector3();
+const observerHeadPosition = new THREE.Vector3();
+function updateObserverFlight(
+  elapsedSeconds: number,
+  viewCamera: THREE.Camera,
+): void {
+  if (gestureCount > 0) return;
+  const left = bindingForHand("left")?.inputSource;
+  const right = bindingForHand("right")?.inputSource;
+  const [travelX, travelY] = stickForSource(left);
+  const [turnAxis, verticalAxis] = stickForSource(right, 0.22);
+  if (
+    travelX === 0 && travelY === 0 &&
+    turnAxis === 0 && verticalAxis === 0
+  ) return;
+  viewCamera.getWorldQuaternion(observerViewQuaternion);
+  observerFlightRight.set(1, 0, 0).applyQuaternion(observerViewQuaternion);
+  observerFlightUp.set(0, 1, 0).applyQuaternion(observerViewQuaternion);
+  observerFlightForward.set(0, 0, -1).applyQuaternion(observerViewQuaternion);
+  observerFlightDirection.set(0, 0, 0)
+    .addScaledVector(observerFlightRight, travelX)
+    .addScaledVector(observerFlightForward, -travelY)
+    .addScaledVector(observerFlightUp, -verticalAxis);
+  const nextObserver = {
+    position: state.observer.position.clone(),
+    quaternion: state.observer.quaternion.clone(),
+  };
+  if (observerFlightDirection.lengthSq() > 0) {
+    nextObserver.position.addScaledVector(
+      observerFlightDirection.normalize(),
+      1.8 * elapsedSeconds,
+    );
+  }
+  if (turnAxis !== 0) {
+    viewCamera.getWorldPosition(observerHeadPosition);
+    const yaw = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      -turnAxis * 1.35 * elapsedSeconds,
+    );
+    nextObserver.position
+      .sub(observerHeadPosition)
+      .applyQuaternion(yaw)
+      .add(observerHeadPosition);
+    nextObserver.quaternion.premultiply(yaw).normalize();
+  }
+  commitObserverTransform(nextObserver);
+  state.activePreset = null;
+  syncPresentation();
 }
 
 const buttonLatch = freshButtonLatch();
@@ -895,6 +976,14 @@ function updateControllerButtons(): void {
 let pointerActive = false;
 let pointerX = 0;
 let pointerY = 0;
+const desktopNavigationFocus = new THREE.Vector3();
+const desktopHeadPosition = new THREE.Vector3();
+function currentNavigationFocus(): THREE.Vector3 {
+  const preset = state.activePreset ?? state.lastPreset;
+  return desktopNavigationFocus.copy(
+    presetFocus(preset, stageFrameForPreset(preset)),
+  ).multiplyScalar(state.stage.metresPerEarthRadius);
+}
 renderer.domElement.addEventListener("pointerdown", (event) => {
   if (renderer.xr.isPresenting) return;
   pointerActive = true;
@@ -912,9 +1001,15 @@ renderer.domElement.addEventListener("pointermove", (event) => {
     new THREE.Vector3(1, 0, 0),
     -(event.clientY - pointerY) * 0.004,
   );
-  modelRoot.quaternion.premultiply(yaw).multiply(pitch).normalize();
-  modelRoot.updateMatrixWorld(true);
-  state.stage = stageTransform(modelRoot);
+  const rotation = yaw.multiply(pitch).normalize();
+  const focus = currentNavigationFocus();
+  commitObserverTransform({
+    position: state.observer.position.clone()
+      .sub(focus)
+      .applyQuaternion(rotation)
+      .add(focus),
+    quaternion: rotation.multiply(state.observer.quaternion).normalize(),
+  });
   state.activePreset = null;
   pointerX = event.clientX;
   pointerY = event.clientY;
@@ -929,17 +1024,26 @@ renderer.domElement.addEventListener("pointerup", (event) => {
 renderer.domElement.addEventListener("wheel", (event) => {
   if (renderer.xr.isPresenting) return;
   event.preventDefault();
-  setStageScale(
-    state.stage.metresPerEarthRadius * Math.exp(-event.deltaY * 0.001),
-  );
+  const focus = currentNavigationFocus();
+  camera.getWorldPosition(desktopHeadPosition);
+  const desiredHeadPosition = desktopHeadPosition.clone()
+    .sub(focus)
+    .multiplyScalar(Math.exp(event.deltaY * 0.001))
+    .add(focus);
+  commitObserverTransform({
+    position: state.observer.position.clone().add(
+      desiredHeadPosition.sub(desktopHeadPosition),
+    ),
+    quaternion: state.observer.quaternion,
+  });
+  state.activePreset = null;
+  syncPresentation();
 }, { passive: false });
 
 renderer.xr.addEventListener("sessionstart", () => {
-  floorReference.visible = true;
   state.panelVisible = true;
 });
 renderer.xr.addEventListener("sessionend", () => {
-  floorReference.visible = false;
   handPanel.enabled = false;
   voiceAgent.disable();
   pointerPressed = false;
@@ -1000,6 +1104,11 @@ function debugSnapshot(): Record<string, unknown> {
         state.stage.metresPerEarthRadius,
       ],
     },
+    observer: {
+      position: state.observer.position.toArray(),
+      quaternion: state.observer.quaternion.toArray(),
+      scale: observerRig.scale.toArray(),
+    },
     renderer: {
       draw_calls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -1013,14 +1122,14 @@ function debugSnapshot(): Record<string, unknown> {
 const debugApi = {
   help() {
     return {
-      snapshot: "Read event, stage, renderer, voice, and XR state.",
+      snapshot: "Read event, system, observer, renderer, voice, and XR state.",
       findEclipses: "findEclipses(startUtc, endUtc)",
       selectEclipse: "selectEclipse(eventId)",
       setTime: "setTime(utc)",
       setPlaying: "setPlaying(enabled)",
       setView: "setView(system|earth|moon|shadow)",
       setScale: "setScale(metresPerEarthRadius)",
-      resetStage: "Reset the current canonical view.",
+      resetStage: "Return the observer to the current canonical viewpoint.",
     };
   },
   snapshot: debugSnapshot,
@@ -1071,10 +1180,17 @@ function render(nowMs: number): void {
   const viewCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
   if (renderer.xr.isPresenting) {
     updateControllerButtons();
-    updateStageManipulation();
+    updateObserverGripNavigation();
+    updateObserverFlight(simulationIntervalMs / 1_000, viewCamera);
   }
   updateHandPanel(nowMs, viewCamera);
-  visibleSun.update(viewCamera, sunDirectionStage, sunAngularRadiusRad);
+  sunWorldPosition.copy(sunStagePosition);
+  modelRoot.localToWorld(sunWorldPosition);
+  visibleSun.update(
+    viewCamera,
+    sunWorldPosition,
+    SUN_RADIUS_KM / EARTH_MEAN_RADIUS_KM * state.stage.metresPerEarthRadius,
+  );
   renderer.render(scene, camera);
 }
 

@@ -18,14 +18,15 @@ Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel, Z/X to
 change planet scale, C/V to change radial exaggeration, and Backspace to reset.
 
 The standalone Eclipse Observatory is at
-`http://127.0.0.1:4197/eclipse/`. It keeps the viewer in a `local-floor`
-reference space and moves one uniformly scaled Earth–Moon–shadow stage; it
-does not load terrain, stars, aircraft, or satellites. In VR, grip one
-controller to move and rotate the stage or grip both to move, rotate, and
-scale around the grabbed midpoint. A/B/X/Y toggle voice, reset the current
-canonical view, play or pause, and show or hide the left-wrist panel. The
-right trigger operates the panel ray. Desktop drag and wheel input are only a
-diagnostic fallback.
+`http://127.0.0.1:4197/eclipse/`. Earth, Moon, shadow cones, and the apparent
+Sun remain in one coherent system frame; the unscaled headset and controllers
+move through it. There is no floor or astronomical surface. In VR, either
+grip pulls the observer through space, two grips reorient the observer without
+scaling stereo separation, the left stick flies forward or sideways, and the
+right stick moves vertically or turns. A/B/X/Y toggle voice, reset the current
+canonical viewpoint, play or pause, and show or hide the left-wrist panel.
+The right trigger operates the panel ray. Desktop drag orbits the observer and
+the wheel moves closer or farther as a diagnostic fallback.
 
 WebXR requires a secure context. A USB-connected Quest can use an Android
 reverse tunnel:

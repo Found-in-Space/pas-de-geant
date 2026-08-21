@@ -388,7 +388,9 @@ function eclipseRealtimeSessionConfiguration(): Record<string, unknown> {
         "set_eclipse_playback to play or pause, set_eclipse_view for the whole " +
         "system, Earth, Moon, or shadow corridor, set_eclipse_scale only for " +
         "an explicitly requested physical-model scale, and reset_eclipse_stage " +
-        "to restore the current canonical view. After every mutation summarize " +
+        "to restore the observer to the current canonical viewpoint. Earth, " +
+        "Moon, shadow cones, and Sun remain one coherent system; movement " +
+        "moves the observer, never an individual body. After every mutation summarize " +
         "the actual returned state. Use search_wikipedia for stable background " +
         "facts and search_web for current, recent, or niche information or an " +
         "explicit request to browse. Never claim to have searched unless a " +
@@ -495,7 +497,8 @@ function eclipseRealtimeSessionConfiguration(): Record<string, unknown> {
         {
           type: "function",
           name: "reset_eclipse_stage",
-          description: "Restore the active canonical view without changing eclipse or time.",
+          description:
+            "Return the observer to the active canonical viewpoint without changing eclipse or time.",
           parameters: emptyParameters,
         },
         {

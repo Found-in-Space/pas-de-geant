@@ -142,7 +142,7 @@ export function createEclipsePanelRoot(
             actionId: ECLIPSE_PANEL_ACTION.playback,
           }),
           createButton("eclipse-panel-reset", {
-            label: "Reset · B",
+            label: "Reset view · B",
             actionId: ECLIPSE_PANEL_ACTION.resetStage,
           }),
           createButton("eclipse-panel-voice", {

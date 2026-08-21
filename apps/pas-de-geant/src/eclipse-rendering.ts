@@ -384,6 +384,7 @@ export class VisibleSun {
 
   private readonly distanceM = 650;
   private readonly cameraPosition = new THREE.Vector3();
+  private readonly sunDirection = new THREE.Vector3();
 
   constructor() {
     this.object = new THREE.Sprite(
@@ -401,13 +402,26 @@ export class VisibleSun {
 
   update(
     camera: THREE.Camera,
-    direction: THREE.Vector3,
-    angularRadiusRad: number,
+    systemSunWorldPosition: THREE.Vector3,
+    systemSunRadiusM: number,
   ): void {
     camera.getWorldPosition(this.cameraPosition);
+    this.sunDirection
+      .copy(systemSunWorldPosition)
+      .sub(this.cameraPosition);
+    const actualDistanceM = this.sunDirection.length();
+    if (actualDistanceM <= Number.EPSILON) {
+      this.object.visible = false;
+      return;
+    }
+    this.object.visible = true;
+    this.sunDirection.divideScalar(actualDistanceM);
     this.object.position
       .copy(this.cameraPosition)
-      .addScaledVector(direction, this.distanceM);
+      .addScaledVector(this.sunDirection, this.distanceM);
+    const angularRadiusRad = Math.asin(
+      Math.min(0.999999, systemSunRadiusM / actualDistanceM),
+    );
     const planeSize = 4 * this.distanceM * Math.tan(angularRadiusRad);
     this.object.scale.set(planeSize, planeSize, 1);
   }

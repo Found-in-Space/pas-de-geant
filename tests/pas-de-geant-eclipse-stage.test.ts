@@ -1,17 +1,20 @@
 import * as THREE from "three";
 import { EARTH_MEAN_RADIUS_KM } from "@found-in-space/shadowline";
 import { describe, expect, it } from "vitest";
+import {
+  beginObserverOneGrip,
+  beginObserverTwoGrip,
+  observerPositionForView,
+  updateObserverOneGrip,
+  updateObserverTwoGrip,
+  type EclipseObserverTransform,
+} from "../apps/pas-de-geant/src/eclipse-observer.js";
 import { ecefKmToDisplay } from "../apps/pas-de-geant/src/eclipse-rendering.js";
 import {
-  applyStageTransform,
-  beginOneGrip,
-  beginTwoGrip,
   presetFocus,
-  presetStageTransform,
-  updateOneGrip,
-  updateTwoGrip,
+  presetMetresPerEarthRadius,
+  presetViewDistance,
   type EclipseStageFrame,
-  type EclipseStageTransform,
   type GripPose,
 } from "../apps/pas-de-geant/src/eclipse-stage.js";
 import type { EclipseViewPreset } from "../apps/pas-de-geant/src/eclipse-types.js";
@@ -23,37 +26,13 @@ const frame: EclipseStageFrame = {
 
 const expectedPresets: Record<
   EclipseViewPreset,
-  { scale: number; anchor: THREE.Vector3; focusFraction: number }
+  { scale: number; distance: number; focusFraction: number }
 > = {
-  system: {
-    scale: 0.09,
-    anchor: new THREE.Vector3(0, 1.35, -5.8),
-    focusFraction: 0.5,
-  },
-  earth: {
-    scale: 0.75,
-    anchor: new THREE.Vector3(0, 1.35, -3),
-    focusFraction: 0,
-  },
-  moon: {
-    scale: 2.4,
-    anchor: new THREE.Vector3(0, 1.35, -3),
-    focusFraction: 1,
-  },
-  shadow: {
-    scale: 0.2,
-    anchor: new THREE.Vector3(0, 1.35, -3.5),
-    focusFraction: 0.58,
-  },
+  system: { scale: 0.09, distance: 5.8, focusFraction: 0.5 },
+  earth: { scale: 0.75, distance: 3, focusFraction: 0 },
+  moon: { scale: 2.4, distance: 3, focusFraction: 1 },
+  shadow: { scale: 0.2, distance: 3.5, focusFraction: 0.58 },
 };
-
-function matrixFor(transform: EclipseStageTransform): THREE.Matrix4 {
-  return new THREE.Matrix4().compose(
-    transform.position,
-    transform.quaternion,
-    new THREE.Vector3().setScalar(transform.metresPerEarthRadius),
-  );
-}
 
 function grip(
   position: THREE.Vector3,
@@ -62,107 +41,136 @@ function grip(
   return { position, quaternion };
 }
 
-describe("Eclipse observatory stage transforms", () => {
-  it("uses Earth-radius coordinates and puts every preset focus at its room anchor", () => {
+function rigidMatrix(transform: EclipseObserverTransform): THREE.Matrix4 {
+  return new THREE.Matrix4().compose(
+    transform.position,
+    transform.quaternion,
+    new THREE.Vector3(1, 1, 1),
+  );
+}
+
+function poseMatrix(pose: GripPose): THREE.Matrix4 {
+  return new THREE.Matrix4().compose(
+    pose.position,
+    pose.quaternion,
+    new THREE.Vector3(1, 1, 1),
+  );
+}
+
+describe("Eclipse observatory system and observer transforms", () => {
+  it("keeps one Earth-radius coordinate system while presets place the observer", () => {
     expect(
       ecefKmToDisplay({ x: EARTH_MEAN_RADIUS_KM, y: 0, z: 0 }).length(),
     ).toBeCloseTo(1, 12);
-
     for (const preset of Object.keys(expectedPresets) as EclipseViewPreset[]) {
       const expected = expectedPresets[preset];
-      const focus = presetFocus(preset, frame);
-      expect(focus.distanceTo(
+      expect(presetMetresPerEarthRadius(preset)).toBe(expected.scale);
+      expect(presetViewDistance(preset)).toBe(expected.distance);
+      expect(presetFocus(preset, frame).distanceTo(
         frame.moonPosition.clone().multiplyScalar(expected.focusFraction),
       )).toBeLessThan(1e-12);
-      const transform = presetStageTransform(preset, frame);
-      expect(transform.metresPerEarthRadius).toBe(expected.scale);
-      expect(focus.applyMatrix4(matrixFor(transform)).distanceTo(expected.anchor))
-        .toBeLessThan(1e-12);
     }
   });
 
-  it("applies a one-grip rigid delta to the complete stage", () => {
-    const start: EclipseStageTransform = {
-      position: new THREE.Vector3(1, 1.2, -3),
-      quaternion: new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        0.25,
-      ),
-      metresPerEarthRadius: 0.4,
-    };
-    const controllerStart = grip(new THREE.Vector3(0.3, 1.1, -0.4));
-    const controllerEnd = grip(
-      new THREE.Vector3(-0.2, 1.5, -0.7),
-      new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        -0.5,
-      ),
+  it("places the tracked head at the requested distance along its live gaze", () => {
+    const focus = new THREE.Vector3(3, -1, 5);
+    const trackedPosition = new THREE.Vector3(0.1, 1.65, -0.2);
+    const trackedQuaternion = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      0.35,
     );
-    const localPoint = new THREE.Vector3(2, -1, 0.5);
-    const gesture = beginOneGrip(controllerStart, start);
-    const result = updateOneGrip(gesture, controllerEnd);
-    const controllerDelta = new THREE.Matrix4()
-      .compose(
-        controllerEnd.position,
-        controllerEnd.quaternion,
-        new THREE.Vector3(1, 1, 1),
-      )
-      .multiply(
-        new THREE.Matrix4().compose(
-          controllerStart.position,
-          controllerStart.quaternion,
-          new THREE.Vector3(1, 1, 1),
-        ).invert(),
-      );
-    const expectedWorldPoint = localPoint
-      .clone()
-      .applyMatrix4(matrixFor(start))
-      .applyMatrix4(controllerDelta);
+    const observerQuaternion = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      -0.2,
+    );
+    const observerPosition = observerPositionForView(
+      focus,
+      4.2,
+      trackedPosition,
+      trackedQuaternion,
+      observerQuaternion,
+    );
+    const worldHead = trackedPosition.clone()
+      .applyQuaternion(observerQuaternion)
+      .add(observerPosition);
+    const worldForward = new THREE.Vector3(0, 0, -1)
+      .applyQuaternion(trackedQuaternion)
+      .applyQuaternion(observerQuaternion)
+      .normalize();
 
-    expect(localPoint.applyMatrix4(matrixFor(result)).distanceTo(expectedWorldPoint))
-      .toBeLessThan(1e-10);
-    expect(result.metresPerEarthRadius).toBeCloseTo(start.metresPerEarthRadius);
+    expect(focus.clone().sub(worldHead).distanceTo(
+      worldForward.multiplyScalar(4.2),
+    )).toBeLessThan(1e-10);
   });
 
-  it("preserves the grabbed midpoint through two-grip rotation and scaling", () => {
-    const start: EclipseStageTransform = {
-      position: new THREE.Vector3(0.5, 1, -2.5),
+  it("moves the observer inversely so a one-grip point stays fixed in space", () => {
+    const observerStart: EclipseObserverTransform = {
+      position: new THREE.Vector3(1, 0.5, -2),
       quaternion: new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 0, 1),
-        0.2,
+        new THREE.Vector3(0, 1, 0),
+        0.3,
       ),
-      metresPerEarthRadius: 0.3,
+    };
+    const gripStart = grip(new THREE.Vector3(0.2, 1.1, -0.5));
+    const gripCurrent = grip(
+      new THREE.Vector3(-0.4, 1.4, -0.8),
+      new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 0, 1),
+        0.4,
+      ),
+    );
+    const gesture = beginObserverOneGrip(gripStart, observerStart);
+    const observerCurrent = updateObserverOneGrip(gesture, gripCurrent);
+    const grabbedWorldStart = rigidMatrix(observerStart).multiply(
+      poseMatrix(gripStart),
+    );
+    const grabbedWorldCurrent = rigidMatrix(observerCurrent).multiply(
+      poseMatrix(gripCurrent),
+    );
+
+    for (let index = 0; index < 16; index += 1) {
+      expect(grabbedWorldCurrent.elements[index]).toBeCloseTo(
+        grabbedWorldStart.elements[index]!,
+        10,
+      );
+    }
+  });
+
+  it("uses two grips to reorient the observer without scaling the headset", () => {
+    const observerStart: EclipseObserverTransform = {
+      position: new THREE.Vector3(0.4, -0.2, 1),
+      quaternion: new THREE.Quaternion(),
     };
     const firstStart = grip(new THREE.Vector3(-0.4, 1.2, -0.6));
     const secondStart = grip(new THREE.Vector3(0.4, 1.2, -0.6));
-    const startMidpoint = firstStart.position.clone().add(secondStart.position)
-      .multiplyScalar(0.5);
-    const localGrabPivot = startMidpoint.clone().applyMatrix4(
-      matrixFor(start).invert(),
-    );
-    const firstEnd = grip(new THREE.Vector3(0.1, 1.0, -0.8));
-    const secondEnd = grip(new THREE.Vector3(0.1, 2.6, -0.8));
-    const endMidpoint = firstEnd.position.clone().add(secondEnd.position)
-      .multiplyScalar(0.5);
-    const gesture = beginTwoGrip(firstStart, secondStart, start);
+    const firstCurrent = grip(new THREE.Vector3(0.2, 0.7, -0.9));
+    const secondCurrent = grip(new THREE.Vector3(0.2, 2.3, -0.9));
+    const gesture = beginObserverTwoGrip(firstStart, secondStart, observerStart);
     expect(gesture).not.toBeNull();
-    const result = updateTwoGrip(gesture!, firstEnd, secondEnd);
-
-    expect(localGrabPivot.applyMatrix4(matrixFor(result)).distanceTo(endMidpoint))
-      .toBeLessThan(1e-10);
-    expect(result.metresPerEarthRadius).toBeCloseTo(0.6);
-  });
-
-  it("scales only the model root and leaves the XR camera transform untouched", () => {
-    const scene = new THREE.Scene();
-    const stage = new THREE.Group();
+    const observerCurrent = updateObserverTwoGrip(
+      gesture!,
+      firstCurrent,
+      secondCurrent,
+    );
+    const startMidpoint = firstStart.position.clone().add(secondStart.position)
+      .multiplyScalar(0.5)
+      .applyMatrix4(rigidMatrix(observerStart));
+    const currentMidpoint = firstCurrent.position.clone().add(secondCurrent.position)
+      .multiplyScalar(0.5)
+      .applyMatrix4(rigidMatrix(observerCurrent));
+    const startDirection = secondStart.position.clone().sub(firstStart.position)
+      .transformDirection(rigidMatrix(observerStart));
+    const currentDirection = secondCurrent.position.clone().sub(firstCurrent.position)
+      .transformDirection(rigidMatrix(observerCurrent));
+    const observerRig = new THREE.Group();
     const xrCamera = new THREE.PerspectiveCamera();
-    xrCamera.position.set(0, 1.65, 0);
-    scene.add(stage, xrCamera);
-    applyStageTransform(stage, presetStageTransform("moon", frame));
+    observerRig.add(xrCamera);
+    observerRig.position.copy(observerCurrent.position);
+    observerRig.quaternion.copy(observerCurrent.quaternion);
 
-    expect(stage.scale.toArray()).toEqual([2.4, 2.4, 2.4]);
-    expect(xrCamera.position.toArray()).toEqual([0, 1.65, 0]);
+    expect(currentMidpoint.distanceTo(startMidpoint)).toBeLessThan(1e-10);
+    expect(currentDirection.angleTo(startDirection)).toBeLessThan(1e-10);
+    expect(observerRig.scale.toArray()).toEqual([1, 1, 1]);
     expect(xrCamera.scale.toArray()).toEqual([1, 1, 1]);
   });
 });
