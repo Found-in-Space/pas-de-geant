@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+      name="description"
+      content="Walk around a uniformly scaled Earth–Moon eclipse model in WebXR."
+    >
+    <meta name="theme-color" content="#030711">
+    <title>Eclipse Observatory — Pas de Géant</title>
+  </head>
+  <body>
+    <main class="eclipse-experience">
+      <div id="scene-root" class="scene-root" aria-hidden="true"></div>
+      <header class="eclipse-topbar">
+        <a class="back-link" href="../">← Pas de Géant</a>
+        <div>
+          <p class="kicker">One physical Earth–Moon scale</p>
+          <h1>Eclipse Observatory</h1>
+        </div>
+        <div id="vr-slot" class="vr-slot"></div>
+      </header>
+      <section class="eclipse-readout" aria-live="polite">
+        <div>
+          <span>Selected eclipse</span>
+          <strong id="event-readout">Finding 12 August 2026…</strong>
+        </div>
+        <div>
+          <span>Simulation UTC</span>
+          <strong id="time-readout">—</strong>
+        </div>
+        <div>
+          <span>View</span>
+          <strong id="view-readout">Whole system</strong>
+        </div>
+        <div>
+          <span>Voice guide</span>
+          <strong id="voice-readout">Off · press A in VR</strong>
+        </div>
+      </section>
+      <p class="desktop-hint">
+        Enter VR for room walking, grip manipulation, wrist controls, and the
+        voice guide. Desktop diagnostic: drag to rotate · wheel to scale.
+      </p>
+      <div id="loading-state" class="loading-state" role="status" aria-live="polite">
+        <div class="loading-orbit" aria-hidden="true"></div>
+        <p>Placing Earth, Moon, and shadow cones…</p>
+      </div>
+      <div id="error-state" class="error-state" role="alert" hidden>
+        <strong>The Eclipse Observatory could not start</strong>
+        <p id="error-message"></p>
+      </div>
+      <footer>
+        Eclipse geometry: Found in Space Shadowline · Earth: NASA Blue Marble ·
+        Moon: NASA LRO
+      </footer>
+    </main>
+    <script type="module" src="../src/eclipse-bootstrap.ts"></script>
+  </body>
+</html>

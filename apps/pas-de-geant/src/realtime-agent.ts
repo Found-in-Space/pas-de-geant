@@ -19,18 +19,23 @@ export interface RealtimeAgentToolCall {
 
 export interface RealtimeAgentOptions {
   tokenEndpoint?: string;
+  greetingInstructions?: string;
   onStatus: (status: RealtimeAgentStatus) => void;
   onRemoteStream: (stream: MediaStream | null) => void;
   tools: Record<string, (argumentsValue: unknown) => unknown | Promise<unknown>>;
 }
 
-export function realtimeGreetingEvent(): Record<string, unknown> {
+const DEFAULT_GREETING_INSTRUCTIONS =
+  "Greet the user warmly in one short sentence and invite them to ask " +
+  "about the world. Do not call a tool in this greeting.";
+
+export function realtimeGreetingEvent(
+  instructions = DEFAULT_GREETING_INSTRUCTIONS,
+): Record<string, unknown> {
   return {
     type: "response.create",
     response: {
-      instructions:
-        "Greet the user warmly in one short sentence and invite them to ask " +
-        "about the world. Do not call a tool in this greeting.",
+      instructions,
       output_modalities: ["audio"],
     },
   };
@@ -53,6 +58,7 @@ interface RealtimeTokenResponse {
 
 export class RealtimeVoiceAgent {
   private readonly tokenEndpoint: string;
+  private readonly greetingInstructions: string;
   private readonly onStatus: RealtimeAgentOptions["onStatus"];
   private readonly onRemoteStream: RealtimeAgentOptions["onRemoteStream"];
   private readonly tools: RealtimeAgentOptions["tools"];
@@ -71,6 +77,8 @@ export class RealtimeVoiceAgent {
 
   constructor(options: RealtimeAgentOptions) {
     this.tokenEndpoint = options.tokenEndpoint ?? "/api/realtime/token";
+    this.greetingInstructions =
+      options.greetingInstructions ?? DEFAULT_GREETING_INSTRUCTIONS;
     this.onStatus = options.onStatus;
     this.onRemoteStream = options.onRemoteStream;
     this.tools = options.tools;
@@ -339,7 +347,7 @@ export class RealtimeVoiceAgent {
     if (this.greetingStarted) return;
     this.greetingStarted = true;
     this.setStatus("thinking", "Greeting…");
-    if (this.send(realtimeGreetingEvent())) {
+    if (this.send(realtimeGreetingEvent(this.greetingInstructions))) {
       this.responseRequestPending = true;
     }
   }

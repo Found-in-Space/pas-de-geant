@@ -3,6 +3,14 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 type FetchImplementation = typeof fetch;
 
 export const REALTIME_TOKEN_PATH = "/api/realtime/token";
+export type RealtimeExperience = "earth" | "eclipse";
+
+export function realtimeExperienceFromUrl(url: URL): RealtimeExperience | null {
+  const value = url.searchParams.get("experience");
+  if (value === null || value === "earth") return "earth";
+  if (value === "eclipse") return "eclipse";
+  return null;
+}
 
 export function isAllowedRequestOrigin(
   origin: string | undefined,
@@ -17,7 +25,12 @@ export function isAllowedRequestOrigin(
   }
 }
 
-export function realtimeSessionConfiguration(): Record<string, unknown> {
+export function realtimeSessionConfiguration(
+  experience: RealtimeExperience = "earth",
+): Record<string, unknown> {
+  if (experience === "eclipse") {
+    return eclipseRealtimeSessionConfiguration();
+  }
   return {
     expires_after: { anchor: "created_at", seconds: 600 },
     session: {
@@ -351,11 +364,180 @@ export function realtimeSessionConfiguration(): Record<string, unknown> {
   };
 }
 
+function eclipseRealtimeSessionConfiguration(): Record<string, unknown> {
+  const emptyParameters = {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  };
+  return {
+    expires_after: { anchor: "created_at", seconds: 600 },
+    session: {
+      type: "realtime",
+      model: "gpt-realtime-2.1",
+      instructions:
+        "You are the concise, warm voice guide inside the Pas de Géant " +
+        "Eclipse Observatory. Answer conversationally in one or two short " +
+        "sentences. Ask only one question at a time. The app renders global " +
+        "solar eclipses using one honest Earth–Moon physical scale. Use " +
+        "get_eclipse_state before reporting the selected event, time, view, " +
+        "playback, or scale. To choose another eclipse, first call " +
+        "find_solar_eclipses for an appropriate UTC range, then pass an exact " +
+        "returned event_id to select_solar_eclipse. Never invent an eclipse " +
+        "or scientific geometry. Use set_eclipse_time for an exact instant, " +
+        "set_eclipse_playback to play or pause, set_eclipse_view for the whole " +
+        "system, Earth, Moon, or shadow corridor, set_eclipse_scale only for " +
+        "an explicitly requested physical-model scale, and reset_eclipse_stage " +
+        "to restore the current canonical view. After every mutation summarize " +
+        "the actual returned state. Use search_wikipedia for stable background " +
+        "facts and search_web for current, recent, or niche information or an " +
+        "explicit request to browse. Never claim to have searched unless a " +
+        "search tool was called, and never read URLs aloud.",
+      audio: {
+        input: {
+          noise_reduction: { type: "near_field" },
+          turn_detection: {
+            type: "server_vad",
+            create_response: true,
+            interrupt_response: true,
+          },
+        },
+        output: { voice: "marin" },
+      },
+      tools: [
+        {
+          type: "function",
+          name: "get_eclipse_state",
+          description:
+            "Read the verified selected solar eclipse, current UTC, playback, view, physical scale, and shadow state.",
+          parameters: emptyParameters,
+        },
+        {
+          type: "function",
+          name: "find_solar_eclipses",
+          description:
+            "Find verified global solar eclipses in a UTC date range before selecting one.",
+          parameters: {
+            type: "object",
+            properties: {
+              start_utc: { type: "string", description: "Inclusive ISO 8601 UTC start." },
+              end_utc: { type: "string", description: "Exclusive ISO 8601 UTC end." },
+            },
+            required: ["start_utc", "end_utc"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "select_solar_eclipse",
+          description:
+            "Select an exact verified event_id returned by find_solar_eclipses.",
+          parameters: {
+            type: "object",
+            properties: { event_id: { type: "string", minLength: 1 } },
+            required: ["event_id"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_eclipse_time",
+          description:
+            "Set the selected eclipse simulation to an ISO 8601 UTC instant within 24 hours of its peak.",
+          parameters: {
+            type: "object",
+            properties: { utc: { type: "string" } },
+            required: ["utc"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_eclipse_playback",
+          description: "Play or pause the selected eclipse timeline.",
+          parameters: {
+            type: "object",
+            properties: { playing: { type: "boolean" } },
+            required: ["playing"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_eclipse_view",
+          description: "Apply one canonical observatory model view.",
+          parameters: {
+            type: "object",
+            properties: {
+              preset: {
+                type: "string",
+                enum: ["system", "earth", "moon", "shadow"],
+              },
+            },
+            required: ["preset"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_eclipse_scale",
+          description:
+            "Set the positive uniform physical-model scale in room metres per Earth radius.",
+          parameters: {
+            type: "object",
+            properties: {
+              metres_per_earth_radius: { type: "number", exclusiveMinimum: 0 },
+            },
+            required: ["metres_per_earth_radius"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "reset_eclipse_stage",
+          description: "Restore the active canonical view without changing eclipse or time.",
+          parameters: emptyParameters,
+        },
+        {
+          type: "function",
+          name: "search_wikipedia",
+          description: "Search English Wikipedia for stable eclipse background facts.",
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string", minLength: 1 } },
+            required: ["query"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "search_web",
+          description: "Search the live web for current, recent, or niche eclipse information.",
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string", minLength: 1 } },
+            required: ["query"],
+            additionalProperties: false,
+          },
+        },
+      ],
+      tool_choice: "auto",
+    },
+  };
+}
+
 export async function requestRealtimeClientSecret(
   apiKey: string,
+  experienceOrFetch: RealtimeExperience | FetchImplementation = "earth",
   fetchImplementation: FetchImplementation = fetch,
 ): Promise<{ status: number; body: string }> {
-  const response = await fetchImplementation(
+  const experience = typeof experienceOrFetch === "function"
+    ? "earth"
+    : experienceOrFetch;
+  const resolvedFetch = typeof experienceOrFetch === "function"
+    ? experienceOrFetch
+    : fetchImplementation;
+  const response = await resolvedFetch(
     "https://api.openai.com/v1/realtime/client_secrets",
     {
       method: "POST",
@@ -363,7 +545,7 @@ export async function requestRealtimeClientSecret(
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(realtimeSessionConfiguration()),
+      body: JSON.stringify(realtimeSessionConfiguration(experience)),
     },
   );
   if (!response.ok) {
@@ -383,7 +565,8 @@ export function createRealtimeTokenMiddleware(apiKey: string | undefined) {
     response: ServerResponse,
     next: () => void,
   ): Promise<void> => {
-    const pathname = new URL(request.url ?? "/", "http://local").pathname;
+    const requestUrl = new URL(request.url ?? "/", "http://local");
+    const pathname = requestUrl.pathname;
     if (pathname !== REALTIME_TOKEN_PATH) {
       next();
       return;
@@ -394,6 +577,12 @@ export function createRealtimeTokenMiddleware(apiKey: string | undefined) {
       response.statusCode = 405;
       response.setHeader("Allow", "POST");
       response.end(JSON.stringify({ error: "Method not allowed." }));
+      return;
+    }
+    const experience = realtimeExperienceFromUrl(requestUrl);
+    if (!experience) {
+      response.statusCode = 400;
+      response.end(JSON.stringify({ error: "Unknown Realtime experience." }));
       return;
     }
     const origin = request.headers.origin;
@@ -419,7 +608,7 @@ export function createRealtimeTokenMiddleware(apiKey: string | undefined) {
       return;
     }
     try {
-      const result = await requestRealtimeClientSecret(apiKey);
+      const result = await requestRealtimeClientSecret(apiKey, experience);
       response.statusCode = result.status;
       response.end(result.body);
     } catch (error) {

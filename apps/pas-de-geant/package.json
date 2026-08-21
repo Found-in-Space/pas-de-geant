@@ -11,6 +11,8 @@
     "typecheck": "tsc --project tsconfig.json --pretty false"
   },
   "dependencies": {
+    "@found-in-space/shadowline": "0.1.0-alpha.1",
+    "@found-in-space/shadowline-astronomy-engine": "0.1.0-alpha.1",
     "@found-in-space/skykit": "0.2.0",
     "@found-in-space/three-star-field": "0.2.0",
     "@found-in-space/touch-os": "0.3.0",
