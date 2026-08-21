@@ -1,16 +1,14 @@
-export interface AircraftPollingState {
+export interface AircraftStreamingState {
   enabled: boolean;
   vrSessionActive: boolean;
   documentVisible: boolean;
-  requestActive: boolean;
 }
 
-export function shouldPollAircraft(state: AircraftPollingState): boolean {
+export function shouldStreamAircraft(state: AircraftStreamingState): boolean {
   return (
     state.enabled &&
     state.vrSessionActive &&
-    state.documentVisible &&
-    !state.requestActive
+    state.documentVisible
   );
 }
 

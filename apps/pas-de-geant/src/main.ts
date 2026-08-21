@@ -12,13 +12,14 @@ import {
 import * as THREE from "three";
 import { VRButton } from "three/addons/webxr/VRButton.js";
 import {
-  AIRCRAFT_POLL_INTERVAL_MS,
-  fetchAirplanesLive,
+  AIRCRAFT_SUBSCRIPTION_REFRESH_INTERVAL_MS,
+  FlightFollowerClient,
+  type FlightFollowerConnectionState,
 } from "./aircraft-feed.js";
 import { AircraftLayer } from "./aircraft-layer.js";
 import {
   parseAircraftDisplayArguments,
-  shouldPollAircraft,
+  shouldStreamAircraft,
 } from "./aircraft-lifecycle.js";
 import { AtmosphereLayer } from "./atmosphere.js";
 import {
@@ -395,7 +396,9 @@ planetRoot.add(terrain.group);
 scene.onBeforeRender = (_renderer, _scene, renderCamera): void => {
   terrain.updateRenderVisibility(renderCamera);
 };
-const aircraftLayer = new AircraftLayer();
+const aircraftLayer = new AircraftLayer((latitudeDegrees, longitudeDegrees) =>
+  terrain.sampleElevationMetres(latitudeDegrees, longitudeDegrees)
+);
 planetRoot.add(aircraftLayer.group);
 const satelliteLayer = new SatelliteLayer();
 planetRoot.add(satelliteLayer.group);
@@ -523,8 +526,21 @@ let aircraftEnabled = false;
 let aircraftLabelsEnabled = false;
 let vrSessionActive = false;
 let aircraftCount = 0;
-let aircraftPollTimer: number | undefined;
-let aircraftRequest: AbortController | undefined;
+let aircraftRetargetTimer: number | undefined;
+let aircraftStreamState: FlightFollowerConnectionState = "stopped";
+const aircraftStream = new FlightFollowerClient({
+  onTracks(tracks) {
+    aircraftLayer.setAircraft(tracks);
+    aircraftCount = tracks.length;
+    document.body.dataset.aircraftCount = String(aircraftCount);
+    updateAircraftReadout();
+  },
+  onStatus(status) {
+    aircraftStreamState = status.state;
+    document.body.dataset.aircraftStreamState = status.state;
+    updateAircraftReadout();
+  },
+});
 
 interface SatelliteGroupRuntime {
   enabled: boolean;
@@ -1198,63 +1214,57 @@ window.addEventListener("blur", () => keys.clear());
 
 resetButton.addEventListener("click", resetPlanet);
 
-function stopAircraftPolling(): void {
-  if (aircraftPollTimer !== undefined) {
-    window.clearTimeout(aircraftPollTimer);
-    aircraftPollTimer = undefined;
-  }
-  aircraftRequest?.abort();
-}
-
-function scheduleAircraftPoll(delayMs: number): void {
-  if (
-    !shouldPollAircraft({
-      enabled: aircraftEnabled || aircraftLabelsEnabled,
-      vrSessionActive,
-      documentVisible: !document.hidden,
-      requestActive: false,
-    })
-  ) {
-    return;
-  }
-  if (aircraftPollTimer !== undefined) window.clearTimeout(aircraftPollTimer);
-  aircraftPollTimer = window.setTimeout(() => {
-    aircraftPollTimer = undefined;
-    void pollAircraft();
-  }, delayMs);
-}
-
-async function pollAircraft(): Promise<void> {
-  if (!shouldPollAircraft({
+function aircraftStreamAllowed(): boolean {
+  return shouldStreamAircraft({
     enabled: aircraftEnabled || aircraftLabelsEnabled,
     vrSessionActive,
     documentVisible: !document.hidden,
-    requestActive: aircraftRequest !== undefined,
-  })) {
-    return;
+  });
+}
+
+function stopAircraftStream(): void {
+  if (aircraftRetargetTimer !== undefined) {
+    window.clearTimeout(aircraftRetargetTimer);
+    aircraftRetargetTimer = undefined;
   }
-  const coordinates = coordinatesForFrame(state.contact);
-  const request = new AbortController();
-  aircraftRequest = request;
-  try {
-    const aircraft = await fetchAirplanesLive(
-      coordinates.latitudeDegrees,
-      coordinates.longitudeDegrees,
-      request.signal,
-    );
-    aircraftLayer.setAircraft(aircraft);
-    aircraftCount = aircraft.length;
-    aircraftReadout.textContent = `${aircraftCount} nearby · 30 s`;
-    document.body.dataset.aircraftCount = String(aircraftCount);
-  } catch (error) {
-    if (!(error instanceof DOMException && error.name === "AbortError")) {
-      console.warn("Live aircraft update failed:", error);
-      aircraftReadout.textContent =
-        aircraftCount > 0 ? `${aircraftCount} nearby · stale` : "Unavailable";
-    }
-  } finally {
-    if (aircraftRequest === request) aircraftRequest = undefined;
-    scheduleAircraftPoll(AIRCRAFT_POLL_INTERVAL_MS);
+  aircraftStream.stop();
+}
+
+function scheduleAircraftRetarget(): void {
+  if (!aircraftStreamAllowed()) return;
+  if (aircraftRetargetTimer !== undefined) {
+    window.clearTimeout(aircraftRetargetTimer);
+  }
+  aircraftRetargetTimer = window.setTimeout(() => {
+    aircraftRetargetTimer = undefined;
+    const coordinates = coordinatesForFrame(state.contact);
+    aircraftStream.setCenter(coordinates);
+    scheduleAircraftRetarget();
+  }, AIRCRAFT_SUBSCRIPTION_REFRESH_INTERVAL_MS);
+}
+
+function updateAircraftReadout(): void {
+  const displayEnabled = aircraftEnabled || aircraftLabelsEnabled;
+  if (!displayEnabled) {
+    aircraftReadout.textContent = "Off · optional";
+  } else if (!vrSessionActive) {
+    aircraftReadout.textContent = "Ready for VR";
+  } else if (document.hidden) {
+    aircraftReadout.textContent = aircraftCount > 0
+      ? `${aircraftCount} nearby · paused`
+      : "Paused";
+  } else if (aircraftStreamState === "live") {
+    aircraftReadout.textContent = `${aircraftCount} nearby · live`;
+  } else if (aircraftStreamState === "retrying") {
+    aircraftReadout.textContent = aircraftCount > 0
+      ? `${aircraftCount} nearby · reconnecting`
+      : "Reconnecting…";
+  } else if (aircraftStreamState === "error") {
+    aircraftReadout.textContent = aircraftCount > 0
+      ? `${aircraftCount} nearby · stale`
+      : "Unavailable";
+  } else {
+    aircraftReadout.textContent = "Connecting…";
   }
 }
 
@@ -1264,6 +1274,7 @@ function aircraftDisplayState(): Record<string, unknown> {
     labels_enabled: aircraftLabelsEnabled,
     vr_session_active: vrSessionActive,
     aircraft_count: aircraftCount,
+    stream_state: aircraftStreamState,
   };
 }
 
@@ -1276,17 +1287,13 @@ function syncAircraftDisplay(): void {
   document.body.dataset.aircraftLabelsEnabled = String(
     aircraftLabelsEnabled,
   );
-  if (displayEnabled && vrSessionActive) {
-    aircraftReadout.textContent =
-      aircraftCount > 0 ? `${aircraftCount} nearby · cached` : "Connecting…";
-    scheduleAircraftPoll(0);
-  } else if (displayEnabled) {
-    stopAircraftPolling();
-    aircraftReadout.textContent = "Ready for VR";
+  if (aircraftStreamAllowed()) {
+    aircraftStream.start(coordinatesForFrame(state.contact));
+    scheduleAircraftRetarget();
   } else {
-    stopAircraftPolling();
-    aircraftReadout.textContent = "Off · optional";
+    stopAircraftStream();
   }
+  updateAircraftReadout();
 }
 
 function setAircraftEnabled(enabled: boolean): void {
@@ -1489,10 +1496,11 @@ for (const { id } of SATELLITE_GROUPS) {
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    stopAircraftPolling();
+    stopAircraftStream();
+    updateAircraftReadout();
     for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
   } else {
-    scheduleAircraftPoll(0);
+    syncAircraftDisplay();
     for (const { id } of SATELLITE_GROUPS) void loadSatelliteGroup(id);
   }
 });
@@ -1521,16 +1529,14 @@ renderer.xr.addEventListener("sessionend", () => {
   vrSessionActive = false;
   voiceAgent.disable();
   handPanel.enabled = false;
-  stopAircraftPolling();
+  stopAircraftStream();
   aircraftLayer.visible = false;
   for (const { id } of SATELLITE_GROUPS) {
     stopSatelliteGroup(id);
     satelliteLayer.setGroupVisible(id, false);
   }
   updateSatelliteReadout();
-  aircraftReadout.textContent = aircraftEnabled || aircraftLabelsEnabled
-    ? "Ready for VR"
-    : "Off · optional";
+  updateAircraftReadout();
   camera.position.set(0, 1.65, 0);
   camera.rotation.set(pitch, yaw, 0);
   headsetFloorPosition.set(0, 0);
@@ -2122,6 +2128,7 @@ window.addEventListener("beforeunload", () => {
   if (benchmarkMetricsTimer !== undefined) {
     window.clearInterval(benchmarkMetricsTimer);
   }
+  stopAircraftStream();
   for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
   terrain.dispose();
   celestialSphere.dispose();

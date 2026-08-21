@@ -21,7 +21,12 @@ import {
   ElevationTileProvider,
   type ElevationTileResource,
 } from "./elevation-tile-provider.js";
-import { tileBounds } from "./tile-onion-core.js";
+import {
+  mercatorTileX,
+  mercatorTileY,
+  tileBounds,
+  wrapTileX,
+} from "./tile-onion-core.js";
 import {
   tileIdentityKey,
   type TileIdentity,
@@ -149,6 +154,52 @@ export function sourceUvForTilePoint(
     u: (resource.sourceOffsetX + tileU) / resource.sourceScale,
     v: 1 - (resource.sourceOffsetY + 1 - tileV) / resource.sourceScale,
   };
+}
+
+export function decodeTerrariumElevationMetres(
+  red: number,
+  green: number,
+  blue: number,
+): number {
+  return red * 256 + green + blue / 256 - 32_768;
+}
+
+/** Samples the same manually bilinear Terrarium surface used by the vertex shader. */
+export function sampleTerrariumElevationMetres(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  u: number,
+  v: number,
+): number {
+  const pixelX = Math.max(0, Math.min(width - 1, u * width - 0.5));
+  // Three flips DOM images during texture upload, so texture-v 1 is image row 0.
+  const pixelY = Math.max(0, Math.min(height - 1, (1 - v) * height - 0.5));
+  const west = Math.floor(pixelX);
+  const east = Math.min(west + 1, width - 1);
+  const north = Math.floor(pixelY);
+  const south = Math.min(north + 1, height - 1);
+  const amountX = pixelX - west;
+  const amountY = pixelY - north;
+  const elevationAt = (x: number, y: number): number => {
+    const offset = (y * width + x) * 4;
+    return decodeTerrariumElevationMetres(
+      pixels[offset]!,
+      pixels[offset + 1]!,
+      pixels[offset + 2]!,
+    );
+  };
+  const northElevation = THREE.MathUtils.lerp(
+    elevationAt(west, north),
+    elevationAt(east, north),
+    amountX,
+  );
+  const southElevation = THREE.MathUtils.lerp(
+    elevationAt(west, south),
+    elevationAt(east, south),
+    amountX,
+  );
+  return THREE.MathUtils.lerp(northElevation, southElevation, amountY);
 }
 
 /**
@@ -498,6 +549,9 @@ export class TerrainSurface {
     THREE.Texture
   >();
   private readonly stagedElevations = new Map<string, HTMLImageElement>();
+  private readonly elevationPixels = new WeakMap<HTMLImageElement, ImageData>();
+  private readonly elevationSamplingCanvas: HTMLCanvasElement;
+  private readonly elevationSamplingContext: CanvasRenderingContext2D;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly terrainLod: NormalizedTerrainLodOptions;
   private readonly renderVisibility: TerrainRenderVisibility;
@@ -527,6 +581,15 @@ export class TerrainSurface {
       options.initialView.displayRadiusM,
     );
     this.latestView = options.initialView;
+    this.elevationSamplingCanvas = document.createElement("canvas");
+    const elevationSamplingContext = this.elevationSamplingCanvas.getContext(
+      "2d",
+      { willReadFrequently: true },
+    );
+    if (!elevationSamplingContext) {
+      throw new Error("Terrain elevation sampling requires a 2D canvas context.");
+    }
+    this.elevationSamplingContext = elevationSamplingContext;
     this.group.name = "terrain-surface";
     options.baseTexture.wrapS = THREE.RepeatWrapping;
     options.baseTexture.wrapT = THREE.ClampToEdgeWrapping;
@@ -636,6 +699,47 @@ export class TerrainSurface {
     if (this.scheduler.updateTarget(target)) {
       this.currentTarget = target;
     }
+  }
+
+  /** Returns the elevation currently rendered at a geographic point. */
+  sampleElevationMetres(
+    latitudeDegrees: number,
+    longitudeDegrees: number,
+  ): number {
+    if (Math.abs(latitudeDegrees) > WEB_MERCATOR_MAX_LATITUDE) return 0;
+    for (let zoom = this.currentTarget.maxZoom; zoom >= 0; zoom -= 1) {
+      const width = 2 ** zoom;
+      const x = wrapTileX(
+        Math.floor(mercatorTileX(longitudeDegrees, zoom)),
+        zoom,
+      );
+      const y = Math.max(
+        0,
+        Math.min(width - 1, Math.floor(mercatorTileY(latitudeDegrees, zoom))),
+      );
+      const entry = this.meshes.get(tileIdentityKey({ z: zoom, x, y }));
+      if (!entry) continue;
+      if (!entry.elevation) return 0;
+      const localUv = imageryUvForGeographicPoint(
+        tileBounds(entry.tile),
+        latitudeDegrees,
+        longitudeDegrees,
+      );
+      const sourceUv = sourceUvForTilePoint(
+        entry.elevation,
+        localUv.u,
+        1 - localUv.v,
+      );
+      const pixels = this.pixelsForElevation(entry.elevation.image);
+      return sampleTerrariumElevationMetres(
+        pixels.data,
+        pixels.width,
+        pixels.height,
+        sourceUv.u,
+        sourceUv.v,
+      );
+    }
+    return 0;
   }
 
   getLodStatus(): { minZoom: number; maxZoom: number; budgetLimited: boolean } {
@@ -938,6 +1042,28 @@ export class TerrainSurface {
       this.renderer.initTexture(texture);
       return texture;
     });
+  }
+
+  private pixelsForElevation(image: HTMLImageElement): ImageData {
+    const existing = this.elevationPixels.get(image);
+    if (existing) return existing;
+    this.elevationSamplingCanvas.width = image.naturalWidth;
+    this.elevationSamplingCanvas.height = image.naturalHeight;
+    this.elevationSamplingContext.clearRect(
+      0,
+      0,
+      image.naturalWidth,
+      image.naturalHeight,
+    );
+    this.elevationSamplingContext.drawImage(image, 0, 0);
+    const pixels = this.elevationSamplingContext.getImageData(
+      0,
+      0,
+      image.naturalWidth,
+      image.naturalHeight,
+    );
+    this.elevationPixels.set(image, pixels);
+    return pixels;
   }
 
   private stageElevation(

@@ -355,8 +355,11 @@ frame. Catalogue failure leaves an empty sky without blocking the surface. The
 voice guide can show or hide the Sun, Moon, each planet, all planets, or all
 Solar System bodies without changing the background star catalogue.
 
-Live Airplanes.live traffic is opt-in and only polls during an immersive VR
-session. Leaving VR, hiding the page, or disabling the layer stops requests.
+Live Flight Follower traffic is opt-in and only streams during an immersive VR
+session. Leaving VR, hiding the page, or disabling the layer closes the stream.
+The client follows Flight Follower's predicted trajectories, renders reported
+surface-vehicle categories distinctly, and anchors explicit on-ground reports
+to the same Mapterhorn elevation tiles used by the terrain surface.
 
 CelesTrak satellite tracking is also opt-in. The 100 brightest, space-station,
 and combined science/education groups can be enabled independently from the

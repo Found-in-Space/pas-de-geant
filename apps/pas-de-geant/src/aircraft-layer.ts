@@ -1,17 +1,22 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
-  extrapolateAircraft,
+  AIRCRAFT_RETARGET_DURATION_MS,
+  interpolateAircraftSamples,
+  sampleAircraft,
+  type AircraftSample,
   type TrackedAircraft,
 } from "./aircraft-feed.js";
 import {
   EARTH_MEAN_RADIUS_KM,
   geodeticSurfaceEcefKm,
   normalizedRadialOffsetForKilometres,
+  normalizedRadialOffsetForMetres,
 } from "./planet-state.js";
 
 const MAX_AIRCRAFT = 800;
 const AIRCRAFT_SYMBOL_SIZE_M = 0.12;
+const VEHICLE_SYMBOL_SIZE_M = 0.075;
 const FEET_TO_KM = 0.0003048;
 const FEET_PER_MINUTE_TO_METRES_PER_SECOND = 0.00508;
 const KNOTS_TO_METRES_PER_SECOND = 0.514444;
@@ -137,6 +142,30 @@ function aircraftGeometry(): THREE.BufferGeometry {
   ]);
   geometry.computeBoundingSphere();
   return geometry;
+}
+
+function vehicleGeometry(): THREE.BufferGeometry {
+  const chassis = new THREE.BoxGeometry(0.72, 1.18, 0.24);
+  chassis.translate(0, 0, 0.2);
+  const cabin = new THREE.BoxGeometry(0.58, 0.55, 0.32);
+  cabin.translate(0, -0.12, 0.46);
+  const lightBar = new THREE.BoxGeometry(0.34, 0.08, 0.08);
+  lightBar.translate(0, -0.12, 0.66);
+  const geometry = mergeGeometries([
+    colouredGeometry(chassis, 0xf0a43c),
+    colouredGeometry(cabin, 0xffc567),
+    colouredGeometry(lightBar, 0x7cecff),
+  ]);
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+export function aircraftRenderKind(
+  emitterCategory: string | undefined,
+): "aircraft" | "vehicle" {
+  return emitterCategory === "C1" || emitterCategory === "C2"
+    ? "vehicle"
+    : "aircraft";
 }
 
 function labelGeometry(): {
@@ -271,23 +300,34 @@ export function formatAircraftLabel(aircraft: TrackedAircraft): {
   primary: string;
   secondary: string;
 } {
-  const flightLevel = Math.max(0, Math.round(aircraft.altitudeFt / 100));
+  const flightLevel = aircraft.altitudeFt === null
+    ? undefined
+    : Math.max(0, Math.round(aircraft.altitudeFt / 100));
   const speed = Math.max(0, Math.round(aircraft.groundSpeedKt));
   const heading = Math.round(
     ((aircraft.headingDegrees % 360) + 360) % 360,
   );
+  const verticalPosition = aircraft.onGround
+    ? "GND"
+    : flightLevel === undefined
+    ? "ALT---"
+    : `FL${String(flightLevel).padStart(3, "0")}`;
   return {
     primary: aircraft.callsign.toUpperCase(),
     secondary:
-      `FL${String(flightLevel).padStart(3, "0")} ` +
+      `${verticalPosition} ` +
       `${speed}KT ${String(heading).padStart(3, "0")}°`,
   };
 }
 
-export function aircraftRenderAttitude(aircraft: TrackedAircraft): {
+export function aircraftRenderAttitude(
+  aircraft: TrackedAircraft,
+  sample: AircraftSample,
+): {
   pitchDegrees: number;
   rollDegrees: number;
 } {
+  if (aircraft.onGround) return { pitchDegrees: 0, rollDegrees: 0 };
   const horizontalSpeed =
     aircraft.groundSpeedKt * KNOTS_TO_METRES_PER_SECOND;
   const pitchDegrees = horizontalSpeed > 0
@@ -299,28 +339,34 @@ export function aircraftRenderAttitude(aircraft: TrackedAircraft): {
     : 0;
   const estimatedRollDegrees = THREE.MathUtils.radToDeg(Math.atan(
     horizontalSpeed * THREE.MathUtils.degToRad(
-      aircraft.trackRateDegreesPerSecond,
+      sample.trackRateDegreesPerSecond,
     ) / STANDARD_GRAVITY_METRES_PER_SECOND_SQUARED,
   ));
   return {
     pitchDegrees,
-    rollDegrees: aircraft.rollDegrees ?? estimatedRollDegrees,
+    rollDegrees: estimatedRollDegrees,
   };
 }
 
 export function aircraftNormalizedAltitude(
-  altitudeFt: number,
+  altitudeFt: number | null,
   radialMultiplier: number,
 ): number {
   return normalizedRadialOffsetForKilometres(
-    Math.max(0, altitudeFt) * FEET_TO_KM,
+    Math.max(0, altitudeFt ?? 0) * FEET_TO_KM,
     radialMultiplier,
   );
+}
+
+interface AircraftRetarget {
+  readonly from: AircraftSample;
+  readonly startedAtMs: number;
 }
 
 export class AircraftLayer {
   readonly group = new THREE.Group();
   private readonly mesh: THREE.InstancedMesh;
+  private readonly vehicleMesh: THREE.InstancedMesh;
   private readonly labelMesh: THREE.Mesh<
     THREE.InstancedBufferGeometry,
     THREE.ShaderMaterial
@@ -331,23 +377,38 @@ export class AircraftLayer {
   private readonly labelContext: CanvasRenderingContext2D;
   private readonly labelTexture: THREE.CanvasTexture;
   private aircraft: TrackedAircraft[] = [];
+  private readonly renderedSamples = new Map<string, AircraftSample>();
+  private readonly retargets = new Map<string, AircraftRetarget>();
 
-  constructor() {
+  constructor(
+    private readonly terrainElevationMetres: (
+      latitudeDegrees: number,
+      longitudeDegrees: number,
+    ) => number,
+  ) {
+    const material = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.96,
+      depthWrite: false,
+    });
     this.mesh = new THREE.InstancedMesh(
       aircraftGeometry(),
-      new THREE.MeshBasicMaterial({
-        vertexColors: true,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.96,
-        depthWrite: false,
-      }),
+      material,
       MAX_AIRCRAFT,
     );
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 12;
-    this.mesh.count = 0;
+    this.vehicleMesh = new THREE.InstancedMesh(
+      vehicleGeometry(),
+      material,
+      MAX_AIRCRAFT,
+    );
+    for (const symbolMesh of [this.mesh, this.vehicleMesh]) {
+      symbolMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      symbolMesh.frustumCulled = false;
+      symbolMesh.renderOrder = 12;
+      symbolMesh.count = 0;
+    }
 
     const labels = labelGeometry();
     const atlas = createLabelAtlas();
@@ -364,11 +425,25 @@ export class AircraftLayer {
     this.labelMesh.renderOrder = 13;
     this.labelMesh.visible = false;
 
-    this.group.add(this.mesh, this.labelMesh);
+    this.group.add(this.mesh, this.vehicleMesh, this.labelMesh);
   }
 
-  setAircraft(aircraft: TrackedAircraft[]): void {
-    this.aircraft = aircraft.slice(0, MAX_AIRCRAFT);
+  setAircraft(aircraft: readonly TrackedAircraft[]): void {
+    const previous = new Map(this.aircraft.map((track) => [track.id, track]));
+    const next = aircraft.slice(0, MAX_AIRCRAFT);
+    const retained = new Set(next.map((track) => track.id));
+    const startedAtMs = performance.now();
+    for (const track of next) {
+      if (previous.get(track.id)?.revision === track.revision) continue;
+      const rendered = this.renderedSamples.get(track.id);
+      if (rendered) this.retargets.set(track.id, { from: rendered, startedAtMs });
+    }
+    for (const id of this.renderedSamples.keys()) {
+      if (retained.has(id)) continue;
+      this.renderedSamples.delete(id);
+      this.retargets.delete(id);
+    }
+    this.aircraft = next;
     this.redrawLabelAtlas();
   }
 
@@ -378,6 +453,7 @@ export class AircraftLayer {
 
   set symbolsVisible(value: boolean) {
     this.mesh.visible = value;
+    this.vehicleMesh.visible = value;
   }
 
   set labelsVisible(value: boolean) {
@@ -390,10 +466,34 @@ export class AircraftLayer {
     radialMultiplier: number,
   ): void {
     if (!this.group.visible) return;
-    const symbolScale = AIRCRAFT_SYMBOL_SIZE_M / displayRadiusM;
-    let count = 0;
+    const aircraftSymbolScale = AIRCRAFT_SYMBOL_SIZE_M / displayRadiusM;
+    const vehicleSymbolScale = VEHICLE_SYMBOL_SIZE_M / displayRadiusM;
+    const frameTimeMs = performance.now();
+    let aircraftCount = 0;
+    let vehicleCount = 0;
+    let labelCount = 0;
     for (const report of this.aircraft) {
-      const aircraft = extrapolateAircraft(report, atMs);
+      const target = sampleAircraft(report, atMs);
+      const retarget = this.retargets.get(report.id);
+      let aircraft = target;
+      if (retarget) {
+        const linearProgress = Math.max(
+          0,
+          Math.min(
+            1,
+            (frameTimeMs - retarget.startedAtMs) / AIRCRAFT_RETARGET_DURATION_MS,
+          ),
+        );
+        const smoothProgress =
+          linearProgress * linearProgress * (3 - 2 * linearProgress);
+        aircraft = interpolateAircraftSamples(
+          retarget.from,
+          target,
+          smoothProgress,
+        );
+        if (linearProgress >= 1) this.retargets.delete(report.id);
+      }
+      this.renderedSamples.set(report.id, aircraft);
       const latitude = THREE.MathUtils.degToRad(aircraft.latitudeDegrees);
       const longitude = THREE.MathUtils.degToRad(aircraft.longitudeDegrees);
 
@@ -410,7 +510,15 @@ export class AircraftLayer {
       );
       position.addScaledVector(
         normal,
-        aircraftNormalizedAltitude(aircraft.altitudeFt, radialMultiplier),
+        report.onGround
+          ? normalizedRadialOffsetForMetres(
+            this.terrainElevationMetres(
+              aircraft.latitudeDegrees,
+              aircraft.longitudeDegrees,
+            ),
+            radialMultiplier,
+          )
+          : aircraftNormalizedAltitude(aircraft.altitudeFt, radialMultiplier),
       );
 
       east.set(-Math.sin(longitude), 0, -Math.cos(longitude)).normalize();
@@ -427,7 +535,7 @@ export class AircraftLayer {
       side.crossVectors(forward, normal).normalize();
       rotationMatrix.makeBasis(side, forward, normal);
       quaternion.setFromRotationMatrix(rotationMatrix);
-      const attitude = aircraftRenderAttitude(aircraft);
+      const attitude = aircraftRenderAttitude(report, aircraft);
       attitudeEuler.set(
         THREE.MathUtils.degToRad(attitude.pitchDegrees),
         THREE.MathUtils.degToRad(attitude.rollDegrees),
@@ -435,15 +543,26 @@ export class AircraftLayer {
       );
       attitudeQuaternion.setFromEuler(attitudeEuler);
       quaternion.multiply(attitudeQuaternion);
-      scale.setScalar(symbolScale);
+      const renderKind = aircraftRenderKind(report.emitterCategory);
+      scale.setScalar(
+        renderKind === "vehicle" ? vehicleSymbolScale : aircraftSymbolScale,
+      );
       instanceMatrix.compose(position, quaternion, scale);
-      this.mesh.setMatrixAt(count, instanceMatrix);
-      this.labelPositions.setXYZ(count, position.x, position.y, position.z);
-      count += 1;
+      if (renderKind === "vehicle") {
+        this.vehicleMesh.setMatrixAt(vehicleCount, instanceMatrix);
+        vehicleCount += 1;
+      } else {
+        this.mesh.setMatrixAt(aircraftCount, instanceMatrix);
+        aircraftCount += 1;
+      }
+      this.labelPositions.setXYZ(labelCount, position.x, position.y, position.z);
+      labelCount += 1;
     }
-    this.mesh.count = count;
+    this.mesh.count = aircraftCount;
     this.mesh.instanceMatrix.needsUpdate = true;
-    this.labelMesh.geometry.instanceCount = count;
+    this.vehicleMesh.count = vehicleCount;
+    this.vehicleMesh.instanceMatrix.needsUpdate = true;
+    this.labelMesh.geometry.instanceCount = labelCount;
     this.labelPositions.needsUpdate = true;
   }
 

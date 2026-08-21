@@ -60,7 +60,7 @@ Quest Browser JavaScript console through its DevTools connection.
 - Mapterhorn / Copernicus GLO-30 terrain with atomic quadtree transitions
 - Embedded NASA Blue Marble imagery with optional atomic XYZ refinement
 - A Gaia DR3 / Hipparcos celestial sphere through Found in Space SkyKit
-- Optional Airplanes.live traffic during an active immersive session
+- Optional Flight Follower traffic during an active immersive session
 - Browser geolocation with an approximate network fallback
 
 The detailed terrain, imagery, and rendering design is documented in

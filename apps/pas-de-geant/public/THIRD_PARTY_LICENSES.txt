@@ -48,14 +48,15 @@ The organisations in charge of the Copernicus programme by law or by
 delegation incur no liability for use of the Copernicus WorldDEM-30.
 
 
-AIRPLANES.LIVE ADS-B DATA
+FLIGHT FOLLOWER / ADSB.FI DATA
 
-Live proof-of-concept aircraft positions are requested from the
-Airplanes.live REST API:
-https://airplanes.live/api-guide/
+Live proof-of-concept traffic is received from the Found in Space Flight
+Follower service, backed by ADSB.fi open data:
+https://flight-follower.dev.k-si.com/
+https://opendata.adsb.fi/
 
-Use of the service is subject to the provider's current API terms and request
-limits. This application does not bundle or redistribute an aircraft dataset.
+Use of the services is subject to their current terms. This application does
+not bundle or redistribute an aircraft dataset.
 
 
 CELESTRAK ORBITAL DATA

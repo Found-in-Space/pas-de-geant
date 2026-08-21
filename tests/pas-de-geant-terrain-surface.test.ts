@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   flatSurfaceObserverHeightMetres,
   imageryUvForGeographicPoint,
+  sampleTerrariumElevationMetres,
   sourceUvForTilePoint,
 } from "../apps/pas-de-geant/src/terrain-surface.js";
 
@@ -53,5 +54,24 @@ describe("Terrain surface composition", () => {
     expect(uv.v).not.toBeCloseTo(equirectangularV, 2);
     expect(uv.v).toBeGreaterThan(0);
     expect(uv.v).toBeLessThan(0.5);
+  });
+
+  it("samples the same bilinear Terrarium heights used by the terrain shader", () => {
+    const pixels = new Uint8ClampedArray(2 * 2 * 4);
+    const writeElevation = (index: number, elevationMetres: number): void => {
+      const encoded = elevationMetres + 32_768;
+      pixels[index * 4] = Math.floor(encoded / 256);
+      pixels[index * 4 + 1] = Math.floor(encoded) % 256;
+      pixels[index * 4 + 2] = Math.round((encoded % 1) * 256);
+      pixels[index * 4 + 3] = 255;
+    };
+    writeElevation(0, 100);
+    writeElevation(1, 200);
+    writeElevation(2, 300);
+    writeElevation(3, 400);
+
+    expect(sampleTerrariumElevationMetres(pixels, 2, 2, 0.25, 0.75)).toBe(100);
+    expect(sampleTerrariumElevationMetres(pixels, 2, 2, 0.75, 0.25)).toBe(400);
+    expect(sampleTerrariumElevationMetres(pixels, 2, 2, 0.5, 0.5)).toBe(250);
   });
 });

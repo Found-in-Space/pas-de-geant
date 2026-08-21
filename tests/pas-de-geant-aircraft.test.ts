@@ -1,130 +1,181 @@
 import { describe, expect, it } from "vitest";
 import {
-  AIRCRAFT_EXTRAPOLATION_LIMIT_MS,
-  extrapolateAircraft,
-  parseAirplanesLive,
-  type TrackedAircraft,
+  FlightFollowerClient,
+  parseFlightFollowerTrack,
+  sampleAircraft,
 } from "../apps/pas-de-geant/src/aircraft-feed.js";
 import {
+  aircraftRenderKind,
+  formatAircraftLabel,
+} from "../apps/pas-de-geant/src/aircraft-layer.js";
+import {
   parseAircraftDisplayArguments,
-  shouldPollAircraft,
+  shouldStreamAircraft,
 } from "../apps/pas-de-geant/src/aircraft-lifecycle.js";
 
-describe("Pas de Géant aircraft regressions", () => {
-  it("does not poll outside a visible, opted-in VR session", () => {
+function flightFollowerTrack(
+  id = "484abc",
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    id,
+    revision: 4,
+    observedAtMs: 1_000,
+    callsign: " KLM123 ",
+    registration: "PH-BXA",
+    aircraftType: "B738",
+    emitterCategory: " a7 ",
+    current: {
+      latitudeDegrees: 52.31,
+      longitudeDegrees: 179,
+      altitudeFt: 32_000,
+      onGround: false,
+      groundSpeedKt: 430,
+      courseDegrees: 350,
+      headingDegrees: 350,
+      verticalRateFpm: 1_200,
+    },
+    trajectory: {
+      generatedAtMs: 1_000,
+      validUntilMs: 11_000,
+      offsetMs: [0, 10_000],
+      latitudeDegrees: [52.31, 52.41],
+      longitudeDegrees: [179, -179],
+      altitudeFt: [32_000, 33_000],
+      courseDegrees: [350, 10],
+      headingDegrees: [350, 10],
+    },
+    ...overrides,
+  };
+}
+
+describe("Pas de Géant Flight Follower support", () => {
+  it("streams only inside a visible, opted-in VR session", () => {
     expect(
-      shouldPollAircraft({
+      shouldStreamAircraft({
         enabled: true,
         vrSessionActive: true,
         documentVisible: true,
-        requestActive: false,
       }),
     ).toBe(true);
 
     for (const blocked of [
-      {
-        enabled: false,
-        vrSessionActive: true,
-        documentVisible: true,
-        requestActive: false,
-      },
-      {
-        enabled: true,
-        vrSessionActive: false,
-        documentVisible: true,
-        requestActive: false,
-      },
-      {
-        enabled: true,
-        vrSessionActive: true,
-        documentVisible: false,
-        requestActive: false,
-      },
-      {
-        enabled: true,
-        vrSessionActive: true,
-        documentVisible: true,
-        requestActive: true,
-      },
+      { enabled: false, vrSessionActive: true, documentVisible: true },
+      { enabled: true, vrSessionActive: false, documentVisible: true },
+      { enabled: true, vrSessionActive: true, documentVisible: false },
     ]) {
-      expect(shouldPollAircraft(blocked)).toBe(false);
+      expect(shouldStreamAircraft(blocked)).toBe(false);
     }
   });
 
-  it("filters and normalizes the external aircraft payload", () => {
-    expect(
-      parseAirplanesLive(
-        {
-          ac: [
-            {
-              hex: "484abc",
-              flight: " KLM123 ",
-              lat: -33.86,
-              lon: 151.2,
-              alt_baro: 32_000,
-              alt_geom: 33_000,
-              gs: 430,
-              track: 91,
-              true_heading: 94,
-              track_rate: 0.25,
-              roll: -4.5,
-              baro_rate: 1_200,
-              t: "B738",
-              seen_pos: 1.5,
-            },
-            {
-              hex: "ground1",
-              lat: -33.87,
-              lon: 151.21,
-              alt_baro: "ground",
-            },
-            { hex: "nopos", alt_baro: 10_000 },
-          ],
-        },
-        10_000,
-      ),
-    ).toEqual([
-      {
-        id: "484ABC",
-        callsign: "KLM123",
-        aircraftType: "B738",
-        latitudeDegrees: -33.86,
-        longitudeDegrees: 151.2,
-        altitudeFt: 32_000,
-        groundSpeedKt: 430,
-        trackDegrees: 91,
-        headingDegrees: 94,
-        trackRateDegreesPerSecond: 0.25,
-        rollDegrees: -4.5,
-        verticalRateFeetPerMinute: 1_200,
-        sampledAtMs: 8_500,
+  it("parses category, nullable ground state, and compact trajectories", () => {
+    const parsed = parseFlightFollowerTrack(flightFollowerTrack());
+
+    expect(parsed).toMatchObject({
+      id: "484ABC",
+      callsign: "KLM123",
+      emitterCategory: "A7",
+      altitudeFt: 32_000,
+      onGround: false,
+    });
+    expect(parsed?.trajectory.offsetMs).toEqual([0, 10_000]);
+
+    const ground = parseFlightFollowerTrack(flightFollowerTrack("c0ffee", {
+      emitterCategory: "C2",
+      current: {
+        latitudeDegrees: 52.31,
+        longitudeDegrees: 4.76,
+        altitudeFt: null,
+        onGround: true,
+        groundSpeedKt: 18,
+        courseDegrees: 90,
+        headingDegrees: 90,
+        verticalRateFpm: 0,
       },
-    ]);
+      trajectory: {
+        generatedAtMs: 1_000,
+        validUntilMs: 31_000,
+        offsetMs: [0, 30_000],
+        latitudeDegrees: [52.31, 52.311],
+        longitudeDegrees: [4.76, 4.77],
+        altitudeFt: [null, null],
+        courseDegrees: [90, 90],
+        headingDegrees: [90, 90],
+      },
+    }));
+    expect(ground).toMatchObject({
+      emitterCategory: "C2",
+      altitudeFt: null,
+      onGround: true,
+    });
+    expect(aircraftRenderKind(ground?.emitterCategory)).toBe("vehicle");
+    expect(ground && formatAircraftLabel(ground).secondary).toBe("GND 18KT 090°");
   });
 
-  it("dead-reckons reports but stops extrapolating stale data", () => {
-    const aircraft: TrackedAircraft = {
-      id: "TEST01",
-      callsign: "TEST01",
-      latitudeDegrees: 0,
-      longitudeDegrees: 0,
-      altitudeFt: 10_000,
-      groundSpeedKt: 360,
-      trackDegrees: 90,
-      headingDegrees: 90,
-      trackRateDegreesPerSecond: 1,
-      verticalRateFeetPerMinute: 600,
-      sampledAtMs: 0,
+  it("interpolates the backend trajectory across the antimeridian and then holds", () => {
+    const aircraft = parseFlightFollowerTrack(flightFollowerTrack())!;
+    const halfway = sampleAircraft(aircraft, 6_000);
+    const expired = sampleAircraft(aircraft, 60_000);
+
+    expect(halfway.latitudeDegrees).toBeCloseTo(52.36);
+    expect(Math.abs(halfway.longitudeDegrees)).toBe(180);
+    expect(halfway.headingDegrees).toBeCloseTo(0);
+    expect(halfway.altitudeFt).toBeCloseTo(32_500);
+    expect(halfway.trackRateDegreesPerSecond).toBeCloseTo(2);
+    expect(expired.longitudeDegrees).toBe(-179);
+    expect(expired.altitudeFt).toBe(33_000);
+  });
+
+  it("subscribes after ready and applies snapshots and deltas", () => {
+    const sent: string[] = [];
+    const listeners = new Map<string, Array<(event?: unknown) => void>>();
+    const socket = {
+      readyState: 1,
+      addEventListener(type: string, listener: (event?: unknown) => void) {
+        const entries = listeners.get(type) ?? [];
+        entries.push(listener);
+        listeners.set(type, entries);
+      },
+      send(value: string) {
+        sent.push(value);
+      },
+      close() {},
     };
-    const moving = extrapolateAircraft(aircraft, 10_000);
-    expect(moving.longitudeDegrees).toBeGreaterThan(0);
-    expect(moving.latitudeDegrees).toBeLessThan(0);
-    expect(moving.trackDegrees).toBeCloseTo(100);
-    expect(moving.headingDegrees).toBeCloseTo(100);
-    expect(moving.altitudeFt).toBeCloseTo(10_100);
-    expect(extrapolateAircraft(aircraft, 60_000)).toEqual(
-      extrapolateAircraft(aircraft, AIRCRAFT_EXTRAPOLATION_LIMIT_MS),
-    );
+    const emitMessage = (message: unknown): void => {
+      for (const listener of listeners.get("message") ?? []) {
+        listener({ data: JSON.stringify(message) });
+      }
+    };
+    const updates: string[][] = [];
+    const states: string[] = [];
+    const client = new FlightFollowerClient({
+      createSocket: () => socket as never,
+      onTracks: (tracks) => updates.push(tracks.map(({ id }) => id)),
+      onStatus: ({ state }) => states.push(state),
+    });
+
+    client.start({ latitudeDegrees: 52.31, longitudeDegrees: 4.76 });
+    emitMessage({ protocolVersion: 1, type: "session.ready" });
+    expect(JSON.parse(sent[0]!)).toEqual({
+      protocolVersion: 1,
+      type: "subscribe",
+      center: { latitudeDegrees: 52.31, longitudeDegrees: 4.76 },
+      radiusNm: 250,
+    });
+
+    emitMessage({
+      protocolVersion: 1,
+      type: "track.snapshot",
+      tracks: [flightFollowerTrack("one")],
+    });
+    emitMessage({
+      protocolVersion: 1,
+      type: "track.delta",
+      remove: ["one"],
+      upsert: [flightFollowerTrack("two")],
+    });
+    expect(updates).toEqual([["ONE"], ["TWO"]]);
+    expect(states).toContain("live");
   });
 
   it("validates independent aircraft and label voice controls", () => {
