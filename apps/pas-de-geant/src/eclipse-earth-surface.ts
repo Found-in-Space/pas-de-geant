@@ -112,3 +112,34 @@ export function eclipseEarthSurfaceObservation(
       nearestPointResidualEarthRadii * metresPerEarthRadius,
   };
 }
+
+/** The currently rendered topographic surface point in Earth-radius units. */
+export function eclipseTopographicSurfacePoint(
+  observation: EclipseEarthSurfaceObservation,
+  elevationMetres: number,
+  target = new THREE.Vector3(),
+): THREE.Vector3 {
+  return target.copy(observation.surfacePoint).addScaledVector(
+    observation.surfaceNormal,
+    elevationMetres / (EARTH_MEAN_RADIUS_KM * 1_000),
+  );
+}
+
+/** Earth-centred radius of the local rendered WGS84-plus-terrain surface. */
+export function eclipseTopographicSurfaceRadius(
+  observation: EclipseEarthSurfaceObservation,
+  elevationMetres: number,
+): number {
+  return eclipseTopographicSurfacePoint(observation, elevationMetres).length();
+}
+
+/** Radial clearance above rendered terrain in physical Earth metres. */
+export function eclipseTopographicAltitudeMetres(
+  observation: EclipseEarthSurfaceObservation,
+  elevationMetres: number,
+): number {
+  return (
+    observation.headPoint.length() -
+    eclipseTopographicSurfaceRadius(observation, elevationMetres)
+  ) * EARTH_MEAN_RADIUS_KM * 1_000;
+}

@@ -14,7 +14,6 @@ import {
   parseEclipseScaleArguments,
   parseEclipseSelectionArguments,
   parseEclipseTimeArguments,
-  parseEclipseViewArguments,
 } from "../apps/pas-de-geant/src/eclipse-tools.js";
 
 function action(actionId: string): RuntimeOutput {
@@ -26,7 +25,7 @@ function change(field: string, value: unknown): RuntimeOutput {
 }
 
 describe("Eclipse observatory control surfaces", () => {
-  it("maps touchOS timeline, playback, views, reset, and voice to commands", () => {
+  it("maps touchOS timeline, playback, reset, and voice without view modes", () => {
     expect(eclipsePanelCommand(action(ECLIPSE_PANEL_ACTION.playback))).toEqual({
       type: "toggle-playback",
     });
@@ -40,12 +39,7 @@ describe("Eclipse observatory control surfaces", () => {
       type: "set-time-fraction",
       value: 1,
     });
-    for (const preset of ["system", "earth", "moon", "shadow"] as const) {
-      expect(eclipsePanelCommand(change(ECLIPSE_PANEL_FIELD.view, preset))).toEqual({
-        type: "set-view",
-        preset,
-      });
-    }
+    expect(eclipsePanelCommand(change("eclipse.view", "earth"))).toBeNull();
   });
 
   it("maps A/B/X/Y once per controller-button press", () => {
@@ -64,9 +58,9 @@ describe("Eclipse observatory control surfaces", () => {
     leftButtons[5]!.pressed = true;
 
     expect(eclipseControllerIntent(session, latch)).toEqual({
-      flightAxis: 0,
-      rollAxis: 0,
-      timelineAxis: 0,
+      orbitX: 0,
+      orbitY: 0,
+      altitudeAxis: 0,
       scaleAxis: 0,
       toggleVoice: true,
       resetStage: true,
@@ -74,9 +68,9 @@ describe("Eclipse observatory control surfaces", () => {
       togglePanel: true,
     });
     expect(eclipseControllerIntent(session, latch)).toEqual({
-      flightAxis: 0,
-      rollAxis: 0,
-      timelineAxis: 0,
+      orbitX: 0,
+      orbitY: 0,
+      altitudeAxis: 0,
       scaleAxis: 0,
       toggleVoice: false,
       resetStage: false,
@@ -85,7 +79,7 @@ describe("Eclipse observatory control surfaces", () => {
     });
   });
 
-  it("maps the sticks to gaze flight, roll, eclipse time, and system scale", () => {
+  it("maps the sticks to Earth orbit, altitude, and system scale", () => {
     const leftAxes = [0, 0, 0.7, -0.8];
     const rightAxes = [0, 0, -0.75, -0.9];
     const session = {
@@ -96,9 +90,9 @@ describe("Eclipse observatory control surfaces", () => {
     } as unknown as XRSession;
     const intent = eclipseControllerIntent(session, freshButtonLatch());
 
-    expect(intent.flightAxis).toBeGreaterThan(0);
-    expect(intent.rollAxis).toBeGreaterThan(0);
-    expect(intent.timelineAxis).toBeLessThan(0);
+    expect(intent.orbitX).toBeGreaterThan(0);
+    expect(intent.orbitY).toBeGreaterThan(0);
+    expect(intent.altitudeAxis).toBeLessThan(0);
     expect(intent.scaleAxis).toBeGreaterThan(0);
   });
 
@@ -116,14 +110,12 @@ describe("Eclipse observatory control surfaces", () => {
     expect(parseEclipseTimeArguments({ utc: "2027-08-02T10:07:49Z" }))
       .toBe("2027-08-02T10:07:49.000Z");
     expect(parseEclipsePlaybackArguments({ playing: true })).toBe(true);
-    expect(parseEclipseViewArguments({ preset: "shadow" })).toBe("shadow");
     expect(parseEclipseScaleArguments({ metres_per_earth_radius: 1e-9 }))
       .toBe(1e-9);
     expect(parseEclipseScaleArguments({ metres_per_earth_radius: 1e9 }))
       .toBe(1e9);
     expect(eclipseYearFromEventId("solar-2027-08-02-total")).toBe(2027);
     expect(eclipseYearFromEventId("made-up-2027-eclipse")).toBeNull();
-    expect(() => parseEclipseViewArguments({ preset: "flight" })).toThrow();
     expect(() => parseEclipseScaleArguments({ metres_per_earth_radius: 0 }))
       .toThrow();
   });

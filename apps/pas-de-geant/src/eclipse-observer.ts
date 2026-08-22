@@ -6,34 +6,13 @@ export interface EclipseObserverTransform {
   quaternion: THREE.Quaternion;
 }
 
-export interface ObserverOneGripGesture {
-  observerStart: THREE.Matrix4;
-  gripStart: THREE.Matrix4;
-}
-
 export interface ObserverTwoGripGesture {
   observerStart: THREE.Matrix4;
   midpointStart: THREE.Vector3;
   directionStart: THREE.Vector3;
 }
 
-export interface ObserverFlightInput {
-  flightAxis: number;
-  rollAxis: number;
-  elapsedSeconds: number;
-  metresPerSecond?: number;
-  rollRadiansPerSecond?: number;
-}
-
 const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
-
-function poseMatrix(pose: GripPose): THREE.Matrix4 {
-  return new THREE.Matrix4().compose(
-    pose.position,
-    pose.quaternion,
-    UNIT_SCALE,
-  );
-}
 
 function observerMatrix(observer: EclipseObserverTransform): THREE.Matrix4 {
   return new THREE.Matrix4().compose(
@@ -51,46 +30,83 @@ function observerTransform(matrix: THREE.Matrix4): EclipseObserverTransform {
   return { position, quaternion: quaternion.normalize() };
 }
 
-export function observerPositionForView(
-  focusWorld: THREE.Vector3,
-  distanceM: number,
-  trackedHeadPosition: THREE.Vector3,
-  trackedHeadQuaternion: THREE.Quaternion,
-  observerQuaternion: THREE.Quaternion,
-): THREE.Vector3 {
-  const worldForward = new THREE.Vector3(0, 0, -1)
-    .applyQuaternion(trackedHeadQuaternion)
-    .applyQuaternion(observerQuaternion)
-    .normalize();
-  const desiredHeadPosition = focusWorld.clone().addScaledVector(
-    worldForward,
-    -distanceM,
-  );
-  const trackedHeadOffset = trackedHeadPosition
-    .clone()
-    .applyQuaternion(observerQuaternion);
-  return desiredHeadPosition.sub(trackedHeadOffset);
-}
-
-export function beginObserverOneGrip(
-  gripInReferenceSpace: GripPose,
+/** Translates the navigation rig so the live tracked head reaches a world point. */
+export function observerTranslatedForHeadPosition(
   observer: EclipseObserverTransform,
-): ObserverOneGripGesture {
+  headWorldPosition: THREE.Vector3,
+  desiredHeadWorldPosition: THREE.Vector3,
+): EclipseObserverTransform {
   return {
-    observerStart: observerMatrix(observer),
-    gripStart: poseMatrix(gripInReferenceSpace),
+    position: observer.position.clone().add(
+      desiredHeadWorldPosition.clone().sub(headWorldPosition),
+    ),
+    quaternion: observer.quaternion.clone(),
   };
 }
 
-export function updateObserverOneGrip(
-  gesture: ObserverOneGripGesture,
-  gripInReferenceSpace: GripPose,
+/**
+ * Rigidly moves the complete observer around Earth in live headset-relative
+ * screen directions. Applying the same rotation to the rig position and
+ * orientation keeps Earth fixed in headset space.
+ */
+export function updateObserverEarthOrbit(
+  observer: EclipseObserverTransform,
+  headWorldPosition: THREE.Vector3,
+  headWorldQuaternion: THREE.Quaternion,
+  earthWorldPosition: THREE.Vector3,
+  horizontalRadians: number,
+  verticalRadians: number,
 ): EclipseObserverTransform {
-  return observerTransform(
-    gesture.observerStart
-      .clone()
-      .multiply(gesture.gripStart)
-      .multiply(poseMatrix(gripInReferenceSpace).invert()),
+  const angle = Math.hypot(horizontalRadians, verticalRadians);
+  if (angle === 0) {
+    return {
+      position: observer.position.clone(),
+      quaternion: observer.quaternion.clone(),
+    };
+  }
+  const radial = headWorldPosition.clone().sub(earthWorldPosition).normalize();
+  const screenRight = new THREE.Vector3(1, 0, 0)
+    .applyQuaternion(headWorldQuaternion);
+  screenRight.addScaledVector(radial, -screenRight.dot(radial));
+  const screenUp = new THREE.Vector3(0, 1, 0)
+    .applyQuaternion(headWorldQuaternion);
+  screenUp.addScaledVector(radial, -screenUp.dot(radial));
+  if (screenRight.lengthSq() > Number.EPSILON) screenRight.normalize();
+  if (screenUp.lengthSq() > Number.EPSILON) screenUp.normalize();
+  const tangent = screenRight.multiplyScalar(horizontalRadians)
+    .addScaledVector(screenUp, verticalRadians);
+  if (tangent.lengthSq() <= Number.EPSILON) {
+    return {
+      position: observer.position.clone(),
+      quaternion: observer.quaternion.clone(),
+    };
+  }
+  const axis = radial.clone().cross(tangent.normalize()).normalize();
+  const rotation = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+  return {
+    position: observer.position.clone()
+      .sub(earthWorldPosition)
+      .applyQuaternion(rotation)
+      .add(earthWorldPosition),
+    quaternion: rotation.clone().multiply(observer.quaternion).normalize(),
+  };
+}
+
+/** Projects a candidate tracked-head position onto an Earth-centred sphere. */
+export function observerProjectedToEarthRadius(
+  observer: EclipseObserverTransform,
+  headWorldPosition: THREE.Vector3,
+  earthWorldPosition: THREE.Vector3,
+  radiusM: number,
+): EclipseObserverTransform {
+  const desiredHeadPosition = headWorldPosition.clone()
+    .sub(earthWorldPosition)
+    .setLength(radiusM)
+    .add(earthWorldPosition);
+  return observerTranslatedForHeadPosition(
+    observer,
+    headWorldPosition,
+    desiredHeadPosition,
   );
 }
 
@@ -138,44 +154,4 @@ export function updateObserverTwoGrip(
   return observerTransform(
     gesture.observerStart.clone().multiply(currentToStart),
   );
-}
-
-/**
- * Flies along the live headset gaze and rolls the observer around that gaze.
- * Rolling pivots around the tracked head so it changes orientation without
- * introducing an incidental translation.
- */
-export function updateObserverHeadRelativeFlight(
-  observer: EclipseObserverTransform,
-  headWorldPosition: THREE.Vector3,
-  headWorldQuaternion: THREE.Quaternion,
-  input: ObserverFlightInput,
-): EclipseObserverTransform {
-  const metresPerSecond = input.metresPerSecond ?? 1.8;
-  const rollRadiansPerSecond = input.rollRadiansPerSecond ?? 1.35;
-  const forward = new THREE.Vector3(0, 0, -1)
-    .applyQuaternion(headWorldQuaternion)
-    .normalize();
-  const next = {
-    position: observer.position.clone(),
-    quaternion: observer.quaternion.clone(),
-  };
-  if (input.rollAxis !== 0) {
-    const roll = new THREE.Quaternion().setFromAxisAngle(
-      forward,
-      input.rollAxis * rollRadiansPerSecond * input.elapsedSeconds,
-    );
-    next.position
-      .sub(headWorldPosition)
-      .applyQuaternion(roll)
-      .add(headWorldPosition);
-    next.quaternion.premultiply(roll).normalize();
-  }
-  if (input.flightAxis !== 0) {
-    next.position.addScaledVector(
-      forward,
-      input.flightAxis * metresPerSecond * input.elapsedSeconds,
-    );
-  }
-  return next;
 }

@@ -22,12 +22,14 @@ The standalone Eclipse Observatory is at
 Sun remain in one coherent system frame; the unscaled headset and controllers
 move through it. Its Earth reuses the terrain elevation and configured
 photographic-imagery pipeline, targeted from the nearest WGS84 point beneath
-the headset. There is no floor or astronomical surface. In VR, either
-grip pulls the observer through space, two grips reorient the observer without
-scaling stereo separation, the left stick flies along the headset gaze or
-rolls around it, and the right stick scrubs eclipse time or uniformly scales
-the complete Earth–Moon–Sun system. A/B/X/Y toggle voice, reset the current
-canonical viewpoint, play or pause, and show or hide the left-wrist panel.
+the headset. The rendered WGS84-plus-topography surface is the inward altitude
+floor. In VR, either grip alone leaves navigation unchanged, two grips orbit
+and reorient the observer without changing Earth-centred distance or stereo
+separation, the left stick moves around an Earth-centred radial sphere while
+keeping Earth framed, and the right stick changes topographic altitude or
+uniformly scales the complete Earth–Moon–Sun system while preserving distance
+in Earth units. A/B/X/Y toggle voice, reset the Earth-orbital viewpoint, play
+or pause, and show or hide the left-wrist panel.
 The right trigger operates the panel ray. Desktop drag orbits the observer and
 the wheel moves closer or farther as a diagnostic fallback.
 

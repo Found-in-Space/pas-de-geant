@@ -3,8 +3,6 @@ import type {
   EclipseSummary,
 } from "@found-in-space/shadowline";
 
-export type EclipseViewPreset = "system" | "earth" | "moon" | "shadow";
-
 export interface CartesianBasis {
   x: CartesianVector;
   y: CartesianVector;

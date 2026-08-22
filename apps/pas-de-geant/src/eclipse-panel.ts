@@ -1,6 +1,5 @@
 import {
   createButton,
-  createChoiceGroup,
   createColumn,
   createRow,
   createSlider,
@@ -10,7 +9,6 @@ import {
   type RuntimeOutput,
 } from "@found-in-space/touch-os";
 import type { RealtimeAgentState } from "./realtime-agent.js";
-import type { EclipseViewPreset } from "./eclipse-types.js";
 import {
   HAND_PANEL_SURFACE,
   HAND_PANEL_THEME,
@@ -26,7 +24,6 @@ export const ECLIPSE_PANEL_ACTION = {
 
 export const ECLIPSE_PANEL_FIELD = {
   timeline: "eclipse.timeline",
-  view: "eclipse.view",
 } as const;
 
 export interface EclipsePanelState {
@@ -35,7 +32,7 @@ export interface EclipsePanelState {
   status: string;
   timeFraction: number;
   playing: boolean;
-  activePreset: EclipseViewPreset | null;
+  altitudeAboveTerrainMetres: number;
   metresPerEarthRadius: number;
   voiceState: RealtimeAgentState;
 }
@@ -44,18 +41,7 @@ export type EclipsePanelCommand =
   | { type: "toggle-playback" }
   | { type: "reset-stage" }
   | { type: "toggle-voice" }
-  | { type: "set-time-fraction"; value: number }
-  | { type: "set-view"; preset: EclipseViewPreset };
-
-const VIEW_OPTIONS: ReadonlyArray<{
-  value: EclipseViewPreset;
-  label: string;
-}> = [
-  { value: "system", label: "System" },
-  { value: "earth", label: "Earth" },
-  { value: "moon", label: "Moon" },
-  { value: "shadow", label: "Shadow" },
-];
+  | { type: "set-time-fraction"; value: number };
 
 export function eclipsePanelCommand(
   output: RuntimeOutput,
@@ -82,27 +68,12 @@ export function eclipsePanelCommand(
       value: Math.max(0, Math.min(1, output.value)),
     };
   }
-  if (
-    output.field === ECLIPSE_PANEL_FIELD.view &&
-    VIEW_OPTIONS.some(({ value }) => value === output.value)
-  ) {
-    return { type: "set-view", preset: output.value as EclipseViewPreset };
-  }
   return null;
 }
 
 export function createEclipsePanelRoot(
   state: EclipsePanelState,
 ): DisplayNode<unknown> {
-  const viewProps = {
-    label: "View",
-    options: VIEW_OPTIONS,
-    selectionMode: "single" as const,
-    field: ECLIPSE_PANEL_FIELD.view,
-    orientation: "horizontal" as const,
-    columns: 4,
-    ...(state.activePreset ? { value: state.activePreset } : {}),
-  };
   return createColumn("eclipse-hand-panel", {
     padding: 10,
     gap: 7,
@@ -133,7 +104,6 @@ export function createEclipsePanelRoot(
         value: state.timeFraction,
         field: ECLIPSE_PANEL_FIELD.timeline,
       }),
-      createChoiceGroup("eclipse-panel-view", viewProps),
       createRow("eclipse-panel-actions", {
         gap: 6,
         children: [
@@ -142,7 +112,7 @@ export function createEclipsePanelRoot(
             actionId: ECLIPSE_PANEL_ACTION.playback,
           }),
           createButton("eclipse-panel-reset", {
-            label: "Reset view · B",
+            label: "Reset orbit · B",
             actionId: ECLIPSE_PANEL_ACTION.resetStage,
           }),
           createButton("eclipse-panel-voice", {
@@ -154,13 +124,13 @@ export function createEclipsePanelRoot(
       createRow("eclipse-panel-readouts", {
         gap: 6,
         children: [
+          createValueReadout("eclipse-panel-altitude", {
+            label: "Terrain altitude",
+            value: formatPhysicalDistance(state.altitudeAboveTerrainMetres),
+          }),
           createValueReadout("eclipse-panel-scale", {
             label: "Physical scale",
             value: `1 R⊕ = ${formatRoomDistance(state.metresPerEarthRadius)}`,
-          }),
-          createValueReadout("eclipse-panel-agent", {
-            label: "Voice agent",
-            value: state.voiceState.toUpperCase(),
           }),
         ],
       }),
@@ -178,4 +148,13 @@ function formatRoomDistance(metres: number): string {
   if (metres < 0.01) return `${(metres * 1_000).toFixed(1)} mm`;
   if (metres < 1) return `${(metres * 100).toFixed(1)} cm`;
   return `${metres.toFixed(2)} m`;
+}
+
+function formatPhysicalDistance(metres: number): string {
+  if (!Number.isFinite(metres)) return "—";
+  const nonnegative = Math.max(0, metres);
+  if (nonnegative < 1_000) return `${nonnegative.toFixed(0)} m`;
+  return `${(nonnegative / 1_000).toLocaleString("en-GB", {
+    maximumFractionDigits: nonnegative < 1_000_000 ? 1 : 0,
+  })} km`;
 }

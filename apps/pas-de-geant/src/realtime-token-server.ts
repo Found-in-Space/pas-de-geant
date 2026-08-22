@@ -380,15 +380,14 @@ function eclipseRealtimeSessionConfiguration(): Record<string, unknown> {
         "Eclipse Observatory. Answer conversationally in one or two short " +
         "sentences. Ask only one question at a time. The app renders global " +
         "solar eclipses using one honest Earth–Moon physical scale. Use " +
-        "get_eclipse_state before reporting the selected event, time, view, " +
+        "get_eclipse_state before reporting the selected event, time, " +
         "playback, or scale. To choose another eclipse, first call " +
         "find_solar_eclipses for an appropriate UTC range, then pass an exact " +
         "returned event_id to select_solar_eclipse. Never invent an eclipse " +
         "or scientific geometry. Use set_eclipse_time for an exact instant, " +
-        "set_eclipse_playback to play or pause, set_eclipse_view for the whole " +
-        "system, Earth, Moon, or shadow corridor, set_eclipse_scale only for " +
+        "set_eclipse_playback to play or pause, set_eclipse_scale only for " +
         "an explicitly requested physical-model scale, and reset_eclipse_stage " +
-        "to restore the observer to the current canonical viewpoint. Earth, " +
+        "to restore the default Earth-orbital scale and distance. Earth, " +
         "Moon, shadow cones, and Sun remain one coherent system; movement " +
         "moves the observer, never an individual body. After every mutation summarize " +
         "the actual returned state. Use search_wikipedia for stable background " +
@@ -411,7 +410,7 @@ function eclipseRealtimeSessionConfiguration(): Record<string, unknown> {
           type: "function",
           name: "get_eclipse_state",
           description:
-            "Read the verified selected solar eclipse, current UTC, playback, view, physical scale, and shadow state.",
+            "Read the verified selected solar eclipse, current UTC, playback, Earth-orbital altitude, physical scale, and shadow state.",
           parameters: emptyParameters,
         },
         {
@@ -466,25 +465,9 @@ function eclipseRealtimeSessionConfiguration(): Record<string, unknown> {
         },
         {
           type: "function",
-          name: "set_eclipse_view",
-          description: "Apply one canonical observatory model view.",
-          parameters: {
-            type: "object",
-            properties: {
-              preset: {
-                type: "string",
-                enum: ["system", "earth", "moon", "shadow"],
-              },
-            },
-            required: ["preset"],
-            additionalProperties: false,
-          },
-        },
-        {
-          type: "function",
           name: "set_eclipse_scale",
           description:
-            "Set the positive uniform physical-model scale in room metres per Earth radius.",
+            "Set the positive uniform physical-model scale in room metres per Earth radius while preserving observer distance in Earth units.",
           parameters: {
             type: "object",
             properties: {
@@ -498,7 +481,7 @@ function eclipseRealtimeSessionConfiguration(): Record<string, unknown> {
           type: "function",
           name: "reset_eclipse_stage",
           description:
-            "Return the observer to the active canonical viewpoint without changing eclipse or time.",
+            "Return the observer to the default Earth-orbital scale and distance without changing eclipse or time.",
           parameters: emptyParameters,
         },
         {

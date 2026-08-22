@@ -1,5 +1,3 @@
-import type { EclipseViewPreset } from "./eclipse-types.js";
-
 function record(value: unknown, description: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${description} must be an object.`);
@@ -52,19 +50,6 @@ export function parseEclipsePlaybackArguments(value: unknown): boolean {
   const playing = record(value, "Eclipse playback arguments")["playing"];
   if (typeof playing !== "boolean") throw new Error("playing must be boolean.");
   return playing;
-}
-
-export function parseEclipseViewArguments(value: unknown): EclipseViewPreset {
-  const preset = record(value, "Eclipse view arguments")["preset"];
-  if (
-    preset !== "system" &&
-    preset !== "earth" &&
-    preset !== "moon" &&
-    preset !== "shadow"
-  ) {
-    throw new Error("preset must be system, earth, moon, or shadow.");
-  }
-  return preset;
 }
 
 export function parseEclipseScaleArguments(value: unknown): number {

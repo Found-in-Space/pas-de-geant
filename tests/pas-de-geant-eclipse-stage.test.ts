@@ -6,16 +6,17 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   eclipseEarthSurfaceObservation,
+  eclipseTopographicAltitudeMetres,
+  eclipseTopographicSurfaceRadius,
   trackedHeadWorldPosition,
   trackedHeadWorldQuaternion,
 } from "../apps/pas-de-geant/src/eclipse-earth-surface.js";
 import { earthTextureUv } from "../apps/pas-de-geant/src/earth-texture-projection.js";
 import {
-  beginObserverOneGrip,
   beginObserverTwoGrip,
-  observerPositionForView,
-  updateObserverHeadRelativeFlight,
-  updateObserverOneGrip,
+  observerProjectedToEarthRadius,
+  observerTranslatedForHeadPosition,
+  updateObserverEarthOrbit,
   updateObserverTwoGrip,
   type EclipseObserverTransform,
 } from "../apps/pas-de-geant/src/eclipse-observer.js";
@@ -25,31 +26,10 @@ import {
   ecefKmToDisplay,
 } from "../apps/pas-de-geant/src/eclipse-rendering.js";
 import {
+  eclipseRadialDistanceAfterInput,
   eclipseScaleAfterInput,
-  eclipseTimeAfterInput,
-  presetFocus,
-  presetMetresPerEarthRadius,
-  presetViewDistance,
-  stagePositionForScaleAroundFocus,
-  type EclipseStageFrame,
   type GripPose,
 } from "../apps/pas-de-geant/src/eclipse-stage.js";
-import type { EclipseViewPreset } from "../apps/pas-de-geant/src/eclipse-types.js";
-
-const frame: EclipseStageFrame = {
-  moonPosition: new THREE.Vector3(59.8, 4, -2),
-  shadowAxis: new THREE.Vector3(-1, 0, 0),
-};
-
-const expectedPresets: Record<
-  EclipseViewPreset,
-  { scale: number; distance: number; focusFraction: number }
-> = {
-  system: { scale: 0.09, distance: 5.8, focusFraction: 0.5 },
-  earth: { scale: 0.75, distance: 3, focusFraction: 0 },
-  moon: { scale: 2.4, distance: 3, focusFraction: 1 },
-  shadow: { scale: 0.2, distance: 3.5, focusFraction: 0.58 },
-};
 
 function grip(
   position: THREE.Vector3,
@@ -62,14 +42,6 @@ function rigidMatrix(transform: EclipseObserverTransform): THREE.Matrix4 {
   return new THREE.Matrix4().compose(
     transform.position,
     transform.quaternion,
-    new THREE.Vector3(1, 1, 1),
-  );
-}
-
-function poseMatrix(pose: GripPose): THREE.Matrix4 {
-  return new THREE.Matrix4().compose(
-    pose.position,
-    pose.quaternion,
     new THREE.Vector3(1, 1, 1),
   );
 }
@@ -207,82 +179,28 @@ describe("Eclipse observatory system and observer transforms", () => {
     expect(worldForward.distanceTo(expectedForward)).toBeLessThan(1e-12);
   });
 
-  it("keeps one Earth-radius coordinate system while presets place the observer", () => {
+  it("keeps one Earth-radius coordinate system", () => {
     expect(
       ecefKmToDisplay({ x: EARTH_MEAN_RADIUS_KM, y: 0, z: 0 }).length(),
     ).toBeCloseTo(1, 12);
-    for (const preset of Object.keys(expectedPresets) as EclipseViewPreset[]) {
-      const expected = expectedPresets[preset];
-      expect(presetMetresPerEarthRadius(preset)).toBe(expected.scale);
-      expect(presetViewDistance(preset)).toBe(expected.distance);
-      expect(presetFocus(preset, frame).distanceTo(
-        frame.moonPosition.clone().multiplyScalar(expected.focusFraction),
-      )).toBeLessThan(1e-12);
-    }
   });
 
-  it("places the tracked head at the requested distance along its live gaze", () => {
-    const focus = new THREE.Vector3(3, -1, 5);
-    const trackedPosition = new THREE.Vector3(0.1, 1.65, -0.2);
-    const trackedQuaternion = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(0, 1, 0),
-      0.35,
+  it("uses rendered topography for radial altitude and the inward floor", () => {
+    const surface = geodeticToEcef({ latitudeDeg: 0, longitudeDeg: 0 });
+    const head = new THREE.Vector3(
+      (surface.x + 5) / EARTH_MEAN_RADIUS_KM,
+      0,
+      0,
     );
-    const observerQuaternion = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(0, 1, 0),
-      -0.2,
-    );
-    const observerPosition = observerPositionForView(
-      focus,
-      4.2,
-      trackedPosition,
-      trackedQuaternion,
-      observerQuaternion,
-    );
-    const worldHead = trackedPosition.clone()
-      .applyQuaternion(observerQuaternion)
-      .add(observerPosition);
-    const worldForward = new THREE.Vector3(0, 0, -1)
-      .applyQuaternion(trackedQuaternion)
-      .applyQuaternion(observerQuaternion)
-      .normalize();
+    const observation = eclipseEarthSurfaceObservation(head, 0.75);
+    const ellipsoidRadius = observation.surfacePoint.length();
 
-    expect(focus.clone().sub(worldHead).distanceTo(
-      worldForward.multiplyScalar(4.2),
-    )).toBeLessThan(1e-10);
-  });
-
-  it("moves the observer inversely so a one-grip point stays fixed in space", () => {
-    const observerStart: EclipseObserverTransform = {
-      position: new THREE.Vector3(1, 0.5, -2),
-      quaternion: new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        0.3,
-      ),
-    };
-    const gripStart = grip(new THREE.Vector3(0.2, 1.1, -0.5));
-    const gripCurrent = grip(
-      new THREE.Vector3(-0.4, 1.4, -0.8),
-      new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 0, 1),
-        0.4,
-      ),
-    );
-    const gesture = beginObserverOneGrip(gripStart, observerStart);
-    const observerCurrent = updateObserverOneGrip(gesture, gripCurrent);
-    const grabbedWorldStart = rigidMatrix(observerStart).multiply(
-      poseMatrix(gripStart),
-    );
-    const grabbedWorldCurrent = rigidMatrix(observerCurrent).multiply(
-      poseMatrix(gripCurrent),
-    );
-
-    for (let index = 0; index < 16; index += 1) {
-      expect(grabbedWorldCurrent.elements[index]).toBeCloseTo(
-        grabbedWorldStart.elements[index]!,
-        10,
-      );
-    }
+    expect(eclipseTopographicSurfaceRadius(observation, 1_500))
+      .toBeCloseTo(ellipsoidRadius + 1.5 / EARTH_MEAN_RADIUS_KM, 12);
+    expect(eclipseTopographicAltitudeMetres(observation, 1_500))
+      .toBeCloseTo(3_500, 6);
+    expect(eclipseTopographicAltitudeMetres(observation, -400))
+      .toBeCloseTo(5_400, 6);
   });
 
   it("uses two grips to reorient the observer without scaling the headset", () => {
@@ -316,123 +234,135 @@ describe("Eclipse observatory system and observer transforms", () => {
     observerRig.add(xrCamera);
     observerRig.position.copy(observerCurrent.position);
     observerRig.quaternion.copy(observerCurrent.quaternion);
+    const trackedHead = new THREE.Vector3(0, 1.65, 0);
+    const candidateHead = trackedHead.clone()
+      .applyQuaternion(observerCurrent.quaternion)
+      .add(observerCurrent.position);
+    const earthCentre = new THREE.Vector3(0.3, -0.8, -2);
+    const projected = observerProjectedToEarthRadius(
+      observerCurrent,
+      candidateHead,
+      earthCentre,
+      4.5,
+    );
+    const projectedHead = trackedHead.clone()
+      .applyQuaternion(projected.quaternion)
+      .add(projected.position);
 
     expect(currentMidpoint.distanceTo(startMidpoint)).toBeLessThan(1e-10);
     expect(currentDirection.angleTo(startDirection)).toBeLessThan(1e-10);
     expect(observerRig.scale.toArray()).toEqual([1, 1, 1]);
     expect(xrCamera.scale.toArray()).toEqual([1, 1, 1]);
+    expect(projectedHead.distanceTo(earthCentre)).toBeCloseTo(4.5, 12);
+    expect(projected.quaternion.angleTo(observerCurrent.quaternion))
+      .toBeLessThan(1e-12);
   });
 
-  it("flies along the pitched headset gaze and rolls around the tracked head", () => {
+  it("orbits in headset-relative directions while preserving Earth framing", () => {
     const observer: EclipseObserverTransform = {
-      position: new THREE.Vector3(),
+      position: new THREE.Vector3(0, 0, 4),
       quaternion: new THREE.Quaternion(),
     };
-    const headPosition = new THREE.Vector3(0.2, 1.6, -0.3);
-    const headQuaternion = new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(0.45, -0.7, 0, "YXZ"),
-    );
-    const forward = new THREE.Vector3(0, 0, -1)
-      .applyQuaternion(headQuaternion)
-      .normalize();
-    const rolled = updateObserverHeadRelativeFlight(
+    const earthCentre = new THREE.Vector3();
+    const headPosition = observer.position.clone();
+    const headQuaternion = observer.quaternion.clone();
+    const originalEarthBearing = earthCentre.clone().sub(headPosition)
+      .applyQuaternion(headQuaternion.clone().invert());
+    const orbited = updateObserverEarthOrbit(
       observer,
       headPosition,
       headQuaternion,
-      {
-        flightAxis: 0,
-        rollAxis: 1,
-        elapsedSeconds: 0.5,
-      },
+      earthCentre,
+      0.3,
+      0.2,
     );
-    const headAfterRoll = headPosition.clone()
-      .applyQuaternion(rolled.quaternion)
-      .add(rolled.position);
-    const flown = updateObserverHeadRelativeFlight(
+    const nextEarthBearing = earthCentre.clone().sub(orbited.position)
+      .applyQuaternion(orbited.quaternion.clone().invert());
+    const stopped = updateObserverEarthOrbit(
       observer,
       headPosition,
       headQuaternion,
-      {
-        flightAxis: 0.75,
-        rollAxis: 0,
-        elapsedSeconds: 2,
-        metresPerSecond: 2,
-      },
+      earthCentre,
+      0,
+      0,
     );
 
-    expect(headAfterRoll.distanceTo(headPosition)).toBeLessThan(1e-10);
-    expect(flown.position.distanceTo(
-      forward.multiplyScalar(3),
-    )).toBeLessThan(1e-10);
+    expect(orbited.position.length()).toBeCloseTo(headPosition.length(), 12);
+    expect(nextEarthBearing.distanceTo(originalEarthBearing)).toBeLessThan(1e-10);
+    expect(stopped.position.distanceTo(observer.position)).toBe(0);
+    expect(stopped.quaternion.angleTo(observer.quaternion)).toBe(0);
   });
 
-  it("scales the complete system around a fixed focus without changing solar angle", () => {
-    const stage = {
-      position: new THREE.Vector3(1, -2, 0.5),
+  it("changes radial distance proportionally without changing its direction", () => {
+    const earthCentre = new THREE.Vector3(1, -2, 0.5);
+    const headPosition = new THREE.Vector3(1, -2, 4.5);
+    const observer: EclipseObserverTransform = {
+      position: headPosition.clone(),
       quaternion: new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(0, 1, 0),
-        0.3,
+        0.4,
       ),
-      metresPerEarthRadius: 0.1,
     };
-    const focus = frame.moonPosition.clone().multiplyScalar(0.5);
-    const fixedWorldFocus = focus.clone()
-      .multiplyScalar(stage.metresPerEarthRadius)
-      .applyQuaternion(stage.quaternion)
-      .add(stage.position);
+    const desiredRadius = eclipseRadialDistanceAfterInput(4, 1, 1 / 1.2);
+    const projected = observerProjectedToEarthRadius(
+      observer,
+      headPosition,
+      earthCentre,
+      desiredRadius,
+    );
+
+    expect(desiredRadius).toBeCloseTo(8, 12);
+    expect(projected.position.distanceTo(earthCentre)).toBeCloseTo(8, 12);
+    expect(projected.position.clone().sub(earthCentre).normalize().distanceTo(
+      headPosition.clone().sub(earthCentre).normalize(),
+    )).toBeLessThan(1e-12);
+    expect(projected.quaternion.angleTo(observer.quaternion)).toBe(0);
+  });
+
+  it("scales the system about Earth while preserving observer distance in Earth units", () => {
+    const earthCentre = new THREE.Vector3(1, -2, 0.5);
+    const oldScale = 0.1;
+    const trackedHead = new THREE.Vector3(0.2, 1.65, -0.3);
+    const observer: EclipseObserverTransform = {
+      position: new THREE.Vector3(0.7, -3.4, 0.9),
+      quaternion: new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        0.35,
+      ),
+    };
+    const oldHeadPosition = trackedHead.clone()
+      .applyQuaternion(observer.quaternion)
+      .add(observer.position);
     const nextScale = eclipseScaleAfterInput(
-      stage.metresPerEarthRadius,
+      oldScale,
       1,
       2,
     );
-    const nextPosition = stagePositionForScaleAroundFocus(
-      stage,
-      focus,
-      nextScale,
+    const scaleRatio = nextScale / oldScale;
+    const desiredHeadPosition = oldHeadPosition.clone()
+      .sub(earthCentre)
+      .multiplyScalar(scaleRatio)
+      .add(earthCentre);
+    const scaledObserver = observerTranslatedForHeadPosition(
+      observer,
+      oldHeadPosition,
+      desiredHeadPosition,
     );
-    const nextWorldFocus = focus.clone()
-      .multiplyScalar(nextScale)
-      .applyQuaternion(stage.quaternion)
-      .add(nextPosition);
-    const oldMoonWorld = frame.moonPosition.clone()
-      .multiplyScalar(stage.metresPerEarthRadius)
-      .applyQuaternion(stage.quaternion)
-      .add(stage.position);
-    const nextMoonWorld = frame.moonPosition.clone()
-      .multiplyScalar(nextScale)
-      .applyQuaternion(stage.quaternion)
-      .add(nextPosition);
+    const scaledHeadPosition = trackedHead.clone()
+      .applyQuaternion(scaledObserver.quaternion)
+      .add(scaledObserver.position);
     const sunRadius = 109.2;
     const sunDistance = 23_455;
 
-    expect(nextWorldFocus.distanceTo(fixedWorldFocus)).toBeLessThan(1e-10);
-    expect(nextScale).toBeGreaterThan(stage.metresPerEarthRadius);
-    expect(nextMoonWorld.distanceTo(nextPosition) /
-      oldMoonWorld.distanceTo(stage.position)).toBeCloseTo(
-        nextScale / stage.metresPerEarthRadius,
-        12,
-      );
+    expect(scaledHeadPosition.distanceTo(earthCentre) / nextScale)
+      .toBeCloseTo(oldHeadPosition.distanceTo(earthCentre) / oldScale, 12);
+    expect(earthCentre.toArray()).toEqual([1, -2, 0.5]);
     expect(apparentAngularRadius(
-      sunRadius * stage.metresPerEarthRadius,
-      sunDistance * stage.metresPerEarthRadius,
+      sunRadius * oldScale,
+      sunDistance * oldScale,
     )).toBeCloseTo(apparentAngularRadius(
       sunRadius * nextScale,
       sunDistance * nextScale,
     ), 12);
-  });
-
-  it("scrubs eclipse time in both directions and stops at the contacts", () => {
-    const start = Date.parse("2026-08-12T16:00:00Z");
-    const end = Date.parse("2026-08-12T20:00:00Z");
-    const middle = Date.parse("2026-08-12T18:00:00Z");
-
-    expect(eclipseTimeAfterInput(middle, 1, 1, start, end)).toBeGreaterThan(
-      middle,
-    );
-    expect(eclipseTimeAfterInput(middle, -1, 1, start, end)).toBeLessThan(
-      middle,
-    );
-    expect(eclipseTimeAfterInput(middle, 1, 60, start, end)).toBe(end);
-    expect(eclipseTimeAfterInput(middle, -1, 60, start, end)).toBe(start);
   });
 });

@@ -39,7 +39,6 @@ describe("Eclipse Realtime profile", () => {
       "select_solar_eclipse",
       "set_eclipse_time",
       "set_eclipse_playback",
-      "set_eclipse_view",
       "set_eclipse_scale",
       "reset_eclipse_stage",
       "search_wikipedia",
@@ -51,13 +50,10 @@ describe("Eclipse Realtime profile", () => {
     expect(configuration.session.instructions).toContain(
       "Never invent an eclipse or scientific geometry",
     );
-    expect(configuration.session.tools.find(({ name }) => name === "set_eclipse_view")
-      ?.parameters.properties?.preset?.enum).toEqual([
-        "system",
-        "earth",
-        "moon",
-        "shadow",
-      ]);
+    expect(configuration.session.instructions).toContain("Earth-orbital");
+    expect(configuration.session.tools.some(
+      ({ name }) => name === "set_eclipse_view"
+    )).toBe(false);
     expect(configuration.session.tools.find(({ name }) => name === "set_eclipse_time")
       ?.parameters.required).toEqual(["utc"]);
   });
