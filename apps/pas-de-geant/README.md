@@ -27,9 +27,10 @@ floor. In VR, either grip alone leaves navigation unchanged, two grips orbit
 and reorient the observer without changing Earth-centred distance or stereo
 separation, the left stick moves around an Earth-centred radial sphere while
 keeping Earth framed, and the right stick changes topographic altitude or
-uniformly scales the complete Earth–Moon–Sun system while preserving distance
-in Earth units. A/B/X/Y toggle voice, reset the Earth-orbital viewpoint, play
-or pause, and show or hide the left-wrist panel.
+the simulation-to-headset conversion while preserving every Earth–Moon–Sun
+dimension in simulation units and preserving observer distance in Earth units.
+A/B/X/Y toggle voice, reset the Earth-orbital viewpoint, play or pause, and
+show or hide the left-wrist panel.
 The right trigger operates the panel ray. Desktop drag orbits the observer and
 the wheel moves closer or farther as a diagnostic fallback.
 

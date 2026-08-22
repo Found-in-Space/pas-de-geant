@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import {
   EARTH_MEAN_RADIUS_KM,
+  MOON_RADIUS_KM,
   geodeticToEcef,
 } from "@found-in-space/shadowline";
 import { describe, expect, it } from "vitest";
@@ -26,8 +27,10 @@ import {
   ecefKmToDisplay,
 } from "../apps/pas-de-geant/src/eclipse-rendering.js";
 import {
+  eclipseCameraDepthRange,
   eclipseRadialDistanceAfterInput,
   eclipseScaleAfterInput,
+  headsetPointAfterSimulationScaleChange,
   type GripPose,
 } from "../apps/pas-de-geant/src/eclipse-stage.js";
 
@@ -319,7 +322,7 @@ describe("Eclipse observatory system and observer transforms", () => {
     expect(projected.quaternion.angleTo(observer.quaternion)).toBe(0);
   });
 
-  it("scales the system about Earth while preserving observer distance in Earth units", () => {
+  it("changes the headset conversion while preserving observer distance in Earth units", () => {
     const earthCentre = new THREE.Vector3(1, -2, 0.5);
     const oldScale = 0.1;
     const trackedHead = new THREE.Vector3(0.2, 1.65, -0.3);
@@ -338,11 +341,12 @@ describe("Eclipse observatory system and observer transforms", () => {
       1,
       2,
     );
-    const scaleRatio = nextScale / oldScale;
-    const desiredHeadPosition = oldHeadPosition.clone()
-      .sub(earthCentre)
-      .multiplyScalar(scaleRatio)
-      .add(earthCentre);
+    const desiredHeadPosition = headsetPointAfterSimulationScaleChange(
+      oldHeadPosition,
+      earthCentre,
+      oldScale,
+      nextScale,
+    );
     const scaledObserver = observerTranslatedForHeadPosition(
       observer,
       oldHeadPosition,
@@ -351,18 +355,46 @@ describe("Eclipse observatory system and observer transforms", () => {
     const scaledHeadPosition = trackedHead.clone()
       .applyQuaternion(scaledObserver.quaternion)
       .add(scaledObserver.position);
-    const sunRadius = 109.2;
-    const sunDistance = 23_455;
+    const moonRadius = MOON_RADIUS_KM / EARTH_MEAN_RADIUS_KM;
+    const moonDistance = 60.3;
 
     expect(scaledHeadPosition.distanceTo(earthCentre) / nextScale)
       .toBeCloseTo(oldHeadPosition.distanceTo(earthCentre) / oldScale, 12);
     expect(earthCentre.toArray()).toEqual([1, -2, 0.5]);
     expect(apparentAngularRadius(
-      sunRadius * oldScale,
-      sunDistance * oldScale,
+      moonRadius * oldScale,
+      moonDistance * oldScale,
     )).toBeCloseTo(apparentAngularRadius(
-      sunRadius * nextScale,
-      sunDistance * nextScale,
+      moonRadius * nextScale,
+      moonDistance * nextScale,
     ), 12);
+  });
+
+  it("keeps the Earth–Moon scene inside the camera depth range at tiny and large display conversions", () => {
+    const systemExtentSimulationUnits = 64;
+    const tinyScale = 0.001;
+    const tinyObserverDistance = tinyScale * 4;
+    const tiny = eclipseCameraDepthRange(
+      tinyScale,
+      tinyObserverDistance,
+      systemExtentSimulationUnits,
+    );
+    const earthSurfaceClearance = tinyObserverDistance - tinyScale;
+
+    expect(tiny.nearM).toBeLessThan(earthSurfaceClearance);
+    expect(tiny.farM).toBeGreaterThanOrEqual(1_200);
+
+    const largeScale = 100;
+    const largeObserverDistance = largeScale * 4;
+    const large = eclipseCameraDepthRange(
+      largeScale,
+      largeObserverDistance,
+      systemExtentSimulationUnits,
+    );
+
+    expect(large.nearM).toBe(0.02);
+    expect(large.farM).toBeGreaterThan(
+      largeObserverDistance + systemExtentSimulationUnits * largeScale,
+    );
   });
 });

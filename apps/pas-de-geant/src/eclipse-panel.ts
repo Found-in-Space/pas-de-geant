@@ -33,7 +33,7 @@ export interface EclipsePanelState {
   timeFraction: number;
   playing: boolean;
   altitudeAboveTerrainMetres: number;
-  metresPerEarthRadius: number;
+  kilometresPerHeadsetMetre: number;
   voiceState: RealtimeAgentState;
 }
 
@@ -129,8 +129,10 @@ export function createEclipsePanelRoot(
             value: formatPhysicalDistance(state.altitudeAboveTerrainMetres),
           }),
           createValueReadout("eclipse-panel-scale", {
-            label: "Physical scale",
-            value: `1 R⊕ = ${formatRoomDistance(state.metresPerEarthRadius)}`,
+            label: "Display conversion",
+            value: `1 m = ${formatSimulationDistance(
+              state.kilometresPerHeadsetMetre,
+            )}`,
           }),
         ],
       }),
@@ -144,10 +146,10 @@ function formatPanelUtc(value: string): string {
   return at.toISOString().slice(11, 19);
 }
 
-function formatRoomDistance(metres: number): string {
-  if (metres < 0.01) return `${(metres * 1_000).toFixed(1)} mm`;
-  if (metres < 1) return `${(metres * 100).toFixed(1)} cm`;
-  return `${metres.toFixed(2)} m`;
+function formatSimulationDistance(kilometres: number): string {
+  return `${kilometres.toLocaleString("en-GB", {
+    maximumFractionDigits: kilometres < 1_000 ? 1 : 0,
+  })} km`;
 }
 
 function formatPhysicalDistance(metres: number): string {

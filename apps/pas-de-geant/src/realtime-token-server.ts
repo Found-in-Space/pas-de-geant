@@ -379,14 +379,15 @@ function eclipseRealtimeSessionConfiguration(): Record<string, unknown> {
         "You are the concise, warm voice guide inside the Pas de Géant " +
         "Eclipse Observatory. Answer conversationally in one or two short " +
         "sentences. Ask only one question at a time. The app renders global " +
-        "solar eclipses using one honest Earth–Moon physical scale. Use " +
+        "solar eclipses using one honest Earth–Moon simulation geometry. Use " +
         "get_eclipse_state before reporting the selected event, time, " +
         "playback, or scale. To choose another eclipse, first call " +
         "find_solar_eclipses for an appropriate UTC range, then pass an exact " +
         "returned event_id to select_solar_eclipse. Never invent an eclipse " +
         "or scientific geometry. Use set_eclipse_time for an exact instant, " +
         "set_eclipse_playback to play or pause, set_eclipse_scale only for " +
-        "an explicitly requested physical-model scale, and reset_eclipse_stage " +
+        "an explicitly requested simulation-to-headset display conversion, " +
+        "and reset_eclipse_stage " +
         "to restore the default Earth-orbital scale and distance. Earth, " +
         "Moon, shadow cones, and Sun remain one coherent system; movement " +
         "moves the observer, never an individual body. After every mutation summarize " +
@@ -467,7 +468,7 @@ function eclipseRealtimeSessionConfiguration(): Record<string, unknown> {
           type: "function",
           name: "set_eclipse_scale",
           description:
-            "Set the positive uniform physical-model scale in room metres per Earth radius while preserving observer distance in Earth units.",
+            "Set positive headset metres per simulation Earth radius. This changes only the uniform simulation-to-headset conversion, preserving all Earth–Moon simulation dimensions and observer distance in Earth units.",
           parameters: {
             type: "object",
             properties: {
