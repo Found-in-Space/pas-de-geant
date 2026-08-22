@@ -50,3 +50,44 @@ export function presetFocus(
   if (preset === "shadow") return frame.moonPosition.clone().multiplyScalar(0.58);
   return frame.moonPosition.clone().multiplyScalar(0.5);
 }
+
+/** Returns the stage origin that keeps a model-space focus fixed while scaling. */
+export function stagePositionForScaleAroundFocus(
+  stage: EclipseStageTransform,
+  focus: THREE.Vector3,
+  metresPerEarthRadius: number,
+): THREE.Vector3 {
+  const oldFocusOffset = focus.clone()
+    .multiplyScalar(stage.metresPerEarthRadius)
+    .applyQuaternion(stage.quaternion);
+  const fixedWorldFocus = stage.position.clone().add(oldFocusOffset);
+  const newFocusOffset = focus.clone()
+    .multiplyScalar(metresPerEarthRadius)
+    .applyQuaternion(stage.quaternion);
+  return fixedWorldFocus.sub(newFocusOffset);
+}
+
+/** Applies an unbounded multiplicative scale rate. */
+export function eclipseScaleAfterInput(
+  metresPerEarthRadius: number,
+  axis: number,
+  elapsedSeconds: number,
+  octavesPerSecond = 1.2,
+): number {
+  return metresPerEarthRadius * 2 ** (
+    axis * octavesPerSecond * elapsedSeconds
+  );
+}
+
+/** Moves through the eclipse contact interval and stops at either end. */
+export function eclipseTimeAfterInput(
+  atMs: number,
+  axis: number,
+  elapsedSeconds: number,
+  startMs: number,
+  endMs: number,
+  simulationSecondsPerSecond = 15 * 60,
+): number {
+  const next = atMs + axis * simulationSecondsPerSecond * 1_000 * elapsedSeconds;
+  return Math.max(startMs, Math.min(endMs, next));
+}

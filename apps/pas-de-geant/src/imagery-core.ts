@@ -12,6 +12,10 @@ export interface ImageryView {
   readonly displayRadiusM: number;
   readonly latitudeDegrees: number;
   readonly longitudeDegrees: number;
+  /** Room-space distance from the eye to its WGS84 sub-point. */
+  readonly observerHeightWorldM?: number;
+  /** Active camera projection focal length in render pixels. */
+  readonly focalLengthPixels?: number;
 }
 
 export interface ImageryZoomOptions extends ImageryView {
@@ -83,9 +87,23 @@ export function renderedImageryTileWidthM(
 
 export function selectImageryZoom(options: ImageryZoomOptions): number {
   const minZoom = Math.max(0, Math.floor(options.minZoom));
-  const targetWidth =
+  const targetScreenPixelsPerSourcePixel =
+    options.targetScreenPixelsPerSourcePixel ?? 1;
+  const nativeDensityTargetWidth =
     Math.max(1, options.tilePixels) * IMAGERY_TARGET_METRES_PER_TEXEL *
-    (options.targetScreenPixelsPerSourcePixel ?? 1);
+    targetScreenPixelsPerSourcePixel;
+  const projectedTargetWidth =
+    options.observerHeightWorldM !== undefined &&
+      options.focalLengthPixels !== undefined
+      ? Math.max(1, options.tilePixels) * options.observerHeightWorldM *
+        targetScreenPixelsPerSourcePixel / options.focalLengthPixels
+      : Number.POSITIVE_INFINITY;
+  // Preserve the native-detail floor used at global scale, but let perspective
+  // demand finer source pixels as the eye approaches its sub-point.
+  const targetWidth = Math.min(
+    nativeDensityTargetWidth,
+    projectedTargetWidth,
+  );
   let zoom =
     options.previousZoom === undefined
       ? Math.max(

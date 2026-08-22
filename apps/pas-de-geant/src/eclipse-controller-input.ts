@@ -1,6 +1,13 @@
-import type { ButtonLatch } from "./controller-input.js";
+import {
+  stickForSource,
+  type ButtonLatch,
+} from "./controller-input.js";
 
 export interface EclipseControllerIntent {
+  flightAxis: number;
+  rollAxis: number;
+  timelineAxis: number;
+  scaleAxis: number;
   toggleVoice: boolean;
   resetStage: boolean;
   togglePlayback: boolean;
@@ -18,6 +25,8 @@ export function eclipseControllerIntent(
     sources.find((source) => source.handedness === "left") ?? sources[0];
   const right =
     sources.find((source) => source.handedness === "right") ?? sources[1];
+  const [rollAxis, flightStickAxis] = stickForSource(left);
+  const [timelineAxis, scaleStickAxis] = stickForSource(right, 0.22);
   const leftButtons = left?.gamepad?.buttons ?? [];
   const rightButtons = right?.gamepad?.buttons ?? [];
   const aPressed = rightButtons[4]?.pressed ?? false;
@@ -25,6 +34,10 @@ export function eclipseControllerIntent(
   const xPressed = leftButtons[4]?.pressed ?? false;
   const yPressed = leftButtons[5]?.pressed ?? false;
   const result = {
+    flightAxis: flightStickAxis === 0 ? 0 : -flightStickAxis,
+    rollAxis,
+    timelineAxis,
+    scaleAxis: scaleStickAxis === 0 ? 0 : -scaleStickAxis,
     toggleVoice: aPressed && !latch.a,
     resetStage: bPressed && latch.bStartedAt === null,
     togglePlayback: xPressed && !latch.x,

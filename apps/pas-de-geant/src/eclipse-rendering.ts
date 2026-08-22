@@ -7,6 +7,7 @@ import {
   WGS84_B_KM,
   type CartesianVector,
 } from "@found-in-space/shadowline";
+import { earthTextureUv } from "./earth-texture-projection.js";
 import type { CartesianBasis } from "./eclipse-types.js";
 
 export const VISIBLE_SUN_FAR_M = 1_200;
@@ -70,14 +71,16 @@ export function createGeodeticEllipsoidGeometry(
   const indices: number[] = [];
   const rowLength = longitudeSegments + 1;
   for (let row = 0; row <= latitudeSegments; row += 1) {
-    const latitude = Math.PI / 2 - row / latitudeSegments * Math.PI;
+    const latitudeDegrees = 90 - row / latitudeSegments * 180;
+    const latitude = THREE.MathUtils.degToRad(latitudeDegrees);
     const sineLatitude = Math.sin(latitude);
     const cosineLatitude = Math.cos(latitude);
     const primeVerticalRadius = WGS84_A_KM / Math.sqrt(
       1 - WGS84_ECCENTRICITY_SQUARED * sineLatitude * sineLatitude,
     );
     for (let column = 0; column <= longitudeSegments; column += 1) {
-      const longitude = -Math.PI + column / longitudeSegments * Math.PI * 2;
+      const longitudeDegrees = -180 + column / longitudeSegments * 360;
+      const longitude = THREE.MathUtils.degToRad(longitudeDegrees);
       const radialKm = (primeVerticalRadius + altitudeKm) * cosineLatitude;
       const position = ecefKmToDisplay({
         x: radialKm * Math.cos(longitude),
@@ -92,7 +95,8 @@ export function createGeodeticEllipsoidGeometry(
         sineLatitude,
         -cosineLatitude * Math.sin(longitude),
       );
-      uvs.push(column / longitudeSegments, 1 - row / latitudeSegments);
+      const uv = earthTextureUv(latitudeDegrees, longitudeDegrees);
+      uvs.push(uv.u, uv.v);
     }
   }
   for (let row = 0; row < latitudeSegments; row += 1) {
@@ -519,8 +523,9 @@ export class VisibleSun {
     this.object.position
       .copy(this.cameraPosition)
       .addScaledVector(this.sunDirection, this.distanceM);
-    const angularRadiusRad = Math.asin(
-      Math.min(0.999999, systemSunRadiusM / actualDistanceM),
+    const angularRadiusRad = apparentAngularRadius(
+      systemSunRadiusM,
+      actualDistanceM,
     );
     const planeSize = 4 * this.distanceM * Math.tan(angularRadiusRad);
     this.object.scale.set(planeSize, planeSize, 1);
@@ -531,4 +536,11 @@ export class VisibleSun {
     material.map?.dispose();
     material.dispose();
   }
+}
+
+export function apparentAngularRadius(
+  radius: number,
+  distanceFromCentre: number,
+): number {
+  return Math.asin(Math.min(0.999999, radius / distanceFromCentre));
 }

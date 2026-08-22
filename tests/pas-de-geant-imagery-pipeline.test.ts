@@ -922,6 +922,28 @@ describe("independent photographic imagery pipeline", () => {
     expect(zoom1024).toBe(zoom512 - 1);
   });
 
+  it("refines imagery as the eye approaches its geographic sub-point", () => {
+    const common = {
+      displayRadiusM: 1_000,
+      latitudeDegrees: 32,
+      longitudeDegrees: 9,
+      focalLengthPixels: 1_000,
+      minZoom: 0,
+      maxZoom: 22,
+      tilePixels: 512,
+    };
+    const oneMetre = selectImageryZoom({
+      ...common,
+      observerHeightWorldM: 1,
+    });
+    const halfMetre = selectImageryZoom({
+      ...common,
+      observerHeightWorldM: 0.5,
+    });
+
+    expect(halfMetre).toBe(oneMetre + 1);
+  });
+
   it("coarsens one topology zoom when the requested screen-pixel ratio doubles", () => {
     const common = {
       displayRadiusM: 1_000,

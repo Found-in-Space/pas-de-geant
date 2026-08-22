@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { earthTextureUv } from "./earth-texture-projection.js";
 import { ImageTexturePool } from "./image-texture-pool.js";
 import {
   createElevationTileProvider,
@@ -309,7 +310,8 @@ function patchGeometry(
     const vertex = geodeticVertex(latitude, longitude);
     positions.push(vertex.position.x, vertex.position.y, vertex.position.z);
     normals.push(vertex.normal.x, vertex.normal.y, vertex.normal.z);
-    baseUvs.push((longitude + 180) / 360, (90 - latitude) / 180);
+    const baseUv = earthTextureUv(latitude, longitude);
+    baseUvs.push(baseUv.u, baseUv.v);
     tileUvs.push(tileU, tileV);
     const imageryUv = imageryUvForGeographicPoint(bounds, latitude, longitude);
     imageryUvs.push(imageryUv.u, imageryUv.v);
@@ -643,11 +645,7 @@ export class TerrainSurface {
     };
     this.addPolarCaps();
     this.syncRenderVisibilityEntries();
-    this.imagery.update({
-      displayRadiusM: options.initialView.displayRadiusM,
-      latitudeDegrees: options.initialView.latitudeDegrees,
-      longitudeDegrees: options.initialView.longitudeDegrees,
-    }, this.horizonView);
+    this.imagery.update(options.initialView, this.horizonView);
     this.unsubscribe = this.scheduler.subscribe((snapshot, event) => {
       const committedChanged =
         !event && !sameCut(this.snapshot.committedCut, snapshot.committedCut);
@@ -682,11 +680,7 @@ export class TerrainSurface {
       view.displayRadiusM,
     );
     this.horizonView = view;
-    this.imagery.update({
-      displayRadiusM: view.displayRadiusM,
-      latitudeDegrees: view.latitudeDegrees,
-      longitudeDegrees: view.longitudeDegrees,
-    }, this.horizonView, {
+    this.imagery.update(view, this.horizonView, {
       recalculateTopology: this.debugControls.textures.recalculationEnabled,
     });
     this.applyHorizonCulling();
@@ -779,6 +773,15 @@ export class TerrainSurface {
 
   setTextureTileOverlayVisible(visible: boolean): void {
     this.sharedUniforms.textureOverlayVisible!.value = visible ? 1 : 0;
+  }
+
+  setSunlightDirection(directionWorld: THREE.Vector3): void {
+    const sunlight = this.sharedUniforms.sunlight!.value as THREE.Vector3;
+    sunlight.copy(directionWorld).normalize();
+  }
+
+  get hasCommittedSurface(): boolean {
+    return this.snapshot.committedCut.length > 0;
   }
 
   get renderCullingEnabled(): boolean {

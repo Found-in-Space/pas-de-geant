@@ -20,10 +20,13 @@ change planet scale, C/V to change radial exaggeration, and Backspace to reset.
 The standalone Eclipse Observatory is at
 `http://127.0.0.1:4197/eclipse/`. Earth, Moon, shadow cones, and the apparent
 Sun remain in one coherent system frame; the unscaled headset and controllers
-move through it. There is no floor or astronomical surface. In VR, either
+move through it. Its Earth reuses the terrain elevation and configured
+photographic-imagery pipeline, targeted from the nearest WGS84 point beneath
+the headset. There is no floor or astronomical surface. In VR, either
 grip pulls the observer through space, two grips reorient the observer without
-scaling stereo separation, the left stick flies forward or sideways, and the
-right stick moves vertically or turns. A/B/X/Y toggle voice, reset the current
+scaling stereo separation, the left stick flies along the headset gaze or
+rolls around it, and the right stick scrubs eclipse time or uniformly scales
+the complete Earth–Moon–Sun system. A/B/X/Y toggle voice, reset the current
 canonical viewpoint, play or pause, and show or hide the left-wrist panel.
 The right trigger operates the panel ray. Desktop drag orbits the observer and
 the wheel moves closer or farther as a diagnostic fallback.

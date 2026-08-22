@@ -22,19 +22,27 @@ import { VRButton } from "three/addons/webxr/VRButton.js";
 import {
   freshButtonLatch,
   isHandTrackingInputSource,
-  stickForSource,
 } from "./controller-input.js";
+import {
+  eclipseEarthSurfaceObservation,
+  trackedHeadWorldPosition,
+  trackedHeadWorldQuaternion,
+} from "./eclipse-earth-surface.js";
 import {
   beginObserverOneGrip,
   beginObserverTwoGrip,
   observerPositionForView,
+  updateObserverHeadRelativeFlight,
   updateObserverOneGrip,
   updateObserverTwoGrip,
   type EclipseObserverTransform,
   type ObserverOneGripGesture,
   type ObserverTwoGripGesture,
 } from "./eclipse-observer.js";
-import { eclipseControllerIntent } from "./eclipse-controller-input.js";
+import {
+  eclipseControllerIntent,
+  type EclipseControllerIntent,
+} from "./eclipse-controller-input.js";
 import {
   EclipseLightField,
   EclipseFootprints,
@@ -48,6 +56,16 @@ import {
   sunAlignedStageOrientation,
 } from "./eclipse-rendering.js";
 import {
+  configuredXyzImageryProvider,
+} from "./imagery-provider.js";
+import {
+  imageryConfiguration,
+} from "./imagery-configuration.js";
+import {
+  MAPTILER_IMAGERY_VARIANT_PARAMETER,
+  selectImageryVariant,
+} from "./imagery-variants.js";
+import {
   HAND_PANEL_SURFACE,
   HAND_PANEL_THEME,
   createEclipsePanelRoot,
@@ -55,9 +73,12 @@ import {
   type EclipsePanelState,
 } from "./eclipse-panel.js";
 import {
+  eclipseScaleAfterInput,
+  eclipseTimeAfterInput,
   presetFocus,
   presetMetresPerEarthRadius,
   presetViewDistance,
+  stagePositionForScaleAroundFocus,
   type EclipseStageFrame,
   type EclipseStageTransform,
   type GripPose,
@@ -86,10 +107,14 @@ import {
   RealtimeVoiceAgent,
   type RealtimeAgentStatus,
 } from "./realtime-agent.js";
+import { TerrainSurface, type TerrainSurfaceView } from "./terrain-surface.js";
+import { proxiedTileConfiguration } from "./tile-proxy.js";
 
 const DEFAULT_EVENT_ID = "solar-2026-08-12-total";
 const PLAYBACK_RATE = 180;
 const GEOMETRY_INTERVAL_MS = 160;
+const TERRAIN_VIEW_INTERVAL_MS = 250;
+const ECLIPSE_TEXTURE_SCREEN_PIXELS_PER_SOURCE_PIXEL = 0.5;
 
 const element = <T extends HTMLElement>(id: string): T => {
   const value = document.getElementById(id);
@@ -106,6 +131,7 @@ const eventReadout = element<HTMLElement>("event-readout");
 const timeReadout = element<HTMLElement>("time-readout");
 const viewReadout = element<HTMLElement>("view-readout");
 const voiceReadout = element<HTMLElement>("voice-readout");
+const imageryAttribution = element<HTMLElement>("imagery-attribution");
 let handPanelRuntime: ReturnType<typeof createRuntime> | null = null;
 
 const renderer = new THREE.WebGLRenderer({
@@ -164,9 +190,40 @@ const [earthTexture, moonTexture] = await Promise.all([
   textureLoader.loadAsync(`${import.meta.env.BASE_URL}lroc-color-2k.jpg`),
 ]);
 earthTexture.colorSpace = THREE.SRGBColorSpace;
+earthTexture.flipY = false;
+earthTexture.wrapS = THREE.RepeatWrapping;
+earthTexture.wrapT = THREE.ClampToEdgeWrapping;
+earthTexture.needsUpdate = true;
 earthTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 moonTexture.colorSpace = THREE.SRGBColorSpace;
 moonTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+
+const eclipseParameters = new URLSearchParams(window.location.search);
+const baseImageryConfiguration = imageryConfiguration();
+const selectedImageryConfiguration = baseImageryConfiguration
+  ? selectImageryVariant(
+      baseImageryConfiguration,
+      eclipseParameters.get(MAPTILER_IMAGERY_VARIANT_PARAMETER),
+    )
+  : undefined;
+const runtimeImageryConfiguration = selectedImageryConfiguration
+  ? proxiedTileConfiguration(
+      selectedImageryConfiguration,
+      import.meta.env.DEV &&
+        Boolean(import.meta.env.VITE_IMAGERY_XYZ_TEMPLATE),
+      selectedImageryConfiguration === baseImageryConfiguration
+        ? "textures-source"
+        : "textures",
+    )
+  : undefined;
+const photographicImageryProvider =
+  window.__PAS_DE_GEANT_IMAGERY_PROVIDER__ ??
+  configuredXyzImageryProvider(runtimeImageryConfiguration);
+document.body.dataset.imageryProvider =
+  photographicImageryProvider?.id ?? "blue-marble";
+imageryAttribution.textContent = photographicImageryProvider
+  ? ` · ${photographicImageryProvider.attribution}`
+  : "";
 
 const earth = new THREE.Mesh(
   createGeodeticEllipsoidGeometry(192, 96),
@@ -245,15 +302,15 @@ const state: ExperienceState = {
   contacts: initialContacts,
   atMs: Date.parse(initialFrame.atUtc),
   playing: false,
-  activePreset: "system",
-  lastPreset: "system",
+  activePreset: "earth",
+  lastPreset: "earth",
   panelVisible: true,
   voice: { state: "off", detail: "Press A to wake" },
   frame: initialFrame,
   stage: {
     position: new THREE.Vector3(),
     quaternion: new THREE.Quaternion(),
-    metresPerEarthRadius: 0.09,
+    metresPerEarthRadius: 0.75,
   },
   observer: {
     position: new THREE.Vector3(),
@@ -268,6 +325,8 @@ const moonStagePosition = new THREE.Vector3();
 const sunStagePosition = new THREE.Vector3();
 const sunWorldPosition = new THREE.Vector3();
 const shadowAxisStage = new THREE.Vector3(1, 0, 0);
+const earthWorldPosition = new THREE.Vector3();
+const eclipseSunlightDirection = new THREE.Vector3();
 
 function currentStageFrame(): EclipseStageFrame {
   return {
@@ -329,8 +388,8 @@ function applyPreset(preset: EclipseViewPreset): void {
   state.lastPreset = preset;
   const metresPerEarthRadius = presetMetresPerEarthRadius(preset);
   commitSystemScale(metresPerEarthRadius);
-  const focusWorld = presetFocus(preset, stageFrameForPreset(preset))
-    .multiplyScalar(metresPerEarthRadius);
+  const focusWorld = presetFocus(preset, stageFrameForPreset(preset));
+  modelRoot.localToWorld(focusWorld);
   commitObserverTransform({
     position: observerPositionForView(
       focusWorld,
@@ -344,14 +403,18 @@ function applyPreset(preset: EclipseViewPreset): void {
   syncPresentation();
 }
 
-function commitSystemScale(metresPerEarthRadius: number): void {
+function commitSystemScale(
+  metresPerEarthRadius: number,
+  position = new THREE.Vector3(),
+  quaternion = new THREE.Quaternion(),
+): void {
   state.stage = {
-    position: new THREE.Vector3(),
-    quaternion: new THREE.Quaternion(),
+    position: position.clone(),
+    quaternion: quaternion.clone().normalize(),
     metresPerEarthRadius,
   };
-  modelRoot.position.set(0, 0, 0);
-  modelRoot.quaternion.identity();
+  modelRoot.position.copy(state.stage.position);
+  modelRoot.quaternion.copy(state.stage.quaternion);
   modelRoot.scale.setScalar(metresPerEarthRadius);
   modelRoot.updateMatrixWorld(true);
 }
@@ -376,20 +439,21 @@ function setStageScale(metresPerEarthRadius: number): void {
   if (!Number.isFinite(metresPerEarthRadius) || metresPerEarthRadius <= 0) {
     throw new Error("metresPerEarthRadius must be positive and finite.");
   }
-  const focus = state.activePreset
-    ? presetFocus(state.activePreset, stageFrameForPreset(state.activePreset))
-    : new THREE.Vector3();
-  const oldFocusWorld = focus.clone().multiplyScalar(
-    state.stage.metresPerEarthRadius,
+  const focusPreset = state.activePreset ?? state.lastPreset;
+  const focus = presetFocus(
+    focusPreset,
+    stageFrameForPreset(focusPreset),
   );
-  const newFocusWorld = focus.clone().multiplyScalar(metresPerEarthRadius);
-  commitSystemScale(metresPerEarthRadius);
-  commitObserverTransform({
-    position: state.observer.position.clone().add(
-      newFocusWorld.sub(oldFocusWorld),
-    ),
-    quaternion: state.observer.quaternion,
-  });
+  const position = stagePositionForScaleAroundFocus(
+    state.stage,
+    focus,
+    metresPerEarthRadius,
+  );
+  commitSystemScale(
+    metresPerEarthRadius,
+    position,
+    state.stage.quaternion,
+  );
   state.activePreset = null;
   syncPresentation();
 }
@@ -404,9 +468,122 @@ function setEclipseScale(metresPerEarthRadius: number): Record<string, unknown> 
   return eclipseStateReadback();
 }
 
+const terrainHeadWorldPosition = new THREE.Vector3();
+const terrainHeadEarthFixed = new THREE.Vector3();
+const terrainDrawingBufferSize = new THREE.Vector2();
+
+function eclipseHeadWorldPose(
+  viewCamera: THREE.Camera,
+  positionTarget: THREE.Vector3,
+  quaternionTarget?: THREE.Quaternion,
+): THREE.Vector3 {
+  if (
+    renderer.xr.isPresenting &&
+    viewCamera instanceof THREE.ArrayCamera &&
+    viewCamera.cameras.length > 0
+  ) {
+    // The XR eye cameras contain the current reference-space poses. Their
+    // matrixWorld values are not composed with observerRig until render(), so
+    // compose their midpoint explicitly and never updateWorldMatrix() here.
+    observerRig.updateWorldMatrix(true, false);
+    const position = trackedHeadWorldPosition(
+      viewCamera.cameras.map((eyeCamera) => eyeCamera.position),
+      observerRig.matrixWorld,
+      positionTarget,
+    );
+    if (quaternionTarget) {
+      trackedHeadWorldQuaternion(
+        viewCamera.quaternion,
+        state.observer.quaternion,
+        quaternionTarget,
+      );
+    }
+    return position;
+  }
+  camera.updateWorldMatrix(true, false);
+  if (quaternionTarget) camera.getWorldQuaternion(quaternionTarget);
+  return camera.getWorldPosition(positionTarget);
+}
+function terrainFocalLengthPixels(viewCamera: THREE.Camera): number {
+  let focalLengthPixels = 1;
+  if (renderer.xr.isPresenting && viewCamera instanceof THREE.ArrayCamera) {
+    for (const eyeCamera of viewCamera.cameras) {
+      const viewport = (
+        eyeCamera as THREE.PerspectiveCamera & { viewport?: THREE.Vector4 }
+      ).viewport;
+      if (!viewport) continue;
+      focalLengthPixels = Math.max(
+        focalLengthPixels,
+        viewport.w * eyeCamera.projectionMatrix.elements[5]! * 0.5,
+      );
+    }
+  } else {
+    renderer.getDrawingBufferSize(terrainDrawingBufferSize);
+    focalLengthPixels =
+      terrainDrawingBufferSize.y *
+      viewCamera.projectionMatrix.elements[5]! *
+      0.5;
+  }
+  return Math.max(1, focalLengthPixels);
+}
+
+function eclipseTerrainView(viewCamera: THREE.Camera): {
+  view: TerrainSurfaceView;
+  observation: ReturnType<typeof eclipseEarthSurfaceObservation>;
+} {
+  eclipseHeadWorldPose(viewCamera, terrainHeadWorldPosition);
+  terrainHeadEarthFixed.copy(terrainHeadWorldPosition);
+  earthFixedRoot.worldToLocal(terrainHeadEarthFixed);
+  const observation = eclipseEarthSurfaceObservation(
+    terrainHeadEarthFixed,
+    state.stage.metresPerEarthRadius,
+  );
+  return {
+    view: {
+      latitudeDegrees: observation.latitudeDegrees,
+      longitudeDegrees: observation.longitudeDegrees,
+      displayRadiusM: state.stage.metresPerEarthRadius,
+      radialMultiplier: 1,
+      observerHeightWorldM: observation.headDistanceWorldM,
+      focalLengthPixels: terrainFocalLengthPixels(viewCamera),
+    },
+    observation,
+  };
+}
+
 updateSceneFrame(initialFrame);
 peakStageFrame = currentStageFrame();
-applyPreset("system");
+applyPreset("earth");
+const initialTerrainView = eclipseTerrainView(camera);
+let latestEarthSurfaceObservation = initialTerrainView.observation;
+const terrain = new TerrainSurface({
+  renderer,
+  baseTexture: earthTexture,
+  imageryProvider: photographicImageryProvider,
+  initialView: initialTerrainView.view,
+});
+terrain.setTilePixelRatio({
+  target: "textures",
+  screenPixelsPerSourcePixel:
+    ECLIPSE_TEXTURE_SCREEN_PIXELS_PER_SOURCE_PIXEL,
+});
+earthFixedRoot.add(terrain.group);
+terrain.group.visible = false;
+scene.onBeforeRender = (_renderer, _scene, renderCamera): void => {
+  terrain.updateRenderVisibility(renderCamera);
+};
+let previousTerrainViewMs = Number.NEGATIVE_INFINITY;
+
+function updateEclipseTerrain(
+  nowMs: number,
+  viewCamera: THREE.Camera,
+): void {
+  if (nowMs - previousTerrainViewMs < TERRAIN_VIEW_INTERVAL_MS) return;
+  previousTerrainViewMs = nowMs;
+  const next = eclipseTerrainView(viewCamera);
+  latestEarthSurfaceObservation = next.observation;
+  terrain.update(next.view);
+}
 
 let frameCommitSequence = 0;
 let selectionSequence = 0;
@@ -482,7 +659,7 @@ async function selectEvent(eventId: string): Promise<Record<string, unknown>> {
   inertialToStage = null;
   updateSceneFrame(frame);
   peakStageFrame = currentStageFrame();
-  applyPreset("system");
+  applyPreset("earth");
   return eclipseStateReadback();
 }
 
@@ -909,64 +1086,40 @@ function updateObserverGripNavigation(): void {
   }
 }
 
-const observerFlightDirection = new THREE.Vector3();
 const observerViewQuaternion = new THREE.Quaternion();
-const observerFlightRight = new THREE.Vector3();
-const observerFlightUp = new THREE.Vector3();
-const observerFlightForward = new THREE.Vector3();
 const observerHeadPosition = new THREE.Vector3();
 function updateObserverFlight(
   elapsedSeconds: number,
   viewCamera: THREE.Camera,
+  intent: EclipseControllerIntent,
 ): void {
-  if (gestureCount > 0) return;
-  const left = bindingForHand("left")?.inputSource;
-  const right = bindingForHand("right")?.inputSource;
-  const [travelX, travelY] = stickForSource(left);
-  const [turnAxis, verticalAxis] = stickForSource(right, 0.22);
   if (
-    travelX === 0 && travelY === 0 &&
-    turnAxis === 0 && verticalAxis === 0
+    gestureCount > 0 ||
+    (intent.flightAxis === 0 && intent.rollAxis === 0)
   ) return;
-  viewCamera.getWorldQuaternion(observerViewQuaternion);
-  observerFlightRight.set(1, 0, 0).applyQuaternion(observerViewQuaternion);
-  observerFlightUp.set(0, 1, 0).applyQuaternion(observerViewQuaternion);
-  observerFlightForward.set(0, 0, -1).applyQuaternion(observerViewQuaternion);
-  observerFlightDirection.set(0, 0, 0)
-    .addScaledVector(observerFlightRight, travelX)
-    .addScaledVector(observerFlightForward, -travelY)
-    .addScaledVector(observerFlightUp, -verticalAxis);
-  const nextObserver = {
-    position: state.observer.position.clone(),
-    quaternion: state.observer.quaternion.clone(),
-  };
-  if (observerFlightDirection.lengthSq() > 0) {
-    nextObserver.position.addScaledVector(
-      observerFlightDirection.normalize(),
-      1.8 * elapsedSeconds,
-    );
-  }
-  if (turnAxis !== 0) {
-    viewCamera.getWorldPosition(observerHeadPosition);
-    const yaw = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(0, 1, 0),
-      -turnAxis * 1.35 * elapsedSeconds,
-    );
-    nextObserver.position
-      .sub(observerHeadPosition)
-      .applyQuaternion(yaw)
-      .add(observerHeadPosition);
-    nextObserver.quaternion.premultiply(yaw).normalize();
-  }
-  commitObserverTransform(nextObserver);
+  eclipseHeadWorldPose(
+    viewCamera,
+    observerHeadPosition,
+    observerViewQuaternion,
+  );
+  commitObserverTransform(updateObserverHeadRelativeFlight(
+    state.observer,
+    observerHeadPosition,
+    observerViewQuaternion,
+    {
+      flightAxis: intent.flightAxis,
+      rollAxis: intent.rollAxis,
+      elapsedSeconds,
+    },
+  ));
   state.activePreset = null;
   syncPresentation();
 }
 
 const buttonLatch = freshButtonLatch();
-function updateControllerButtons(): void {
+function updateControllerButtons(): EclipseControllerIntent | undefined {
   const session = renderer.xr.getSession();
-  if (!session) return;
+  if (!session) return undefined;
   const intent = eclipseControllerIntent(session, buttonLatch);
   if (intent.toggleVoice) void voiceAgent.toggle();
   if (intent.resetStage) resetEclipseStage();
@@ -974,6 +1127,50 @@ function updateControllerButtons(): void {
   if (intent.togglePanel) {
     state.panelVisible = !state.panelVisible;
   }
+  return intent;
+}
+
+let timelineScrubbing = false;
+function requestControllerTime(nowMs: number): void {
+  previousGeometryRequestMs = nowMs;
+  void setTimeUtc(new Date(requestedPlaybackTimeMs).toISOString()).catch(
+    (error) => {
+      console.error("Eclipse timeline control stopped:", error);
+    },
+  );
+}
+
+function updateEclipseStickControls(
+  elapsedSeconds: number,
+  nowMs: number,
+  intent: EclipseControllerIntent,
+): void {
+  if (intent.scaleAxis !== 0) {
+    setStageScale(eclipseScaleAfterInput(
+      state.stage.metresPerEarthRadius,
+      intent.scaleAxis,
+      elapsedSeconds,
+    ));
+  }
+  const scrubbing = intent.timelineAxis !== 0;
+  if (scrubbing) {
+    if (state.playing) setPlaying(false);
+    const start = Date.parse(state.contacts.startUtc);
+    const end = Date.parse(state.contacts.endUtc);
+    requestedPlaybackTimeMs = eclipseTimeAfterInput(
+      requestedPlaybackTimeMs,
+      intent.timelineAxis,
+      elapsedSeconds,
+      start,
+      end,
+    );
+    if (nowMs - previousGeometryRequestMs >= GEOMETRY_INTERVAL_MS) {
+      requestControllerTime(nowMs);
+    }
+  } else if (timelineScrubbing) {
+    requestControllerTime(nowMs);
+  }
+  timelineScrubbing = scrubbing;
 }
 
 let pointerActive = false;
@@ -983,9 +1180,10 @@ const desktopNavigationFocus = new THREE.Vector3();
 const desktopHeadPosition = new THREE.Vector3();
 function currentNavigationFocus(): THREE.Vector3 {
   const preset = state.activePreset ?? state.lastPreset;
-  return desktopNavigationFocus.copy(
+  desktopNavigationFocus.copy(
     presetFocus(preset, stageFrameForPreset(preset)),
-  ).multiplyScalar(state.stage.metresPerEarthRadius);
+  );
+  return modelRoot.localToWorld(desktopNavigationFocus);
 }
 renderer.domElement.addEventListener("pointerdown", (event) => {
   if (renderer.xr.isPresenting) return;
@@ -1053,6 +1251,7 @@ renderer.xr.addEventListener("sessionend", () => {
   gestureCount = 0;
   oneGripGesture = null;
   twoGripGesture = null;
+  timelineScrubbing = false;
 });
 
 window.addEventListener("resize", () => {
@@ -1085,6 +1284,8 @@ function frameTimingSummary(): Record<string, unknown> {
 
 function debugSnapshot(): Record<string, unknown> {
   const session = renderer.xr.getSession();
+  const terrainLod = terrain.getLodStatus();
+  const tileControls = terrain.getTileDebugControls();
   return {
     experience: "eclipse-observatory",
     ...eclipseStateReadback(),
@@ -1096,6 +1297,27 @@ function debugSnapshot(): Record<string, unknown> {
     },
     panel_visible: state.panelVisible,
     voice_state: state.voice,
+    earth_surface: {
+      latitude_degrees: latestEarthSurfaceObservation.latitudeDegrees,
+      longitude_degrees: latestEarthSurfaceObservation.longitudeDegrees,
+      earth_fixed_head_point:
+        latestEarthSurfaceObservation.headPoint.toArray(),
+      head_distance_metres:
+        latestEarthSurfaceObservation.headDistanceWorldM,
+      signed_head_height_metres:
+        latestEarthSurfaceObservation.signedHeadHeightWorldM,
+      earth_fixed_surface_point:
+        latestEarthSurfaceObservation.surfacePoint.toArray(),
+      earth_fixed_surface_normal:
+        latestEarthSurfaceObservation.surfaceNormal.toArray(),
+      nearest_point_residual_metres:
+        latestEarthSurfaceObservation.nearestPointResidualWorldM,
+      terrain_min_zoom: terrainLod.minZoom,
+      terrain_max_zoom: terrainLod.maxZoom,
+      imagery_zoom: tileControls.textures.effective_target_zoom,
+      detailed_surface_ready: terrain.hasCommittedSurface,
+      imagery_provider: photographicImageryProvider?.id ?? "blue-marble",
+    },
     stage: {
       active_preset: state.activePreset,
       reset_preset: state.lastPreset,
@@ -1164,6 +1386,23 @@ function render(nowMs: number): void {
   previousRenderMs = nowMs;
   frameIntervals.push(frameIntervalMs);
   if (frameIntervals.length > 720) frameIntervals.shift();
+  const viewCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  if (renderer.xr.isPresenting) {
+    const intent = updateControllerButtons();
+    updateObserverGripNavigation();
+    if (intent) {
+      updateObserverFlight(
+        simulationIntervalMs / 1_000,
+        viewCamera,
+        intent,
+      );
+      updateEclipseStickControls(
+        simulationIntervalMs / 1_000,
+        nowMs,
+        intent,
+      );
+    }
+  }
   if (state.playing) {
     const start = Date.parse(state.contacts.startUtc);
     const end = Date.parse(state.contacts.endUtc);
@@ -1180,15 +1419,20 @@ function render(nowMs: number): void {
       });
     }
   }
-  const viewCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
-  if (renderer.xr.isPresenting) {
-    updateControllerButtons();
-    updateObserverGripNavigation();
-    updateObserverFlight(simulationIntervalMs / 1_000, viewCamera);
-  }
+  updateEclipseTerrain(nowMs, viewCamera);
   updateHandPanel(nowMs, viewCamera);
   sunWorldPosition.copy(sunStagePosition);
   modelRoot.localToWorld(sunWorldPosition);
+  modelRoot.getWorldPosition(earthWorldPosition);
+  eclipseSunlightDirection
+    .copy(sunWorldPosition)
+    .sub(earthWorldPosition)
+    .normalize();
+  terrain.setSunlightDirection(eclipseSunlightDirection);
+  if (!terrain.group.visible && terrain.hasCommittedSurface) {
+    earth.visible = false;
+    terrain.group.visible = true;
+  }
   lightField.update(viewCamera, sunWorldPosition);
   visibleSun.update(
     viewCamera,
@@ -1203,6 +1447,7 @@ window.addEventListener("beforeunload", () => {
   worker.dispose();
   handPanel.dispose();
   panelRuntime.dispose();
+  terrain.dispose();
   cones.dispose();
   footprints.dispose();
   lightField.dispose();

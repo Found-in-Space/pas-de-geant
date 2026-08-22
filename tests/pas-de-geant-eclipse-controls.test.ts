@@ -64,17 +64,42 @@ describe("Eclipse observatory control surfaces", () => {
     leftButtons[5]!.pressed = true;
 
     expect(eclipseControllerIntent(session, latch)).toEqual({
+      flightAxis: 0,
+      rollAxis: 0,
+      timelineAxis: 0,
+      scaleAxis: 0,
       toggleVoice: true,
       resetStage: true,
       togglePlayback: true,
       togglePanel: true,
     });
     expect(eclipseControllerIntent(session, latch)).toEqual({
+      flightAxis: 0,
+      rollAxis: 0,
+      timelineAxis: 0,
+      scaleAxis: 0,
       toggleVoice: false,
       resetStage: false,
       togglePlayback: false,
       togglePanel: false,
     });
+  });
+
+  it("maps the sticks to gaze flight, roll, eclipse time, and system scale", () => {
+    const leftAxes = [0, 0, 0.7, -0.8];
+    const rightAxes = [0, 0, -0.75, -0.9];
+    const session = {
+      inputSources: [
+        { handedness: "left", gamepad: { axes: leftAxes, buttons: [] } },
+        { handedness: "right", gamepad: { axes: rightAxes, buttons: [] } },
+      ],
+    } as unknown as XRSession;
+    const intent = eclipseControllerIntent(session, freshButtonLatch());
+
+    expect(intent.flightAxis).toBeGreaterThan(0);
+    expect(intent.rollAxis).toBeGreaterThan(0);
+    expect(intent.timelineAxis).toBeLessThan(0);
+    expect(intent.scaleAxis).toBeGreaterThan(0);
   });
 
   it("parses the Realtime eclipse tool arguments without inventing limits", () => {
