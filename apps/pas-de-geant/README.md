@@ -151,6 +151,11 @@ re-entering; foveation can change during a session.
 - M (desktop): cycle ground, orbital, and free-roam placement
 - N (desktop): switch between Earth and Moon
 
+Ground travel uses a walking-scale velocity. Orbit and free-roam travel use
+the same left stick/WASD input as head-relative 3D thrust, with velocity scaled
+to the displayed body radius. Free roam also increases velocity with distance
+from the focused body; left grip/Shift applies a 4× boost.
+
 The hand panel uses touch-os and the embedded NASA Blue Marble image to show
 the underfoot point, display scale, radial multiplier, committed terrain zoom
 range, and voice-agent state.

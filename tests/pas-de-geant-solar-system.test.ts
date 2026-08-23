@@ -10,6 +10,8 @@ import {
   displayRadiusForRoomScale,
   relativeJ2000MetresToRender,
   roomScaleForDisplayRadius,
+  spaceTravelSpeedRoomMPerSecond,
+  translatedObserverJ2000M,
   withNavigationTarget,
   type WorldNavigationState,
 } from "../apps/pas-de-geant/src/world-navigation.js";
@@ -41,6 +43,26 @@ describe("solar-system coordinate foundation", () => {
       subtractVector3d(point, origin),
       0.1,
     )).toEqual({ x: 1.25, y: 0.8, z: 0.325 });
+  });
+
+  it("round-trips head-relative 3D travel through the render-axis mapping", () => {
+    const origin = { x: 4.5e12, y: -2.1e12, z: 7.2e11 };
+    const moved = translatedObserverJ2000M(
+      origin,
+      { x: 2, y: -3, z: 4 },
+      0.25,
+    );
+    expect(relativeJ2000MetresToRender(
+      subtractVector3d(moved, origin),
+      0.25,
+    )).toEqual({ x: 2, y: -3, z: 4 });
+  });
+
+  it("scales space travel to remain visible without breaking toy scales", () => {
+    expect(spaceTravelSpeedRoomMPerSecond("orbit", 100, 300, false)).toBe(50);
+    expect(spaceTravelSpeedRoomMPerSecond("free", 100, 1_000, false)).toBe(150);
+    expect(spaceTravelSpeedRoomMPerSecond("orbit", 1, 3, false)).toBe(1.35);
+    expect(spaceTravelSpeedRoomMPerSecond("orbit", 100, 300, true)).toBe(200);
   });
 
   it("registers all major planets and rejects surface mode without a surface", () => {

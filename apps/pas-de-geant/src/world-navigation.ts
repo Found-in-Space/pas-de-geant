@@ -111,3 +111,36 @@ export function relativeJ2000MetresToRender(
     z: -relativeM.y * roomMetresPerPhysicalMetre,
   };
 }
+
+/** Inverse of the render-axis mapping, used to move a rebased observer. */
+export function translatedObserverJ2000M(
+  observerM: Vector3d,
+  renderTravelM: Vector3d,
+  roomMetresPerPhysicalMetre: number,
+): Vector3d {
+  if (
+    !Number.isFinite(roomMetresPerPhysicalMetre) ||
+    roomMetresPerPhysicalMetre <= 0
+  ) throw new RangeError("Room scale must be positive and finite.");
+  return {
+    x: observerM.x + renderTravelM.x / roomMetresPerPhysicalMetre,
+    y: observerM.y - renderTravelM.z / roomMetresPerPhysicalMetre,
+    z: observerM.z + renderTravelM.y / roomMetresPerPhysicalMetre,
+  };
+}
+
+/** Space travel stays useful at toy, room, and interplanetary display scales. */
+export function spaceTravelSpeedRoomMPerSecond(
+  mode: Exclude<NavigationMode, "surface">,
+  displayRadiusM: number,
+  focusDistanceRoomM: number,
+  boosted: boolean,
+): number {
+  if (!Number.isFinite(displayRadiusM) || displayRadiusM <= 0) {
+    throw new RangeError("Display radius must be positive and finite.");
+  }
+  const focusRelativeSpeed = mode === "free"
+    ? Math.max(displayRadiusM * 0.5, Math.max(0, focusDistanceRoomM) * 0.15)
+    : displayRadiusM * 0.5;
+  return Math.max(1.35, focusRelativeSpeed) * (boosted ? 4 : 1);
+}
