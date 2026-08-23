@@ -26,6 +26,29 @@
 
       <section class="readout" aria-live="polite">
         <div>
+          <span>Navigation</span>
+          <strong><select id="navigation-mode" aria-label="Navigation mode">
+            <option value="surface">On ground</option>
+            <option value="orbit">Orbital</option>
+            <option value="free">Free roam</option>
+          </select></strong>
+        </div>
+        <div>
+          <span>World</span>
+          <strong><select id="focus-body" aria-label="Focus world">
+            <option value="earth">Earth</option>
+            <option value="moon">Moon</option>
+            <option value="sun">Sun</option>
+            <option value="mercury">Mercury</option>
+            <option value="venus">Venus</option>
+            <option value="mars">Mars</option>
+            <option value="jupiter">Jupiter</option>
+            <option value="saturn">Saturn</option>
+            <option value="uranus">Uranus</option>
+            <option value="neptune">Neptune</option>
+          </select></strong>
+        </div>
+        <div>
           <span>Underfoot</span>
           <strong id="coordinates">Locating…</strong>
         </div>
@@ -61,7 +84,8 @@
       </section>
 
       <aside class="instructions">
-        <p><strong>Walk</strong> to roll the world beneath you.</p>
+        <p><strong>On ground</strong> walk to roll the world beneath you.</p>
+        <p><strong>Orbital / free roam</strong> use the same travel and scale controls.</p>
         <p><strong>Left stick</strong> travels · <strong>left grip</strong> accelerates.</p>
         <p><strong>Left trigger + stick left/right</strong> turns the view.</p>
         <p><strong>Right stick</strong> changes planet scale and radial multiplier.</p>

@@ -34,6 +34,11 @@ export interface ElevationProviderMetadata extends ElevationSourceConstraints {
   };
 }
 
+export interface XyzElevationConfiguration {
+  readonly urlTemplate: string;
+  readonly headers?: Readonly<Record<string, string>>;
+}
+
 export const MAPTERHORN_ELEVATION_PROVIDER_METADATA:
   ElevationProviderMetadata = Object.freeze({
     tilePixels: 512,
@@ -578,6 +583,44 @@ export function createElevationTileProvider(
         signal,
         metadata.tilePixels,
       );
+    },
+  });
+}
+
+/** Provider-neutral XYZ height source used by preprocessed planetary datasets. */
+export function createXyzElevationTileProvider(
+  metadata: ElevationProviderMetadata,
+  maxElevationSourceZoom: number,
+  configuration: XyzElevationConfiguration,
+): ImageTileProvider {
+  return new ImageTileProvider({
+    mode: "terrain",
+    tilePixels: metadata.tilePixels,
+    attribution: metadata.attribution,
+    concurrency: 4,
+    resolveSource: (tile) =>
+      elevationSourceMapping(tile, maxElevationSourceZoom),
+    loadSource: async (source, signal) => {
+      const url = configuration.urlTemplate
+        .replaceAll("{z}", String(source.z))
+        .replaceAll("{x}", String(source.x))
+        .replaceAll("{y}", String(source.y));
+      const response = await fetch(url, {
+        signal,
+        headers: configuration.headers,
+      });
+      if (!response.ok) {
+        throw new HttpTileError(
+          response.status,
+          `Elevation tile ${tileIdentityKey(source)} failed with ${response.status}.`,
+        );
+      }
+      const blob = await response.blob();
+      return {
+        image: await decodeBlobImage(blob, metadata.tilePixels, signal),
+        byteLength: blob.size,
+        cacheStatus: "provider",
+      };
     },
   });
 }

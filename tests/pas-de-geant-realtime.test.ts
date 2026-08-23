@@ -315,6 +315,8 @@ describe("Pas de Géant Realtime voice agent", () => {
       "server_vad",
     );
     expect(configuration.session.tools.map((tool) => tool.name)).toEqual([
+      "get_navigation_state",
+      "set_navigation",
       "get_user_location",
       "set_user_location",
       "get_view_direction",

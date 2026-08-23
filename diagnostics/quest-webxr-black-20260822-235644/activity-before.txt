@@ -1,0 +1,1855 @@
+ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)
+Display #0 (activities from top to bottom):
+  * Task{65dc66f #3341 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+    mBounds=Rect(0, 0 - 1, 1)
+    mCreatedByOrganizer=true
+    * Task{aa5a8b #3342 type=standard A=10024:com.oculus.vrshell:-339196040 U=0 rootTaskId=3341 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+      isSleeping=false
+      topResumedActivity=ActivityRecord{93df85a u0 com.oculus.vrshell/.FocusPlaceholderActivity t3342}
+      * Hist  #0: ActivityRecord{93df85a u0 com.oculus.vrshell/.FocusPlaceholderActivity t3342}
+        packageName=com.oculus.vrshell processName=com.oculus.vrshell
+        launchedFromUid=10024 launchedFromPackage=com.oculus.vrshell launchedFromFeature=null userId=0
+        app=ProcessRecord{12eb603 3021:com.oculus.vrshell/u0a24}
+        Intent { flg=0x10810100 cmp=com.oculus.vrshell/.FocusPlaceholderActivity }
+        rootOfTask=true task=Task{aa5a8b #3342 type=standard A=10024:com.oculus.vrshell:-339196040}
+        taskAffinity=10024:com.oculus.vrshell:-339196040
+        mActivityComponent=com.oculus.vrshell/.FocusPlaceholderActivity
+        baseDir=/system_ext/priv-app/VrShell/VrShell.apk
+        dataDir=/data/user/0/com.oculus.vrshell
+        stateNotNeeded=false componentSpecified=false mActivityType=standard
+        compat={200dpi always-compat} labelRes=0x7f0f003f icon=0x0 theme=0x0
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_GB] ldltr sw1766dp w3302dp h1766dp 200dpi xlrg long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 780, 355) mAppBounds=Rect(0, 0 - 780, 355) mMaxBounds=Rect(0, 0 - 780, 355) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.26 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw1dp w1dp h1dp 200dpi smll port night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1, 1) mAppBounds=Rect(0, 0 - 1, 1) mMaxBounds=Rect(0, 0 - 1, 1) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        mLastReportedActivityWindowInfo=ActivityWindowInfo{isEmbedded=false, taskBounds=Rect(0, 0 - 1, 1), taskFragmentBounds=Rect(0, 0 - 1, 1)}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_GB] ldltr sw1dp w1dp h1dp 200dpi smll port night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1, 1) mAppBounds=Rect(0, 0 - 1, 1) mMaxBounds=Rect(0, 0 - 1, 1) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=standard mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ff191c1e
+          backgroundColor=fff0f0f3 statusBarColor=ff191c1e navigationBarColor=808080
+         backgroundColorFloating=fff0f0f3
+        launchFailed=false launchCount=1 lastLaunchTime=-8m18s450ms
+        mHaveState=false mIcicle=null
+        state=RESUMED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=true noDisplay=false immersive=false launchMode=3
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=standard
+        mImeInsetsFrozenUntilStartInput=false
+        windows=[Window{855a2f1 u0 com.oculus.vrshell/com.oculus.vrshell.FocusPlaceholderActivity}]
+        windowType=2 waitingToShow=true
+        mOccludesParent=true
+        overrideOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        requestedOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        startingData=null firstWindowDrawn=true mIsExiting=false
+        nowVisible=true lastVisibleTime=-8m18s383ms
+        resizeMode=RESIZE_MODE_UNRESIZEABLE
+        mLastReportedMultiWindowMode=true mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0x40001fff
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  * Task{1fa1b93 #2 type=home U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+    mBounds=Rect(0, 0 - 4128, 2208)
+    mCreatedByOrganizer=true
+    * Task{246e27b #3083 type=home A=10024:com.oculus.vrshell:1047810524 U=0 rootTaskId=2 visible=true visibleRequested=true mode=fullscreen translucent=false sz=1}
+      mLastPausedActivity: ActivityRecord{938ea0a u0 com.oculus.vrshell/.HomeActivity t3083}
+      isSleeping=false
+      topResumedActivity=ActivityRecord{938ea0a u0 com.oculus.vrshell/.HomeActivity t3083}
+      * Hist  #0: ActivityRecord{938ea0a u0 com.oculus.vrshell/.HomeActivity t3083}
+        packageName=com.oculus.vrshell processName=com.oculus.vrshell
+        launchedFromUid=0 launchedFromPackage=null launchedFromFeature=null userId=0
+        app=ProcessRecord{12eb603 3021:com.oculus.vrshell/u0a24}
+        Intent { act=android.intent.action.MAIN cat=[android.intent.category.HOME] flg=0x10810100 cmp=com.oculus.vrshell/.HomeActivity (has extras) }
+        rootOfTask=true task=Task{246e27b #3083 type=home A=10024:com.oculus.vrshell:1047810524}
+        taskAffinity=10024:com.oculus.vrshell:1047810524
+        mActivityComponent=com.oculus.vrshell/.HomeActivity
+        baseDir=/system_ext/priv-app/VrShell/VrShell.apk
+        dataDir=/data/user/0/com.oculus.vrshell
+        stateNotNeeded=false componentSpecified=false mActivityType=home
+        compat={200dpi always-compat} labelRes=0x7f0f003f icon=0x0 theme=0x0
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_GB] ldltr sw1766dp w3302dp h1766dp 200dpi xlrg long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 4128, 2208) mAppBounds=Rect(0, 0 - 4128, 2208) mMaxBounds=Rect(0, 0 - 4128, 2208) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.8 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw1766dp w3302dp h1766dp 200dpi xlrg long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 4128, 2208) mAppBounds=Rect(0, 0 - 4128, 2208) mMaxBounds=Rect(0, 0 - 4128, 2208) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=home mAlwaysOnTop=undefined mRotation=ROTATION_0} s.3 fontWeightAdjustment=0}
+        mLastReportedActivityWindowInfo=ActivityWindowInfo{isEmbedded=false, taskBounds=Rect(0, 0 - 4128, 2208), taskFragmentBounds=Rect(0, 0 - 4128, 2208)}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_GB] ldltr sw1766dp w3302dp h1766dp 200dpi xlrg long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 4128, 2208) mAppBounds=Rect(0, 0 - 4128, 2208) mMaxBounds=Rect(0, 0 - 4128, 2208) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=home mAlwaysOnTop=undefined mRotation=ROTATION_0} s.3 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=home mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ff191c1e
+          backgroundColor=fff0f0f3 statusBarColor=ff191c1e navigationBarColor=808080
+         backgroundColorFloating=fff0f0f3
+        launchFailed=false launchCount=0 lastLaunchTime=-2h22m38s570ms
+        mHaveState=false mIcicle=null
+        state=RESUMED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=true noDisplay=false immersive=false launchMode=3
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=home
+        mImeInsetsFrozenUntilStartInput=false
+        windows=[Window{ab6c12 u0 com.oculus.vrshell/com.oculus.vrshell.HomeActivity}]
+        windowType=2 waitingToShow=true
+        mOccludesParent=true
+        overrideOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        requestedOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        startingData=null firstWindowDrawn=true mIsExiting=false
+        nowVisible=true lastVisibleTime=-8m18s743ms
+        resizeMode=RESIZE_MODE_UNRESIZEABLE
+        mLastReportedMultiWindowMode=false mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0x2df7
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  * Task{1fd9812 #3275 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+    mBounds=Rect(0, 0 - 425, 75)
+    mCreatedByOrganizer=true
+    * Task{319235e #3276 type=standard A=10024:com.oculus.panelapp.controlbar.ControlBarActivity U=0 rootTaskId=3275 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+      mLastPausedActivity: ActivityRecord{bc7e499 u0 com.oculus.vrshell/com.oculus.panelapp.controlbar.ControlBarActivity t3276}
+      isSleeping=false
+      topResumedActivity=ActivityRecord{bc7e499 u0 com.oculus.vrshell/com.oculus.panelapp.controlbar.ControlBarActivity t3276}
+      * Hist  #0: ActivityRecord{bc7e499 u0 com.oculus.vrshell/com.oculus.panelapp.controlbar.ControlBarActivity t3276}
+        packageName=com.oculus.vrshell processName=com.oculus.vrshell
+        launchedFromUid=10024 launchedFromPackage=com.oculus.vrshell launchedFromFeature=null userId=0
+        app=ProcessRecord{12eb603 3021:com.oculus.vrshell/u0a24}
+        Intent { act=android.intent.action.MAIN cat=[com.oculus.intent.category.OVERLAY_LAUNCHER] flg=0x10010100 pkg=com.oculus.vrshell cmp=com.oculus.vrshell/com.oculus.panelapp.controlbar.ControlBarActivity (has extras) }
+        rootOfTask=true task=Task{319235e #3276 type=standard A=10024:com.oculus.panelapp.controlbar.ControlBarActivity}
+        taskAffinity=10024:com.oculus.panelapp.controlbar.ControlBarActivity
+        mActivityComponent=com.oculus.vrshell/com.oculus.panelapp.controlbar.ControlBarActivity
+        baseDir=/system_ext/priv-app/VrShell/VrShell.apk
+        dataDir=/data/user/0/com.oculus.vrshell
+        stateNotNeeded=false componentSpecified=false mActivityType=standard
+        compat={200dpi always-compat} labelRes=0x7f0f003f icon=0x0 theme=0x0
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_GB] ldltr sw1766dp w3302dp h1766dp 200dpi xlrg long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 780, 355) mAppBounds=Rect(0, 0 - 780, 355) mMaxBounds=Rect(0, 0 - 780, 355) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.26 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw60dp w340dp h60dp 200dpi smll land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 425, 75) mAppBounds=Rect(0, 0 - 425, 75) mMaxBounds=Rect(0, 0 - 425, 75) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        mLastReportedActivityWindowInfo=ActivityWindowInfo{isEmbedded=false, taskBounds=Rect(0, 0 - 425, 75), taskFragmentBounds=Rect(0, 0 - 425, 75)}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_GB] ldltr sw60dp w340dp h60dp 200dpi smll land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 425, 75) mAppBounds=Rect(0, 0 - 425, 75) mMaxBounds=Rect(0, 0 - 425, 75) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=standard mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ff212121
+          backgroundColor=0 statusBarColor=ff000000 navigationBarColor=ff000000
+         backgroundColorFloating=ff424242
+        launchFailed=false launchCount=0 lastLaunchTime=-17m29s816ms
+        mHaveState=false mIcicle=null
+        state=RESUMED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=true noDisplay=false immersive=false launchMode=2
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=standard
+        mImeInsetsFrozenUntilStartInput=false
+        windows=[Window{ced1a2f u0 com.oculus.vrshell/com.oculus.panelapp.controlbar.ControlBarActivity}]
+        windowType=2 waitingToShow=true
+        mOccludesParent=true
+        overrideOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        requestedOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        startingData=null firstWindowDrawn=true mIsExiting=false
+        nowVisible=true lastVisibleTime=-8m18s781ms
+        connections={ConnectionRecord{167eb10 u0 CR com.oculus.vrshell/.privateipc.LayerIPCService:@dcf13d3 flags=0x1}, ConnectionRecord{3504036 u0 CR com.oculus.vrshell/.privateipc.multilayer.MultiLayerService:@1188dd1 flags=0x1}}
+        resizeMode=RESIZE_MODE_UNRESIZEABLE
+        mLastReportedMultiWindowMode=true mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0x40003ff7
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  * Task{a24357e #3098 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+    mBounds=Rect(0, 0 - 253, 63)
+    mCreatedByOrganizer=true
+    * Task{82fc491 #3099 type=standard A=10024:com.oculus.panelapp.displaybar.DisplayBarActivity U=0 rootTaskId=3098 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+      mLastPausedActivity: ActivityRecord{60c04ac u0 com.oculus.vrshell/com.oculus.panelapp.displaybar.DisplayBarActivity t3099}
+      isSleeping=false
+      topResumedActivity=ActivityRecord{60c04ac u0 com.oculus.vrshell/com.oculus.panelapp.displaybar.DisplayBarActivity t3099}
+      * Hist  #0: ActivityRecord{60c04ac u0 com.oculus.vrshell/com.oculus.panelapp.displaybar.DisplayBarActivity t3099}
+        packageName=com.oculus.vrshell processName=com.oculus.vrshell
+        launchedFromUid=10024 launchedFromPackage=com.oculus.vrshell launchedFromFeature=null userId=0
+        app=ProcessRecord{12eb603 3021:com.oculus.vrshell/u0a24}
+        Intent { act=android.intent.action.MAIN cat=[com.oculus.intent.category.VR_HOME_LAUNCHER] flg=0x10010100 pkg=com.oculus.vrshell cmp=com.oculus.vrshell/com.oculus.panelapp.displaybar.DisplayBarActivity (has extras) }
+        rootOfTask=true task=Task{82fc491 #3099 type=standard A=10024:com.oculus.panelapp.displaybar.DisplayBarActivity}
+        taskAffinity=10024:com.oculus.panelapp.displaybar.DisplayBarActivity
+        mActivityComponent=com.oculus.vrshell/com.oculus.panelapp.displaybar.DisplayBarActivity
+        baseDir=/system_ext/priv-app/VrShell/VrShell.apk
+        dataDir=/data/user/0/com.oculus.vrshell
+        stateNotNeeded=false componentSpecified=false mActivityType=standard
+        compat={200dpi always-compat} labelRes=0x7f0f003f icon=0x0 theme=0x0
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_GB] ldltr sw1766dp w3302dp h1766dp 200dpi xlrg long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 4128, 2208) mAppBounds=Rect(0, 0 - 4128, 2208) mMaxBounds=Rect(0, 0 - 4128, 2208) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.17 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw50dp w202dp h50dp 200dpi smll land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 253, 63) mAppBounds=Rect(0, 0 - 253, 63) mMaxBounds=Rect(0, 0 - 253, 63) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        mLastReportedActivityWindowInfo=ActivityWindowInfo{isEmbedded=false, taskBounds=Rect(0, 0 - 253, 63), taskFragmentBounds=Rect(0, 0 - 253, 63)}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_GB] ldltr sw50dp w202dp h50dp 200dpi smll land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 253, 63) mAppBounds=Rect(0, 0 - 253, 63) mMaxBounds=Rect(0, 0 - 253, 63) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=standard mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ff212121
+          backgroundColor=0 statusBarColor=ff000000 navigationBarColor=ff000000
+         backgroundColorFloating=ff424242
+        launchFailed=false launchCount=0 lastLaunchTime=-2h22m30s815ms
+        mHaveState=false mIcicle=null
+        state=RESUMED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=true noDisplay=false immersive=false launchMode=0
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=standard
+        mImeInsetsFrozenUntilStartInput=false
+        windows=[Window{22efb85 u0 com.oculus.vrshell/com.oculus.panelapp.displaybar.DisplayBarActivity}]
+        windowType=2 waitingToShow=true
+        mOccludesParent=true
+        overrideOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        requestedOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        startingData=null firstWindowDrawn=true mIsExiting=false
+        nowVisible=true lastVisibleTime=-8m18s778ms
+        resizeMode=RESIZE_MODE_UNRESIZEABLE
+        mLastReportedMultiWindowMode=true mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0xdb3
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  * Task{a86189e #3094 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+    mBounds=Rect(0, 0 - 460, 129)
+    mCreatedByOrganizer=true
+    * Task{96f1b02 #3095 type=standard A=10024:com.oculus.vrshell:693258208 U=0 rootTaskId=3094 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+      mLastPausedActivity: ActivityRecord{38a244d u0 com.oculus.vrshell/com.oculus.panelapp.toasts.ToastsActivity t3095}
+      isSleeping=false
+      topResumedActivity=ActivityRecord{38a244d u0 com.oculus.vrshell/com.oculus.panelapp.toasts.ToastsActivity t3095}
+      mMinWidth=1 mMinHeight=1
+      * Hist  #0: ActivityRecord{38a244d u0 com.oculus.vrshell/com.oculus.panelapp.toasts.ToastsActivity t3095}
+        packageName=com.oculus.vrshell processName=com.oculus.vrshell
+        launchedFromUid=10024 launchedFromPackage=com.oculus.vrshell launchedFromFeature=null userId=0
+        app=ProcessRecord{12eb603 3021:com.oculus.vrshell/u0a24}
+        Intent { act=android.intent.action.MAIN cat=[com.oculus.intent.category.VR_HOME_LAUNCHER] flg=0x10010100 pkg=com.oculus.vrshell cmp=com.oculus.vrshell/com.oculus.panelapp.toasts.ToastsActivity (has extras) }
+        rootOfTask=true task=Task{96f1b02 #3095 type=standard A=10024:com.oculus.vrshell:693258208}
+        taskAffinity=10024:com.oculus.vrshell:693258208
+        mActivityComponent=com.oculus.vrshell/com.oculus.panelapp.toasts.ToastsActivity
+        baseDir=/system_ext/priv-app/VrShell/VrShell.apk
+        dataDir=/data/user/0/com.oculus.vrshell
+        stateNotNeeded=false componentSpecified=false mActivityType=standard
+        compat={200dpi always-compat} labelRes=0x7f0f0252 icon=0x0 theme=0x0
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_GB] ldltr sw1766dp w3302dp h1766dp 200dpi xlrg long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 780, 355) mAppBounds=Rect(0, 0 - 780, 355) mMaxBounds=Rect(0, 0 - 780, 355) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.8 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw103dp w368dp h103dp 200dpi smll land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 460, 129) mAppBounds=Rect(0, 0 - 460, 129) mMaxBounds=Rect(0, 0 - 460, 129) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.8 fontWeightAdjustment=0}
+        mLastReportedActivityWindowInfo=ActivityWindowInfo{isEmbedded=false, taskBounds=Rect(0, 0 - 1, 1), taskFragmentBounds=Rect(0, 0 - 1, 1)}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_GB] ldltr sw103dp w368dp h103dp 200dpi smll land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 460, 129) mAppBounds=Rect(0, 0 - 460, 129) mMaxBounds=Rect(0, 0 - 460, 129) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.8 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=standard mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ff212121
+          backgroundColor=0 statusBarColor=ff000000 navigationBarColor=ff000000
+         backgroundColorFloating=ff424242
+        launchFailed=false launchCount=0 lastLaunchTime=-2h22m33s590ms
+        mHaveState=false mIcicle=null
+        state=RESUMED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=true noDisplay=false immersive=false launchMode=3
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=standard
+        mImeInsetsFrozenUntilStartInput=false
+        windows=[Window{c23e558 u0 com.oculus.vrshell/com.oculus.panelapp.toasts.ToastsActivity}]
+        windowType=2 waitingToShow=true
+        mOccludesParent=true
+        overrideOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        requestedOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        startingData=null firstWindowDrawn=true mIsExiting=false
+        nowVisible=true lastVisibleTime=-7m11s815ms
+        connections={ConnectionRecord{82f140c u0 CR com.oculus.vrshell/.privateipc.LayerIPCService:@31d933f flags=0x1}, ConnectionRecord{f30da4b u0 CR com.oculus.vrshell/.privateipc.multilayer.MultiLayerService:@d539f1a flags=0x1}}
+        resizeMode=RESIZE_MODE_UNRESIZEABLE
+        mLastReportedMultiWindowMode=true mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0x40000f83
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  * Task{ab34ab1 #3088 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+    mBounds=Rect(0, 0 - 1020, 125)
+    mCreatedByOrganizer=true
+    * Task{bb62b22 #3089 type=standard A=10024:com.oculus.panelapp.bloom.BloomActivity U=0 rootTaskId=3088 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+      mLastPausedActivity: ActivityRecord{c80e0ed u0 com.oculus.vrshell/com.oculus.panelapp.bloom.BloomActivity t3089}
+      isSleeping=false
+      topResumedActivity=ActivityRecord{c80e0ed u0 com.oculus.vrshell/com.oculus.panelapp.bloom.BloomActivity t3089}
+      * Hist  #0: ActivityRecord{c80e0ed u0 com.oculus.vrshell/com.oculus.panelapp.bloom.BloomActivity t3089}
+        packageName=com.oculus.vrshell processName=com.oculus.vrshell
+        launchedFromUid=10024 launchedFromPackage=com.oculus.vrshell launchedFromFeature=null userId=0
+        app=ProcessRecord{12eb603 3021:com.oculus.vrshell/u0a24}
+        Intent { act=android.intent.action.MAIN cat=[com.oculus.intent.category.VR_HOME_LAUNCHER] flg=0x10010100 pkg=com.oculus.vrshell cmp=com.oculus.vrshell/com.oculus.panelapp.bloom.BloomActivity (has extras) }
+        rootOfTask=true task=Task{bb62b22 #3089 type=standard A=10024:com.oculus.panelapp.bloom.BloomActivity}
+        taskAffinity=10024:com.oculus.panelapp.bloom.BloomActivity
+        mActivityComponent=com.oculus.vrshell/com.oculus.panelapp.bloom.BloomActivity
+        baseDir=/system_ext/priv-app/VrShell/VrShell.apk
+        dataDir=/data/user/0/com.oculus.vrshell
+        stateNotNeeded=false componentSpecified=false mActivityType=standard
+        compat={200dpi always-compat} labelRes=0x7f0f003f icon=0x0 theme=0x0
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_GB] ldltr sw100dp w816dp h100dp 200dpi nrml long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1020, 125) mAppBounds=Rect(0, 0 - 1020, 125) mMaxBounds=Rect(0, 0 - 1020, 125) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.13 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw100dp w816dp h100dp 200dpi nrml long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1020, 125) mAppBounds=Rect(0, 0 - 1020, 125) mMaxBounds=Rect(0, 0 - 1020, 125) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        mLastReportedActivityWindowInfo=ActivityWindowInfo{isEmbedded=false, taskBounds=Rect(0, 0 - 1020, 125), taskFragmentBounds=Rect(0, 0 - 1020, 125)}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_GB] ldltr sw100dp w816dp h100dp 200dpi nrml long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1020, 125) mAppBounds=Rect(0, 0 - 1020, 125) mMaxBounds=Rect(0, 0 - 1020, 125) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=standard mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ff212121
+          backgroundColor=0 statusBarColor=ff000000 navigationBarColor=ff000000
+         backgroundColorFloating=ff424242
+        launchFailed=false launchCount=0 lastLaunchTime=-2h22m34s156ms
+        mHaveState=false mIcicle=null
+        state=RESUMED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=true noDisplay=false immersive=false launchMode=0
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=standard
+        mImeInsetsFrozenUntilStartInput=false
+        windows=[Window{78ee142 u0 com.oculus.vrshell/com.oculus.panelapp.bloom.BloomActivity}]
+        windowType=2 waitingToShow=true
+        mOccludesParent=true
+        overrideOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        requestedOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        startingData=null firstWindowDrawn=true mIsExiting=false
+        nowVisible=true lastVisibleTime=-8m18s760ms
+        resizeMode=RESIZE_MODE_UNRESIZEABLE
+        mLastReportedMultiWindowMode=true mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0xfb3
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  * Task{c641d4b #3084 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+    mBounds=Rect(0, 0 - 2, 2)
+    mCreatedByOrganizer=true
+    * Task{5dbeb21 #3085 type=standard A=10034:com.oculus.systemux:991404322 U=0 rootTaskId=3084 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+      mLastPausedActivity: ActivityRecord{57a59a5 u0 com.oculus.systemux/com.oculus.panelapp.activetaskbar.ActiveTaskBarActivity t3085}
+      isSleeping=false
+      topResumedActivity=ActivityRecord{57a59a5 u0 com.oculus.systemux/com.oculus.panelapp.activetaskbar.ActiveTaskBarActivity t3085}
+      mMinWidth=1 mMinHeight=1
+      * Hist  #0: ActivityRecord{57a59a5 u0 com.oculus.systemux/com.oculus.panelapp.activetaskbar.ActiveTaskBarActivity t3085}
+        packageName=com.oculus.systemux processName=com.oculus.systemux:SystemUX
+        launchedFromUid=10024 launchedFromPackage=com.oculus.vrshell launchedFromFeature=null userId=0
+        app=ProcessRecord{f5a67a3 5306:com.oculus.systemux:SystemUX/u0a34}
+        Intent { act=android.intent.action.MAIN cat=[com.oculus.intent.category.VR_HOME_LAUNCHER] flg=0x10010100 pkg=com.oculus.systemux cmp=com.oculus.systemux/com.oculus.panelapp.activetaskbar.ActiveTaskBarActivity (has extras) }
+        rootOfTask=true task=Task{5dbeb21 #3085 type=standard A=10034:com.oculus.systemux:991404322}
+        taskAffinity=10034:com.oculus.systemux:991404322
+        mActivityComponent=com.oculus.systemux/com.oculus.panelapp.activetaskbar.ActiveTaskBarActivity
+        baseDir=/system_ext/priv-app/SystemUX/SystemUX.apk
+        dataDir=/data/user/0/com.oculus.systemux
+        stateNotNeeded=false componentSpecified=false mActivityType=standard
+        compat={200dpi always-compat} labelRes=0x7f0f001f icon=0x0 theme=0x0
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_GB] ldltr sw2dp w2dp h2dp 200dpi smll port night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 2, 2) mAppBounds=Rect(0, 0 - 2, 2) mMaxBounds=Rect(0, 0 - 2, 2) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.250 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw2dp w2dp h2dp 200dpi smll port night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 2, 2) mAppBounds=Rect(0, 0 - 2, 2) mMaxBounds=Rect(0, 0 - 2, 2) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.131 fontWeightAdjustment=0}
+        mLastReportedActivityWindowInfo=ActivityWindowInfo{isEmbedded=false, taskBounds=Rect(0, 0 - 1, 1), taskFragmentBounds=Rect(0, 0 - 1, 1)}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_GB] ldltr sw2dp w2dp h2dp 200dpi smll port night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 2, 2) mAppBounds=Rect(0, 0 - 2, 2) mMaxBounds=Rect(0, 0 - 2, 2) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.131 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=standard mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ff212121
+          backgroundColor=0 statusBarColor=ff000000 navigationBarColor=ff000000
+         backgroundColorFloating=ff424242
+        launchFailed=false launchCount=0 lastLaunchTime=-2h22m34s525ms
+        mHaveState=false mIcicle=null
+        state=RESUMED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=true noDisplay=false immersive=false launchMode=3
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=standard
+        mImeInsetsFrozenUntilStartInput=false
+        windows=[Window{9c14721 u0 com.oculus.systemux/com.oculus.panelapp.activetaskbar.ActiveTaskBarActivity}]
+        windowType=2 waitingToShow=true
+        mOccludesParent=true
+        overrideOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        requestedOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        startingData=null firstWindowDrawn=true mIsExiting=false
+        nowVisible=true lastVisibleTime=-8m18s768ms
+        connections={ConnectionRecord{140c26c u0 CR com.oculus.vrshell/.privateipc.SystemActionIPCService:@5897f1f flags=0x1}, ConnectionRecord{5d77fa6 u0 CR com.oculus.vrshell/.privateipc.AppStatusIPCService:@fa06501 flags=0x1}, ConnectionRecord{85047c3 u0 CR com.oculus.presence/.services.presence.PresenceService:@beef772 flags=0x1}, ConnectionRecord{b72a768 u0 CR com.oculus.vrshell/.privateipc.SecureScreenIPCService:@a882a8b flags=0x1}, ConnectionRecord{c4559cd u0 CR com.oculus.vrshell/.privateipc.ResizeIPCService:@8684364 flags=0x1}, ConnectionRecord{dc2c6a0 u0 CR com.oculus.presence/.services.persistent.PresencePersistentService:@44e3a3 flags=0x1}, ConnectionRecord{e2a261b u0 CR com.oculus.vrshell/.privateipc.LayerIPCService:@796782a flags=0x1}}
+        resizeMode=RESIZE_MODE_RESIZEABLE
+        mLastReportedMultiWindowMode=true mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0x40001f83
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  * Task{229512d #3226 type=standard A=10024:com.oculus.vrshell:-339196040 U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=0}
+    mLastPausedActivity: ActivityRecord{3cdfc44 u0 com.oculus.vrshell/.FocusPlaceholderActivity t-1 f}}
+    isSleeping=false
+
+  * Task{c5a7e61 #3254 type=standard A=10024:com.oculus.vrshell:-339196040 U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=0}
+    mLastPausedActivity: ActivityRecord{478dc8 u0 com.oculus.vrshell/.FocusPlaceholderActivity t-1 f}}
+    isSleeping=false
+
+  * Task{63aacde #3274 type=standard A=10024:com.oculus.vrshell:-339196040 U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=0}
+    mLastPausedActivity: ActivityRecord{ebba419 u0 com.oculus.vrshell/.FocusPlaceholderActivity t-1 f}}
+    isSleeping=false
+
+  * Task{beb5f03 #3106 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+    mBounds=Rect(0, 0 - 1280, 800)
+    mCreatedByOrganizer=true
+    * Task{a7c56f #2954 type=undefined A=10067:com.oculus.browser U=0 rootTaskId=3106 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+      mLastPausedActivity: ActivityRecord{e17b42d u0 com.oculus.browser/.BrowserActivity t2954}
+      isSleeping=false
+      topResumedActivity=ActivityRecord{e17b42d u0 com.oculus.browser/.BrowserActivity t2954}
+      * Hist  #0: ActivityRecord{e17b42d u0 com.oculus.browser/.BrowserActivity t2954}
+        packageName=com.oculus.browser processName=com.oculus.browser
+        launchedFromUid=10067 launchedFromPackage=com.oculus.browser launchedFromFeature= userId=0
+        app=ProcessRecord{bb7bfcf 7086:com.oculus.browser/u0a67}
+        Intent { act=android.intent.action.VIEW cat=[com.oculus.intent.category.VR_HOME_LAUNCHER] flg=0x16912100 cmp=com.oculus.browser/.BrowserActivity (has extras) }
+        rootOfTask=true task=Task{a7c56f #2954 type=undefined A=10067:com.oculus.browser}
+        taskAffinity=10067:com.oculus.browser
+        mActivityComponent=com.oculus.browser/.BrowserActivity
+        baseDir=/data/app/~~1PcZB3cAweBcQhdLXNfrQg==/com.oculus.browser-Jpa8nHC4hhI3JUCdTw7HUQ==/base.apk
+        dataDir=/data/user/0/com.oculus.browser
+        stateNotNeeded=false componentSpecified=false mActivityType=standard
+        compat={200dpi always-compat} labelRes=0x7f1403bc icon=0x7f090149 theme=0x7f1504bc
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_GB] ldltr sw640dp w1024dp h640dp 200dpi lrg land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1280, 800) mAppBounds=Rect(0, 0 - 1280, 800) mMaxBounds=Rect(0, 0 - 1280, 800) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.24 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw640dp w1024dp h640dp 200dpi lrg land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1280, 800) mAppBounds=Rect(0, 0 - 1280, 800) mMaxBounds=Rect(0, 0 - 1280, 800) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        mLastReportedActivityWindowInfo=ActivityWindowInfo{isEmbedded=false, taskBounds=Rect(0, 0 - 1280, 800), taskFragmentBounds=Rect(0, 0 - 1280, 800)}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_GB] ldltr sw640dp w1024dp h640dp 200dpi lrg land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1280, 800) mAppBounds=Rect(0, 0 - 1280, 800) mMaxBounds=Rect(0, 0 - 1280, 800) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=standard mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ffa8c7fa
+          backgroundColor=ff1f1f1f statusBarColor=ff333537 navigationBarColor=808080
+         backgroundColorFloating=ff424242
+        launchFailed=false launchCount=0 lastLaunchTime=-2h22m15s876ms
+        telemetryLaunchId=1f57e561-d61f-4596-a5e4-a955747fe36d
+        mHaveState=false mIcicle=null
+        state=RESUMED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=true noDisplay=false immersive=false launchMode=4
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=standard
+        mImeInsetsFrozenUntilStartInput=true
+        windows=[Window{bee570c u0 com.oculus.browser/com.oculus.browser.BrowserActivity}]
+        windowType=2 waitingToShow=true
+        mOccludesParent=true
+        overrideOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        requestedOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        startingData=null firstWindowDrawn=true mIsExiting=false
+        nowVisible=true lastVisibleTime=-8m15s846ms
+        connections={ConnectionRecord{3315633 u0 CR com.oculus.vrshell/.privateipc.ControlBarIPCService:@dea79a2 flags=0x1}, ConnectionRecord{3391f69 u0 CR com.oculus.vrshell/.privateipc.CooperativeStateIPCService:@2b76df0 flags=0x1}, ConnectionRecord{5a26cc6 u0 CR com.oculus.vrshell/.privateipc.EnvironmentIPCService:@e7c52a1 flags=0x1}, ConnectionRecord{76a77dd u0 CR com.oculus.vrshell/.privateipc.LifecycleActionIPCService:@a35cfb4 flags=0x1}, ConnectionRecord{7bd791c u0 CR com.oculus.vrshell/.privateipc.DragDropIPCService:@5a1228f flags=0x1}, ConnectionRecord{915fd84 u0 CR com.oculus.vrshell/.privateipc.AppMenuIPCService:@e40d797 flags=0x1}, ConnectionRecord{af5b161 u0 CR com.oculus.vrshell/.privateipc.multilayer.MultiLayerService:@653acc8 flags=0x1}, ConnectionRecord{b1bb4d9 u0 CR com.oculus.vrshell/.privateipc.multilayer.MultiLayerService:@c3a3320 flags=0x1}, ConnectionRecord{d09c595 u0 CR com.oculus.vrshell/.privateipc.RecoveryIPCService:@85f614c flags=0x1}}
+        resizeMode=RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION
+        mLastReportedMultiWindowMode=true mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0x40001ff3
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  * Task{fc71c58 #3139 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=true sz=1}
+    mBounds=Rect(0, 0 - 1840, 1000)
+    mCreatedByOrganizer=true
+    * Task{90b9622 #3140 type=standard A=10135:com.oculus.panelapp.library U=0 rootTaskId=3139 visible=true visibleRequested=true mode=multi-window translucent=true sz=1}
+      mLastPausedActivity: ActivityRecord{b6d17ed u0 com.oculus.panelapp.library/com.oculus.navigator.library.app.NavigatorLibraryActivity t3140}
+      isSleeping=false
+      topResumedActivity=ActivityRecord{b6d17ed u0 com.oculus.panelapp.library/com.oculus.navigator.library.app.NavigatorLibraryActivity t3140}
+      * Hist  #0: ActivityRecord{b6d17ed u0 com.oculus.panelapp.library/com.oculus.navigator.library.app.NavigatorLibraryActivity t3140}
+        packageName=com.oculus.panelapp.library processName=com.oculus.panelapp.library:SystemBar
+        launchedFromUid=10024 launchedFromPackage=com.oculus.vrshell launchedFromFeature=null userId=0
+        app=ProcessRecord{c5e5f57 4255:com.oculus.panelapp.library:SystemBar/u0a135}
+        Intent { flg=0x10010100 cmp=com.oculus.panelapp.library/com.oculus.navigator.library.app.NavigatorLibraryActivity (has extras) }
+        rootOfTask=true task=Task{90b9622 #3140 type=standard A=10135:com.oculus.panelapp.library}
+        taskAffinity=10135:com.oculus.panelapp.library
+        mActivityComponent=com.oculus.panelapp.library/com.oculus.navigator.library.app.NavigatorLibraryActivity
+        baseDir=/system_ext/priv-app/LibraryPanelApp/LibraryPanelApp.apk
+        dataDir=/data/user/0/com.oculus.panelapp.library
+        stateNotNeeded=false componentSpecified=false mActivityType=standard
+        compat={200dpi always-compat} labelRes=0x7f0f0132 icon=0x0 theme=0x7f100030
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_GB] ldltr sw800dp w1472dp h800dp 200dpi xlrg long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1840, 1000) mAppBounds=Rect(0, 0 - 1840, 1000) mMaxBounds=Rect(0, 0 - 1840, 1000) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.136 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw800dp w1472dp h800dp 200dpi xlrg long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1840, 1000) mAppBounds=Rect(0, 0 - 1840, 1000) mMaxBounds=Rect(0, 0 - 1840, 1000) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.3 fontWeightAdjustment=0}
+        mLastReportedActivityWindowInfo=ActivityWindowInfo{isEmbedded=false, taskBounds=Rect(0, 0 - 1840, 1000), taskFragmentBounds=Rect(0, 0 - 1840, 1000)}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_GB] ldltr sw800dp w1472dp h800dp 200dpi xlrg long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1840, 1000) mAppBounds=Rect(0, 0 - 1840, 1000) mMaxBounds=Rect(0, 0 - 1840, 1000) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.3 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=standard mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ff191c1e
+          backgroundColor=fff0f0f3 statusBarColor=ff000000 navigationBarColor=ff000000
+         backgroundColorFloating=ff424242
+        launchFailed=false launchCount=0 lastLaunchTime=-2h2m16s459ms
+        mHaveState=false mIcicle=null
+        state=RESUMED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=false noDisplay=false immersive=false launchMode=2
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=standard
+        mImeInsetsFrozenUntilStartInput=true
+        windows=[Window{579c0cf u0 com.oculus.panelapp.library/com.oculus.navigator.library.app.NavigatorLibraryActivity}]
+        windowType=2 waitingToShow=true
+        mOccludesParent=false
+        overrideOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        requestedOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        startingData=null firstWindowDrawn=true mIsExiting=false
+        nowVisible=true lastVisibleTime=-8m15s747ms
+        connections={ConnectionRecord{8f283a9 u0 CR com.oculus.vrshell/.privateipc.AppStatusIPCService:@622bb30 flags=0x1}}
+        resizeMode=RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION
+        mLastReportedMultiWindowMode=true mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0x400007b3
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  * Task{cb288da #3267 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+    mBounds=Rect(0, 0 - 1280, 800)
+    mCreatedByOrganizer=true
+    * Task{6aea6f4 #3268 type=standard A=10067:com.oculus.browser U=0 rootTaskId=3267 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+      mLastPausedActivity: ActivityRecord{f580c7 u0 com.oculus.browser/.BrowserActivity t3268}
+      isSleeping=false
+      topResumedActivity=ActivityRecord{f580c7 u0 com.oculus.browser/.BrowserActivity t3268}
+      * Hist  #0: ActivityRecord{f580c7 u0 com.oculus.browser/.BrowserActivity t3268}
+        packageName=com.oculus.browser processName=com.oculus.browser
+        launchedFromUid=10067 launchedFromPackage=com.oculus.browser launchedFromFeature=null userId=0
+        app=ProcessRecord{bb7bfcf 7086:com.oculus.browser/u0a67}
+        Intent { act=android.intent.action.VIEW dat= flg=0x18091100 cmp=com.oculus.browser/.BrowserActivity (has extras) }
+        rootOfTask=true task=Task{6aea6f4 #3268 type=standard A=10067:com.oculus.browser}
+        taskAffinity=10067:com.oculus.browser
+        mActivityComponent=com.oculus.browser/.BrowserActivity
+        baseDir=/data/app/~~1PcZB3cAweBcQhdLXNfrQg==/com.oculus.browser-Jpa8nHC4hhI3JUCdTw7HUQ==/base.apk
+        dataDir=/data/user/0/com.oculus.browser
+        stateNotNeeded=false componentSpecified=false mActivityType=standard
+        compat={200dpi always-compat} labelRes=0x7f1403bc icon=0x7f090149 theme=0x7f1504bc
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_GB] ldltr sw640dp w1024dp h640dp 200dpi lrg land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1280, 800) mAppBounds=Rect(0, 0 - 1280, 800) mMaxBounds=Rect(0, 0 - 1280, 800) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.239 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw640dp w1024dp h640dp 200dpi lrg land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1280, 800) mAppBounds=Rect(0, 0 - 1280, 800) mMaxBounds=Rect(0, 0 - 1280, 800) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.3 fontWeightAdjustment=0}
+        mLastReportedActivityWindowInfo=ActivityWindowInfo{isEmbedded=false, taskBounds=Rect(0, 0 - 1280, 800), taskFragmentBounds=Rect(0, 0 - 1280, 800)}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_GB] ldltr sw640dp w1024dp h640dp 200dpi lrg land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1280, 800) mAppBounds=Rect(0, 0 - 1280, 800) mMaxBounds=Rect(0, 0 - 1280, 800) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.3 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=standard mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ffa8c7fa
+          backgroundColor=ff1f1f1f statusBarColor=ff333537 navigationBarColor=808080
+         backgroundColorFloating=ff424242
+        launchFailed=false launchCount=0 lastLaunchTime=-20m5s559ms
+        telemetryLaunchId=1f57e561-d61f-4596-a5e4-a955747fe36d
+        mHaveState=false mIcicle=null
+        state=RESUMED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=true noDisplay=false immersive=false launchMode=4
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=standard
+        mImeInsetsFrozenUntilStartInput=true
+        windows=[Window{74badb u0 com.oculus.browser/com.oculus.browser.BrowserActivity}]
+        windowType=2 waitingToShow=true
+        mOccludesParent=true
+        overrideOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        requestedOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        startingData=null firstWindowDrawn=true mIsExiting=false
+        nowVisible=true lastVisibleTime=-8m15s439ms
+        connections={ConnectionRecord{4be577 u0 CR com.oculus.vrshell/.privateipc.EnvironmentIPCService:@b0c6b76 flags=0x1}, ConnectionRecord{20c5e38 u0 CR com.oculus.vrshell/.privateipc.DragDropIPCService:@c4e3a9b flags=0x1}, ConnectionRecord{50f6213 u0 CR com.oculus.vrshell/.privateipc.multilayer.MultiLayerService:@44bc902 flags=0x1}, ConnectionRecord{5fccc87 u0 CR com.oculus.vrshell/.privateipc.AppMenuIPCService:@88344c6 flags=0x1}, ConnectionRecord{7e0269e u0 CR com.oculus.vrshell/.privateipc.ControlBarIPCService:@787ecd9 flags=0x1}, ConnectionRecord{9b3e08c u0 CR com.oculus.vrshell/.privateipc.multilayer.MultiLayerService:@cbbc1bf flags=0x1}, ConnectionRecord{b240eaa u0 CR com.oculus.vrshell/.privateipc.CooperativeStateIPCService:@17d95 flags=0x1}, ConnectionRecord{e30be49 u0 CR com.oculus.vrshell/.privateipc.RecoveryIPCService:@520bc50 flags=0x1}, ConnectionRecord{e54ca4d u0 CR com.oculus.vrshell/.privateipc.LifecycleActionIPCService:@14525e4 flags=0x1}}
+        resizeMode=RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION
+        mLastReportedMultiWindowMode=true mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0x40001ff3
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  * Task{bfc9da1 #3135 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=true sz=1}
+    mBounds=Rect(0, 0 - 850, 175)
+    mCreatedByOrganizer=true
+    * Task{42472dd #3136 type=standard A=10135:com.oculus.panelapp.library:1048820175 U=0 rootTaskId=3135 visible=true visibleRequested=true mode=multi-window translucent=true sz=1}
+      mLastPausedActivity: ActivityRecord{bfed6b4 u0 com.oculus.panelapp.library/com.oculus.navigator.systembar.app.SystemBarActivity t3136}
+      isSleeping=false
+      topResumedActivity=ActivityRecord{bfed6b4 u0 com.oculus.panelapp.library/com.oculus.navigator.systembar.app.SystemBarActivity t3136}
+      * Hist  #0: ActivityRecord{bfed6b4 u0 com.oculus.panelapp.library/com.oculus.navigator.systembar.app.SystemBarActivity t3136}
+        packageName=com.oculus.panelapp.library processName=com.oculus.panelapp.library:SystemBar
+        launchedFromUid=10024 launchedFromPackage=com.oculus.vrshell launchedFromFeature=null userId=0
+        app=ProcessRecord{c5e5f57 4255:com.oculus.panelapp.library:SystemBar/u0a135}
+        Intent { flg=0x10010100 cmp=com.oculus.panelapp.library/com.oculus.navigator.systembar.app.SystemBarActivity (has extras) }
+        rootOfTask=true task=Task{42472dd #3136 type=standard A=10135:com.oculus.panelapp.library:1048820175}
+        taskAffinity=10135:com.oculus.panelapp.library:1048820175
+        mActivityComponent=com.oculus.panelapp.library/com.oculus.navigator.systembar.app.SystemBarActivity
+        baseDir=/system_ext/priv-app/LibraryPanelApp/LibraryPanelApp.apk
+        dataDir=/data/user/0/com.oculus.panelapp.library
+        stateNotNeeded=false componentSpecified=false mActivityType=standard
+        compat={200dpi always-compat} labelRes=0x0 icon=0x0 theme=0x7f100030
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_GB] ldltr sw140dp w680dp h140dp 200dpi nrml long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 850, 175) mAppBounds=Rect(0, 0 - 850, 175) mMaxBounds=Rect(0, 0 - 850, 175) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.135 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw140dp w680dp h140dp 200dpi nrml long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 850, 175) mAppBounds=Rect(0, 0 - 850, 175) mMaxBounds=Rect(0, 0 - 850, 175) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.3 fontWeightAdjustment=0}
+        mLastReportedActivityWindowInfo=ActivityWindowInfo{isEmbedded=false, taskBounds=Rect(0, 0 - 850, 175), taskFragmentBounds=Rect(0, 0 - 850, 175)}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_GB] ldltr sw140dp w680dp h140dp 200dpi nrml long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 850, 175) mAppBounds=Rect(0, 0 - 850, 175) mMaxBounds=Rect(0, 0 - 850, 175) mDisplayRotation=ROTATION_0 mWindowingMode=multi-window mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.3 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=standard mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ff191c1e
+          backgroundColor=fff0f0f3 statusBarColor=ff000000 navigationBarColor=ff000000
+         backgroundColorFloating=ff424242
+        launchFailed=false launchCount=0 lastLaunchTime=-2h2m16s607ms
+        mHaveState=false mIcicle=null
+        state=RESUMED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=false noDisplay=false immersive=false launchMode=3
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=standard
+        mImeInsetsFrozenUntilStartInput=false
+        windows=[Window{685bde5 u0 com.oculus.panelapp.library/com.oculus.navigator.systembar.app.SystemBarActivity}]
+        windowType=2 waitingToShow=true
+        mOccludesParent=false
+        overrideOrientation=SCREEN_ORIENTATION_LANDSCAPE
+        requestedOrientation=SCREEN_ORIENTATION_LANDSCAPE
+        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        startingData=null firstWindowDrawn=true mIsExiting=false
+        nowVisible=true lastVisibleTime=-8m15s360ms
+        connections={ConnectionRecord{8cbf28 u0 CR com.oculus.vrshell/.privateipc.ControlBarIPCService:@b60c94b flags=0x1}, ConnectionRecord{343f76f u0 CR com.oculus.vrshell/.privateipc.AUIVisibilityIPCService:@ba22a4e flags=0x1}, ConnectionRecord{608e0c5 u0 CR com.oculus.vrshell/.privateipc.DestinationUIIPCService:@8aa2b3c flags=0x1}, ConnectionRecord{c479a5f u0 CR com.oculus.vrshell/.privateipc.AppStatusIPCService:@13c2fe flags=0x1}, ConnectionRecord{fde8bf1 u0 CR com.oculus.vrshell/.privateipc.multilayer.MultiLayerService:@8e41798 flags=0x1}}
+        resizeMode=RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION
+        mLastReportedMultiWindowMode=true mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0x5b3
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  Resumed activities in task display areas (from top to bottom):
+    Resumed: ActivityRecord{93df85a u0 com.oculus.vrshell/.FocusPlaceholderActivity t3342}
+
+Display #21 (activities from top to bottom):
+
+Display #2 (activities from top to bottom):
+
+Display #5 (activities from top to bottom):
+
+Display #6 (activities from top to bottom):
+
+Display #7 (activities from top to bottom):
+
+Display #8 (activities from top to bottom):
+
+Display #20 (activities from top to bottom):
+
+Display #56 (activities from top to bottom):
+
+Display #69 (activities from top to bottom):
+
+Display #70 (activities from top to bottom):
+
+  ResumedActivity: ActivityRecord{93df85a u0 com.oculus.vrshell/.FocusPlaceholderActivity t3342}
+
+ActivityTaskSupervisor state:
+  topDisplayFocusedRootTask=Task{65dc66f #3341 type=standard}
+  Display: mDisplayId=0
+    init=4128x2208 200dpi mMinSizeOfResizeableTaskDp=1 cur=4128x2208 app=4128x2208 rng=2208x2208-4128x4128
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion((0,0,1,1))
+
+  mLastOrientationSource=DefaultTaskDisplayArea@28767171
+  deepestLastOrientationSource=DefaultTaskDisplayArea@28767171
+  overrideConfig={1.0 ?mcc0mnc [en_GB] ldltr sw1766dp w3302dp h1766dp 200dpi xlrg long land night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 4128, 2208) mAppBounds=Rect(0, 0 - 4128, 2208) mMaxBounds=Rect(0, 0 - 4128, 2208) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.8 fontWeightAdjustment=0}
+  mLayoutSeq=3218
+  mCurrentFocus=Window{855a2f1 u0 com.oculus.vrshell/com.oculus.vrshell.FocusPlaceholderActivity}
+  mFocusedApp=ActivityRecord{93df85a u0 com.oculus.vrshell/.FocusPlaceholderActivity t3342}
+
+  mHoldScreenWindow=null
+  mObscuringWindow=null
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=0
+  mWallpaperTarget=null
+  mLastWallpaperX=-1.0 mLastWallpaperY=-1.0
+
+  Display areas in top down Z order:
+    * Leaf:35:36
+    * VolumetricBootProgress:34:34 (organized)
+      * Leaf:34:34
+    * Leaf:28:33
+    * VolumetricSystemDialog:27:27 (organized)
+      * Leaf:27:27
+    * Leaf:20:26
+    * VolumetricKeyguard:19:19 (organized)
+      * Leaf:19:19
+    * Leaf:15:18
+    * ImePlaceholder:13:14 (organized)
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 780, 355) mAppBounds=Rect(0, 0 - 780, 355) mMaxBounds=Rect(0, 0 - 780, 355) mDisplayRotation=undefined mWindowingMode=multi-window mDisplayWindowingMode=undefined mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      * ImeContainer
+    * VolumetricSystemDialog:9:12 (organized)
+      * Leaf:9:12
+    * Leaf:8:8
+    * VolumetricToast:7:7 (organized)
+      * Leaf:7:7
+    * VolumetricSystemDialog:6:6 (organized)
+      * Leaf:6:6
+    * Leaf:4:5
+    * VolumetricKeyguard:3:3 (organized)
+      * Leaf:3:3
+    * DefaultTaskDisplayArea
+    * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      mPreferredTopFocusableRootTask=Task{65dc66f #3341 type=standard}
+      mLastFocusedRootTask=Task{65dc66f #3341 type=standard}
+      Application tokens in top down Z order:
+      * Task{65dc66f #3341 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+        bounds=[0,0][1,1]
+        * Task{aa5a8b #3342 type=standard A=10024:com.oculus.vrshell:-339196040 U=0 rootTaskId=3341 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+          bounds=[0,0][1,1]
+          * ActivityRecord{93df85a u0 com.oculus.vrshell/.FocusPlaceholderActivity t3342}
+      * Task{1fa1b93 #2 type=home U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+        bounds=[0,0][4128,2208]
+        * Task{246e27b #3083 type=home A=10024:com.oculus.vrshell:1047810524 U=0 rootTaskId=2 visible=true visibleRequested=true mode=fullscreen translucent=false sz=1}
+          bounds=[0,0][4128,2208]
+          * ActivityRecord{938ea0a u0 com.oculus.vrshell/.HomeActivity t3083}
+      * Task{1fd9812 #3275 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+        bounds=[0,0][425,75]
+        * Task{319235e #3276 type=standard A=10024:com.oculus.panelapp.controlbar.ControlBarActivity U=0 rootTaskId=3275 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+          bounds=[0,0][425,75]
+          * ActivityRecord{bc7e499 u0 com.oculus.vrshell/com.oculus.panelapp.controlbar.ControlBarActivity t3276}
+      * Task{a24357e #3098 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+        bounds=[0,0][253,63]
+        * Task{82fc491 #3099 type=standard A=10024:com.oculus.panelapp.displaybar.DisplayBarActivity U=0 rootTaskId=3098 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+          bounds=[0,0][253,63]
+          * ActivityRecord{60c04ac u0 com.oculus.vrshell/com.oculus.panelapp.displaybar.DisplayBarActivity t3099}
+      * Task{a86189e #3094 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+        bounds=[0,0][460,129]
+        * Task{96f1b02 #3095 type=standard A=10024:com.oculus.vrshell:693258208 U=0 rootTaskId=3094 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+          bounds=[0,0][460,129]
+          * ActivityRecord{38a244d u0 com.oculus.vrshell/com.oculus.panelapp.toasts.ToastsActivity t3095}
+      * Task{ab34ab1 #3088 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+        bounds=[0,0][1020,125]
+        * Task{bb62b22 #3089 type=standard A=10024:com.oculus.panelapp.bloom.BloomActivity U=0 rootTaskId=3088 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+          bounds=[0,0][1020,125]
+          * ActivityRecord{c80e0ed u0 com.oculus.vrshell/com.oculus.panelapp.bloom.BloomActivity t3089}
+      * Task{c641d4b #3084 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+        bounds=[0,0][2,2]
+        * Task{5dbeb21 #3085 type=standard A=10034:com.oculus.systemux:991404322 U=0 rootTaskId=3084 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+          bounds=[0,0][2,2]
+          * ActivityRecord{57a59a5 u0 com.oculus.systemux/com.oculus.panelapp.activetaskbar.ActiveTaskBarActivity t3085}
+      * Task{229512d #3226 type=standard A=10024:com.oculus.vrshell:-339196040 U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=0}
+        bounds=[0,0][4128,2208]
+      * Task{c5a7e61 #3254 type=standard A=10024:com.oculus.vrshell:-339196040 U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=0}
+        bounds=[0,0][4128,2208]
+      * Task{63aacde #3274 type=standard A=10024:com.oculus.vrshell:-339196040 U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=0}
+        bounds=[0,0][4128,2208]
+      * Task{beb5f03 #3106 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+        bounds=[0,0][1280,800]
+        * Task{a7c56f #2954 type=undefined A=10067:com.oculus.browser U=0 rootTaskId=3106 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+          bounds=[0,0][1280,800]
+          * ActivityRecord{e17b42d u0 com.oculus.browser/.BrowserActivity t2954}
+      * Task{fc71c58 #3139 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=true sz=1}
+        bounds=[0,0][1840,1000]
+        * Task{90b9622 #3140 type=standard A=10135:com.oculus.panelapp.library U=0 rootTaskId=3139 visible=true visibleRequested=true mode=multi-window translucent=true sz=1}
+          bounds=[0,0][1840,1000]
+          * ActivityRecord{b6d17ed u0 com.oculus.panelapp.library/com.oculus.navigator.library.app.NavigatorLibraryActivity t3140}
+      * Task{cb288da #3267 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+        bounds=[0,0][1280,800]
+        * Task{6aea6f4 #3268 type=standard A=10067:com.oculus.browser U=0 rootTaskId=3267 visible=true visibleRequested=true mode=multi-window translucent=false sz=1}
+          bounds=[0,0][1280,800]
+          * ActivityRecord{f580c7 u0 com.oculus.browser/.BrowserActivity t3268}
+      * Task{bfc9da1 #3135 type=standard U=0 visible=true visibleRequested=true mode=multi-window translucent=true sz=1}
+        bounds=[0,0][850,175]
+        * Task{42472dd #3136 type=standard A=10135:com.oculus.panelapp.library:1048820175 U=0 rootTaskId=3135 visible=true visibleRequested=true mode=multi-window translucent=true sz=1}
+          bounds=[0,0][850,175]
+          * ActivityRecord{bfed6b4 u0 com.oculus.panelapp.library/com.oculus.navigator.systembar.app.SystemBarActivity t3136}
+
+  no ScreenRotationAnimation 
+
+  rootHomeTask=Task=2
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=4128 h=2208 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=true mWindowManagerDrawComplete=true
+    mHdmiPlugged=false
+    mLastBehavior=DEFAULT
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mFocusedWindow=Window{855a2f1 u0 com.oculus.vrshell/com.oculus.vrshell.FocusPlaceholderActivity}
+    mTopFullscreenOpaqueWindowState=Window{855a2f1 u0 com.oculus.vrshell/com.oculus.vrshell.FocusPlaceholderActivity}
+    mLastStatusBarAppearanceRegions=
+    mLastLetterboxDetails=
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][4128,2208], configFrame=[0,0][4128,2208]}
+      ROTATION_90={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][2208,4128], configFrame=[0,0][2208,4128]}
+      ROTATION_180={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][4128,2208], configFrame=[0,0][4128,2208]}
+      ROTATION_270={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][2208,4128], configFrame=[0,0][2208,4128]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(30, 30 - 30, 30)
+      mSwipeDistanceThreshold=30
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+    mLastOrientation=-1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_0 mSeascapeRotation=ROTATION_180
+    mPortraitRotation=ROTATION_270 mUpsideDownRotation=ROTATION_90
+    mSupportAutoRotation=false
+    WindowOrientationListener
+      mEnabled=false
+      mCurrentRotation=ROTATION_0
+      mSensorType=null
+      mSensor=null
+      mRate=2
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_LOCKED mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_0 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 4128, 2208)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=null rotation=0}
+      mDisplayShape=DisplayShape{ spec=603812117 displayWidth=4128 displayHeight=2208 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+    Control map:
+      com.android.server.wm.DisplayContent$RemoteInsetsControlTarget@ee232c1:
+        InsetsSourceControl: {3 mType=ime mSurfacePosition=Point(0, 0) mInsetsHint=Insets{left=0, top=0, right=0, bottom=355}}
+    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mControl=InsetsSourceControl mId=3 mType=ime mLeash=Surface(name=Surface(name=fb82610 InputMethod)/@0x369530e - animation-leash of insets_animation)/@0xd69443 mInitiallyVisible=false mSurfacePosition=Point(0, 0) mInsetsHint=Insets{left=0, top=0, right=0, bottom=355} mSkipAnimationOnce=false
+        mIsLeashReadyForDispatching=true
+        mWindowContainer=Window{fb82610 u0 InputMethod}
+        mAdapter=ControlAdapter mCapturedLeash=Surface(name=Surface(name=fb82610 InputMethod)/@0x369530e - animation-leash of insets_animation)/@0xd69443
+        mControlTarget=com.android.server.wm.DisplayContent$RemoteInsetsControlTarget@ee232c1
+        mImeShowing=false
+
+  Display: mDisplayId=21
+    init=400x313 200dpi mMinSizeOfResizeableTaskDp=1 cur=400x313 app=400x313 rng=313x313-400x400
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion()
+
+  overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir sw250dp w320dp h250dp 200dpi smll land ?uimode ?night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 400, 313) mAppBounds=Rect(0, 0 - 400, 313) mMaxBounds=Rect(0, 0 - 400, 313) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} ?fontWeightAdjustment}
+  mLayoutSeq=4
+  mCurrentFocus=null
+  mFocusedApp=null
+
+  mHoldScreenWindow=null
+  mObscuringWindow=null
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=21
+  mWallpaperTarget=null
+  mLastWallpaperX=-1.0 mLastWallpaperY=-1.0
+
+  Display areas in top down Z order:
+    * Leaf:15:36
+    * ImeContainer
+    * Leaf:3:12
+    * DefaultTaskDisplayArea
+    * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      Application tokens in top down Z order:
+
+  no ScreenRotationAnimation 
+
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=400 h=313 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=false mWindowManagerDrawComplete=false
+    mHdmiPlugged=false
+    mLastBehavior=SHOW_TRANSIENT_BARS_BY_SWIPE
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mLastStatusBarAppearanceRegions=
+    mLastLetterboxDetails=
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][400,313], configFrame=[0,0][400,313]}
+      ROTATION_90={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][313,400], configFrame=[0,0][313,400]}
+      ROTATION_180={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][400,313], configFrame=[0,0][400,313]}
+      ROTATION_270={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][313,400], configFrame=[0,0][313,400]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(30, 30 - 30, 30)
+      mSwipeDistanceThreshold=30
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+    mLastOrientation=-1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_0 mSeascapeRotation=ROTATION_180
+    mPortraitRotation=ROTATION_270 mUpsideDownRotation=ROTATION_90
+    mSupportAutoRotation=false
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_FREE mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_0 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 400, 313)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=null rotation=0}
+      mDisplayShape=DisplayShape{ spec=-136184901 displayWidth=400 displayHeight=313 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+    Control map:
+      none    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=false
+        mPendingControlTarget=com.android.server.wm.DisplayContent$RemoteInsetsControlTarget@ee232c1
+        mImeShowing=false
+
+  Display: mDisplayId=2
+    init=2x2 200dpi mMinSizeOfResizeableTaskDp=1 cur=2x2 app=2x2 rng=2x2-2x2
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion()
+
+  overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir sw2dp w2dp h2dp 200dpi smll port ?uimode ?night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 2, 2) mAppBounds=Rect(0, 0 - 2, 2) mMaxBounds=Rect(0, 0 - 2, 2) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} ?fontWeightAdjustment}
+  mLayoutSeq=129
+  mCurrentFocus=null
+  mFocusedApp=null
+
+  mHoldScreenWindow=null
+  mObscuringWindow=null
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=2
+  mWallpaperTarget=null
+  mLastWallpaperX=-1.0 mLastWallpaperY=-1.0
+
+  Display areas in top down Z order:
+    * Leaf:15:36
+    * ImeContainer
+    * Leaf:3:12
+    * DefaultTaskDisplayArea
+    * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      Application tokens in top down Z order:
+
+  no ScreenRotationAnimation 
+
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=2 h=2 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=false mWindowManagerDrawComplete=false
+    mHdmiPlugged=false
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][2,2], configFrame=[0,0][2,2]}
+      ROTATION_90={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][2,2], configFrame=[0,0][2,2]}
+      ROTATION_180={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][2,2], configFrame=[0,0][2,2]}
+      ROTATION_270={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][2,2], configFrame=[0,0][2,2]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(30, 30 - 30, 30)
+      mSwipeDistanceThreshold=30
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+    mLastOrientation=-1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_90 mSeascapeRotation=ROTATION_270
+    mPortraitRotation=ROTATION_0 mUpsideDownRotation=ROTATION_180
+    mSupportAutoRotation=false
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_FREE mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_90 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 2, 2)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=null rotation=0}
+      mDisplayShape=DisplayShape{ spec=1483868123 displayWidth=2 displayHeight=2 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+    Control map:
+      none    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=false
+        mImeShowing=false
+
+  Display: mDisplayId=5
+    init=1x1 200dpi mMinSizeOfResizeableTaskDp=1 cur=1x1 app=1x1 rng=1x1-1x1
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion()
+
+  overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir sw1dp w1dp h1dp 200dpi smll port ?uimode ?night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1, 1) mAppBounds=Rect(0, 0 - 1, 1) mMaxBounds=Rect(0, 0 - 1, 1) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} ?fontWeightAdjustment}
+  mLayoutSeq=148
+  mCurrentFocus=null
+  mFocusedApp=null
+
+  mHoldScreenWindow=null
+  mObscuringWindow=null
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=5
+  mWallpaperTarget=null
+  mLastWallpaperX=-1.0 mLastWallpaperY=-1.0
+
+  Display areas in top down Z order:
+    * Leaf:15:36
+    * ImeContainer
+    * Leaf:3:12
+    * DefaultTaskDisplayArea
+    * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      Application tokens in top down Z order:
+
+  no ScreenRotationAnimation 
+
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=1 h=1 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=false mWindowManagerDrawComplete=false
+    mHdmiPlugged=false
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][1,1], configFrame=[0,0][1,1]}
+      ROTATION_90={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][1,1], configFrame=[0,0][1,1]}
+      ROTATION_180={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][1,1], configFrame=[0,0][1,1]}
+      ROTATION_270={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][1,1], configFrame=[0,0][1,1]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(30, 30 - 30, 30)
+      mSwipeDistanceThreshold=30
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+    mLastOrientation=-1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_90 mSeascapeRotation=ROTATION_270
+    mPortraitRotation=ROTATION_0 mUpsideDownRotation=ROTATION_180
+    mSupportAutoRotation=false
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_FREE mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_90 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 1, 1)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=null rotation=0}
+      mDisplayShape=DisplayShape{ spec=-1569981477 displayWidth=1 displayHeight=1 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+    Control map:
+      none    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=false
+        mImeShowing=false
+
+  Display: mDisplayId=6
+    init=1020x125 200dpi mMinSizeOfResizeableTaskDp=1 cur=1020x125 app=1020x125 rng=125x125-1020x1020
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion()
+
+  overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir sw100dp w816dp h100dp 200dpi nrml long land ?uimode ?night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 1020, 125) mAppBounds=Rect(0, 0 - 1020, 125) mMaxBounds=Rect(0, 0 - 1020, 125) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} ?fontWeightAdjustment}
+  mLayoutSeq=1
+  mCurrentFocus=null
+  mFocusedApp=null
+
+  mHoldScreenWindow=null
+  mObscuringWindow=null
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=6
+  mWallpaperTarget=null
+  mLastWallpaperX=-1.0 mLastWallpaperY=-1.0
+
+  Display areas in top down Z order:
+    * Leaf:15:36
+    * ImeContainer
+    * Leaf:3:12
+    * DefaultTaskDisplayArea
+    * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      Application tokens in top down Z order:
+
+  no ScreenRotationAnimation 
+
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=1020 h=125 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=false mWindowManagerDrawComplete=false
+    mHdmiPlugged=false
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][1020,125], configFrame=[0,0][1020,125]}
+      ROTATION_90={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][125,1020], configFrame=[0,0][125,1020]}
+      ROTATION_180={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][1020,125], configFrame=[0,0][1020,125]}
+      ROTATION_270={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][125,1020], configFrame=[0,0][125,1020]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(30, 30 - 30, 30)
+      mSwipeDistanceThreshold=30
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+    mLastOrientation=-1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_0 mSeascapeRotation=ROTATION_180
+    mPortraitRotation=ROTATION_270 mUpsideDownRotation=ROTATION_90
+    mSupportAutoRotation=false
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_FREE mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_0 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 1020, 125)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=null rotation=0}
+      mDisplayShape=DisplayShape{ spec=-1448716351 displayWidth=1020 displayHeight=125 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+    Control map:
+      none    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=false
+        mImeShowing=false
+
+  Display: mDisplayId=7
+    init=460x129 200dpi mMinSizeOfResizeableTaskDp=1 cur=460x129 app=460x129 rng=129x129-460x460
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion()
+
+  overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir sw103dp w368dp h103dp 200dpi smll land ?uimode ?night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 460, 129) mAppBounds=Rect(0, 0 - 460, 129) mMaxBounds=Rect(0, 0 - 460, 129) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} ?fontWeightAdjustment}
+  mLayoutSeq=7
+  mCurrentFocus=null
+  mFocusedApp=null
+
+  mHoldScreenWindow=null
+  mObscuringWindow=null
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=7
+  mWallpaperTarget=null
+  mLastWallpaperX=-1.0 mLastWallpaperY=-1.0
+
+  Display areas in top down Z order:
+    * Leaf:15:36
+    * ImeContainer
+    * Leaf:3:12
+    * DefaultTaskDisplayArea
+    * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      Application tokens in top down Z order:
+
+  no ScreenRotationAnimation 
+
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=460 h=129 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=false mWindowManagerDrawComplete=false
+    mHdmiPlugged=false
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][460,129], configFrame=[0,0][460,129]}
+      ROTATION_90={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][129,460], configFrame=[0,0][129,460]}
+      ROTATION_180={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][460,129], configFrame=[0,0][460,129]}
+      ROTATION_270={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][129,460], configFrame=[0,0][129,460]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(30, 30 - 30, 30)
+      mSwipeDistanceThreshold=30
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+    mLastOrientation=-1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_0 mSeascapeRotation=ROTATION_180
+    mPortraitRotation=ROTATION_270 mUpsideDownRotation=ROTATION_90
+    mSupportAutoRotation=false
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_FREE mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_0 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 460, 129)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=null rotation=0}
+      mDisplayShape=DisplayShape{ spec=2034713499 displayWidth=460 displayHeight=129 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+    Control map:
+      none    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=false
+        mImeShowing=false
+
+  Display: mDisplayId=8
+    init=253x63 200dpi mMinSizeOfResizeableTaskDp=1 cur=253x63 app=253x63 rng=63x63-253x253
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion()
+
+  overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir sw50dp w202dp h50dp 200dpi smll land ?uimode ?night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 253, 63) mAppBounds=Rect(0, 0 - 253, 63) mMaxBounds=Rect(0, 0 - 253, 63) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} ?fontWeightAdjustment}
+  mLayoutSeq=1
+  mCurrentFocus=null
+  mFocusedApp=null
+
+  mHoldScreenWindow=null
+  mObscuringWindow=null
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=8
+  mWallpaperTarget=null
+  mLastWallpaperX=-1.0 mLastWallpaperY=-1.0
+
+  Display areas in top down Z order:
+    * Leaf:15:36
+    * ImeContainer
+    * Leaf:3:12
+    * DefaultTaskDisplayArea
+    * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      Application tokens in top down Z order:
+
+  no ScreenRotationAnimation 
+
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=253 h=63 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=false mWindowManagerDrawComplete=false
+    mHdmiPlugged=false
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][253,63], configFrame=[0,0][253,63]}
+      ROTATION_90={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][63,253], configFrame=[0,0][63,253]}
+      ROTATION_180={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][253,63], configFrame=[0,0][253,63]}
+      ROTATION_270={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][63,253], configFrame=[0,0][63,253]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(30, 30 - 30, 30)
+      mSwipeDistanceThreshold=30
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+    mLastOrientation=-1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_0 mSeascapeRotation=ROTATION_180
+    mPortraitRotation=ROTATION_270 mUpsideDownRotation=ROTATION_90
+    mSupportAutoRotation=false
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_FREE mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_0 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 253, 63)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=null rotation=0}
+      mDisplayShape=DisplayShape{ spec=-1536142939 displayWidth=253 displayHeight=63 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+    Control map:
+      none    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=false
+        mImeShowing=false
+
+  Display: mDisplayId=20
+    init=900x75 200dpi mMinSizeOfResizeableTaskDp=1 cur=900x75 app=900x75 rng=75x75-900x900
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion()
+
+  overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir sw60dp w720dp h60dp 200dpi nrml long land ?uimode ?night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 900, 75) mAppBounds=Rect(0, 0 - 900, 75) mMaxBounds=Rect(0, 0 - 900, 75) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} ?fontWeightAdjustment}
+  mLayoutSeq=4
+  mCurrentFocus=null
+  mFocusedApp=null
+
+  mHoldScreenWindow=null
+  mObscuringWindow=null
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=20
+  mWallpaperTarget=null
+  mLastWallpaperX=-1.0 mLastWallpaperY=-1.0
+
+  Display areas in top down Z order:
+    * Leaf:15:36
+    * ImeContainer
+    * Leaf:3:12
+    * DefaultTaskDisplayArea
+    * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      Application tokens in top down Z order:
+
+  no ScreenRotationAnimation 
+
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=900 h=75 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=false mWindowManagerDrawComplete=false
+    mHdmiPlugged=false
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][900,75], configFrame=[0,0][900,75]}
+      ROTATION_90={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][75,900], configFrame=[0,0][75,900]}
+      ROTATION_180={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][900,75], configFrame=[0,0][900,75]}
+      ROTATION_270={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][75,900], configFrame=[0,0][75,900]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(30, 30 - 30, 30)
+      mSwipeDistanceThreshold=30
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+    mLastOrientation=-1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_0 mSeascapeRotation=ROTATION_180
+    mPortraitRotation=ROTATION_270 mUpsideDownRotation=ROTATION_90
+    mSupportAutoRotation=false
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_FREE mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_0 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 900, 75)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=null rotation=0}
+      mDisplayShape=DisplayShape{ spec=-1749684025 displayWidth=900 displayHeight=75 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+    Control map:
+      none    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=false
+        mImeShowing=false
+
+  Display: mDisplayId=56
+    init=425x75 200dpi mMinSizeOfResizeableTaskDp=1 cur=425x75 app=425x75 rng=75x75-425x425
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion()
+
+  overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir sw60dp w340dp h60dp 200dpi smll land ?uimode ?night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 425, 75) mAppBounds=Rect(0, 0 - 425, 75) mMaxBounds=Rect(0, 0 - 425, 75) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} ?fontWeightAdjustment}
+  mLayoutSeq=1
+  mCurrentFocus=null
+  mFocusedApp=null
+
+  mHoldScreenWindow=null
+  mObscuringWindow=null
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=56
+  mWallpaperTarget=null
+  mLastWallpaperX=-1.0 mLastWallpaperY=-1.0
+
+  Display areas in top down Z order:
+    * Leaf:15:36
+    * ImeContainer
+    * Leaf:3:12
+    * DefaultTaskDisplayArea
+    * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      Application tokens in top down Z order:
+
+  no ScreenRotationAnimation 
+
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=425 h=75 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=false mWindowManagerDrawComplete=false
+    mHdmiPlugged=false
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][425,75], configFrame=[0,0][425,75]}
+      ROTATION_90={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][75,425], configFrame=[0,0][75,425]}
+      ROTATION_180={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][425,75], configFrame=[0,0][425,75]}
+      ROTATION_270={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][75,425], configFrame=[0,0][75,425]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(30, 30 - 30, 30)
+      mSwipeDistanceThreshold=30
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+    mLastOrientation=-1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_0 mSeascapeRotation=ROTATION_180
+    mPortraitRotation=ROTATION_270 mUpsideDownRotation=ROTATION_90
+    mSupportAutoRotation=false
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_FREE mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_0 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 425, 75)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=null rotation=0}
+      mDisplayShape=DisplayShape{ spec=-965078393 displayWidth=425 displayHeight=75 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+    Control map:
+      none    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=false
+        mImeShowing=false
+
+  Display: mDisplayId=69
+    init=550x60 200dpi mMinSizeOfResizeableTaskDp=1 cur=550x60 app=550x60 rng=60x60-550x550
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion()
+
+  overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir sw48dp w440dp h48dp 200dpi smll land ?uimode ?night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 550, 60) mAppBounds=Rect(0, 0 - 550, 60) mMaxBounds=Rect(0, 0 - 550, 60) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} ?fontWeightAdjustment}
+  mLayoutSeq=4
+  mCurrentFocus=null
+  mFocusedApp=null
+
+  mHoldScreenWindow=null
+  mObscuringWindow=null
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=69
+  mWallpaperTarget=null
+  mLastWallpaperX=-1.0 mLastWallpaperY=-1.0
+
+  Display areas in top down Z order:
+    * Leaf:15:36
+    * ImeContainer
+    * Leaf:3:12
+    * DefaultTaskDisplayArea
+    * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      Application tokens in top down Z order:
+
+  no ScreenRotationAnimation 
+
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=550 h=60 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=false mWindowManagerDrawComplete=false
+    mHdmiPlugged=false
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][550,60], configFrame=[0,0][550,60]}
+      ROTATION_90={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][60,550], configFrame=[0,0][60,550]}
+      ROTATION_180={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][550,60], configFrame=[0,0][550,60]}
+      ROTATION_270={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][60,550], configFrame=[0,0][60,550]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(30, 30 - 30, 30)
+      mSwipeDistanceThreshold=30
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+    mLastOrientation=-1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_0 mSeascapeRotation=ROTATION_180
+    mPortraitRotation=ROTATION_270 mUpsideDownRotation=ROTATION_90
+    mSupportAutoRotation=false
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_FREE mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_0 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 550, 60)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=null rotation=0}
+      mDisplayShape=DisplayShape{ spec=854794591 displayWidth=550 displayHeight=60 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+    Control map:
+      none    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=false
+        mImeShowing=false
+
+  Display: mDisplayId=70
+    init=550x60 200dpi mMinSizeOfResizeableTaskDp=1 cur=550x60 app=550x60 rng=60x60-550x550
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion()
+
+  overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir sw48dp w440dp h48dp 200dpi smll land ?uimode ?night -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 550, 60) mAppBounds=Rect(0, 0 - 550, 60) mMaxBounds=Rect(0, 0 - 550, 60) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} ?fontWeightAdjustment}
+  mLayoutSeq=4
+  mCurrentFocus=null
+  mFocusedApp=null
+
+  mHoldScreenWindow=null
+  mObscuringWindow=null
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=70
+  mWallpaperTarget=null
+  mLastWallpaperX=-1.0 mLastWallpaperY=-1.0
+
+  Display areas in top down Z order:
+    * Leaf:15:36
+    * ImeContainer
+    * Leaf:3:12
+    * DefaultTaskDisplayArea
+    * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      Application tokens in top down Z order:
+
+  no ScreenRotationAnimation 
+
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=550 h=60 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=false mWindowManagerDrawComplete=false
+    mHdmiPlugged=false
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][550,60], configFrame=[0,0][550,60]}
+      ROTATION_90={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][60,550], configFrame=[0,0][60,550]}
+      ROTATION_180={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][550,60], configFrame=[0,0][550,60]}
+      ROTATION_270={nonDecorInsets=[0,0][0,0], configInsets=[0,0][0,0], nonDecorFrame=[0,0][60,550], configFrame=[0,0][60,550]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(30, 30 - 30, 30)
+      mSwipeDistanceThreshold=30
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+    mLastOrientation=-1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_0 mSeascapeRotation=ROTATION_180
+    mPortraitRotation=ROTATION_270 mUpsideDownRotation=ROTATION_90
+    mSupportAutoRotation=false
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_FREE mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_0 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 550, 60)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=null rotation=0}
+      mDisplayShape=DisplayShape{ spec=854794591 displayWidth=550 displayHeight=60 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+    Control map:
+      none    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags= insetsRoundedCornerFrame=false
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=false
+        mImeShowing=false
+
+  KeyguardController:
+    mKeyguardShowing=false
+    mAodShowing=false
+    mKeyguardGoingAway=false
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=0
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=2
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=5
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=6
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=7
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=8
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=20
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=21
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=56
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=69
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=70
+    mDismissalRequested=false
+
+  LockTaskController:
+    mLockTaskModeState=NONE
+    mLockTaskModeTasks=
+    mLockTaskPackages (userId:packages)=
+
+  mCurTaskIdForUser={0=3342}
+  mUserRootTaskInFront={}
+  mVisibilityTransactionDepth=0
+  isHomeRecentsComponent=false
+  mNoHistoryActivities=[]
+
+  TaskOrganizerController:
+      android.window.TaskOrganizer$1@9fc69b8 uid=1000:
+        (multi-window) Task{1fa1b93 #2 type=home}
+        (fullscreen) Task{246e27b #3083 type=home A=10024:com.oculus.vrshell:1047810524}
+        (multi-window) Task{c641d4b #3084 type=standard}
+        (multi-window) Task{5dbeb21 #3085 type=standard A=10034:com.oculus.systemux:991404322}
+        (multi-window) Task{ab34ab1 #3088 type=standard}
+        (multi-window) Task{bb62b22 #3089 type=standard A=10024:com.oculus.panelapp.bloom.BloomActivity}
+        (multi-window) Task{a86189e #3094 type=standard}
+        (multi-window) Task{96f1b02 #3095 type=standard A=10024:com.oculus.vrshell:693258208}
+        (multi-window) Task{a24357e #3098 type=standard}
+        (multi-window) Task{82fc491 #3099 type=standard A=10024:com.oculus.panelapp.displaybar.DisplayBarActivity}
+        (multi-window) Task{a7c56f #2954 type=undefined A=10067:com.oculus.browser}
+        (multi-window) Task{beb5f03 #3106 type=standard}
+        (multi-window) Task{bfc9da1 #3135 type=standard}
+        (multi-window) Task{42472dd #3136 type=standard A=10135:com.oculus.panelapp.library:1048820175}
+        (multi-window) Task{fc71c58 #3139 type=standard}
+        (multi-window) Task{90b9622 #3140 type=standard A=10135:com.oculus.panelapp.library}
+        (fullscreen) Task{229512d #3226 type=standard A=10024:com.oculus.vrshell:-339196040}
+        (fullscreen) Task{c5a7e61 #3254 type=standard A=10024:com.oculus.vrshell:-339196040}
+        (multi-window) Task{cb288da #3267 type=standard}
+        (multi-window) Task{6aea6f4 #3268 type=standard A=10067:com.oculus.browser}
+        (fullscreen) Task{63aacde #3274 type=standard A=10024:com.oculus.vrshell:-339196040}
+        (multi-window) Task{1fd9812 #3275 type=standard}
+        (multi-window) Task{319235e #3276 type=standard A=10024:com.oculus.panelapp.controlbar.ControlBarActivity}
+        (multi-window) Task{65dc66f #3341 type=standard}
+        (multi-window) Task{aa5a8b #3342 type=standard A=10024:com.oculus.vrshell:-339196040}
+
+  VisibleActivityProcess:[ ProcessRecord{c5e5f57 4255:com.oculus.panelapp.library:SystemBar/u0a135} ProcessRecord{bb7bfcf 7086:com.oculus.browser/u0a67} ProcessRecord{12eb603 3021:com.oculus.vrshell/u0a24} ProcessRecord{f5a67a3 5306:com.oculus.systemux:SystemUX/u0a34}]
+  NumNonAppVisibleWindowUidMap:[]

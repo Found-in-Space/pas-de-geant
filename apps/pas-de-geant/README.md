@@ -2,9 +2,12 @@
 
 _Walk around worlds, one small step at a time._
 
-Pas de Géant is a room-scale WebXR terrain globe. The un-displaced WGS 84
-surface meets the physical floor beneath the observer. Walking or controller
-travel rolls the planet through that contact point.
+Pas de Géant is a room-scale WebXR Solar System explorer. Earth and Moon have
+ground surfaces; every registered major body can be viewed orbitally or from a
+camera-relative free-roam frame. Authoritative positions are physical J2000
+metres in Float64 data, with one conversion to room metres applied only at the
+render boundary. This keeps the same architecture usable from a one-metre toy
+planet to a hundred-metre exploration globe and across interplanetary distance.
 
 ## Run locally
 
@@ -16,6 +19,8 @@ npm run dev -- --port 4197
 
 Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel, Z/X to
 change planet scale, C/V to change radial exaggeration, and Backspace to reset.
+Use the World and Navigation selectors for Earth/Moon ground mode and any-body
+orbit/free mode. M cycles navigation modes and N switches Earth/Moon.
 
 The standalone Eclipse Observatory is at
 `http://127.0.0.1:4197/eclipse/`. Earth, Moon, shadow cones, and the apparent
@@ -143,10 +148,47 @@ re-entering; foveation can change during a session.
 - Y: toggle photographic source-tile boundaries
 - A: toggle the Realtime voice guide
 - Hold B: reset location and scale
+- M (desktop): cycle ground, orbital, and free-roam placement
+- N (desktop): switch between Earth and Moon
 
 The hand panel uses touch-os and the embedded NASA Blue Marble image to show
 the underfoot point, display scale, radial multiplier, committed terrain zoom
 range, and voice-agent state.
+
+The Realtime voice guide also exposes `get_navigation_state` and
+`set_navigation`, so requests such as “stand on the Moon”, “orbit Jupiter”, or
+“make the Moon 100 metres in radius” use the same state transition functions as
+the visible controls. Bodies without a detailed surface automatically enter
+orbit instead of pretending to provide ground terrain.
+
+## Lunar surface data
+
+The bundled `lroc-color-2k.jpg` is the immediate, offline full-globe fallback.
+For detailed colour and LOLA topography, configure two geographic XYZ
+pyramids (linear longitude and latitude, including both poles):
+
+```sh
+VITE_LUNAR_IMAGERY_XYZ_TEMPLATE='https://tiles.example/moon/imagery/{z}/{x}/{y}.png'
+VITE_LUNAR_ELEVATION_XYZ_TEMPLATE='https://tiles.example/moon/elevation/{z}/{x}/{y}.png'
+```
+
+Elevation PNGs store the source unsigned 16-bit LOLA value in the red and
+green channels. Runtime height is `value × 0.5 − 10,000 m`, relative to the
+1,737.4 km lunar reference sphere. The renderer streams both datasets and
+retains the bundled colour/flat-height fallback if either source is absent.
+
+The preprocessing artifact requires GDAL command-line tools and does not
+publish or deploy its output:
+
+```sh
+npm run lunar:tiles -- \
+  --imagery /data/lroc_color.tif \
+  --elevation /data/ldem_64_uint.tif \
+  --output /data/pas-de-geant-moon
+```
+
+It produces `imagery/{z}/{x}/{y}.png` and
+`elevation/{z}/{x}/{y}.png`, ready for any static object store or local server.
 
 ## Terrain and imagery library
 

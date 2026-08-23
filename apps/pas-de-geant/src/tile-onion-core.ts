@@ -3,6 +3,8 @@ export const EARTH_MEAN_RADIUS_KM = 6_371.0088;
 export const WGS84_A_KM = 6_378.137;
 export const WGS84_B_KM = 6_356.752314245;
 
+export type TileProjection = "web-mercator" | "geographic";
+
 export const TILE_ONION_FINE_SIZE = 8;
 export const TILE_ONION_ANCHOR_STRIDE = 4;
 export const TILE_ONION_FINE_MARGIN = 2;
@@ -38,6 +40,8 @@ export interface TileOnionState {
   poleLocked: boolean;
   /** Unwrapped normal-mode anchor retained across observer movement. */
   normalAnchor: TileOnionAnchor | undefined;
+  /** Omitted for the legacy/default Web Mercator scheme. */
+  projection?: TileProjection;
 }
 
 export interface TileOnionPlanOptions {
@@ -45,6 +49,7 @@ export interface TileOnionPlanOptions {
   longitudeDegrees: number;
   maxZoom: number;
   previousState?: TileOnionState;
+  projection?: TileProjection;
 }
 
 export interface TileOnionBoundaryDetails {
@@ -108,6 +113,28 @@ export function mercatorPoint(
   };
 }
 
+export function geographicTileY(
+  latitudeDegrees: number,
+  zoom: number,
+): number {
+  const latitude = Math.max(-90, Math.min(90, latitudeDegrees));
+  return (90 - latitude) / 180 * 2 ** zoom;
+}
+
+export function projectedTilePoint(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+  zoom: number,
+  projection: TileProjection = "web-mercator",
+): { x: number; y: number } {
+  return projection === "geographic"
+    ? {
+      x: mercatorTileX(longitudeDegrees, zoom),
+      y: geographicTileY(latitudeDegrees, zoom),
+    }
+    : mercatorPoint(latitudeDegrees, longitudeDegrees, zoom);
+}
+
 export function mercatorTileX(
   longitudeDegrees: number,
   zoom: number,
@@ -130,8 +157,17 @@ export function mercatorTileY(
 
 export function tileBounds(
   address: TileAddress,
+  projection: TileProjection = "web-mercator",
 ): TileBounds {
   const width = 2 ** address.z;
+  if (projection === "geographic") {
+    return {
+      west: address.x / width * 360 - 180,
+      east: (address.x + 1) / width * 360 - 180,
+      north: 90 - address.y / width * 180,
+      south: 90 - (address.y + 1) / width * 180,
+    };
+  }
   const latitudeForY = (y: number): number =>
     Math.atan(Math.sinh(Math.PI * (1 - 2 * y / width))) * 180 / Math.PI;
   return {
@@ -421,13 +457,19 @@ function normalPlanTarget(
   longitudeDegrees: number,
   zoom: number,
   previousState: TileOnionState | undefined,
+  projection: TileProjection,
 ): {
   underfoot: TileAddress;
   anchor: TileOnionAnchor;
   finestTiles: TileAddress[];
 } {
   const worldWidth = 2 ** zoom;
-  const point = mercatorPoint(latitudeDegrees, longitudeDegrees, zoom);
+  const point = projectedTilePoint(
+    latitudeDegrees,
+    longitudeDegrees,
+    zoom,
+    projection,
+  );
   const underfoot = {
     z: zoom,
     x: wrapTileX(Math.floor(point.x), zoom),
@@ -435,6 +477,7 @@ function normalPlanTarget(
   };
   const previousAnchor =
     previousState?.mode === "normal" &&
+      (previousState.projection ?? "web-mercator") === projection &&
       previousState.requestedMaxZoom === zoom &&
       previousState.effectiveZoom === zoom
       ? previousState.normalAnchor
@@ -480,7 +523,9 @@ export function tileOnionModeForCoordinates(
   latitudeDegrees: number,
   _longitudeDegrees: number,
   zoom: number,
+  projection: TileProjection = "web-mercator",
 ): TileOnionMode {
+  if (projection === "geographic") return "normal";
   if (latitudeDegrees > WEB_MERCATOR_MAX_LATITUDE) return "north-boundary";
   if (latitudeDegrees < -WEB_MERCATOR_MAX_LATITUDE) return "south-boundary";
   const worldWidth = 2 ** zoom;
@@ -506,10 +551,12 @@ export function calculateTileOnionPlan(
     ? wrapLongitude(options.longitudeDegrees)
     : 0;
   const requestedMaxZoom = normalizedTileOnionZoom(options.maxZoom);
+  const projection = options.projection ?? "web-mercator";
   const mode = tileOnionModeForCoordinates(
     latitudeDegrees,
     longitudeDegrees,
     requestedMaxZoom,
+    projection,
   );
 
   let effectiveZoom = requestedMaxZoom;
@@ -526,6 +573,7 @@ export function calculateTileOnionPlan(
       longitudeDegrees,
       effectiveZoom,
       options.previousState,
+      projection,
     );
     underfoot = target.underfoot;
     anchor = target.anchor;
@@ -570,6 +618,7 @@ export function calculateTileOnionPlan(
     boundaryLongitudeDegrees,
     poleLocked,
     normalAnchor: mode === "normal" ? { ...anchor } : undefined,
+    ...(projection === "web-mercator" ? {} : { projection }),
   };
   return {
     mode,

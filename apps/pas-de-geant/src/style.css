@@ -283,6 +283,20 @@ input {
   accent-color: #76ddf1;
 }
 
+.readout select {
+  max-width: 12rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+}
+
+.readout select option {
+  background: #06131d;
+  color: #eef8fb;
+}
+
 .loading-state,
 .error-state {
   position: fixed;

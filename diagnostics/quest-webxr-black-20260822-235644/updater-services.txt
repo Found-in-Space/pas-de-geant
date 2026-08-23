@@ -1,0 +1,25 @@
+ACTIVITY MANAGER SERVICES (dumpsys activity services)
+  User 0 active services:
+  * ServiceRecord{fe21477 u0 com.oculus.updater/.core.monitors.TrainMonitoringService}
+    intent={act=android.intent.action.BOOT_COMPLETED cmp=com.oculus.updater/.core.monitors.TrainMonitoringService}
+    packageName=com.oculus.updater
+    processName=com.oculus.updater
+    permission=com.oculus.updater.core.os.OTA_OPERATION
+    baseDir=/system_ext/priv-app/OSUpdater/OSUpdater.apk
+    dataDir=/data/user/0/com.oculus.updater
+    app=ProcessRecord{bab0f53 3361:com.oculus.updater/u0a40}
+    mAllowWhileInUsePermissionInFgsReason=DENIED
+    allowUiJobScheduling=false
+    recentCallingPackage=com.oculus.updater
+    recentCallingUid=10040
+    allowStartForeground=SYSTEM_ALLOW_LISTED
+    startForegroundCount=0
+    infoAllowStartForeground=[callingPackage: com.oculus.updater; callingUid: 10040; uidState: SVC ; uidBFSL: n/a; intent: Intent { act=android.intent.action.BOOT_COMPLETED cmp=com.oculus.updater/.core.monitors.TrainMonitoringService (has extras) }; code:SYSTEM_ALLOW_LISTED; tempAllowListReason:<,reasonCode:SYSTEM_ALLOW_LISTED,duration:9223372036854775807,callingUid:-1>; targetSdkVersion:26; callerTargetSdkVersion:26; startForegroundCount:0; bindFromPackage:null: isBindService:false]
+    createTime=-21h19m4s642ms startingBgTimeout=-2h24m46s923ms
+    lastActivity=-45m42s280ms restartTime=-45m42s280ms createdFromFg=false
+    startRequested=true delayedStop=false stopIfKilled=true callStart=true lastStartId=1
+ startCommandResult=3
+    restartCount=1 restartDelay=-56m44s754ms nextRestartTime=+31m33s66ms crashCount=0
+    Delivered Starts:
+    #0 id=1 dur=-45m42s280ms dxc=3
+      intent=Intent { act=android.intent.action.BOOT_COMPLETED cmp=com.oculus.updater/.core.monitors.TrainMonitoringService (has extras) }

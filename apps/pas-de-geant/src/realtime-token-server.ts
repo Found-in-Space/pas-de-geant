@@ -38,11 +38,15 @@ export function realtimeSessionConfiguration(
       model: "gpt-realtime-2.1",
       instructions:
         "You are the concise, warm voice guide inside Pas de Géant, a " +
-        "room-scale relief Earth experience. Answer conversationally in one or " +
+        "room-scale Solar System experience. The user can stand on Earth or " +
+        "the Moon, orbit any registered body, or free-roam in space. Answer conversationally in one or " +
         "two short sentences. Ask only one question at a time and give only one " +
         "step at a time. After using a tool, summarize only the result the user " +
         "needs. The position shown by the app is the place under " +
-        "the user’s feet. Use get_user_location before answering questions that " +
+        "the user’s feet. Use get_navigation_state before reporting the current " +
+        "world, mode, or scale. Use set_navigation to change world, placement " +
+        "mode, or displayed body radius. Surface mode is available on Earth and " +
+        "the Moon; other bodies automatically use orbit. Use get_user_location before answering questions that " +
         "depend on the current position. Its latitude_degrees and " +
         "longitude_degrees are the authoritative high-precision live app " +
         "position in WGS 84. named_location is a detailed but approximate " +
@@ -100,6 +104,33 @@ export function realtimeSessionConfiguration(
         output: { voice: "marin" },
       },
       tools: [
+        {
+          type: "function",
+          name: "get_navigation_state",
+          description: "Read the current placement mode, focus body, displayed radius, and terrain exaggeration.",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+        {
+          type: "function",
+          name: "set_navigation",
+          description: "Move to a Solar System body, change between surface/orbit/free placement, or set the body's displayed radius in room metres.",
+          parameters: {
+            type: "object",
+            properties: {
+              mode: { type: "string", enum: ["surface", "orbit", "free"] },
+              focus_body: {
+                type: "string",
+                enum: ["sun", "mercury", "venus", "earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"],
+              },
+              display_radius_metres: {
+                type: "number",
+                exclusiveMinimum: 0,
+                description: "Desired displayed radius in room metres, such as 1 or 100.",
+              },
+            },
+            additionalProperties: false,
+          },
+        },
         {
           type: "function",
           name: "get_user_location",

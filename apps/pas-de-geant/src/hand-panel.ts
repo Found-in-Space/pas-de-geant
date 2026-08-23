@@ -1,6 +1,8 @@
 import {
+  createButton,
   createColumn,
   createNode,
+  createRow,
   createValueReadout,
   type BitmapHandle,
   type DisplayComponent,
@@ -9,6 +11,7 @@ import {
   type Rect,
   type SurfaceMetrics,
   type ThemeTokens,
+  type RuntimeOutput,
 } from "@found-in-space/touch-os";
 import type { RealtimeAgentState } from "./realtime-agent.js";
 
@@ -58,6 +61,24 @@ export interface HandPanelStatus {
   maximumTerrainZoom: number;
   terrainBudgetLimited: boolean;
   agentState: RealtimeAgentState;
+  navigationMode?: "surface" | "orbit" | "free";
+  focusBody?: string;
+}
+
+export const HAND_PANEL_ACTION = {
+  cycleMode: "world.navigation.cycle-mode",
+  toggleEarthMoon: "world.navigation.toggle-earth-moon",
+} as const;
+
+export function handPanelNavigationAction(
+  output: RuntimeOutput,
+): "cycle-mode" | "toggle-earth-moon" | null {
+  if (output.type !== "action") return null;
+  if (output.actionId === HAND_PANEL_ACTION.cycleMode) return "cycle-mode";
+  if (output.actionId === HAND_PANEL_ACTION.toggleEarthMoon) {
+    return "toggle-earth-moon";
+  }
+  return null;
 }
 
 interface EarthLocationMapProps extends HandPanelLocation {
@@ -342,7 +363,7 @@ export function createHandPanelRoot(
         ...location,
         map,
         northDirection,
-        height: 238,
+        height: 190,
       }),
       createValueReadout("pas-de-geant-coordinates", {
         label: "Underfoot",
@@ -350,6 +371,19 @@ export function createHandPanelRoot(
           location.latitudeDegrees,
           location.longitudeDegrees,
         ),
+      }),
+      createRow("pas-de-geant-navigation-actions", {
+        gap: 6,
+        children: [
+          createButton("pas-de-geant-mode", {
+            label: `Mode · ${status.navigationMode ?? "surface"}`,
+            actionId: HAND_PANEL_ACTION.cycleMode,
+          }),
+          createButton("pas-de-geant-world", {
+            label: `World · ${status.focusBody ?? "earth"}`,
+            actionId: HAND_PANEL_ACTION.toggleEarthMoon,
+          }),
+        ],
       }),
       createNode(
         "pas-de-geant-status",

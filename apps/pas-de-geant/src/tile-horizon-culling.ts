@@ -4,6 +4,7 @@ import {
   type TileIdentity,
 } from "./tile-transition-planner.js";
 import { EARTH_MEAN_RADIUS_KM, WGS84_B_KM } from "./planet-state.js";
+import type { TileProjection } from "./tile-onion-core.js";
 
 const MINIMUM_NORMALIZED_SURFACE_RADIUS = WGS84_B_KM / EARTH_MEAN_RADIUS_KM;
 
@@ -12,6 +13,8 @@ export interface TileHorizonView {
   readonly longitudeDegrees: number;
   readonly displayRadiusM: number;
   readonly observerHeightWorldM: number;
+  readonly projection?: TileProjection;
+  readonly minimumNormalizedSurfaceRadius?: number;
 }
 
 export interface TileHorizonCullingInput {
@@ -43,8 +46,13 @@ export function plannerHorizonCandidates(
   return [...candidates.values()];
 }
 
-function inverseMercatorLatitude(y: number): number {
-  return Math.atan(Math.sinh(Math.PI * (1 - 2 * y)));
+function inverseProjectedLatitude(
+  y: number,
+  projection: TileProjection,
+): number {
+  return projection === "geographic"
+    ? Math.PI / 2 - y * Math.PI
+    : Math.atan(Math.sinh(Math.PI * (1 - 2 * y)));
 }
 
 function unwrapLongitude(longitude: number, reference: number): number {
@@ -57,6 +65,7 @@ export function minimumAngularDistanceToTile(
   tile: TileIdentity,
   latitudeRadians: number,
   longitudeRadians: number,
+  projection: TileProjection = "web-mercator",
 ): number {
   const width = 2 ** tile.z;
   const west = unwrapLongitude(
@@ -66,8 +75,8 @@ export function minimumAngularDistanceToTile(
   const east = west + 2 * Math.PI / width;
   const longitude = Math.max(west, Math.min(east, longitudeRadians));
   const deltaLongitude = longitude - longitudeRadians;
-  const north = inverseMercatorLatitude(tile.y / width);
-  const south = inverseMercatorLatitude((tile.y + 1) / width);
+  const north = inverseProjectedLatitude(tile.y / width, projection);
+  const south = inverseProjectedLatitude((tile.y + 1) / width, projection);
   const optimumLatitude = Math.atan2(
     Math.sin(latitudeRadians),
     Math.cos(latitudeRadians) * Math.cos(deltaLongitude),
@@ -83,10 +92,11 @@ export function minimumAngularDistanceToTile(
 export function geometricHorizonRadians(
   displayRadiusM: number,
   observerHeightWorldM: number,
+  minimumNormalizedSurfaceRadius = MINIMUM_NORMALIZED_SURFACE_RADIUS,
 ): number {
   const radius = Math.max(
     Number.MIN_VALUE,
-    displayRadiusM * MINIMUM_NORMALIZED_SURFACE_RADIUS,
+    displayRadiusM * minimumNormalizedSurfaceRadius,
   );
   const height = Math.max(0, observerHeightWorldM);
   return Math.acos(radius / (radius + height));
@@ -101,10 +111,18 @@ export function classifyTilesWithinHorizon(
   const horizon = geometricHorizonRadians(
     view.displayRadiusM,
     view.observerHeightWorldM,
+    view.minimumNormalizedSurfaceRadius,
   );
   const retained = new Set<string>();
   for (const tile of tiles) {
-    if (minimumAngularDistanceToTile(tile, latitude, longitude) <= horizon) {
+    if (
+      minimumAngularDistanceToTile(
+        tile,
+        latitude,
+        longitude,
+        view.projection,
+      ) <= horizon
+    ) {
       retained.add(tileIdentityKey(tile));
     }
   }

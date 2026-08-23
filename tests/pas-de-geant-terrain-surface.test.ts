@@ -5,6 +5,10 @@ import {
   sampleTerrariumElevationMetres,
   sourceUvForTilePoint,
 } from "../apps/pas-de-geant/src/terrain-surface.js";
+import {
+  decodeHeightMetres,
+  MOON_SURFACE_MODEL,
+} from "../apps/pas-de-geant/src/surface-model.js";
 
 describe("Terrain surface composition", () => {
   it("maps adjacent overzoom children to the same source coordinate at their join", () => {
@@ -54,6 +58,24 @@ describe("Terrain surface composition", () => {
     expect(uv.v).not.toBeCloseTo(equirectangularV, 2);
     expect(uv.v).toBeGreaterThan(0);
     expect(uv.v).toBeLessThan(0.5);
+  });
+
+  it("maps the lunar geographic pyramid through both poles", () => {
+    const bounds = MOON_SURFACE_MODEL.tileBounds({ z: 1, x: 0, y: 0 });
+    expect(bounds).toEqual({ west: -180, east: 0, north: 90, south: 0 });
+    expect(imageryUvForGeographicPoint(
+      bounds,
+      45,
+      -90,
+      "geographic",
+    )).toEqual({ u: 0.5, v: 0.5 });
+  });
+
+  it("decodes the lossless red/green LOLA height representation", () => {
+    expect(decodeHeightMetres(MOON_SURFACE_MODEL.heightEncoding, 78, 32, 0))
+      .toBe(0);
+    expect(decodeHeightMetres(MOON_SURFACE_MODEL.heightEncoding, 0, 0, 0))
+      .toBe(-10_000);
   });
 
   it("samples the same bilinear Terrarium heights used by the terrain shader", () => {

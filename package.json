@@ -21,6 +21,7 @@
     "check": "npm run typecheck",
     "dev": "npm run dev --workspace @found-in-space/pas-de-geant --",
     "quest:debug": "node scripts/quest-debug.mjs",
+    "lunar:tiles": "node scripts/build-lunar-tiles.mjs",
     "test": "vitest run",
     "test:browser": "playwright test --config playwright.pas-de-geant.config.ts",
     "test:browser:xr": "playwright test --config playwright.pas-de-geant-xr.config.ts",

@@ -1,4 +1,5 @@
 import type { TileIdentity } from "./tile-transition-planner.js";
+import type { TileProjection } from "./tile-onion-core.js";
 
 export const IMAGERY_TARGET_METRES_PER_TEXEL = 0.0025;
 export const IMAGERY_REFERENCE_TILE_PIXELS = 512;
@@ -12,6 +13,7 @@ export interface ImageryView {
   readonly displayRadiusM: number;
   readonly latitudeDegrees: number;
   readonly longitudeDegrees: number;
+  readonly projection?: TileProjection;
   /** Room-space distance from the eye to its WGS84 sub-point. */
   readonly observerHeightWorldM?: number;
   /** Active camera projection focal length in render pixels. */

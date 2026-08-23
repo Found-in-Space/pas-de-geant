@@ -9,6 +9,7 @@ import {
   type ImageryAddress,
   type ImageryView,
 } from "./imagery-core.js";
+import type { TileProjection } from "./tile-onion-core.js";
 import type {
   ImageryDecoderCommand,
   ImageryDecoderMessage,
@@ -175,13 +176,14 @@ export interface ImageryCoordinateBounds {
 
 /** Geographic topology target; imagery source clamping remains downstream. */
 export function imageryTargetForView(
-  view: Pick<ImageryView, "latitudeDegrees" | "longitudeDegrees">,
+  view: Pick<ImageryView, "latitudeDegrees" | "longitudeDegrees" | "projection">,
   maxZoom: number,
 ): TileLayoutTarget {
   return normalizeTileLayoutTarget({
     maxZoom,
     latitudeDegrees: view.latitudeDegrees,
     longitudeDegrees: view.longitudeDegrees,
+    projection: view.projection,
   });
 }
 
@@ -191,12 +193,16 @@ export function imageryBoundsForGeographicBounds(bounds: {
   east: number;
   north: number;
   south: number;
-}): ImageryCoordinateBounds {
+}, projection: TileProjection = "web-mercator"): ImageryCoordinateBounds {
+  const normalizedY = (latitudeDegrees: number): number =>
+    projection === "geographic"
+      ? (90 - latitudeDegrees) / 180
+      : mercatorPointForImagery(latitudeDegrees, 0, 0).y;
   return {
     west: (bounds.west + 180) / 360,
     east: (bounds.east + 180) / 360,
-    north: mercatorPointForImagery(bounds.north, bounds.west, 0).y,
-    south: mercatorPointForImagery(bounds.south, bounds.east, 0).y,
+    north: normalizedY(bounds.north),
+    south: normalizedY(bounds.south),
   };
 }
 

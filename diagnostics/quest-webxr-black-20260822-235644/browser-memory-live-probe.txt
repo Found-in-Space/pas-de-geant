@@ -1,0 +1,53 @@
+Applications Memory Usage (in Kilobytes):
+Uptime: 8978946 Realtime: 77021664
+
+** MEMINFO in pid 7086 [com.oculus.browser] **
+                   Pss  Private  Private  SwapPss      Rss     Heap     Heap     Heap
+                 Total    Dirty    Clean    Dirty    Total     Size    Alloc     Free
+                ------   ------   ------   ------   ------   ------   ------   ------
+  Native Heap    18557    17496     1044     8281    19408    33696    30028     3667
+  Dalvik Heap    11963     6780     5040      242    12824    14931     7466     7465
+ Dalvik Other     1791     1500      208      178     2084                           
+        Stack     1776     1692       84      588     1780                           
+       Ashmem     3945     1972        0        0     6252                           
+      Gfx dev      192      192        0        0      196                           
+    Other dev       30        0       20        0      308                           
+     .so mmap     2960      236      428     1002    29404                           
+    .jar mmap     1061        0      128        0    15876                           
+    .apk mmap    31487      160    18176     1084    72592                           
+    .ttf mmap       18        0        0        0      112                           
+    .dex mmap     2766        8     2428       36     3736                           
+    .oat mmap      548        0        4        0     9120                           
+    .art mmap     6074     1780     3424      192    21292                           
+   Other mmap     1480       32     1108        0     2500                           
+   EGL mtrack    23439    23439        0        0    23439                           
+    GL mtrack     2752     2752        0        0     2752                           
+      Unknown    52191    48716     3436     9915    52556                           
+        TOTAL   184548   106755    35528    21518   276231    48627    37494    11132
+ 
+ App Summary for pid : 7086, and process : com.oculus.browser
+                       Pss(KB)                        Rss(KB)
+                        ------                         ------
+           Java Heap:    11984                          34116
+         Native Heap:    17496                          19408
+                Code:    21592                         131024
+               Stack:     1692                           1780
+            Graphics:    26383                          26387
+       Private Other:    63136
+              System:    42265
+             Unknown:                                   63516
+ 
+           TOTAL PSS:   184548            TOTAL RSS:   276231       TOTAL SWAP PSS:    21518
+ 
+ Objects
+               Views:      194         ViewRootImpl:       22
+         AppContexts:       83           Activities:       26
+              Assets:       11        AssetManagers:        0
+       Local Binders:      188        Proxy Binders:      209
+       Parcel memory:       58         Parcel count:      186
+    Death Recipients:       40             WebViews:        0
+ 
+ SQL
+         MEMORY_USED:        0
+  PAGECACHE_OVERFLOW:        0          MALLOC_SIZE:        0
+ 

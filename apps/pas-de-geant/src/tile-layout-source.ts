@@ -7,6 +7,8 @@ import {
   updateTileOnionNormalAnchor,
   wrapTileX,
   wrapLongitude,
+  geographicTileY,
+  type TileProjection,
   type TileOnionAnchor,
   type TileOnionMode,
   type TileOnionState,
@@ -18,6 +20,7 @@ export interface TileLayoutTarget {
   readonly maxZoom: number;
   readonly latitudeDegrees: number;
   readonly longitudeDegrees: number;
+  readonly projection?: TileProjection;
 }
 
 export function normalizeTileLayoutTarget(
@@ -32,7 +35,13 @@ export function normalizeTileLayoutTarget(
   const longitudeDegrees = Number.isFinite(target.longitudeDegrees)
     ? wrapLongitude(target.longitudeDegrees)
     : 0;
-  return Object.freeze({ maxZoom, latitudeDegrees, longitudeDegrees });
+  const projection = target.projection ?? "web-mercator";
+  return Object.freeze({
+    maxZoom,
+    latitudeDegrees,
+    longitudeDegrees,
+    ...(projection === "web-mercator" ? {} : { projection }),
+  });
 }
 
 /**
@@ -51,6 +60,7 @@ export class TileLayoutSubmissionGate {
   private maxZoom: number;
   private latitudeDegrees: number;
   private longitudeDegrees: number;
+  private projection: TileProjection;
 
   constructor(initialTarget: TileLayoutTarget) {
     this.maxZoom = normalizedTileOnionZoom(initialTarget.maxZoom);
@@ -60,10 +70,12 @@ export class TileLayoutSubmissionGate {
     this.longitudeDegrees = Number.isFinite(initialTarget.longitudeDegrees)
       ? wrapLongitude(initialTarget.longitudeDegrees)
       : 0;
+    this.projection = initialTarget.projection ?? "web-mercator";
     this.mode = tileOnionModeForCoordinates(
       this.latitudeDegrees,
       this.longitudeDegrees,
       this.maxZoom,
+      this.projection,
     );
     if (this.mode === "normal") this.resetNormalAnchor();
   }
@@ -76,29 +88,42 @@ export class TileLayoutSubmissionGate {
     const longitudeDegrees = Number.isFinite(nextTarget.longitudeDegrees)
       ? wrapLongitude(nextTarget.longitudeDegrees)
       : 0;
+    const projection = nextTarget.projection ?? "web-mercator";
     if (
       maxZoom === this.maxZoom &&
       latitudeDegrees === this.latitudeDegrees &&
       longitudeDegrees === this.longitudeDegrees
+      && projection === this.projection
     ) return false;
 
     const mode = tileOnionModeForCoordinates(
       latitudeDegrees,
       longitudeDegrees,
       maxZoom,
+      projection,
     );
     let accepted: boolean;
-    if (maxZoom !== this.maxZoom || mode !== this.mode) {
+    if (
+      maxZoom !== this.maxZoom ||
+      mode !== this.mode ||
+      projection !== this.projection
+    ) {
       accepted = true;
       this.normalAnchor.z = -1;
       if (mode === "normal") {
-        this.updateNormalAnchor(latitudeDegrees, longitudeDegrees, maxZoom);
+        this.updateNormalAnchor(
+          latitudeDegrees,
+          longitudeDegrees,
+          maxZoom,
+          projection,
+        );
       }
     } else if (mode === "normal") {
       accepted = this.updateNormalAnchor(
         latitudeDegrees,
         longitudeDegrees,
         maxZoom,
+        projection,
       );
     } else {
       // Boundary latitude and the pole-lock state remain planner inputs.
@@ -109,6 +134,7 @@ export class TileLayoutSubmissionGate {
     this.maxZoom = maxZoom;
     this.latitudeDegrees = latitudeDegrees;
     this.longitudeDegrees = longitudeDegrees;
+    this.projection = projection;
     return accepted;
   }
 
@@ -123,6 +149,7 @@ export class TileLayoutSubmissionGate {
     this.maxZoom = source.maxZoom;
     this.latitudeDegrees = source.latitudeDegrees;
     this.longitudeDegrees = source.longitudeDegrees;
+    this.projection = source.projection;
   }
 
   private resetNormalAnchor(): void {
@@ -131,6 +158,7 @@ export class TileLayoutSubmissionGate {
       this.latitudeDegrees,
       this.longitudeDegrees,
       this.maxZoom,
+      this.projection,
     );
   }
 
@@ -138,6 +166,7 @@ export class TileLayoutSubmissionGate {
     latitudeDegrees: number,
     longitudeDegrees: number,
     zoom: number,
+    projection = this.projection,
   ): boolean {
     const width = 2 ** zoom;
     const underfootX = wrapTileX(
@@ -146,7 +175,14 @@ export class TileLayoutSubmissionGate {
     );
     const underfootY = Math.max(
       0,
-      Math.min(width - 1, Math.floor(mercatorTileY(latitudeDegrees, zoom))),
+      Math.min(
+        width - 1,
+        Math.floor(
+          projection === "geographic"
+            ? geographicTileY(latitudeDegrees, zoom)
+            : mercatorTileY(latitudeDegrees, zoom),
+        ),
+      ),
     );
     return updateTileOnionNormalAnchor(
       this.normalAnchor,
@@ -173,6 +209,7 @@ export class TileOnionLayoutSource implements LayoutSource<TileLayoutTarget> {
       longitudeDegrees: target.longitudeDegrees,
       maxZoom: target.maxZoom,
       previousState: this.previousState,
+      projection: target.projection,
     });
     this.previousState = plan.state;
     return plan.leaves.map(({ z, x, y }) => ({ z, x, y }));

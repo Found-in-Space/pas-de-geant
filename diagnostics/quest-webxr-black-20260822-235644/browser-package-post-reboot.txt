@@ -1,0 +1,2526 @@
+Activity Resolver Table:
+  Full MIME Types:
+      image/avif:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      image/jpeg:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      image/webp:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      application/ogg:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      application/xml:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      text/html:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter aa29eb8
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          StaticType: "text/html"
+          StaticType: "text/plain"
+          StaticType: "application/xhtml+xml"
+      text/css:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      image/bmp:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      image/gif:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      image/png:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      audio/x-m4a:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      audio/x-mp3:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      audio/x-wav:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      text/markdown:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      audio/matroska:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      audio/x-matroska:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      image/svg+xml:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      application/json:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      application/x-sh:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      audio/aac:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      audio/mp3:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      audio/mp4:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      audio/ogg:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      audio/wav:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      application/xhtml+xml:
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter aa29eb8
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          StaticType: "text/html"
+          StaticType: "text/plain"
+          StaticType: "application/xhtml+xml"
+      text/plain:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter aa29eb8
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          StaticType: "text/html"
+          StaticType: "text/plain"
+          StaticType: "application/xhtml+xml"
+      application/javascript:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      audio/flac:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      audio/mpeg:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      audio/webm:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+
+  Base MIME Types:
+      text:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter aa29eb8
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          StaticType: "text/html"
+          StaticType: "text/plain"
+          StaticType: "application/xhtml+xml"
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter aa29eb8
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          StaticType: "text/html"
+          StaticType: "text/plain"
+          StaticType: "application/xhtml+xml"
+      audio:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      image:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+      application:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter aa29eb8
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          StaticType: "text/html"
+          StaticType: "text/plain"
+          StaticType: "application/xhtml+xml"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+
+  Schemes:
+      ovrweb:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter a94fba0
+          Action: "com.oculus.action.LAUNCH_PWA"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "ovrweb"
+          Authority: "pwa": -1
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 5958b1e
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "ovrweb"
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter 94b2d1b
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "http"
+          Scheme: "https"
+          Scheme: "ovrweb"
+          Scheme: "content"
+      file:
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+      http:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 3da1359
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "http"
+          Scheme: "https"
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter 94b2d1b
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "http"
+          Scheme: "https"
+          Scheme: "ovrweb"
+          Scheme: "content"
+        cc628cd com.oculus.browser/org.chromium.chrome.browser.dragdrop.DragAndDropLauncherActivity filter c5c0582
+          Action: "org.chromium.chrome.browser.dragdrop.action.VIEW"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "http"
+          Scheme: "https"
+      https:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 3da1359
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "http"
+          Scheme: "https"
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter 94b2d1b
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "http"
+          Scheme: "https"
+          Scheme: "ovrweb"
+          Scheme: "content"
+        cc628cd com.oculus.browser/org.chromium.chrome.browser.dragdrop.DragAndDropLauncherActivity filter c5c0582
+          Action: "org.chromium.chrome.browser.dragdrop.action.VIEW"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "http"
+          Scheme: "https"
+        c2ca485 com.oculus.browser/org.chromium.chrome.browser.browserservices.ManageTrustedWebActivityDataActivity filter 34d930b
+          Action: "android.support.customtabs.action.ACTION_MANAGE_TRUSTED_WEB_ACTIVITY_DATA"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "https"
+      content:
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter 94b2d1b
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "http"
+          Scheme: "https"
+          Scheme: "ovrweb"
+          Scheme: "content"
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter aa29eb8
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          StaticType: "text/html"
+          StaticType: "text/plain"
+          StaticType: "application/xhtml+xml"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+
+  Non-Data Actions:
+      com.oculus.browser.system_location.REQUEST:
+        b6cb894 com.oculus.browser/.location.SystemLocationRequestActivity filter 3ffdf3d
+          Action: "com.oculus.browser.system_location.REQUEST"
+          Category: "android.intent.category.DEFAULT"
+          Category: "com.oculus.intent.category.VR"
+      android.intent.action.MAIN:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8de31cc
+          Action: "android.intent.action.MAIN"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.INFO"
+          Category: "android.intent.category.LAUNCHER"
+          Category: "com.oculus.intent.category.2D"
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter c0b3b2a
+          Action: "android.intent.action.MAIN"
+          Category: "android.intent.category.NOTIFICATION_PREFERENCES"
+        13832a6 com.oculus.browser/org.chromium.components.webxr.XrHostActivity filter 6c054e7
+          Action: "android.intent.action.MAIN"
+          Category: "org.khronos.openxr.intent.category.IMMERSIVE_HMD"
+        24d332 com.oculus.browser/.WebVRActivity filter 2b35883
+          Action: "android.intent.action.MAIN"
+          Category: "com.oculus.intent.category.VR"
+        3a6ca00 com.oculus.browser/.VideoImmersiveActivity filter b903239
+          Action: "android.intent.action.MAIN"
+          Category: "com.oculus.intent.category.VR"
+        cc8f07e com.oculus.browser/.WebXRCustomTabActivity filter a48f9df
+          Action: "android.intent.action.MAIN"
+          Category: "com.oculus.intent.category.VR"
+      android.intent.action.VIEW:
+        de9d491 com.oculus.browser/org.chromium.chrome.browser.media.MediaLauncherActivity filter 479dff6
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+      android.intent.action.APPLICATION_PREFERENCES:
+        89984c9 com.oculus.browser/org.chromium.chrome.browser.AutofillOptionsLauncher filter c48f7ce
+          Action: "android.intent.action.APPLICATION_PREFERENCES"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.APP_BROWSER"
+          Category: "android.intent.category.PREFERENCE"
+      android.support.customtabs.action.ACTION_MANAGE_TRUSTED_WEB_ACTIVITY_DATA:
+        c2ca485 com.oculus.browser/org.chromium.chrome.browser.browserservices.ManageTrustedWebActivityDataActivity filter d00c2da
+          Action: "android.support.customtabs.action.ACTION_MANAGE_TRUSTED_WEB_ACTIVITY_DATA"
+          Category: "android.intent.category.DEFAULT"
+      com.facebook.secure.packagefinder.intent.ACTION_QUERY_PACKAGES:
+        de676ef com.oculus.browser/com.facebook.secure.packagefinder.PackageFinderActivity filter f37a5fc
+          Action: "com.facebook.secure.packagefinder.intent.ACTION_QUERY_PACKAGES"
+          Category: "android.intent.category.DEFAULT"
+      org.chromium.chrome.browser.translate.TRANSLATE_TAB:
+        987ee5d com.oculus.browser/com.google.android.apps.chrome.TranslateDispatcher filter 26f03d2
+          Action: "org.chromium.chrome.browser.translate.TRANSLATE_TAB"
+          Category: "android.intent.category.DEFAULT"
+      org.chromium.chrome.browser.incognito.OPEN_PRIVATE_TAB:
+        1682493 com.oculus.browser/org.chromium.chrome.browser.incognito.IncognitoTabLauncher filter 12e8cd0
+          Action: "org.chromium.chrome.browser.incognito.OPEN_PRIVATE_TAB"
+          Category: "android.intent.category.DEFAULT"
+      android.intent.action.WEB_SEARCH:
+        5725e8 com.oculus.browser/org.chromium.chrome.browser.searchwidget.SearchActivity filter c180401
+          Action: "android.intent.action.WEB_SEARCH"
+          Category: "android.intent.category.DEFAULT"
+
+  MIME Typed Actions:
+      com.oculus.action.WEBTASK:
+        98f8c15 com.oculus.browser/com.google.android.apps.chrome.IntentDispatcher filter aa29eb8
+          Action: "com.oculus.action.WEBTASK"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          StaticType: "text/html"
+          StaticType: "text/plain"
+          StaticType: "application/xhtml+xml"
+      android.intent.action.VIEW:
+        2dacca3 com.oculus.browser/.OculusLauncherActivity filter 8438fff
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image/avif"
+          StaticType: "image/bmp"
+          StaticType: "image/gif"
+          StaticType: "image/jpeg"
+          StaticType: "image/png"
+          StaticType: "image/svg+xml"
+          StaticType: "image/webp"
+          StaticType: "text/css"
+          StaticType: "text/html"
+          StaticType: "text/markdown"
+          StaticType: "text/plain"
+          StaticType: "application/javascript"
+          StaticType: "application/json"
+          StaticType: "application/x-sh"
+          StaticType: "application/xml"
+        8657ff7 com.oculus.browser/org.chromium.chrome.browser.media.AudioLauncherActivity filter 3eee64
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "file"
+          Scheme: "content"
+          StaticType: "audio/wav"
+          StaticType: "audio/x-wav"
+          StaticType: "audio/webm"
+          StaticType: "audio/ogg"
+          StaticType: "audio/flac"
+          StaticType: "audio/mpeg"
+          StaticType: "audio/mp3"
+          StaticType: "audio/x-mp3"
+          StaticType: "audio/mp4"
+          StaticType: "audio/matroska"
+          StaticType: "audio/x-matroska"
+          StaticType: "application/ogg"
+          StaticType: "audio/aac"
+          StaticType: "audio/x-m4a"
+
+Receiver Resolver Table:
+  Schemes:
+      package:
+        f75d25c com.oculus.browser/.PackageBroadcastReceiver filter a6ac965
+          Action: "android.intent.action.PACKAGE_FULLY_REMOVED"
+          Scheme: "package"
+
+  Non-Data Actions:
+      com.oculus.intent.action.SYNC_PWA_SETTING:
+        1f2b63a com.oculus.browser/.PackageSettingsReceiver filter 2b972eb
+          Action: "com.oculus.intent.action.SYNC_PWA_SETTING"
+        6bbb848 com.oculus.browser/.SecurePackageSettingsReceiver filter fc396e1
+          Action: "com.oculus.intent.action.SYNC_PWA_SETTING"
+      com.android.chrome.safe_browsing.LOGIN:
+        eae862c com.oculus.browser/org.chromium.chrome.browser.safe_browsing.PasswordProtectionBroadcastReceiver filter f38b8f5
+          Action: "com.android.chrome.safe_browsing.LOGIN"
+      oculus.intent.action.DC_CLIENT_HISTORY:
+        eff4860 com.oculus.browser/com.oculus.deviceconfigclient.DeviceConfigClientDebugReceiver filter 188d3bf
+          Action: "oculus.intent.action.DC_CLIENT_HISTORY"
+      oculus.intent.action.DC_SET_CLIENT_VALUES:
+        35d292 com.oculus.browser/com.oculus.deviceconfigclient.DeviceConfigClientReceiver filter bff5463
+          Action: "oculus.intent.action.DC_SET_CLIENT_VALUES"
+      android.speech.tts.engine.TTS_DATA_INSTALLED:
+        af810f4 com.oculus.browser/.tts.TtsDataInstalledReceiver filter 181c01d
+          Action: "android.speech.tts.engine.TTS_DATA_INSTALLED"
+      org.chromium.chrome.browser.notifications.PRE_UNSUBSCRIBE:
+        2546ce2 com.oculus.browser/org.chromium.chrome.browser.notifications.NotificationServiceImpl$Receiver filter feb6873
+          Action: "org.chromium.chrome.browser.notifications.PRE_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.SHOW_ORIGINAL_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.CLOSE_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_AS_SAFE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_WARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.COMMIT_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_UNWARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.UNDO_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.CLICK_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.ALWAYS_ALLOW"
+      org.chromium.chrome.browser.notifications.SHOW_ORIGINAL_NOTIFICATION:
+        2546ce2 com.oculus.browser/org.chromium.chrome.browser.notifications.NotificationServiceImpl$Receiver filter feb6873
+          Action: "org.chromium.chrome.browser.notifications.PRE_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.SHOW_ORIGINAL_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.CLOSE_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_AS_SAFE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_WARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.COMMIT_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_UNWARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.UNDO_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.CLICK_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.ALWAYS_ALLOW"
+      oculus.intent.action.DC_EXPORT_CLIENT_CACHE:
+        eff4860 com.oculus.browser/com.oculus.deviceconfigclient.DeviceConfigClientDebugReceiver filter 8da85de
+          Action: "oculus.intent.action.DC_EXPORT_CLIENT_CACHE"
+      org.chromium.chrome.browser.notifications.CLOSE_NOTIFICATION:
+        2546ce2 com.oculus.browser/org.chromium.chrome.browser.notifications.NotificationServiceImpl$Receiver filter feb6873
+          Action: "org.chromium.chrome.browser.notifications.PRE_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.SHOW_ORIGINAL_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.CLOSE_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_AS_SAFE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_WARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.COMMIT_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_UNWARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.UNDO_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.CLICK_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.ALWAYS_ALLOW"
+      oculus.intent.action.DC_CLIENT_TROUBLESHOOT:
+        eff4860 com.oculus.browser/com.oculus.deviceconfigclient.DeviceConfigClientDebugReceiver filter 139d5d5
+          Action: "oculus.intent.action.DC_CLIENT_TROUBLESHOOT"
+      org.chromium.chrome.browser.actor.ACTION_CANCEL:
+        5ff968a com.oculus.browser/org.chromium.chrome.browser.actor.ActorBroadcastReceiver filter 66d54fb
+          Action: "org.chromium.chrome.browser.actor.ACTION_CANCEL"
+          Action: "org.chromium.chrome.browser.actor.ACTION_PAUSE"
+          Action: "org.chromium.chrome.browser.actor.ACTION_RESUME"
+      org.chromium.chrome.browser.notifications.REPORT_AS_SAFE:
+        2546ce2 com.oculus.browser/org.chromium.chrome.browser.notifications.NotificationServiceImpl$Receiver filter feb6873
+          Action: "org.chromium.chrome.browser.notifications.PRE_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.SHOW_ORIGINAL_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.CLOSE_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_AS_SAFE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_WARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.COMMIT_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_UNWARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.UNDO_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.CLICK_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.ALWAYS_ALLOW"
+      horizonos.search.debug.action.REINIT_SEARCH_DOCS:
+        145fc06 com.oculus.browser/.SystemSearchReceiver filter 3a52c7
+          Action: "horizonos.search.debug.action.REINIT_SEARCH_DOCS"
+      android.intent.action.LOCALE_CHANGED:
+        193d918 com.oculus.browser/org.chromium.chrome.browser.quickactionsearchwidget.QuickActionSearchWidgetProvider$QuickActionSearchWidgetProviderSearch filter b489156
+          Action: "android.intent.action.LOCALE_CHANGED"
+        8b245d7 com.oculus.browser/org.chromium.chrome.browser.quickactionsearchwidget.QuickActionSearchWidgetProvider$QuickActionSearchWidgetProviderDino filter 30c11ad
+          Action: "android.intent.action.LOCALE_CHANGED"
+      org.chromium.chrome.browser.notifications.REPORT_WARNED_NOTIFICATION_AS_SPAM:
+        2546ce2 com.oculus.browser/org.chromium.chrome.browser.notifications.NotificationServiceImpl$Receiver filter feb6873
+          Action: "org.chromium.chrome.browser.notifications.PRE_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.SHOW_ORIGINAL_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.CLOSE_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_AS_SAFE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_WARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.COMMIT_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_UNWARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.UNDO_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.CLICK_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.ALWAYS_ALLOW"
+      org.chromium.chrome.browser.actor.ACTION_PAUSE:
+        5ff968a com.oculus.browser/org.chromium.chrome.browser.actor.ActorBroadcastReceiver filter 66d54fb
+          Action: "org.chromium.chrome.browser.actor.ACTION_CANCEL"
+          Action: "org.chromium.chrome.browser.actor.ACTION_PAUSE"
+          Action: "org.chromium.chrome.browser.actor.ACTION_RESUME"
+      org.chromium.chrome.browser.actor.ACTION_RESUME:
+        5ff968a com.oculus.browser/org.chromium.chrome.browser.actor.ActorBroadcastReceiver filter 66d54fb
+          Action: "org.chromium.chrome.browser.actor.ACTION_CANCEL"
+          Action: "org.chromium.chrome.browser.actor.ACTION_PAUSE"
+          Action: "org.chromium.chrome.browser.actor.ACTION_RESUME"
+      org.chromium.chrome.browser.notifications.COMMIT_UNSUBSCRIBE:
+        2546ce2 com.oculus.browser/org.chromium.chrome.browser.notifications.NotificationServiceImpl$Receiver filter feb6873
+          Action: "org.chromium.chrome.browser.notifications.PRE_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.SHOW_ORIGINAL_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.CLOSE_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_AS_SAFE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_WARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.COMMIT_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_UNWARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.UNDO_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.CLICK_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.ALWAYS_ALLOW"
+      android.app.action.APP_BLOCK_STATE_CHANGED:
+        d00b330 com.oculus.browser/org.chromium.chrome.browser.notifications.permissions.NotificationPermissionChangeReceiver filter 7051ba9
+          Action: "android.app.action.APP_BLOCK_STATE_CHANGED"
+          Action: "android.app.action.NOTIFICATION_CHANNEL_BLOCK_STATE_CHANGED"
+      oculus.intent.action.DC_EXPORT_CLIENT_ACCESS_LOG:
+        eff4860 com.oculus.browser/com.oculus.deviceconfigclient.DeviceConfigClientDebugReceiver filter 4ff4119
+          Action: "oculus.intent.action.DC_EXPORT_CLIENT_ACCESS_LOG"
+      org.chromium.chrome.browser.notifications.REPORT_UNWARNED_NOTIFICATION_AS_SPAM:
+        2546ce2 com.oculus.browser/org.chromium.chrome.browser.notifications.NotificationServiceImpl$Receiver filter feb6873
+          Action: "org.chromium.chrome.browser.notifications.PRE_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.SHOW_ORIGINAL_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.CLOSE_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_AS_SAFE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_WARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.COMMIT_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_UNWARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.UNDO_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.CLICK_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.ALWAYS_ALLOW"
+      com.oculus.vrnotifications.intent.action.SILENT_PAYLOAD:
+        950752e com.oculus.browser/.fbns.FBNSNotificationsReceiver filter a8a18cf
+          Action: "com.oculus.vrnotifications.intent.action.SILENT_PAYLOAD"
+      org.chromium.chrome.browser.notifications.UNDO_UNSUBSCRIBE:
+        2546ce2 com.oculus.browser/org.chromium.chrome.browser.notifications.NotificationServiceImpl$Receiver filter feb6873
+          Action: "org.chromium.chrome.browser.notifications.PRE_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.SHOW_ORIGINAL_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.CLOSE_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_AS_SAFE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_WARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.COMMIT_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_UNWARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.UNDO_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.CLICK_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.ALWAYS_ALLOW"
+      android.app.action.NOTIFICATION_CHANNEL_BLOCK_STATE_CHANGED:
+        d00b330 com.oculus.browser/org.chromium.chrome.browser.notifications.permissions.NotificationPermissionChangeReceiver filter 7051ba9
+          Action: "android.app.action.APP_BLOCK_STATE_CHANGED"
+          Action: "android.app.action.NOTIFICATION_CHANNEL_BLOCK_STATE_CHANGED"
+      oculus.intent.action.DC_CLIENT_PREDICT:
+        eff4860 com.oculus.browser/com.oculus.deviceconfigclient.DeviceConfigClientDebugReceiver filter c808a8c
+          Action: "oculus.intent.action.DC_CLIENT_PREDICT"
+      org.chromium.chrome.browser.notifications.CLICK_NOTIFICATION:
+        2546ce2 com.oculus.browser/org.chromium.chrome.browser.notifications.NotificationServiceImpl$Receiver filter feb6873
+          Action: "org.chromium.chrome.browser.notifications.PRE_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.SHOW_ORIGINAL_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.CLOSE_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_AS_SAFE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_WARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.COMMIT_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_UNWARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.UNDO_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.CLICK_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.ALWAYS_ALLOW"
+      org.chromium.chrome.browser.notifications.ALWAYS_ALLOW:
+        2546ce2 com.oculus.browser/org.chromium.chrome.browser.notifications.NotificationServiceImpl$Receiver filter feb6873
+          Action: "org.chromium.chrome.browser.notifications.PRE_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.SHOW_ORIGINAL_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.CLOSE_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_AS_SAFE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_WARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.COMMIT_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.REPORT_UNWARNED_NOTIFICATION_AS_SPAM"
+          Action: "org.chromium.chrome.browser.notifications.UNDO_UNSUBSCRIBE"
+          Action: "org.chromium.chrome.browser.notifications.CLICK_NOTIFICATION"
+          Action: "org.chromium.chrome.browser.notifications.ALWAYS_ALLOW"
+      android.appwidget.action.APPWIDGET_UPDATE:
+        193d918 com.oculus.browser/org.chromium.chrome.browser.quickactionsearchwidget.QuickActionSearchWidgetProvider$QuickActionSearchWidgetProviderSearch filter 8a8ef71
+          Action: "android.appwidget.action.APPWIDGET_UPDATE"
+        8b245d7 com.oculus.browser/org.chromium.chrome.browser.quickactionsearchwidget.QuickActionSearchWidgetProvider$QuickActionSearchWidgetProviderDino filter 796ec4
+          Action: "android.appwidget.action.APPWIDGET_UPDATE"
+
+Service Resolver Table:
+  Non-Data Actions:
+      org.chromium.intent.action.UPDATE_PAYMENT_DETAILS:
+        6f1c378 com.oculus.browser/org.chromium.components.payments.PaymentDetailsUpdateService filter 54efa51
+          Action: "org.chromium.intent.action.UPDATE_PAYMENT_DETAILS"
+      android.app.appfunctions.AppFunctionService:
+        8c96152 com.oculus.browser/.appfunctions.OculusAppFunctionService filter d19c23 permission android.permission.BIND_APP_FUNCTION_SERVICE
+          Action: "android.app.appfunctions.AppFunctionService"
+      android.support.customtabs.action.CustomTabsService:
+        c8521ea com.oculus.browser/org.chromium.chrome.browser.customtabs.CustomTabsConnectionService filter a00ecdb
+          Action: "android.support.customtabs.action.CustomTabsService"
+          Category: "androidx.browser.auth.category.AuthTab"
+          Category: "androidx.browser.customtabs.category.ColorSchemeCustomization"
+          Category: "androidx.browser.customtabs.category.EphemeralBrowsing"
+          Category: "androidx.browser.customtabs.category.NavBarColorCustomization"
+          Category: "androidx.browser.customtabs.category.SetNetwork"
+          Category: "androidx.browser.trusted.category.ImmersiveMode"
+          Category: "androidx.browser.trusted.category.LaunchSiteSettings"
+          Category: "androidx.browser.trusted.category.LaunchWebApkSiteSettings"
+          Category: "androidx.browser.trusted.category.TrustedWebActivities"
+          Category: "androidx.browser.trusted.category.TrustedWebActivitySplashScreensV1"
+          Category: "androidx.browser.trusted.category.WebShareTargetV2"
+      android.intent.action.MEDIA_BUTTON:
+        e8b72b6 com.oculus.browser/org.chromium.chrome.browser.media.ui.ChromeMediaNotificationControllerServices$PresentationListenerService filter d177bb7
+          Action: "android.intent.action.MEDIA_BUTTON"
+        13b9f24 com.oculus.browser/org.chromium.chrome.browser.media.ui.ChromeMediaNotificationControllerServices$CastListenerService filter ab7ea8d
+          Action: "android.intent.action.MEDIA_BUTTON"
+        fd40442 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService1 filter 39e1c53
+          Action: "android.intent.action.MEDIA_BUTTON"
+        2258990 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService2 filter f45a289
+          Action: "android.intent.action.MEDIA_BUTTON"
+        722228e com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService3 filter 7e42aaf
+          Action: "android.intent.action.MEDIA_BUTTON"
+        381aebc com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService4 filter 2dcde45
+          Action: "android.intent.action.MEDIA_BUTTON"
+        221d99a com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService5 filter fd2c2cb
+          Action: "android.intent.action.MEDIA_BUTTON"
+        818faa8 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService6 filter 4f219c1
+          Action: "android.intent.action.MEDIA_BUTTON"
+        b33f566 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService7 filter cc8c0a7
+          Action: "android.intent.action.MEDIA_BUTTON"
+        4571954 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService8 filter dc590fd
+          Action: "android.intent.action.MEDIA_BUTTON"
+        ffa01f2 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService9 filter d36c043
+          Action: "android.intent.action.MEDIA_BUTTON"
+        5b676c0 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService10 filter f5f3ff9
+          Action: "android.intent.action.MEDIA_BUTTON"
+        4a24b3e com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService11 filter bfb1d9f
+          Action: "android.intent.action.MEDIA_BUTTON"
+        4ec3eec com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService12 filter a4ae2b5
+          Action: "android.intent.action.MEDIA_BUTTON"
+        ff3dd4a com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService13 filter 97df4bb
+          Action: "android.intent.action.MEDIA_BUTTON"
+        ed45dd8 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService14 filter 213f531
+          Action: "android.intent.action.MEDIA_BUTTON"
+        c1a8416 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService15 filter a8d2197
+          Action: "android.intent.action.MEDIA_BUTTON"
+        1d7f84 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService16 filter d81b36d
+          Action: "android.intent.action.MEDIA_BUTTON"
+        832cba2 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService17 filter 8f84033
+          Action: "android.intent.action.MEDIA_BUTTON"
+        fb50ff0 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService18 filter e931969
+          Action: "android.intent.action.MEDIA_BUTTON"
+        695ffee com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService19 filter 1ecac8f
+          Action: "android.intent.action.MEDIA_BUTTON"
+        3f33b1c com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService20 filter e3ae325
+          Action: "android.intent.action.MEDIA_BUTTON"
+        3e62cfa com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService21 filter e1182ab
+          Action: "android.intent.action.MEDIA_BUTTON"
+        e86ed08 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService22 filter 7db8ca1
+          Action: "android.intent.action.MEDIA_BUTTON"
+        2da1ec6 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService23 filter f639e87
+          Action: "android.intent.action.MEDIA_BUTTON"
+        b21d1b4 com.oculus.browser/org.chromium.chrome.browser.media.ui.OculusMediaServices$PlaybackListenerService24 filter 8351dd
+          Action: "android.intent.action.MEDIA_BUTTON"
+
+Domain verification status:
+
+Permissions:
+  Permission [com.oculus.browser.THEATER_VIEW_ACTION_BROADCAST_PERMISSION] (aaad6f1):
+    sourcePackage=com.oculus.browser
+    uid=10067 gids=[] type=0 prot=signature
+    perm=PermissionInfo{7a122d6 com.oculus.browser.THEATER_VIEW_ACTION_BROADCAST_PERMISSION}
+    flags=0x0
+
+Permissions:
+  Permission [com.oculus.browser.permission.C2D_MESSAGE] (fbd3957):
+    sourcePackage=com.oculus.browser
+    uid=10067 gids=[] type=0 prot=signature
+    perm=PermissionInfo{b541c44 com.oculus.browser.permission.C2D_MESSAGE}
+    flags=0x0
+
+Permissions:
+  Permission [com.oculus.browser.permission.DEBUG] (404f12d):
+    sourcePackage=com.oculus.browser
+    uid=10067 gids=[] type=0 prot=signature|role
+    perm=PermissionInfo{d649662 com.oculus.browser.permission.DEBUG}
+    flags=0x0
+
+Permissions:
+  Permission [com.oculus.browser.TOS_ACKED] (b7213f3):
+    sourcePackage=com.oculus.browser
+    uid=10067 gids=[] type=0 prot=signature|privileged
+    perm=PermissionInfo{298b8b0 com.oculus.browser.TOS_ACKED}
+    flags=0x0
+
+Permissions:
+  Permission [com.oculus.browser.permission.READ_WRITE_BOOKMARK_FOLDERS] (b6c7329):
+    sourcePackage=com.oculus.browser
+    uid=10067 gids=[] type=0 prot=signature|privileged
+    perm=PermissionInfo{2f9b6ae com.oculus.browser.permission.READ_WRITE_BOOKMARK_FOLDERS}
+    flags=0x0
+
+Permissions:
+  Permission [com.oculus.browser.permission.CHILD_SERVICE] (28ffc4f):
+    sourcePackage=com.oculus.browser
+    uid=10067 gids=[] type=0 prot=signature
+    perm=PermissionInfo{a48afdc com.oculus.browser.permission.CHILD_SERVICE}
+    flags=0x0
+
+Registered ContentProviders:
+  com.oculus.browser/com.oculus.vrshell.privateipc.AppMenuProvider:
+    Provider{6b018e5 com.oculus.browser/com.oculus.vrshell.privateipc.AppMenuProvider}
+  com.oculus.browser/org.chromium.chrome.browser.download.DownloadFileProvider:
+    Provider{6ae8fba com.oculus.browser/org.chromium.chrome.browser.download.DownloadFileProvider}
+  com.oculus.browser/org.chromium.ui.dragdrop.DropDataContentProvider:
+    Provider{bfa0e6b com.oculus.browser/org.chromium.ui.dragdrop.DropDataContentProvider}
+  com.oculus.browser/com.google.mlkit.common.internal.MlKitInitProvider:
+    Provider{b9eedc8 com.oculus.browser/com.google.mlkit.common.internal.MlKitInitProvider}
+  com.oculus.browser/org.chromium.chrome.browser.screenshotprovider.ScreenshotContentProvider:
+    Provider{fce5e61 com.oculus.browser/org.chromium.chrome.browser.screenshotprovider.ScreenshotContentProvider}
+  com.oculus.browser/org.chromium.chrome.browser.provider.PageContentProvider:
+    Provider{ba5ed86 com.oculus.browser/org.chromium.chrome.browser.provider.PageContentProvider}
+  com.oculus.browser/org.chromium.chrome.browser.util.ChromeFileProvider:
+    Provider{fa92647 com.oculus.browser/org.chromium.chrome.browser.util.ChromeFileProvider}
+  com.oculus.browser/org.chromium.chrome.browser.autofill.AutofillThirdPartyModeContentProvider:
+    Provider{6991e74 com.oculus.browser/org.chromium.chrome.browser.autofill.AutofillThirdPartyModeContentProvider}
+  com.oculus.browser/org.chromium.chrome.browser.provider.ChromeBrowserProvider:
+    Provider{8317f9d com.oculus.browser/org.chromium.chrome.browser.provider.ChromeBrowserProvider}
+  com.oculus.browser/org.chromium.chrome.browser.pdf.PdfContentProvider:
+    Provider{2635c12 com.oculus.browser/org.chromium.chrome.browser.pdf.PdfContentProvider}
+
+ContentProvider Authorities:
+  [com.oculus.browser.appMenuProvider]:
+    Provider{6b018e5 com.oculus.browser/com.oculus.vrshell.privateipc.AppMenuProvider}
+      applicationInfo=ApplicationInfo{247dfe3 com.oculus.browser}
+  [com.oculus.browser]:
+    Provider{8317f9d com.oculus.browser/org.chromium.chrome.browser.provider.ChromeBrowserProvider}
+      applicationInfo=ApplicationInfo{b63ade0 com.oculus.browser}
+  [com.oculus.browser.PageContentProvider]:
+    Provider{ba5ed86 com.oculus.browser/org.chromium.chrome.browser.provider.PageContentProvider}
+      applicationInfo=ApplicationInfo{3ab7899 com.oculus.browser}
+  [com.oculus.browser.mlkitinitprovider]:
+    Provider{b9eedc8 com.oculus.browser/com.google.mlkit.common.internal.MlKitInitProvider}
+      applicationInfo=ApplicationInfo{e17275e com.oculus.browser}
+  [com.oculus.browser.FileProvider]:
+    Provider{fa92647 com.oculus.browser/org.chromium.chrome.browser.util.ChromeFileProvider}
+      applicationInfo=ApplicationInfo{e8e973f com.oculus.browser}
+  [com.oculus.browser.ScreenshotContentProvider]:
+    Provider{fce5e61 com.oculus.browser/org.chromium.chrome.browser.screenshotprovider.ScreenshotContentProvider}
+      applicationInfo=ApplicationInfo{e85c80c com.oculus.browser}
+  [com.oculus.browser.ChromeBrowserProvider]:
+    Provider{8317f9d com.oculus.browser/org.chromium.chrome.browser.provider.ChromeBrowserProvider}
+      applicationInfo=ApplicationInfo{7320555 com.oculus.browser}
+  [com.oculus.browser.PdfContentProvider]:
+    Provider{2635c12 com.oculus.browser/org.chromium.chrome.browser.pdf.PdfContentProvider}
+      applicationInfo=ApplicationInfo{2aa5b6a com.oculus.browser}
+  [com.oculus.browser.browser]:
+    Provider{8317f9d com.oculus.browser/org.chromium.chrome.browser.provider.ChromeBrowserProvider}
+      applicationInfo=ApplicationInfo{85f685b com.oculus.browser}
+  [com.oculus.browser.DropDataProvider]:
+    Provider{bfa0e6b com.oculus.browser/org.chromium.ui.dragdrop.DropDataContentProvider}
+      applicationInfo=ApplicationInfo{3cd58f8 com.oculus.browser}
+  [com.oculus.browser.AutofillThirdPartyModeContentProvider]:
+    Provider{6991e74 com.oculus.browser/org.chromium.chrome.browser.autofill.AutofillThirdPartyModeContentProvider}
+      applicationInfo=ApplicationInfo{75aa1d1 com.oculus.browser}
+  [com.oculus.browser.DownloadFileProvider]:
+    Provider{6ae8fba com.oculus.browser/org.chromium.chrome.browser.download.DownloadFileProvider}
+      applicationInfo=ApplicationInfo{78ac436 com.oculus.browser}
+
+Key Set Manager:
+  [com.oculus.browser]
+      Signing KeySets: 4
+
+Packages:
+  Package [com.oculus.browser] (5a22f37):
+    appId=10067
+    pkg=Package{bfb0ca4 com.oculus.browser}
+    codePath=/data/app/~~1PcZB3cAweBcQhdLXNfrQg==/com.oculus.browser-Jpa8nHC4hhI3JUCdTw7HUQ==
+    resourcePath=/data/app/~~1PcZB3cAweBcQhdLXNfrQg==/com.oculus.browser-Jpa8nHC4hhI3JUCdTw7HUQ==
+    legacyNativeLibraryDir=/data/app/~~1PcZB3cAweBcQhdLXNfrQg==/com.oculus.browser-Jpa8nHC4hhI3JUCdTw7HUQ==/lib
+    extractNativeLibs=false
+    primaryCpuAbi=arm64-v8a
+    secondaryCpuAbi=null
+    cpuAbiOverride=null
+    versionCode=570301102 minSdk=29 targetSdk=36
+    uses-metavr-sdk=[minApiVersion=77, targetApiVersion=77]
+    uses-horizonos-supplement=[name=meta_supplement_staging, min=1, target=-1]
+    minExtensionVersions=[]
+    versionName=150.0.0.39.30.1038228660
+    usesNonSdkApi=false
+    splits=[base]
+    apkSigningVersion=2
+    flags=[ SYSTEM HAS_CODE ALLOW_CLEAR_USER_DATA UPDATED_SYSTEM_APP ALLOW_BACKUP RESTORE_ANY_VERSION ]
+    privateFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_REQUEST_LEGACY_EXTERNAL_STORAGE HAS_DOMAIN_URLS PARTIALLY_DIRECT_BOOT_AWARE SYSTEM_EXT PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    privateFlagsExt=[ PROFILEABLE ]
+    forceQueryable=false
+    queriesPackages=[com.google.android.aicore, com.google.android.gms.policy_cast_dynamite]
+    queriesIntents=[Intent { act=android.intent.action.VIEW cat=[android.intent.category.BROWSABLE] dat=https:/... }]
+    dataDir=/data/user/0/com.oculus.browser
+    supportsScreens=[small, medium, large, xlarge, resizeable, anyDensity]
+    usesLibraries:
+      meta_supplement_staging
+      horizonos.supplement.meta.ndk.libraryapk
+    usesOptionalLibraries:
+      horizonos.appfunctions
+      androidx.window.extensions
+      androidx.window.sidecar
+    usesNativeLibraries:
+      libhzos.meta.so
+      libhzos_trackingclient.meta.so
+      libhzos_trackedinput.meta.so
+    usesOptionalNativeLibraries:
+      libopenxr.google.so
+      libhzos_spaces.meta.so
+    usesLibraryFiles:
+      /system_ext/framework/meta-supplement-staging.jar
+      /system_ext/app/MetaNdkSupplement_LibraryAPK/MetaNdkSupplement_LibraryAPK.apk
+      /system_ext/framework/horizonos-appfunctions.jar
+      /system_ext/framework/androidx.window.extensions.jar
+      /system_ext/framework/androidx.window.sidecar.jar
+      libhzos.meta.so
+      libhzos_trackingclient.meta.so
+      libhzos_trackedinput.meta.so
+      libhzos_spaces.meta.so
+    timeStamp=2026-08-17 21:43:19
+    lastUpdateTime=2026-08-17 21:43:22
+    installerPackageName=com.oculus.ocms
+    installerPackageUid=10032
+    initiatingPackageName=com.oculus.ocms
+    originatingPackageName=null
+    packageSource=0
+    appMetadataFilePath=null
+    signatures=PackageSignatures{2968a0d version:2, signatures:[727a19a0], past signatures:[]}
+    installPermissionsFixed=true
+    pkgFlags=[ SYSTEM HAS_CODE ALLOW_CLEAR_USER_DATA UPDATED_SYSTEM_APP ALLOW_BACKUP RESTORE_ANY_VERSION ]
+    privatePkgFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_REQUEST_LEGACY_EXTERNAL_STORAGE HAS_DOMAIN_URLS PARTIALLY_DIRECT_BOOT_AWARE SYSTEM_EXT PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    apexModuleName=null
+    declared permissions:
+      com.oculus.browser.permission.CHILD_SERVICE: prot=signature
+      com.oculus.browser.permission.READ_WRITE_BOOKMARK_FOLDERS: prot=signature|privileged
+      com.oculus.browser.TOS_ACKED: prot=signature|privileged
+      com.oculus.browser.permission.C2D_MESSAGE: prot=signature
+      com.oculus.browser.permission.DEBUG: prot=signature|role
+      com.oculus.browser.THEATER_VIEW_ACTION_BROADCAST_PERMISSION: prot=signature
+    requested permissions:
+      android.permission.ACCESS_COARSE_LOCATION
+      android.permission.ACCESS_FINE_LOCATION
+      android.permission.ACCESS_WIFI_STATE
+      android.permission.ACCESS_NETWORK_STATE
+      com.oculus.systemux.permission.SHOW_PASSKEY_LOGIN_DIALOG_ACTIVITY
+      com.meta.media.permission.IMMERSIVE_PLAYBACK
+      com.oculus.common.passkey.permission.LAUNCH_PASSKEY
+      horizonos.permission.PASSKEY_CRUD
+      android.permission.ACCESS_ADSERVICES_ATTRIBUTION
+      android.permission.BLUETOOTH_CONNECT
+      android.permission.BLUETOOTH_ADVERTISE
+      android.permission.BLUETOOTH
+      android.permission.BLUETOOTH_SCAN
+      android.permission.REORDER_TASKS
+      android.permission.CAMERA
+      android.permission.CAPTURE_KEYBOARD
+      android.permission.DOWNLOAD_WITHOUT_NOTIFICATION
+      android.permission.FOREGROUND_SERVICE
+      android.permission.FOREGROUND_SERVICE_CAMERA
+      android.permission.FOREGROUND_SERVICE_MICROPHONE
+      android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION
+      android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK
+      android.permission.FOREGROUND_SERVICE_DATA_SYNC
+      android.permission.RUN_USER_INITIATED_JOBS
+      android.permission.INTERNET
+      android.permission.MODIFY_AUDIO_SETTINGS
+      android.permission.POST_NOTIFICATIONS
+      android.permission.QUERY_ALL_PACKAGES
+      android.permission.READ_EXTERNAL_STORAGE
+      android.permission.READ_MEDIA_AUDIO
+      android.permission.READ_MEDIA_IMAGES
+      android.permission.READ_MEDIA_VIDEO
+      android.permission.RECEIVE_BOOT_COMPLETED
+      android.permission.RECORD_AUDIO
+      android.permission.REPOSITION_SELF_WINDOWS
+      android.permission.USE_CREDENTIALS
+      android.permission.VIBRATE
+      android.permission.WAKE_LOCK
+      android.permission.WRITE_EXTERNAL_STORAGE
+      android.permission.MANAGE_EXTERNAL_STORAGE
+      android.permission.CREDENTIAL_MANAGER_QUERY_CANDIDATE_CREDENTIALS
+      android.permission.CREDENTIAL_MANAGER_SET_ALLOWED_PROVIDERS
+      android.permission.CREDENTIAL_MANAGER_SET_ORIGIN
+      android.permission.QUERY_ADVANCED_PROTECTION_MODE
+      android.permission.USE_LOOPBACK_INTERFACE
+      android.permission.SCENE_UNDERSTANDING_FINE
+      android.permission.HAND_TRACKING
+      com.oculus.browser.permission.C2D_MESSAGE
+      com.oculus.browser.permission.READ_WRITE_BOOKMARK_FOLDERS
+      com.oculus.browser.TOS_ACKED
+      com.chrome.permission.DEVICE_EXTRAS
+      com.google.android.c2dm.permission.RECEIVE
+      com.google.android.apps.now.CURRENT_ACCOUNT_ACCESS
+      android.permission.USE_PINNED_WINDOWING_LAYER
+      android.permission.FOREGROUND_SERVICE_SPECIAL_USE
+      android.permission.FOREGROUND_SERVICE_LOCATION
+      android.permission.READ_PRIVILEGED_PHONE_STATE
+      android.permission.SYSTEM_ALERT_WINDOW
+      com.oculus.accountscenter.permission.AUTH_ACTION
+      android.permission.USE_BIOMETRIC
+      com.oculus.browser.permission.PWA_NOTIFICATION_PERMISSION
+      com.oculus.common.passcode.permission.LAUNCH_PASSCODE
+      com.oculus.horizon.FBCONNECT_CONTENT_PROVIDER_READ_ACCESS
+      com.oculus.ocms.am.service.permission.ACCESS
+      com.oculus.systemintelligence.permission.RECEIVE_TTS_BROADCAST
+      com.oculus.permission.ACCESS_TRACKING_ENV
+      com.oculus.permission.ACCESS_BACKGROUND_HEAD_TRACKING
+      horizonos.permission.ACCESS_BACKGROUND_HEAD_TRACKING
+      com.oculus.permission.BOUNDARY_VISIBILITY
+      com.oculus.permission.IMPORT_EXPORT_IOT_MAP_DATA
+      com.oculus.permission.MANAGE_LOCKSCREEN
+      com.oculus.permission.PASSTHROUGH
+      com.oculus.permission.PLANE_TRACKING
+      com.oculus.permission.PLAY_AUDIO_BACKGROUND
+      com.oculus.permission.RECORD_AUDIO_BACKGROUND
+      com.oculus.permission.READ_SETTINGS
+      com.oculus.permission.WRITE_SETTINGS
+      com.oculus.permission.RENDER_MODEL
+      com.oculus.permission.REPORT_EVENTS
+      com.oculus.permission.REPORT_EVENTS_DEBUG
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE_DEBUG
+      com.oculus.permission.DEVICE_CONFIG_PUSH_TO_CLIENT
+      com.oculus.permission.TOUCH_CONTROLLER_PRO
+      com.oculus.permission.USE_ANCHOR_API
+      com.oculus.permission.USE_COLOCATION_DISCOVERY_API
+      com.oculus.permission.USE_SCENE
+      com.oculus.systemux.permission.SHOW_LOGIN_WITH_TWILIGHT_DIALOG_ACTIVITY
+      com.oculus.vrshell.BrowserTheaterViewRequestBroadcastReceiverPermission
+      com.oculus.vrshell.BugReportBroadcastReceiverPermission
+      com.oculus.vrshell.permission.ACCESS_MULTILAYER_IPC
+      com.oculus.vrshell.permission.ACCESS_PANEL_ACTIVITY_FEATURES
+      com.oculus.vrshell.permission.ACCESS_PRIVATE_IPC
+      com.oculus.vrshell.permission.BROWSER_DUI_REPLACEMENT
+      com.oculus.vrshell.permission.THEATER_VIEW_SERVICE
+      com.oculus.permission.EYE_TRACKING
+      horizonos.permission.EYE_TRACKING
+      com.oculus.permission.HAND_TRACKING
+      horizonos.permission.ACCESS_WORLD_MANAGER_SERVICE
+      horizonos.permission.HEADSET_CAMERA
+      com.oculus.permission.READ_PACKAGE_SETTINGS
+      com.oculus.permission.WRITE_PACKAGE_SETTINGS
+      horizonos.permission.READ_PACKAGE_SETTINGS
+      horizonos.permission.WRITE_PACKAGE_SETTINGS
+      horizonos.permission.ACCESS_APP_IMAGE_CACHE
+      horizonos.permission.READ_WORLD_STATE
+      horizonos.permission.REQUEST_THEATER_MODE
+      horizonos.permission.SET_PWA_PACKAGE_NAME
+      horizonos.permission.INTERCEPT_GLOBAL_DRAG_AND_DROP
+      com.meta.credentialsmanager.permission.ACCESS_CREDENTIALS_SERVICE
+      com.google.android.apps.aicore.service.BIND_SERVICE
+      android.permission.USE_FINGERPRINT
+      android.permission.READ_MEDIA_VISUAL_USER_SELECTED
+      horizonos.permission.USE_SCENE
+      horizonos.permission.MANAGE_LOCKSCREEN
+      horizonos.permission.ACCESS_TRACKING_ENV
+      horizonos.permission.REPORT_EVENTS
+      horizonos.permission.WRITE_SETTINGS
+      horizonos.permission.READ_SETTINGS
+      horizonos.permission.AVATAR_CAMERA
+      horizonos.permission.HAND_TRACKING
+      horizonos.permission.USE_ANCHOR_API
+      horizonos.permission.IMPORT_EXPORT_IOT_MAP_DATA
+      horizonos.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE
+      horizonos.permission.PLAY_AUDIO_BACKGROUND
+      horizonos.permission.internal.ACCESS_HAND_TRACKING
+      horizonos.permission.internal.ACCESS_EYE_TRACKING
+    install permissions:
+      android.permission.DOWNLOAD_WITHOUT_NOTIFICATION: granted=true
+      android.permission.FOREGROUND_SERVICE_CAMERA: granted=true
+      com.oculus.permission.USE_ANCHOR_API: granted=true
+      com.oculus.permission.REPORT_EVENTS: granted=true
+      android.permission.USE_CREDENTIALS: granted=true
+      android.permission.MODIFY_AUDIO_SETTINGS: granted=true
+      android.permission.MANAGE_EXTERNAL_STORAGE: granted=true
+      com.oculus.browser.permission.C2D_MESSAGE: granted=true
+      com.oculus.permission.BOUNDARY_VISIBILITY: granted=true
+      horizonos.permission.ACCESS_TRACKING_ENV: granted=true
+      android.permission.SYSTEM_ALERT_WINDOW: granted=true
+      com.oculus.permission.PLAY_AUDIO_BACKGROUND: granted=true
+      com.oculus.permission.WRITE_SETTINGS: granted=true
+      com.oculus.permission.READ_PACKAGE_SETTINGS: granted=true
+      com.oculus.vrshell.permission.THEATER_VIEW_SERVICE: granted=true
+      horizonos.permission.IMPORT_EXPORT_IOT_MAP_DATA: granted=true
+      android.permission.FOREGROUND_SERVICE: granted=true
+      android.permission.RECEIVE_BOOT_COMPLETED: granted=true
+      android.permission.FOREGROUND_SERVICE_SPECIAL_USE: granted=true
+      horizonos.permission.MANAGE_LOCKSCREEN: granted=false
+      horizonos.permission.WRITE_PACKAGE_SETTINGS: granted=true
+      horizonos.permission.PASSKEY_CRUD: granted=true, flags=[ GRANTED_BY_ROLE]
+      android.permission.FOREGROUND_SERVICE_LOCATION: granted=true
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE: granted=true
+      com.meta.credentialsmanager.permission.ACCESS_CREDENTIALS_SERVICE: granted=false
+      android.permission.BLUETOOTH: granted=true
+      com.oculus.permission.IMPORT_EXPORT_IOT_MAP_DATA: granted=true
+      horizonos.permission.ACCESS_APP_IMAGE_CACHE: granted=false
+      android.permission.INTERNET: granted=true
+      com.oculus.common.passkey.permission.LAUNCH_PASSKEY: granted=true
+      com.oculus.permission.WRITE_PACKAGE_SETTINGS: granted=true
+      android.permission.REORDER_TASKS: granted=true
+      com.oculus.permission.ACCESS_TRACKING_ENV: granted=true
+      android.permission.CREDENTIAL_MANAGER_SET_ALLOWED_PROVIDERS: granted=true
+      horizonos.permission.INTERCEPT_GLOBAL_DRAG_AND_DROP: granted=true, flags=[ GRANTED_BY_ROLE]
+      com.oculus.permission.DEVICE_CONFIG_PUSH_TO_CLIENT: granted=true
+      com.oculus.browser.permission.PWA_NOTIFICATION_PERMISSION: granted=false
+      com.oculus.vrshell.permission.ACCESS_PANEL_ACTIVITY_FEATURES: granted=true
+      com.oculus.vrshell.permission.BROWSER_DUI_REPLACEMENT: granted=true
+      horizonos.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE: granted=true
+      com.oculus.permission.ACCESS_BACKGROUND_HEAD_TRACKING: granted=false
+      com.oculus.horizon.FBCONNECT_CONTENT_PROVIDER_READ_ACCESS: granted=true
+      horizonos.permission.USE_ANCHOR_API: granted=true
+      android.permission.READ_PRIVILEGED_PHONE_STATE: granted=true
+      com.oculus.browser.TOS_ACKED: granted=true
+      com.meta.media.permission.IMMERSIVE_PLAYBACK: granted=true
+      horizonos.permission.READ_SETTINGS: granted=true
+      horizonos.permission.READ_WORLD_STATE: granted=true
+      horizonos.permission.ACCESS_BACKGROUND_HEAD_TRACKING: granted=false
+      android.permission.FOREGROUND_SERVICE_DATA_SYNC: granted=true
+      com.oculus.systemux.permission.SHOW_LOGIN_WITH_TWILIGHT_DIALOG_ACTIVITY: granted=true
+      com.oculus.common.passcode.permission.LAUNCH_PASSCODE: granted=true
+      horizonos.permission.PLAY_AUDIO_BACKGROUND: granted=true
+      android.permission.ACCESS_NETWORK_STATE: granted=true
+      android.permission.RUN_USER_INITIATED_JOBS: granted=true
+      horizonos.permission.READ_PACKAGE_SETTINGS: granted=true
+      com.oculus.vrshell.permission.ACCESS_MULTILAYER_IPC: granted=true
+      horizonos.permission.WRITE_SETTINGS: granted=true
+      horizonos.permission.HAND_TRACKING: granted=true
+      com.oculus.browser.permission.READ_WRITE_BOOKMARK_FOLDERS: granted=true
+      android.permission.CREDENTIAL_MANAGER_SET_ORIGIN: granted=true
+      android.permission.ACCESS_ADSERVICES_ATTRIBUTION: granted=true
+      android.permission.USE_FINGERPRINT: granted=true
+      com.oculus.permission.READ_SETTINGS: granted=true
+      android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION: granted=true
+      android.permission.FOREGROUND_SERVICE_MICROPHONE: granted=true
+      com.oculus.permission.RECORD_AUDIO_BACKGROUND: granted=true
+      com.oculus.vrshell.BugReportBroadcastReceiverPermission: granted=true
+      horizonos.permission.ACCESS_WORLD_MANAGER_SERVICE: granted=true
+      com.oculus.permission.HAND_TRACKING: granted=true
+      android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK: granted=true
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE_DEBUG: granted=true
+      android.permission.VIBRATE: granted=true
+      com.oculus.vrshell.permission.ACCESS_PRIVATE_IPC: granted=true
+      com.oculus.systemintelligence.permission.RECEIVE_TTS_BROADCAST: granted=true
+      android.permission.ACCESS_WIFI_STATE: granted=true
+      android.permission.USE_BIOMETRIC: granted=true
+      com.oculus.permission.REPORT_EVENTS_DEBUG: granted=true
+      com.oculus.ocms.am.service.permission.ACCESS: granted=true
+      horizonos.permission.internal.ACCESS_HAND_TRACKING: granted=false
+      horizonos.permission.REPORT_EVENTS: granted=true
+      com.oculus.accountscenter.permission.AUTH_ACTION: granted=true
+      android.permission.QUERY_ALL_PACKAGES: granted=true
+      horizonos.permission.REQUEST_THEATER_MODE: granted=true
+      horizonos.permission.SET_PWA_PACKAGE_NAME: granted=true, flags=[ GRANTED_BY_ROLE]
+      horizonos.permission.internal.ACCESS_EYE_TRACKING: granted=false
+      com.oculus.permission.MANAGE_LOCKSCREEN: granted=false
+      com.oculus.systemux.permission.SHOW_PASSKEY_LOGIN_DIALOG_ACTIVITY: granted=true
+      android.permission.WAKE_LOCK: granted=true
+      android.permission.CREDENTIAL_MANAGER_QUERY_CANDIDATE_CREDENTIALS: granted=true
+    User 0: ceDataInode=524323 installed=true hidden=false suspended=false distractionFlags=0 stopped=false notLaunched=false enabled=0 instant=false virtual=false
+      installReason=0
+      firstInstallTime=2009-01-01 00:00:00
+      uninstallReason=0
+      lastDisabledCaller: com.oculus.ocms
+      gids=[3002, 3003]
+      runtime permissions:
+        android.permission.POST_NOTIFICATIONS: granted=false, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.ACCESS_FINE_LOCATION: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|GRANTED_BY_ROLE]
+        com.oculus.permission.USE_SCENE: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.READ_MEDIA_VISUAL_USER_SELECTED: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        android.permission.BLUETOOTH_CONNECT: granted=true, flags=[ SYSTEM_FIXED|GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        horizonos.permission.USE_SCENE: granted=false, flags=[ REVOKE_WHEN_REQUESTED|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.READ_EXTERNAL_STORAGE: granted=true, flags=[ GRANTED_BY_DEFAULT|REVOKE_WHEN_REQUESTED|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        android.permission.ACCESS_COARSE_LOCATION: granted=false, flags=[ GRANTED_BY_DEFAULT|REVOKE_WHEN_REQUESTED|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|GRANTED_BY_ROLE]
+        android.permission.READ_MEDIA_IMAGES: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        android.permission.CAMERA: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.READ_MEDIA_AUDIO: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        android.permission.READ_MEDIA_VIDEO: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        horizonos.permission.EYE_TRACKING: granted=false, flags=[ REVOKE_WHEN_REQUESTED|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        com.oculus.permission.EYE_TRACKING: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        horizonos.permission.HEADSET_CAMERA: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.BLUETOOTH_ADVERTISE: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.WRITE_EXTERNAL_STORAGE: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        android.permission.RECORD_AUDIO: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        horizonos.permission.AVATAR_CAMERA: granted=false, flags=[ REVOKE_WHEN_REQUESTED|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.BLUETOOTH_SCAN: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+      enabledComponents:
+        org.chromium.chrome.browser.incognito.IncognitoTabLauncher
+        org.chromium.chrome.browser.media.MediaLauncherActivity
+        org.chromium.chrome.browser.media.AudioLauncherActivity
+        com.oculus.browser.PanelActivityIntents
+
+Hidden system packages:
+  Package [com.oculus.browser] (b36edc2):
+    appId=10067
+    pkg=Package{8e087d3 com.oculus.browser}
+    codePath=/system_ext/app/TriChromeChrome
+    resourcePath=/system_ext/app/TriChromeChrome
+    legacyNativeLibraryDir=/system_ext/app/TriChromeChrome/lib
+    extractNativeLibs=false
+    primaryCpuAbi=arm64-v8a
+    secondaryCpuAbi=armeabi-v7a
+    cpuAbiOverride=null
+    versionCode=570200642 minSdk=29 targetSdk=36
+    uses-metavr-sdk=[minApiVersion=77, targetApiVersion=77]
+    uses-horizonos-supplement=[name=meta_supplement_staging, min=1, target=-1]
+    minExtensionVersions=[]
+    versionName=149.1.0.10.52.1018773393
+    usesNonSdkApi=false
+    splits=[base]
+    apkSigningVersion=0
+    flags=[ SYSTEM HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP RESTORE_ANY_VERSION ]
+    privateFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_REQUEST_LEGACY_EXTERNAL_STORAGE HAS_DOMAIN_URLS ISOLATED_SPLIT_LOADING PARTIALLY_DIRECT_BOOT_AWARE SYSTEM_EXT PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    privateFlagsExt=[ PROFILEABLE ]
+    forceQueryable=false
+    dataDir=/data/user/0/com.oculus.browser
+    supportsScreens=[small, medium, large, xlarge, resizeable, anyDensity]
+    usesLibraries:
+      meta_supplement_staging
+      horizonos.supplement.meta.ndk.libraryapk
+    usesStaticLibraries:
+      org.chromium.trichromelibrary version:570200642
+    usesOptionalLibraries:
+      horizonos.appfunctions
+    usesNativeLibraries:
+      libhzos.meta.so
+      libhzos_trackingclient.meta.so
+      libhzos_trackedinput.meta.so
+    usesOptionalNativeLibraries:
+      libopenxr.google.so
+      libhzos_spaces.meta.so
+    timeStamp=2009-01-01 00:00:00
+    lastUpdateTime=1970-01-01 00:59:59
+    installerPackageName=null
+    installerPackageUid=-1
+    initiatingPackageName=null
+    originatingPackageName=null
+    packageSource=0
+    appMetadataFilePath=null
+    signatures=PackageSignatures{12e4f10 version:0, signatures:[], past signatures:[]}
+    installPermissionsFixed=false
+    pkgFlags=[ SYSTEM HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP RESTORE_ANY_VERSION ]
+    privatePkgFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_REQUEST_LEGACY_EXTERNAL_STORAGE HAS_DOMAIN_URLS ISOLATED_SPLIT_LOADING PARTIALLY_DIRECT_BOOT_AWARE SYSTEM_EXT PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    apexModuleName=null
+    declared permissions:
+      com.oculus.browser.permission.CHILD_SERVICE: prot=signature
+      com.oculus.browser.permission.READ_WRITE_BOOKMARK_FOLDERS: prot=signature|privileged
+      com.oculus.browser.TOS_ACKED: prot=signature|privileged
+      com.oculus.browser.permission.C2D_MESSAGE: prot=signature
+      com.oculus.browser.permission.DEBUG: prot=signature|role
+      com.oculus.browser.THEATER_VIEW_ACTION_BROADCAST_PERMISSION: prot=signature
+    requested permissions:
+      android.permission.ACCESS_COARSE_LOCATION
+      android.permission.ACCESS_FINE_LOCATION
+      android.permission.ACCESS_WIFI_STATE
+      android.permission.ACCESS_NETWORK_STATE
+      com.oculus.systemux.permission.SHOW_PASSKEY_LOGIN_DIALOG_ACTIVITY
+      com.meta.media.permission.IMMERSIVE_PLAYBACK
+      com.oculus.common.passkey.permission.LAUNCH_PASSKEY
+      horizonos.permission.PASSKEY_CRUD
+      android.permission.ACCESS_ADSERVICES_ATTRIBUTION
+      android.permission.BLUETOOTH_CONNECT
+      android.permission.BLUETOOTH_ADVERTISE
+      android.permission.BLUETOOTH
+      android.permission.BLUETOOTH_SCAN
+      android.permission.REORDER_TASKS
+      android.permission.CAMERA
+      android.permission.CAPTURE_KEYBOARD
+      android.permission.DOWNLOAD_WITHOUT_NOTIFICATION
+      android.permission.FOREGROUND_SERVICE
+      android.permission.FOREGROUND_SERVICE_CAMERA
+      android.permission.FOREGROUND_SERVICE_MICROPHONE
+      android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION
+      android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK
+      android.permission.FOREGROUND_SERVICE_DATA_SYNC
+      android.permission.RUN_USER_INITIATED_JOBS
+      android.permission.INTERNET
+      android.permission.MODIFY_AUDIO_SETTINGS
+      android.permission.POST_NOTIFICATIONS
+      android.permission.QUERY_ALL_PACKAGES
+      android.permission.READ_EXTERNAL_STORAGE
+      android.permission.READ_MEDIA_AUDIO
+      android.permission.READ_MEDIA_IMAGES
+      android.permission.READ_MEDIA_VIDEO
+      android.permission.RECEIVE_BOOT_COMPLETED
+      android.permission.RECORD_AUDIO
+      android.permission.REPOSITION_SELF_WINDOWS
+      android.permission.REQUEST_FULLSCREEN_MODE
+      android.permission.USE_CREDENTIALS
+      android.permission.VIBRATE
+      android.permission.WAKE_LOCK
+      android.permission.WRITE_EXTERNAL_STORAGE
+      android.permission.MANAGE_EXTERNAL_STORAGE
+      android.permission.CREDENTIAL_MANAGER_QUERY_CANDIDATE_CREDENTIALS
+      android.permission.CREDENTIAL_MANAGER_SET_ALLOWED_PROVIDERS
+      android.permission.CREDENTIAL_MANAGER_SET_ORIGIN
+      android.permission.QUERY_ADVANCED_PROTECTION_MODE
+      android.permission.USE_LOOPBACK_INTERFACE
+      android.permission.SCENE_UNDERSTANDING_FINE
+      android.permission.HAND_TRACKING
+      com.oculus.browser.permission.C2D_MESSAGE
+      com.oculus.browser.permission.READ_WRITE_BOOKMARK_FOLDERS
+      com.oculus.browser.TOS_ACKED
+      com.chrome.permission.DEVICE_EXTRAS
+      com.google.android.c2dm.permission.RECEIVE
+      com.google.android.apps.now.CURRENT_ACCOUNT_ACCESS
+      android.permission.USE_PINNED_WINDOWING_LAYER
+      android.permission.FOREGROUND_SERVICE_SPECIAL_USE
+      android.permission.FOREGROUND_SERVICE_LOCATION
+      android.permission.READ_PRIVILEGED_PHONE_STATE
+      android.permission.SYSTEM_ALERT_WINDOW
+      com.oculus.accountscenter.permission.AUTH_ACTION
+      android.permission.USE_BIOMETRIC
+      com.oculus.browser.permission.PWA_NOTIFICATION_PERMISSION
+      com.oculus.common.passcode.permission.LAUNCH_PASSCODE
+      com.oculus.horizon.FBCONNECT_CONTENT_PROVIDER_READ_ACCESS
+      com.oculus.ocms.am.service.permission.ACCESS
+      com.oculus.systemintelligence.permission.RECEIVE_TTS_BROADCAST
+      com.oculus.permission.ACCESS_TRACKING_ENV
+      com.oculus.permission.ACCESS_BACKGROUND_HEAD_TRACKING
+      horizonos.permission.ACCESS_BACKGROUND_HEAD_TRACKING
+      com.oculus.permission.BOUNDARY_VISIBILITY
+      com.oculus.permission.IMPORT_EXPORT_IOT_MAP_DATA
+      com.oculus.permission.MANAGE_LOCKSCREEN
+      com.oculus.permission.PASSTHROUGH
+      com.oculus.permission.PLANE_TRACKING
+      com.oculus.permission.PLAY_AUDIO_BACKGROUND
+      com.oculus.permission.RECORD_AUDIO_BACKGROUND
+      com.oculus.permission.READ_SETTINGS
+      com.oculus.permission.WRITE_SETTINGS
+      com.oculus.permission.RENDER_MODEL
+      com.oculus.permission.REPORT_EVENTS
+      com.oculus.permission.REPORT_EVENTS_DEBUG
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE_DEBUG
+      com.oculus.permission.DEVICE_CONFIG_PUSH_TO_CLIENT
+      com.oculus.permission.TOUCH_CONTROLLER_PRO
+      com.oculus.permission.USE_ANCHOR_API
+      com.oculus.permission.USE_COLOCATION_DISCOVERY_API
+      com.oculus.permission.USE_SCENE
+      com.oculus.systemux.permission.SHOW_LOGIN_WITH_TWILIGHT_DIALOG_ACTIVITY
+      com.oculus.vrshell.BrowserTheaterViewRequestBroadcastReceiverPermission
+      com.oculus.vrshell.BugReportBroadcastReceiverPermission
+      com.oculus.vrshell.permission.ACCESS_MULTILAYER_IPC
+      com.oculus.vrshell.permission.ACCESS_PANEL_ACTIVITY_FEATURES
+      com.oculus.vrshell.permission.ACCESS_PRIVATE_IPC
+      com.oculus.vrshell.permission.BROWSER_DUI_REPLACEMENT
+      com.oculus.vrshell.permission.THEATER_VIEW_SERVICE
+      com.oculus.permission.EYE_TRACKING
+      horizonos.permission.EYE_TRACKING
+      com.oculus.permission.HAND_TRACKING
+      horizonos.permission.ACCESS_WORLD_MANAGER_SERVICE
+      horizonos.permission.HEADSET_CAMERA
+      com.oculus.permission.READ_PACKAGE_SETTINGS
+      com.oculus.permission.WRITE_PACKAGE_SETTINGS
+      horizonos.permission.READ_PACKAGE_SETTINGS
+      horizonos.permission.WRITE_PACKAGE_SETTINGS
+      horizonos.permission.ACCESS_APP_IMAGE_CACHE
+      horizonos.permission.READ_WORLD_STATE
+      horizonos.permission.REQUEST_THEATER_MODE
+      horizonos.permission.SET_PWA_PACKAGE_NAME
+      horizonos.permission.INTERCEPT_GLOBAL_DRAG_AND_DROP
+      com.meta.credentialsmanager.permission.ACCESS_CREDENTIALS_SERVICE
+      android.permission.READ_MEDIA_VISUAL_USER_SELECTED
+      horizonos.permission.USE_SCENE
+      horizonos.permission.MANAGE_LOCKSCREEN
+      horizonos.permission.ACCESS_TRACKING_ENV
+      horizonos.permission.REPORT_EVENTS
+      horizonos.permission.WRITE_SETTINGS
+      horizonos.permission.READ_SETTINGS
+      horizonos.permission.AVATAR_CAMERA
+      horizonos.permission.HAND_TRACKING
+      horizonos.permission.USE_ANCHOR_API
+      horizonos.permission.IMPORT_EXPORT_IOT_MAP_DATA
+      horizonos.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE
+      horizonos.permission.PLAY_AUDIO_BACKGROUND
+      horizonos.permission.internal.ACCESS_HAND_TRACKING
+      horizonos.permission.internal.ACCESS_EYE_TRACKING
+    install permissions:
+      android.permission.DOWNLOAD_WITHOUT_NOTIFICATION: granted=true
+      android.permission.FOREGROUND_SERVICE_CAMERA: granted=true
+      com.oculus.permission.USE_ANCHOR_API: granted=true
+      com.oculus.permission.REPORT_EVENTS: granted=true
+      android.permission.USE_CREDENTIALS: granted=true
+      android.permission.MODIFY_AUDIO_SETTINGS: granted=true
+      android.permission.MANAGE_EXTERNAL_STORAGE: granted=true
+      com.oculus.browser.permission.C2D_MESSAGE: granted=true
+      com.oculus.permission.BOUNDARY_VISIBILITY: granted=true
+      horizonos.permission.ACCESS_TRACKING_ENV: granted=true
+      android.permission.SYSTEM_ALERT_WINDOW: granted=true
+      com.oculus.permission.PLAY_AUDIO_BACKGROUND: granted=true
+      com.oculus.permission.WRITE_SETTINGS: granted=true
+      com.oculus.permission.READ_PACKAGE_SETTINGS: granted=true
+      com.oculus.vrshell.permission.THEATER_VIEW_SERVICE: granted=true
+      horizonos.permission.IMPORT_EXPORT_IOT_MAP_DATA: granted=true
+      android.permission.FOREGROUND_SERVICE: granted=true
+      android.permission.RECEIVE_BOOT_COMPLETED: granted=true
+      android.permission.FOREGROUND_SERVICE_SPECIAL_USE: granted=true
+      horizonos.permission.MANAGE_LOCKSCREEN: granted=false
+      horizonos.permission.WRITE_PACKAGE_SETTINGS: granted=true
+      horizonos.permission.PASSKEY_CRUD: granted=true, flags=[ GRANTED_BY_ROLE]
+      android.permission.FOREGROUND_SERVICE_LOCATION: granted=true
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE: granted=true
+      com.meta.credentialsmanager.permission.ACCESS_CREDENTIALS_SERVICE: granted=false
+      android.permission.BLUETOOTH: granted=true
+      com.oculus.permission.IMPORT_EXPORT_IOT_MAP_DATA: granted=true
+      horizonos.permission.ACCESS_APP_IMAGE_CACHE: granted=false
+      android.permission.INTERNET: granted=true
+      com.oculus.common.passkey.permission.LAUNCH_PASSKEY: granted=true
+      com.oculus.permission.WRITE_PACKAGE_SETTINGS: granted=true
+      android.permission.REORDER_TASKS: granted=true
+      com.oculus.permission.ACCESS_TRACKING_ENV: granted=true
+      android.permission.CREDENTIAL_MANAGER_SET_ALLOWED_PROVIDERS: granted=true
+      horizonos.permission.INTERCEPT_GLOBAL_DRAG_AND_DROP: granted=true, flags=[ GRANTED_BY_ROLE]
+      com.oculus.permission.DEVICE_CONFIG_PUSH_TO_CLIENT: granted=true
+      com.oculus.browser.permission.PWA_NOTIFICATION_PERMISSION: granted=false
+      com.oculus.vrshell.permission.ACCESS_PANEL_ACTIVITY_FEATURES: granted=true
+      com.oculus.vrshell.permission.BROWSER_DUI_REPLACEMENT: granted=true
+      horizonos.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE: granted=true
+      com.oculus.permission.ACCESS_BACKGROUND_HEAD_TRACKING: granted=false
+      com.oculus.horizon.FBCONNECT_CONTENT_PROVIDER_READ_ACCESS: granted=true
+      horizonos.permission.USE_ANCHOR_API: granted=true
+      android.permission.READ_PRIVILEGED_PHONE_STATE: granted=true
+      com.oculus.browser.TOS_ACKED: granted=true
+      com.meta.media.permission.IMMERSIVE_PLAYBACK: granted=true
+      horizonos.permission.READ_SETTINGS: granted=true
+      horizonos.permission.READ_WORLD_STATE: granted=true
+      horizonos.permission.ACCESS_BACKGROUND_HEAD_TRACKING: granted=false
+      android.permission.FOREGROUND_SERVICE_DATA_SYNC: granted=true
+      com.oculus.systemux.permission.SHOW_LOGIN_WITH_TWILIGHT_DIALOG_ACTIVITY: granted=true
+      com.oculus.common.passcode.permission.LAUNCH_PASSCODE: granted=true
+      horizonos.permission.PLAY_AUDIO_BACKGROUND: granted=true
+      android.permission.ACCESS_NETWORK_STATE: granted=true
+      android.permission.RUN_USER_INITIATED_JOBS: granted=true
+      horizonos.permission.READ_PACKAGE_SETTINGS: granted=true
+      com.oculus.vrshell.permission.ACCESS_MULTILAYER_IPC: granted=true
+      horizonos.permission.WRITE_SETTINGS: granted=true
+      horizonos.permission.HAND_TRACKING: granted=true
+      com.oculus.browser.permission.READ_WRITE_BOOKMARK_FOLDERS: granted=true
+      android.permission.CREDENTIAL_MANAGER_SET_ORIGIN: granted=true
+      android.permission.ACCESS_ADSERVICES_ATTRIBUTION: granted=true
+      android.permission.USE_FINGERPRINT: granted=true
+      com.oculus.permission.READ_SETTINGS: granted=true
+      android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION: granted=true
+      android.permission.FOREGROUND_SERVICE_MICROPHONE: granted=true
+      com.oculus.permission.RECORD_AUDIO_BACKGROUND: granted=true
+      com.oculus.vrshell.BugReportBroadcastReceiverPermission: granted=true
+      horizonos.permission.ACCESS_WORLD_MANAGER_SERVICE: granted=true
+      com.oculus.permission.HAND_TRACKING: granted=true
+      android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK: granted=true
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE_DEBUG: granted=true
+      android.permission.VIBRATE: granted=true
+      com.oculus.vrshell.permission.ACCESS_PRIVATE_IPC: granted=true
+      com.oculus.systemintelligence.permission.RECEIVE_TTS_BROADCAST: granted=true
+      android.permission.ACCESS_WIFI_STATE: granted=true
+      android.permission.USE_BIOMETRIC: granted=true
+      com.oculus.permission.REPORT_EVENTS_DEBUG: granted=true
+      com.oculus.ocms.am.service.permission.ACCESS: granted=true
+      horizonos.permission.internal.ACCESS_HAND_TRACKING: granted=false
+      horizonos.permission.REPORT_EVENTS: granted=true
+      com.oculus.accountscenter.permission.AUTH_ACTION: granted=true
+      android.permission.QUERY_ALL_PACKAGES: granted=true
+      horizonos.permission.REQUEST_THEATER_MODE: granted=true
+      horizonos.permission.SET_PWA_PACKAGE_NAME: granted=true, flags=[ GRANTED_BY_ROLE]
+      horizonos.permission.internal.ACCESS_EYE_TRACKING: granted=false
+      com.oculus.permission.MANAGE_LOCKSCREEN: granted=false
+      com.oculus.systemux.permission.SHOW_PASSKEY_LOGIN_DIALOG_ACTIVITY: granted=true
+      android.permission.WAKE_LOCK: granted=true
+      android.permission.CREDENTIAL_MANAGER_QUERY_CANDIDATE_CREDENTIALS: granted=true
+    User 0: ceDataInode=0 installed=true hidden=false suspended=false distractionFlags=0 stopped=false notLaunched=false enabled=0 instant=false virtual=false
+      installReason=0
+      firstInstallTime=1970-01-01 00:59:59
+      uninstallReason=0
+      gids=[3002, 3003]
+      runtime permissions:
+        android.permission.POST_NOTIFICATIONS: granted=false, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.ACCESS_FINE_LOCATION: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|GRANTED_BY_ROLE]
+        com.oculus.permission.USE_SCENE: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.READ_MEDIA_VISUAL_USER_SELECTED: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        android.permission.BLUETOOTH_CONNECT: granted=true, flags=[ SYSTEM_FIXED|GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        horizonos.permission.USE_SCENE: granted=false, flags=[ REVOKE_WHEN_REQUESTED|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.READ_EXTERNAL_STORAGE: granted=true, flags=[ GRANTED_BY_DEFAULT|REVOKE_WHEN_REQUESTED|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        android.permission.ACCESS_COARSE_LOCATION: granted=false, flags=[ GRANTED_BY_DEFAULT|REVOKE_WHEN_REQUESTED|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|GRANTED_BY_ROLE]
+        android.permission.READ_MEDIA_IMAGES: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        android.permission.CAMERA: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.READ_MEDIA_AUDIO: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        android.permission.READ_MEDIA_VIDEO: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        horizonos.permission.EYE_TRACKING: granted=false, flags=[ REVOKE_WHEN_REQUESTED|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        com.oculus.permission.EYE_TRACKING: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        horizonos.permission.HEADSET_CAMERA: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.BLUETOOTH_ADVERTISE: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.WRITE_EXTERNAL_STORAGE: granted=true, flags=[ GRANTED_BY_DEFAULT|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_SYSTEM_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+        android.permission.RECORD_AUDIO: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        horizonos.permission.AVATAR_CAMERA: granted=false, flags=[ REVOKE_WHEN_REQUESTED|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.BLUETOOTH_SCAN: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+
+Queries:
+  system apps queryable: false
+  queries via forceQueryable:
+  queries via package name:
+    com.zenstudios.PFXVRQuest:
+      com.oculus.browser
+  queries via component:
+    com.oculus.horizonmediaplayer:
+      com.oculus.browser
+    com.zenstudios.PFXVRQuest:
+      com.oculus.browser
+    com.amazon.avod.thirdpartyclient:
+      com.oculus.browser
+    com.oculus.identitymanagement.service:
+      com.oculus.browser
+    com.oculus.systemdriver:
+      com.oculus.browser
+    com.facebook.wearable.system.location.service:
+      com.oculus.browser
+    com.oculus.integrity:
+      com.oculus.browser
+    com.oculus.presence:
+      com.oculus.browser
+    com.oculus.userserver2:
+      com.oculus.browser
+    com.oculus.vrshell:
+      com.oculus.browser
+    com.meta.mqdh.mqdhservice:
+      com.oculus.browser
+    com.meta.pclinkservice.server:
+      com.oculus.browser
+    com.oculus.updater:
+      com.oculus.browser
+    com.meta.shell.env.vista.calming:
+      com.oculus.browser
+    com.oculus.guidebook:
+      com.oculus.browser
+    com.oculus.avatareditor:
+      com.oculus.browser
+    com.meta.handseducationmodule:
+      com.oculus.browser
+    com.oculus.fitnesstracker:
+      com.oculus.browser
+    com.meta.environment.prod.nuxd:
+      com.oculus.browser
+    com.oculus.socialplatform:
+      com.oculus.browser
+    com.oculus.magicislandcastingservice:
+      com.oculus.browser
+    com.oculus.configuration:
+      com.oculus.browser
+    com.oculus.helpcenter:
+      com.oculus.browser
+    com.oculus.accountscenter:
+      com.oculus.browser
+    com.google.android.apps.youtube.vr.oculus:
+      com.oculus.browser
+    com.whatsapp:
+      com.oculus.browser
+    com.facebook.orca:
+      com.oculus.browser
+    com.Sanzaru.Wrath2:
+      com.oculus.browser
+    com.oculus.vrprivacycheckup:
+      com.oculus.browser
+    com.meta.rl.trust.service:
+      com.oculus.browser
+    com.oculus.quickpromotionservice:
+      com.oculus.browser
+    com.oculus.facebook:
+      com.oculus.browser
+    com.oculus.igvr:
+      com.oculus.browser
+    com.oculus.hzosgallery:
+      com.oculus.browser
+    com.oculus.panelapp.devicepairing:
+      com.oculus.browser
+    com.oculus.guardiansetup:
+      com.oculus.browser
+    com.meta.surfacetypingnux:
+      com.oculus.browser
+    com.meta.shell.env.footprint.haven2025:
+      com.oculus.browser
+  queryable via interaction:
+    User 0:
+      com.oculus.browser:
+        com.oculus.ocms
+  queryable via uses-library:
+
+Dexopt state:
+  [com.oculus.browser]
+    path: /data/app/~~1PcZB3cAweBcQhdLXNfrQg==/com.oculus.browser-Jpa8nHC4hhI3JUCdTw7HUQ==/base.apk
+      arm64: [status=speed-profile] [reason=bg-dexopt] [primary-abi]
+        [location is /data/app/~~1PcZB3cAweBcQhdLXNfrQg==/com.oculus.browser-Jpa8nHC4hhI3JUCdTw7HUQ==/oat/arm64/base.odex]
+
+Compiler stats:
+  [com.oculus.browser]
+    (No recorded stats)

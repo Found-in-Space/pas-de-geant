@@ -1,0 +1,3 @@
+List of devices attached
+2G0YC1ZF9M0DX0         device usb:1-1 product:eureka model:Quest_3 device:eureka transport_id:10
+

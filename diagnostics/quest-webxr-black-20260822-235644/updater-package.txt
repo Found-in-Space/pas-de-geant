@@ -1,0 +1,432 @@
+Receiver Resolver Table:
+  Schemes:
+      package:
+        15c49dd com.oculus.updater/.core.monitors.SystemReceiver$SystemBroadcastReceiver filter baf952
+          Action: "android.intent.action.PACKAGE_REPLACED"
+          Action: "android.intent.action.PACKAGE_REMOVED"
+          Action: "android.intent.action.PACKAGE_ADDED"
+          Scheme: "package"
+
+  Non-Data Actions:
+      android.intent.action.BATTERY_OKAY:
+        78bdd76 com.oculus.updater/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryNotLowProxy filter 34b6f77
+          Action: "android.intent.action.BATTERY_OKAY"
+          Action: "android.intent.action.BATTERY_LOW"
+      com.oculus.updater.intent.actions.NOTIFICATION_CLICK:
+        fa5d687 com.oculus.updater/.notifications.OSUpdateNotificationsActionReceiver filter 463a9b4
+          Action: "com.oculus.updater.intent.actions.NOTIFICATION_CLICK"
+      android.intent.action.ACTION_POWER_DISCONNECTED:
+        f6e0038 com.oculus.updater/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryChargingProxy filter 9375811
+          Action: "android.intent.action.ACTION_POWER_DISCONNECTED"
+          Action: "android.intent.action.ACTION_POWER_CONNECTED"
+      oculus.intent.action.DC_CLIENT_HISTORY:
+        86b589e com.oculus.updater/com.oculus.deviceconfigclient.DeviceConfigClientDebugReceiver filter 523d795
+          Action: "oculus.intent.action.DC_CLIENT_HISTORY"
+      oculus.intent.action.DC_SET_CLIENT_VALUES:
+        46bad20 com.oculus.updater/com.oculus.deviceconfigclient.DeviceConfigClientReceiver filter 758a6d9
+          Action: "oculus.intent.action.DC_SET_CLIENT_VALUES"
+      androidx.profileinstaller.action.SAVE_PROFILE:
+        37a485a com.oculus.updater/androidx.profileinstaller.ProfileInstallReceiver filter d8d6781
+          Action: "androidx.profileinstaller.action.SAVE_PROFILE"
+      android.intent.action.DEVICE_STORAGE_LOW:
+        1ee7e4 com.oculus.updater/androidx.work.impl.background.systemalarm.ConstraintProxy$StorageNotLowProxy filter 628644d
+          Action: "android.intent.action.DEVICE_STORAGE_LOW"
+          Action: "android.intent.action.DEVICE_STORAGE_OK"
+      android.net.conn.CONNECTIVITY_CHANGE:
+        e505b02 com.oculus.updater/androidx.work.impl.background.systemalarm.ConstraintProxy$NetworkStateProxy filter 97d8c13
+          Action: "android.net.conn.CONNECTIVITY_CHANGE"
+      android.intent.action.LOCKED_BOOT_COMPLETED:
+        15c49dd com.oculus.updater/.core.monitors.SystemReceiver$SystemBroadcastReceiver filter eff5423
+          Action: "android.intent.action.LOCKED_BOOT_COMPLETED"
+          Action: "android.intent.action.BOOT_COMPLETED"
+      android.intent.action.DEVICE_STORAGE_OK:
+        1ee7e4 com.oculus.updater/androidx.work.impl.background.systemalarm.ConstraintProxy$StorageNotLowProxy filter 628644d
+          Action: "android.intent.action.DEVICE_STORAGE_LOW"
+          Action: "android.intent.action.DEVICE_STORAGE_OK"
+      oculus.intent.action.DC_EXPORT_CLIENT_CACHE:
+        86b589e com.oculus.updater/com.oculus.deviceconfigclient.DeviceConfigClientDebugReceiver filter b2e7b4c
+          Action: "oculus.intent.action.DC_EXPORT_CLIENT_CACHE"
+      oculus.intent.action.DC_CLIENT_TROUBLESHOOT:
+        86b589e com.oculus.updater/com.oculus.deviceconfigclient.DeviceConfigClientDebugReceiver filter 589249b
+          Action: "oculus.intent.action.DC_CLIENT_TROUBLESHOOT"
+      androidx.profileinstaller.action.INSTALL_PROFILE:
+        37a485a com.oculus.updater/androidx.profileinstaller.ProfileInstallReceiver filter cb86a8b
+          Action: "androidx.profileinstaller.action.INSTALL_PROFILE"
+      android.intent.action.BATTERY_LOW:
+        78bdd76 com.oculus.updater/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryNotLowProxy filter 34b6f77
+          Action: "android.intent.action.BATTERY_OKAY"
+          Action: "android.intent.action.BATTERY_LOW"
+      android.intent.action.TIMEZONE_CHANGED:
+        4d49e50 com.oculus.updater/androidx.work.impl.background.systemalarm.RescheduleReceiver filter 8a3f849
+          Action: "android.intent.action.TIMEZONE_CHANGED"
+          Action: "android.intent.action.TIME_SET"
+          Action: "android.intent.action.BOOT_COMPLETED"
+      android.intent.action.TIME_SET:
+        4d49e50 com.oculus.updater/androidx.work.impl.background.systemalarm.RescheduleReceiver filter 8a3f849
+          Action: "android.intent.action.TIMEZONE_CHANGED"
+          Action: "android.intent.action.TIME_SET"
+          Action: "android.intent.action.BOOT_COMPLETED"
+      oculus.intent.action.DC_EXPORT_CLIENT_ACCESS_LOG:
+        86b589e com.oculus.updater/com.oculus.deviceconfigclient.DeviceConfigClientDebugReceiver filter 2e90f7f
+          Action: "oculus.intent.action.DC_EXPORT_CLIENT_ACCESS_LOG"
+      androidx.profileinstaller.action.SKIP_FILE:
+        37a485a com.oculus.updater/androidx.profileinstaller.ProfileInstallReceiver filter d7de768
+          Action: "androidx.profileinstaller.action.SKIP_FILE"
+      androidx.profileinstaller.action.BENCHMARK_OPERATION:
+        37a485a com.oculus.updater/androidx.profileinstaller.ProfileInstallReceiver filter 9849026
+          Action: "androidx.profileinstaller.action.BENCHMARK_OPERATION"
+      android.intent.action.BOOT_COMPLETED:
+        15c49dd com.oculus.updater/.core.monitors.SystemReceiver$SystemBroadcastReceiver filter eff5423
+          Action: "android.intent.action.LOCKED_BOOT_COMPLETED"
+          Action: "android.intent.action.BOOT_COMPLETED"
+        4d49e50 com.oculus.updater/androidx.work.impl.background.systemalarm.RescheduleReceiver filter 8a3f849
+          Action: "android.intent.action.TIMEZONE_CHANGED"
+          Action: "android.intent.action.TIME_SET"
+          Action: "android.intent.action.BOOT_COMPLETED"
+      android.intent.action.ACTION_POWER_CONNECTED:
+        f6e0038 com.oculus.updater/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryChargingProxy filter 9375811
+          Action: "android.intent.action.ACTION_POWER_DISCONNECTED"
+          Action: "android.intent.action.ACTION_POWER_CONNECTED"
+      oculus.intent.action.DC_CLIENT_PREDICT:
+        86b589e com.oculus.updater/com.oculus.deviceconfigclient.DeviceConfigClientDebugReceiver filter e3060aa
+          Action: "oculus.intent.action.DC_CLIENT_PREDICT"
+      androidx.work.diagnostics.REQUEST_DIAGNOSTICS:
+        8ed4f7c com.oculus.updater/androidx.work.impl.diagnostics.DiagnosticsReceiver filter 12ad005
+          Action: "androidx.work.diagnostics.REQUEST_DIAGNOSTICS"
+      androidx.work.impl.background.systemalarm.UpdateProxies:
+        4ed254e com.oculus.updater/androidx.work.impl.background.systemalarm.ConstraintProxyUpdateReceiver filter 2aad66f
+          Action: "androidx.work.impl.background.systemalarm.UpdateProxies"
+
+Service Resolver Table:
+  Non-Data Actions:
+      com.facebook.secure.packagefinder.intent.ACTION_QUERY_PACKAGES:
+        e27fabd com.oculus.updater/com.facebook.secure.packagefinder.PackageFinderService filter 9988b2
+          Action: "com.facebook.secure.packagefinder.intent.ACTION_QUERY_PACKAGES"
+          Category: "android.intent.category.DEFAULT"
+      horizonos.os.ondemanddump.action.DUMP:
+        4c12467 com.oculus.updater/.OculusUpdaterDumpService filter dfe1214 permission android.permission.DUMP
+          Action: "horizonos.os.ondemanddump.action.DUMP"
+
+Domain verification status:
+
+Permissions:
+  Permission [com.oculus.updater.permission.NOTIFICATION_REQUEST_ACTION] (c0ba57b):
+    sourcePackage=com.oculus.updater
+    uid=10040 gids=[] type=0 prot=signature|preinstalled
+    perm=PermissionInfo{5831f98 com.oculus.updater.permission.NOTIFICATION_REQUEST_ACTION}
+    flags=0x0
+
+Permissions:
+  Permission [com.oculus.updater.core.os.OTA_OPERATION] (404f3f1):
+    sourcePackage=com.oculus.updater
+    uid=10040 gids=[] type=0 prot=signature|preinstalled
+    perm=PermissionInfo{5d57bd6 com.oculus.updater.core.os.OTA_OPERATION}
+    flags=0x0
+
+Permissions:
+  Permission [com.oculus.updater.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION] (5251e57):
+    sourcePackage=com.oculus.updater
+    uid=10040 gids=[] type=0 prot=signature
+    perm=PermissionInfo{e569d44 com.oculus.updater.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION}
+    flags=0x0
+
+Registered ContentProviders:
+  com.oculus.updater/com.oculus.messagequeue.MessageQueueDoctorInitProvider:
+    Provider{563de2d com.oculus.updater/com.oculus.messagequeue.MessageQueueDoctorInitProvider}
+
+ContentProvider Authorities:
+  [com.oculus.updater.provider.messagequeue.doctor]:
+    Provider{563de2d com.oculus.updater/com.oculus.messagequeue.MessageQueueDoctorInitProvider}
+      applicationInfo=ApplicationInfo{d057f62 com.oculus.updater}
+
+Key Set Manager:
+  [com.oculus.updater]
+      Signing KeySets: 9
+
+Packages:
+  Package [com.oculus.updater] (ff348f3):
+    appId=10040
+    pkg=Package{9c249b0 com.oculus.updater}
+    codePath=/system_ext/priv-app/OSUpdater
+    resourcePath=/system_ext/priv-app/OSUpdater
+    legacyNativeLibraryDir=/system_ext/priv-app/OSUpdater/lib
+    extractNativeLibs=true
+    primaryCpuAbi=null
+    secondaryCpuAbi=null
+    cpuAbiOverride=null
+    versionCode=1045332135 minSdk=26 targetSdk=26
+    uses-metavr-sdk=[minApiVersion=1, targetApiVersion=71]
+    uses-horizonos-supplement=[name=meta_supplement_staging, min=1, target=-1]
+    minExtensionVersions=[]
+    versionName=207.0.0.190.1356
+    usesNonSdkApi=false
+    splits=[base]
+    apkSigningVersion=2
+    flags=[ SYSTEM HAS_CODE ALLOW_CLEAR_USER_DATA ]
+    privateFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_REQUEST_LEGACY_EXTERNAL_STORAGE DIRECT_BOOT_AWARE PARTIALLY_DIRECT_BOOT_AWARE PRIVILEGED SYSTEM_EXT PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    privateFlagsExt=[ PROFILEABLE ]
+    forceQueryable=false
+    queriesIntents=[Intent { act=com.facebook.secure.packagefinder.intent.ACTION_QUERY_PACKAGES }, Intent { act=com.facebook.GET_PHONE_ID }, Intent { act=com.facebook.GET_UNIQUE_ID }]
+    dataDir=/data/user/0/com.oculus.updater
+    supportsScreens=[small, medium, large, xlarge, resizeable, anyDensity]
+    usesLibraries:
+      android.test.base
+      android.hidl.manager-V1.0-java
+      android.hidl.base-V1.0-java
+      org.apache.http.legacy
+      meta_supplement_staging
+      horizonos.supplement.meta.ndk.libraryapk
+    usesNativeLibraries:
+      libhzos.meta.so
+      libhzos_trackingclient.meta.so
+      libhzos_trackedinput.meta.so
+    usesLibraryFiles:
+      /system/framework/android.test.base.jar
+      /system/framework/android.hidl.manager-V1.0-java.jar
+      /system/framework/android.hidl.base-V1.0-java.jar
+      /system/framework/org.apache.http.legacy.jar
+      /system_ext/framework/meta-supplement-staging.jar
+      /system_ext/app/MetaNdkSupplement_LibraryAPK/MetaNdkSupplement_LibraryAPK.apk
+    timeStamp=2009-01-01 00:00:00
+    lastUpdateTime=2009-01-01 00:00:00
+    installerPackageName=null
+    installerPackageUid=-1
+    initiatingPackageName=null
+    originatingPackageName=null
+    packageSource=0
+    appMetadataFilePath=null
+    signatures=PackageSignatures{84d3029 version:2, signatures:[1476a1b0], past signatures:[]}
+    installPermissionsFixed=true
+    pkgFlags=[ SYSTEM HAS_CODE ALLOW_CLEAR_USER_DATA ]
+    privatePkgFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_REQUEST_LEGACY_EXTERNAL_STORAGE DIRECT_BOOT_AWARE PARTIALLY_DIRECT_BOOT_AWARE PRIVILEGED SYSTEM_EXT PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    apexModuleName=null
+    declared permissions:
+      com.oculus.updater.permission.NOTIFICATION_REQUEST_ACTION: prot=signature|preinstalled
+      com.oculus.updater.core.os.OTA_OPERATION: prot=signature|preinstalled
+      com.oculus.updater.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: prot=signature
+    requested permissions:
+      android.permission.INTERNET
+      android.permission.ACCESS_NETWORK_STATE
+      android.permission.ACCESS_WIFI_STATE
+      android.permission.READ_PRIVILEGED_PHONE_STATE
+      com.oculus.permission.REPORT_EVENTS
+      com.oculus.permission.REPORT_EVENTS_DEBUG
+      android.permission.INTERACT_ACROSS_USERS
+      android.permission.READ_PHONE_STATE
+      com.oculus.permission.COLLECT_SYSTEM_LOGS
+      com.oculus.permission.WRITE_SETTINGS
+      com.oculus.permission.READ_SETTINGS
+      horizonos.permission.DUMP_ON_DEMAND
+      android.permission.DELETE_PACKAGES
+      android.permission.INSTALL_PACKAGES
+      android.permission.MANAGE_ROLLBACKS
+      android.permission.PACKAGE_USAGE_STATS
+      android.permission.REBOOT
+      android.permission.RECEIVE_BOOT_COMPLETED
+      android.permission.WAKE_LOCK
+      com.oculus.permission.READ_CONTROLLER_STATUS
+      com.oculus.permission.TASKS_BEFORE_POWER_OFF
+      com.oculus.permission.INSTALL_APEX
+      oculus.permission.CONTROL_DEVICE_IDLE
+      android.permission.NOTIFY_PENDING_SYSTEM_UPDATE
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE_DEBUG
+      com.oculus.permission.DEVICE_CONFIG_PUSH_TO_CLIENT
+      com.oculus.permission.SYSTEM_PLATFORM_SDK
+      android.permission.FOREGROUND_SERVICE
+      com.oculus.updater.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+      android.permission.POST_NOTIFICATIONS
+      horizonos.permission.READ_CONTROLLER_STATUS
+      horizonos.permission.REPORT_EVENTS
+      horizonos.permission.WRITE_SETTINGS
+      horizonos.permission.READ_SETTINGS
+      horizonos.permission.TASKS_BEFORE_POWER_OFF
+      horizonos.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE
+    install permissions:
+      com.oculus.permission.REPORT_EVENTS: granted=true
+      com.oculus.permission.WRITE_SETTINGS: granted=true
+      android.permission.INSTALL_PACKAGES: granted=true
+      horizonos.permission.READ_CONTROLLER_STATUS: granted=true
+      horizonos.permission.DUMP_ON_DEMAND: granted=true
+      android.permission.FOREGROUND_SERVICE: granted=true
+      android.permission.RECEIVE_BOOT_COMPLETED: granted=true
+      com.oculus.permission.READ_CONTROLLER_STATUS: granted=true
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE: granted=true
+      android.permission.INTERNET: granted=true
+      horizonos.permission.TASKS_BEFORE_POWER_OFF: granted=true
+      com.oculus.permission.DEVICE_CONFIG_PUSH_TO_CLIENT: granted=true
+      com.oculus.permission.TASKS_BEFORE_POWER_OFF: granted=true
+      horizonos.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE: granted=true
+      android.permission.PACKAGE_USAGE_STATS: granted=true
+      android.permission.READ_PRIVILEGED_PHONE_STATE: granted=true
+      com.oculus.permission.INSTALL_APEX: granted=true
+      horizonos.permission.READ_SETTINGS: granted=true
+      android.permission.ACCESS_NETWORK_STATE: granted=true
+      android.permission.INTERACT_ACROSS_USERS: granted=true
+      horizonos.permission.WRITE_SETTINGS: granted=true
+      android.permission.MANAGE_ROLLBACKS: granted=true
+      com.oculus.permission.READ_SETTINGS: granted=true
+      android.permission.REBOOT: granted=true
+      com.oculus.updater.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: granted=true
+      com.oculus.permission.METADEVICECONFIG_RECEIVE_FROM_SERVICE_DEBUG: granted=true
+      android.permission.NOTIFY_PENDING_SYSTEM_UPDATE: granted=true
+      android.permission.ACCESS_WIFI_STATE: granted=true
+      com.oculus.permission.REPORT_EVENTS_DEBUG: granted=true
+      horizonos.permission.REPORT_EVENTS: granted=true
+      android.permission.WAKE_LOCK: granted=true
+      oculus.permission.CONTROL_DEVICE_IDLE: granted=true
+      android.permission.DELETE_PACKAGES: granted=true
+    User 0: ceDataInode=524293 installed=true hidden=false suspended=false distractionFlags=0 stopped=false notLaunched=false enabled=0 instant=false virtual=false
+      installReason=0
+      firstInstallTime=2009-01-01 00:00:00
+      uninstallReason=0
+      gids=[3003]
+      runtime permissions:
+        android.permission.POST_NOTIFICATIONS: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED]
+        android.permission.READ_PHONE_STATE: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED]
+
+Queries:
+  system apps queryable: false
+  queries via forceQueryable:
+  queries via package name:
+    com.oculus.integrity:
+      com.oculus.updater
+    com.oculus.presence:
+      com.oculus.updater
+    com.oculus.ocms:
+      com.oculus.updater
+    com.oculus.assistant:
+      com.oculus.updater
+    com.oculus.panelapp.settings:
+      com.oculus.updater
+    com.oculus.panelapp.library:
+      com.oculus.updater
+  queries via component:
+    com.oculus.horizonmediaplayer:
+      com.oculus.updater
+    com.oculus.identitymanagement.service:
+      com.oculus.updater
+    com.oculus.systemdriver:
+      com.oculus.updater
+    com.facebook.wearable.system.location.service:
+      com.oculus.updater
+    com.oculus.integrity:
+      com.oculus.updater
+    com.oculus.presence:
+      com.oculus.updater
+    com.oculus.userserver2:
+      com.oculus.updater
+    com.oculus.vrshell:
+      com.oculus.updater
+    com.meta.mqdh.mqdhservice:
+      com.oculus.updater
+    com.meta.pclinkservice.server:
+      com.oculus.updater
+    com.oculus.updater:
+      com.oculus.horizonmediaplayer
+      com.oculus.identitymanagement.service
+      com.oculus.integrity
+      com.oculus.systemutilities
+      com.oculus.userserver2
+      com.meta.mqdh.mqdhservice
+      com.meta.pclinkservice.server
+      com.oculus.systemux
+      com.oculus.guardian
+      com.meta.shell.env.vista.calming
+      com.oculus.guidebook
+      com.oculus.avatareditor
+      com.oculus.fitnesstracker
+      com.oculus.firsttimenux
+      com.meta.environment.prod.nuxd
+      com.oculus.store
+      com.oculus.socialplatform
+      com.oculus.browser
+      com.oculus.panelapp.kiosk
+      com.oculus.q4bservice
+      com.oculus.panelapp.settings
+      com.oculus.magicislandcastingservice
+      com.oculus.configuration
+      com.oculus.helpcenter
+      com.oculus.accountscenter
+      com.oculus.tv
+      com.whatsapp
+      com.facebook.orca
+      com.oculus.remotedesktop
+      com.oculus.vrprivacycheckup
+      com.oculus.oemconfig
+      com.oculus.mrds
+      com.oculus.systemintelligence
+      com.oculus.panelapp.library
+      com.meta.rl.trust.service
+      com.oculus.quickpromotionservice
+      com.oculus.facebook
+      com.oculus.igvr
+      com.oculus.hzosgallery
+      com.meta.transport
+      horizon.platform.providers
+      com.oculus.panelapp.devicepairing
+      horizon.platform.service
+      com.oculus.guardiansetup
+      com.meta.surfacetypingnux
+      com.meta.shell.env.footprint.haven2025
+    com.meta.shell.env.vista.calming:
+      com.oculus.updater
+    com.oculus.guidebook:
+      com.oculus.updater
+    com.oculus.avatareditor:
+      com.oculus.updater
+    com.oculus.fitnesstracker:
+      com.oculus.updater
+    com.meta.environment.prod.nuxd:
+      com.oculus.updater
+    com.oculus.socialplatform:
+      com.oculus.updater
+    com.oculus.magicislandcastingservice:
+      com.oculus.updater
+    com.oculus.configuration:
+      com.oculus.updater
+    com.oculus.helpcenter:
+      com.oculus.updater
+    com.oculus.accountscenter:
+      com.oculus.updater
+    com.facebook.orca:
+      com.oculus.updater
+    com.oculus.vrprivacycheckup:
+      com.oculus.updater
+    com.meta.rl.trust.service:
+      com.oculus.updater
+    com.oculus.quickpromotionservice:
+      com.oculus.updater
+    com.oculus.facebook:
+      com.oculus.updater
+    com.oculus.igvr:
+      com.oculus.updater
+    com.oculus.hzosgallery:
+      com.oculus.updater
+    com.oculus.panelapp.devicepairing:
+      com.oculus.updater
+    com.oculus.guardiansetup:
+      com.oculus.updater
+    com.meta.surfacetypingnux:
+      com.oculus.updater
+    com.meta.shell.env.footprint.haven2025:
+      com.oculus.updater
+  queryable via interaction:
+    User 0:
+      [com.android.settings,com.android.localtransport,com.oculus.externaldisplayservice,com.oculus.deviceauthserver,com.oculus.micservice,com.oculus.os.cm,com.oculus.externalstorage,com.android.providers.settings,com.android.server.telecom,com.oculus.labservice,com.oculus.bugreportuploader,com.oculus.bugreportservice,com.oculus.appsafety,horizonos.platform,com.oculus.linefrequencyservice,com.oculus.connectivity.bluetooth,android,com.android.location.fused,com.oculus.companion.server,com.oculus.notification_proxy,com.oculus.preshutdowntaskservice,com.oculus.os.chargecontrol,com.android.inputdevices,oculus.platform,com.android.keychain,com.oculus.nux.ota,com.oculus.os.vrlockscreen]:
+        com.oculus.updater
+      com.oculus.updater:
+        [com.android.settings,com.android.localtransport,com.oculus.externaldisplayservice,com.oculus.deviceauthserver,com.oculus.micservice,com.oculus.os.cm,com.oculus.externalstorage,com.android.providers.settings,com.android.server.telecom,com.oculus.labservice,com.oculus.bugreportuploader,com.oculus.bugreportservice,com.oculus.appsafety,horizonos.platform,com.oculus.linefrequencyservice,com.oculus.connectivity.bluetooth,android,com.android.location.fused,com.oculus.companion.server,com.oculus.notification_proxy,com.oculus.preshutdowntaskservice,com.oculus.os.chargecontrol,com.android.inputdevices,oculus.platform,com.android.keychain,com.oculus.nux.ota,com.oculus.os.vrlockscreen]
+      com.oculus.horizon:
+        com.oculus.updater
+  queryable via uses-library:
+
+Dexopt state:
+  [com.oculus.updater]
+    path: /system_ext/priv-app/OSUpdater/OSUpdater.apk
+      arm64: [status=speed-profile] [reason=bg-dexopt] [primary-abi]
+        [location is /data/dalvik-cache/arm64/system_ext@priv-app@OSUpdater@OSUpdater.apk@classes.dex]
+
+Compiler stats:
+  [com.oculus.updater]
+    (No recorded stats)

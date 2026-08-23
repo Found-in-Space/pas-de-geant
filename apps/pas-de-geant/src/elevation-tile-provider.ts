@@ -17,6 +17,14 @@ export interface ElevationTileResource {
   readonly elevation?: ImageTileResource;
 }
 
+export interface TerrainElevationProvider extends TileProvider<ElevationTileResource> {
+  readonly tilePixels: number;
+  readonly metrics: ImageTileProviderMetrics;
+  retainSourceTiles(tiles: Iterable<TileIdentity>): void;
+  resumeDeferred(): void;
+  dispose(): void;
+}
+
 interface ActiveRequest {
   readonly requestId: number;
   readonly observer: (
@@ -32,7 +40,7 @@ interface ActiveRequest {
  * Scheduler resource provider. Only elevation controls terrain topology;
  * imagery is intentionally requested and bound by TerrainSurface afterwards.
  */
-export class ElevationTileProvider implements TileProvider<ElevationTileResource> {
+export class ElevationTileProvider implements TerrainElevationProvider {
   readonly tilePixels: number;
   private nextRequestId = 1;
   private readonly active = new Map<number, ActiveRequest>();
@@ -129,4 +137,50 @@ export class ElevationTileProvider implements TileProvider<ElevationTileResource
       }),
     });
   }
+}
+
+const EMPTY_METRICS: ImageTileProviderMetrics = Object.freeze({
+  requestTotal: 0,
+  sourceLoadTotal: 0,
+  cacheLookupTotal: 0,
+  cacheHitTotal: 0,
+  memoryHitTotal: 0,
+  sharedRequestTotal: 0,
+  persistentHitTotal: 0,
+  persistentWriteTotal: 0,
+  failureTotal: 0,
+  byteTotal: 0,
+  queued: 0,
+  networkDeferred: 0,
+  inFlight: 0,
+  decodedSourceCount: 0,
+  estimatedDecodedBytes: 0,
+});
+
+/** Supplies immediately-ready flat topology when a body has no height source. */
+export class FlatElevationTileProvider implements TerrainElevationProvider {
+  readonly metrics = EMPTY_METRICS;
+  private nextRequestId = 1;
+
+  constructor(readonly tilePixels = 512) {}
+
+  request(
+    tile: TileIdentity,
+    observer: (result: TileProviderResult<ElevationTileResource>) => void,
+  ): TileRequestHandle {
+    const requestId = this.nextRequestId++;
+    let active = true;
+    queueMicrotask(() => active && observer({
+      phase: "response",
+      resource: Object.freeze({
+        kind: "elevation",
+        tile: Object.freeze({ ...tile }),
+      }),
+    }));
+    return Object.freeze({ requestId, cancel() { active = false; } });
+  }
+
+  retainSourceTiles(_tiles: Iterable<TileIdentity>): void {}
+  resumeDeferred(): void {}
+  dispose(): void {}
 }

@@ -3,11 +3,14 @@ import "./style.css";
 import {
   createRuntime,
   type BitmapHandle,
+  type RuntimeOutput,
 } from "@found-in-space/touch-os";
 import {
   createPoseAnchoredPanelDriver,
   createThreePanelSession,
+  createXrRayPointerSource,
   type ThreeHostPose,
+  type ThreePointerPhase,
 } from "@found-in-space/touch-os/hosts/three";
 import * as THREE from "three";
 import { VRButton } from "three/addons/webxr/VRButton.js";
@@ -35,6 +38,7 @@ import {
 import {
   createHandPanelRoot,
   formatCoordinates,
+  handPanelNavigationAction,
   HAND_PANEL_SURFACE,
   HAND_PANEL_THEME,
   type HandPanelDirection,
@@ -84,6 +88,21 @@ import {
   type RealtimeAgentStatus,
 } from "./realtime-agent.js";
 import { TerrainSurface } from "./terrain-surface.js";
+import { lunarElevationProvider, lunarImageryProvider } from "./lunar-configuration.js";
+import { MOON_SURFACE_MODEL } from "./surface-model.js";
+import {
+  SOLAR_SYSTEM_BODIES,
+  bodyPositionJ2000M,
+  celestialBody,
+  isSolarSystemBodyId,
+  type SolarSystemBodyId,
+  type Vector3d,
+} from "./solar-system.js";
+import {
+  relativeJ2000MetresToRender,
+  roomScaleForDisplayRadius,
+  type NavigationMode,
+} from "./world-navigation.js";
 import {
   parseTileMaxZoomArguments,
   parseTilePixelRatioArguments,
@@ -189,6 +208,8 @@ const radialReadout = element<HTMLElement>("radial-readout");
 const aircraftReadout = element<HTMLElement>("aircraft-readout");
 const satelliteReadout = element<HTMLElement>("satellite-readout");
 const resetButton = element<HTMLButtonElement>("reset-button");
+const navigationModeSelect = element<HTMLSelectElement>("navigation-mode");
+const focusBodySelect = element<HTMLSelectElement>("focus-body");
 const aircraftToggle = element<HTMLInputElement>("aircraft-toggle");
 const aircraftLabelsToggle = element<HTMLInputElement>(
   "aircraft-labels-toggle",
@@ -240,6 +261,7 @@ try {
     antialias: true,
     alpha: false,
     powerPreference: "high-performance",
+    logarithmicDepthBuffer: true,
   });
 } catch (error) {
   loadingState.hidden = true;
@@ -265,7 +287,7 @@ const camera = new THREE.PerspectiveCamera(
   62,
   window.innerWidth / window.innerHeight,
   0.025,
-  1200,
+  100_000_000,
 );
 camera.position.set(0, 1.65, 0);
 camera.rotation.order = "YXZ";
@@ -301,8 +323,10 @@ scene.add(planetRoot);
 const celestialSphere = new CelestialSphere();
 scene.add(celestialSphere.object3d);
 const textureLoader = new THREE.TextureLoader();
-textureLoader.load(
+const moonBaseTexturePromise = textureLoader.loadAsync(
   `${import.meta.env.BASE_URL}lroc-color-2k.jpg`,
+);
+void moonBaseTexturePromise.then(
   (texture) => {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
@@ -313,7 +337,6 @@ textureLoader.load(
     );
     celestialSphere.setMoonTexture(texture);
   },
-  undefined,
   (error) => {
     console.warn("LRO Moon texture is unavailable:", error);
   },
@@ -375,6 +398,9 @@ let state = initialPlanetState(
   initialLocation.latitudeDegrees,
   initialLocation.longitudeDegrees,
 );
+let navigationMode: NavigationMode = "surface";
+let focusBodyId: SolarSystemBodyId = "earth";
+let freeObserverJ2000M: Vector3d | undefined;
 const benchmarkScale = Number(benchmarkParameters.get("benchmarkScale"));
 if (Number.isFinite(benchmarkScale) && benchmarkScale >= 1) {
   state.displayRadiusM = benchmarkScale;
@@ -393,8 +419,52 @@ const terrain = new TerrainSurface({
   },
 });
 planetRoot.add(terrain.group);
+const moonBaseTexture = (await moonBaseTexturePromise).clone();
+moonBaseTexture.colorSpace = THREE.SRGBColorSpace;
+moonBaseTexture.flipY = false;
+moonBaseTexture.wrapS = THREE.RepeatWrapping;
+moonBaseTexture.wrapT = THREE.ClampToEdgeWrapping;
+moonBaseTexture.needsUpdate = true;
+const moonRoot = new THREE.Group();
+moonRoot.name = "moon-root";
+scene.add(moonRoot);
+const moonTerrain = new TerrainSurface({
+  renderer,
+  baseTexture: moonBaseTexture,
+  imageryProvider: lunarImageryProvider(),
+  elevationProvider: lunarElevationProvider(),
+  surfaceModel: MOON_SURFACE_MODEL,
+  initialView: {
+    latitudeDegrees: initialLocation.latitudeDegrees,
+    longitudeDegrees: initialLocation.longitudeDegrees,
+    displayRadiusM: state.displayRadiusM,
+    radialMultiplier: state.radialMultiplier,
+    observerHeightWorldM: 1.65,
+    focalLengthPixels: 1_000,
+  },
+});
+moonRoot.add(moonTerrain.group);
+
+const placeholderRoots = new Map<SolarSystemBodyId, THREE.Group>();
+for (const body of SOLAR_SYSTEM_BODIES) {
+  if (body.id === "earth" || body.id === "moon") continue;
+  const root = new THREE.Group();
+  root.name = `${body.id}-root`;
+  const geometry = new THREE.SphereGeometry(1, 48, 24);
+  const material = new THREE.MeshStandardMaterial({
+    color: body.placeholderColor,
+    roughness: 0.88,
+    emissive: body.id === "sun" ? body.placeholderColor : 0x000000,
+    emissiveIntensity: body.id === "sun" ? 1 : 0,
+  });
+  root.add(new THREE.Mesh(geometry, material));
+  placeholderRoots.set(body.id, root);
+  scene.add(root);
+}
+scene.add(new THREE.AmbientLight(0x8793a8, 0.65));
 scene.onBeforeRender = (_renderer, _scene, renderCamera): void => {
   terrain.updateRenderVisibility(renderCamera);
+  moonTerrain.updateRenderVisibility(renderCamera);
 };
 const aircraftLayer = new AircraftLayer((latitudeDegrees, longitudeDegrees) =>
   terrain.sampleElevationMetres(latitudeDegrees, longitudeDegrees)
@@ -447,6 +517,13 @@ const earthMapBitmap: BitmapHandle = {
   height: 1_024,
   revision: 1,
 };
+const moonMapBitmap: BitmapHandle = {
+  kind: "bitmap",
+  image: moonBaseTexture.image,
+  width: 2_048,
+  height: 1_024,
+  revision: 1,
+};
 const handPanelRuntime = createRuntime({
   root: createHandPanelRoot(
     initialCoordinates,
@@ -461,6 +538,39 @@ const handPanelHostRoot = new THREE.Group();
 handPanelHostRoot.name = "hand-panel-host";
 scene.add(handPanelHostRoot);
 const HAND_PANEL_TILT_RADIANS = -Math.PI * 0.24;
+const panelPointerOrigin = new THREE.Vector3();
+const panelPointerQuaternion = new THREE.Quaternion();
+const panelPointerDirection = new THREE.Vector3();
+let panelPointerPressed = false;
+const panelPointerSource = createXrRayPointerSource(() => {
+  const binding = xrControllerBindings.find(
+    (candidate) => candidate.inputSource?.handedness === "right",
+  );
+  if (!binding?.inputSource) {
+    panelPointerPressed = false;
+    return undefined;
+  }
+  binding.controller.getWorldPosition(panelPointerOrigin);
+  binding.controller.getWorldQuaternion(panelPointerQuaternion);
+  panelPointerDirection.set(0, 0, -1)
+    .applyQuaternion(panelPointerQuaternion).normalize();
+  const pressed = (binding.inputSource.gamepad?.buttons[0]?.value ?? 0) > 0.55;
+  const phase: ThreePointerPhase = pressed && !panelPointerPressed
+    ? "down"
+    : !pressed && panelPointerPressed ? "up" : "move";
+  panelPointerPressed = pressed;
+  return {
+    pointerId: "world-navigation-right-ray",
+    pointerType: "ray" as const,
+    phase,
+    timestamp: performance.now(),
+    sourceId: "right-controller",
+    handedness: binding.inputSource.handedness,
+    pressure: pressed ? 1 : 0,
+    origin: panelPointerOrigin,
+    direction: panelPointerDirection,
+  };
+});
 const handPanelDriver = createPoseAnchoredPanelDriver({
   runtime: handPanelRuntime,
   parent: handPanelHostRoot,
@@ -472,6 +582,8 @@ const handPanelDriver = createPoseAnchoredPanelDriver({
   depthTest: false,
   depthWrite: false,
   renderOrder: 100,
+  pointerClaimPolicy: "block-on-hit",
+  pointerSources: [panelPointerSource],
   textureQuality: {
     anisotropy: Math.min(4, renderer.capabilities.getMaxAnisotropy()),
   },
@@ -481,6 +593,17 @@ const handPanel = createThreePanelSession({
   runtime: handPanelRuntime,
   driver: handPanelDriver,
   enabled: false,
+  outputHandler(output: RuntimeOutput) {
+    const action = handPanelNavigationAction(output);
+    if (action === "cycle-mode") {
+      const modes: NavigationMode[] = ["surface", "orbit", "free"];
+      setNavigationMode(
+        modes[(modes.indexOf(navigationMode) + 1) % modes.length]!,
+      );
+    } else if (action === "toggle-earth-moon") {
+      setFocusBody(focusBodyId === "earth" ? "moon" : "earth");
+    }
+  },
 });
 handPanel.attach();
 let handPanelLocationSignature =
@@ -587,6 +710,31 @@ function resetPlanet(): void {
     initialLocation.longitudeDegrees,
   );
   previousXrHead = null;
+  freeObserverJ2000M = undefined;
+  updatePresentation();
+}
+
+function setNavigationMode(mode: NavigationMode): void {
+  if (
+    mode === "surface" &&
+    celestialBody(focusBodyId).surface === null
+  ) {
+    mode = "orbit";
+  }
+  navigationMode = mode;
+  if (mode !== "free") freeObserverJ2000M = undefined;
+  previousXrHead = null;
+  updatePresentation();
+}
+
+function setFocusBody(bodyId: SolarSystemBodyId): void {
+  focusBodyId = bodyId;
+  if (
+    navigationMode === "surface" &&
+    celestialBody(bodyId).surface === null
+  ) navigationMode = "orbit";
+  freeObserverJ2000M = undefined;
+  previousXrHead = null;
   updatePresentation();
 }
 
@@ -654,16 +802,57 @@ function setTileOverlayVisible(visible: boolean): void {
   tileOverlayVisible = visible;
   document.body.dataset.detailTileOverlay = String(visible);
   terrain.setTileOverlayVisible(visible);
+  moonTerrain.setTileOverlayVisible(visible);
 }
 
 function setTextureTileOverlayVisible(visible: boolean): void {
   textureTileOverlayVisible = visible;
   document.body.dataset.detailTextureTileOverlay = String(visible);
   terrain.setTextureTileOverlayVisible(visible);
+  moonTerrain.setTextureTileOverlayVisible(visible);
+}
+
+function moveFreeObserver(travel: THREE.Vector2): void {
+  if (navigationMode === "surface") return;
+  const focus = celestialBody(focusBodyId);
+  const focusPosition = bodyPositionJ2000M(focusBodyId, new Date());
+  freeObserverJ2000M ??= systemObserverForFocus(
+    focusPosition,
+    focus.referenceRadiusM,
+  );
+  const roomScale = roomScaleForDisplayRadius(focusBodyId, state.displayRadiusM);
+  freeObserverJ2000M = {
+    x: freeObserverJ2000M.x + travel.x / roomScale,
+    y: freeObserverJ2000M.y - travel.y / roomScale,
+    z: freeObserverJ2000M.z,
+  };
+  if (navigationMode === "orbit") {
+    const offset = {
+      x: freeObserverJ2000M.x - focusPosition.x,
+      y: freeObserverJ2000M.y - focusPosition.y,
+      z: freeObserverJ2000M.z - focusPosition.z,
+    };
+    const length = Math.hypot(offset.x, offset.y, offset.z);
+    const radius = focus.referenceRadiusM * 3;
+    if (length > 0) {
+      freeObserverJ2000M = {
+        x: focusPosition.x + offset.x / length * radius,
+        y: focusPosition.y + offset.y / length * radius,
+        z: focusPosition.z + offset.z / length * radius,
+      };
+    }
+  }
 }
 
 const terrainEyeWorldPosition = new THREE.Vector3();
 const terrainDrawingBufferSize = new THREE.Vector2();
+const surfaceEast = new THREE.Vector3();
+const surfaceUp = new THREE.Vector3();
+const surfaceSouth = new THREE.Vector3();
+const surfaceBasis = new THREE.Matrix4();
+const surfaceQuaternion = new THREE.Quaternion();
+const surfacePoint = new THREE.Vector3();
+const systemRenderPosition = new THREE.Vector3();
 
 function terrainViewMetrics(): {
   eyeHeightWorldM: number;
@@ -702,8 +891,103 @@ function terrainViewMetrics(): {
   };
 }
 
+function applySphericalSurfacePose(
+  root: THREE.Object3D,
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+  displayRadiusM: number,
+): void {
+  const latitude = THREE.MathUtils.degToRad(latitudeDegrees);
+  const longitude = THREE.MathUtils.degToRad(longitudeDegrees);
+  surfaceUp.set(
+    Math.cos(latitude) * Math.cos(longitude),
+    Math.sin(latitude),
+    -Math.cos(latitude) * Math.sin(longitude),
+  );
+  surfaceEast.set(-Math.sin(longitude), 0, -Math.cos(longitude));
+  surfaceSouth.crossVectors(surfaceEast, surfaceUp).normalize();
+  surfaceBasis.makeBasis(surfaceEast, surfaceUp, surfaceSouth).transpose();
+  surfaceQuaternion.setFromRotationMatrix(surfaceBasis);
+  root.quaternion.copy(surfaceQuaternion);
+  surfacePoint.copy(surfaceUp).multiplyScalar(displayRadiusM)
+    .applyQuaternion(surfaceQuaternion);
+  root.position.set(headsetFloorPosition.x, 0, headsetFloorPosition.y)
+    .sub(surfacePoint);
+  root.scale.setScalar(displayRadiusM);
+}
+
+function systemObserverForFocus(
+  focusPosition: Vector3d,
+  focusRadiusM: number,
+): Vector3d {
+  return {
+    x: focusPosition.x,
+    y: focusPosition.y - focusRadiusM * 3,
+    z: focusPosition.z,
+  };
+}
+
+function updateSystemPresentation(): void {
+  const when = new Date();
+  const focusBody = celestialBody(focusBodyId);
+  const focusPosition = bodyPositionJ2000M(focusBodyId, when);
+  const roomScale = roomScaleForDisplayRadius(
+    focusBodyId,
+    state.displayRadiusM,
+  );
+  const observer = navigationMode === "free" || navigationMode === "orbit"
+    ? (freeObserverJ2000M ??= systemObserverForFocus(
+        focusPosition,
+        focusBody.referenceRadiusM,
+      ))
+    : systemObserverForFocus(focusPosition, focusBody.referenceRadiusM);
+  camera.far = Math.max(1_200, roomScale * 10_000_000_000_000);
+  camera.updateProjectionMatrix();
+  const place = (bodyId: SolarSystemBodyId, root: THREE.Object3D): void => {
+    const body = celestialBody(bodyId);
+    const bodyPosition = bodyPositionJ2000M(bodyId, when);
+    const rendered = relativeJ2000MetresToRender({
+      x: bodyPosition.x - observer.x,
+      y: bodyPosition.y - observer.y,
+      z: bodyPosition.z - observer.z,
+    }, roomScale);
+    root.position.set(rendered.x, rendered.y + 1.65, rendered.z);
+    root.quaternion.identity();
+    root.scale.setScalar(body.referenceRadiusM * roomScale);
+    root.visible = true;
+  };
+  place("earth", planetRoot);
+  place("moon", moonRoot);
+  for (const [bodyId, root] of placeholderRoots) place(bodyId, root);
+  document.body.dataset.roomScale = String(roomScale);
+}
+
 function updatePresentation(): void {
   const coordinates = coordinatesForFrame(state.contact);
+  document.body.dataset.navigationMode = navigationMode;
+  document.body.dataset.focusBody = focusBodyId;
+  navigationModeSelect.value = navigationMode;
+  focusBodySelect.value = focusBodyId;
+  if (navigationMode !== "surface") {
+    updateSystemPresentation();
+  } else {
+    camera.far = 1_200;
+    camera.updateProjectionMatrix();
+    for (const root of placeholderRoots.values()) root.visible = false;
+    if (focusBodyId === "moon") {
+      planetRoot.visible = false;
+      moonRoot.visible = true;
+      applySphericalSurfacePose(
+        moonRoot,
+        coordinates.latitudeDegrees,
+        coordinates.longitudeDegrees,
+        state.displayRadiusM,
+      );
+    } else {
+      planetRoot.visible = true;
+      moonRoot.visible = false;
+    }
+  }
   const pose = solvePlanetPose(state, headsetFloorPosition);
   worldRotationQuaternion.setFromAxisAngle(worldUp, worldRotationRadians);
   worldRotationPivot.set(
@@ -711,15 +995,23 @@ function updatePresentation(): void {
     0,
     headsetFloorPosition.y,
   );
-  planetRoot.quaternion
-    .copy(pose.earthToWorld)
-    .premultiply(worldRotationQuaternion);
-  planetRoot.position
-    .copy(pose.centre)
-    .sub(worldRotationPivot)
-    .applyQuaternion(worldRotationQuaternion)
-    .add(worldRotationPivot);
-  planetRoot.scale.setScalar(state.displayRadiusM);
+  if (navigationMode === "surface" && focusBodyId === "earth") {
+    planetRoot.quaternion
+      .copy(pose.earthToWorld)
+      .premultiply(worldRotationQuaternion);
+    planetRoot.position
+      .copy(pose.centre)
+      .sub(worldRotationPivot)
+      .applyQuaternion(worldRotationQuaternion)
+      .add(worldRotationPivot);
+    planetRoot.scale.setScalar(state.displayRadiusM);
+  } else if (navigationMode === "surface" && focusBodyId === "moon") {
+    moonRoot.quaternion.premultiply(worldRotationQuaternion);
+    moonRoot.position
+      .sub(worldRotationPivot)
+      .applyQuaternion(worldRotationQuaternion)
+      .add(worldRotationPivot);
+  }
   const view = terrainViewMetrics();
   document.body.dataset.displayScale = state.displayRadiusM.toFixed(2);
   terrain.update({
@@ -730,15 +1022,26 @@ function updatePresentation(): void {
     observerHeightWorldM: view.eyeHeightWorldM,
     focalLengthPixels: view.focalLengthPixels,
   });
+  moonTerrain.update({
+    latitudeDegrees: coordinates.latitudeDegrees,
+    longitudeDegrees: coordinates.longitudeDegrees,
+    displayRadiusM: state.displayRadiusM,
+    radialMultiplier: state.radialMultiplier,
+    observerHeightWorldM: view.eyeHeightWorldM,
+    focalLengthPixels: view.focalLengthPixels,
+    projection: "geographic",
+  });
   atmosphere.update({
     displayRadiusM: state.displayRadiusM,
     radialMultiplier: state.radialMultiplier,
     observerHeightWorldM: view.eyeHeightWorldM,
   });
-  coordinatesReadout.textContent = formatCoordinates(
-    coordinates.latitudeDegrees,
-    coordinates.longitudeDegrees,
-  );
+  coordinatesReadout.textContent = navigationMode === "surface"
+    ? `${celestialBody(focusBodyId).name} · ${formatCoordinates(
+        coordinates.latitudeDegrees,
+        coordinates.longitudeDegrees,
+      )}`
+    : `${celestialBody(focusBodyId).name} · ${navigationMode}`;
   const referenceDistance =
     referenceDistanceForDisplayRadius(state.displayRadiusM);
   const horizontalMetresPerKilometre =
@@ -778,6 +1081,8 @@ function handPanelStatus(
     maximumTerrainZoom: lod.maxZoom,
     terrainBudgetLimited: lod.budgetLimited,
     agentState: realtimeAgentStatus.state,
+    navigationMode,
+    focusBody: celestialBody(focusBodyId).name,
   };
 }
 
@@ -798,6 +1103,8 @@ function handPanelStateSignature(
     status.maximumTerrainZoom,
     status.terrainBudgetLimited ? "capped" : "screen",
     status.agentState,
+    status.navigationMode,
+    status.focusBody,
   ].join(":");
 }
 
@@ -822,7 +1129,7 @@ function syncHandPanelState(
   handPanelRuntime.setRoot(
     createHandPanelRoot(
       { latitudeDegrees, longitudeDegrees },
-      earthMapBitmap,
+      focusBodyId === "moon" ? moonMapBitmap : earthMapBitmap,
       northDirection,
       status,
     ),
@@ -841,6 +1148,49 @@ const voiceAgent = new RealtimeVoiceAgent({
   },
   onRemoteStream: setRealtimeAudioStream,
   tools: {
+    get_navigation_state() {
+      return {
+        mode: navigationMode,
+        focus_body: focusBodyId,
+        display_radius_metres: state.displayRadiusM,
+        radial_multiplier: state.radialMultiplier,
+      };
+    },
+    set_navigation(argumentsValue) {
+      if (!argumentsValue || typeof argumentsValue !== "object") {
+        throw new Error("Navigation arguments are required.");
+      }
+      const values = argumentsValue as Record<string, unknown>;
+      if (values.focus_body !== undefined) {
+        if (
+          typeof values.focus_body !== "string" ||
+          !isSolarSystemBodyId(values.focus_body)
+        ) throw new Error("Unknown Solar System body.");
+        setFocusBody(values.focus_body);
+      }
+      if (values.mode !== undefined) {
+        if (
+          values.mode !== "surface" &&
+          values.mode !== "orbit" &&
+          values.mode !== "free"
+        ) throw new Error("Mode must be surface, orbit, or free.");
+        setNavigationMode(values.mode);
+      }
+      if (typeof values.display_radius_metres === "number") {
+        if (
+          !Number.isFinite(values.display_radius_metres) ||
+          values.display_radius_metres <= 0
+        ) throw new Error("Display radius must be positive and finite.");
+        state.displayRadiusM = values.display_radius_metres;
+        updatePresentation();
+      }
+      return {
+        ok: true,
+        mode: navigationMode,
+        focus_body: focusBodyId,
+        display_radius_metres: state.displayRadiusM,
+      };
+    },
     async get_user_location() {
       const coordinates = coordinatesForFrame(state.contact);
       const namedLocation = await fetchNamedLocationContext(
@@ -960,6 +1310,7 @@ const xrControllerBindings = [0, 1].map((index) => ({
   grip: renderer.xr.getControllerGrip(index),
   controllerConnected: false,
   handedness: "none" as XRHandedness,
+  inputSource: undefined as XRInputSource | undefined,
 }));
 
 for (const binding of xrControllerBindings) {
@@ -970,10 +1321,12 @@ for (const binding of xrControllerBindings) {
     binding.handedness = binding.controllerConnected
       ? (source?.handedness ?? "none")
       : "none";
+    binding.inputSource = binding.controllerConnected ? source : undefined;
   });
   binding.controller.addEventListener("disconnected", () => {
     binding.controllerConnected = false;
     binding.handedness = "none";
+    binding.inputSource = undefined;
   });
   scene.add(binding.controller);
   scene.add(binding.grip);
@@ -1037,7 +1390,9 @@ function updateHandPanel(nowMs: number): void {
   }
   geographicNorthWorld
     .normalize()
-    .applyQuaternion(planetRoot.quaternion);
+    .applyQuaternion(
+      focusBodyId === "moon" ? moonRoot.quaternion : planetRoot.quaternion,
+    );
   handPanelNorthDirection =
     directionOnHandPanel(
       geographicNorthWorld,
@@ -1061,7 +1416,7 @@ function updatePhysicalWalking(): void {
   const xrCamera = renderer.xr.getCamera();
   xrCamera.getWorldPosition(xrHeadPosition);
   headsetFloorPosition.set(xrHeadPosition.x, xrHeadPosition.z);
-  if (previousXrHead) {
+  if (previousXrHead && navigationMode === "surface") {
     const displacement = headsetFloorPosition.clone().sub(previousXrHead);
     if (displacement.length() < 0.4) {
       state.contact = rollContactFrame(
@@ -1092,15 +1447,19 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
   if (travel.lengthSq() > 1) travel.normalize();
   travel.multiplyScalar((intent.boost ? 4.2 : 1.35) * deltaSeconds);
   if (travel.lengthSq() > 0) {
-    state.contact = rollContactFrame(
-      state.contact,
-      geographicTravelFromWorld(
-        travel,
-        worldRotationRadians,
-        geographicTravel,
-      ),
-      state.displayRadiusM,
-    );
+    if (navigationMode === "surface") {
+      state.contact = rollContactFrame(
+        state.contact,
+        geographicTravelFromWorld(
+          travel,
+          worldRotationRadians,
+          geographicTravel,
+        ),
+        state.displayRadiusM,
+      );
+    } else {
+      moveFreeObserver(travel);
+    }
   }
   state.displayRadiusM = applyLogarithmicScale(
     state.displayRadiusM,
@@ -1137,15 +1496,19 @@ function updateDesktopControls(deltaSeconds: number): void {
         (keys.has("ShiftLeft") || keys.has("ShiftRight") ? 4.2 : 1.35) *
           deltaSeconds,
       );
-    state.contact = rollContactFrame(
-      state.contact,
-      geographicTravelFromWorld(
-        travel,
-        worldRotationRadians,
-        geographicTravel,
-      ),
-      state.displayRadiusM,
-    );
+    if (navigationMode === "surface") {
+      state.contact = rollContactFrame(
+        state.contact,
+        geographicTravelFromWorld(
+          travel,
+          worldRotationRadians,
+          geographicTravel,
+        ),
+        state.displayRadiusM,
+      );
+    } else {
+      moveFreeObserver(travel);
+    }
   }
   const scaleAxis =
     Number(keys.has("KeyX")) - Number(keys.has("KeyZ"));
@@ -1188,6 +1551,13 @@ renderer.domElement.addEventListener("pointerup", (event) => {
 window.addEventListener("keydown", (event) => {
   if (event.repeat && event.code === "Backspace") return;
   if (event.code === "Backspace") resetPlanet();
+  if (!event.repeat && event.code === "KeyM") {
+    const modes: NavigationMode[] = ["surface", "orbit", "free"];
+    setNavigationMode(modes[(modes.indexOf(navigationMode) + 1) % modes.length]!);
+  }
+  if (!event.repeat && event.code === "KeyN") {
+    setFocusBody(focusBodyId === "earth" ? "moon" : "earth");
+  }
   if (
     [
       "KeyW",
@@ -1201,6 +1571,8 @@ window.addEventListener("keydown", (event) => {
       "ShiftLeft",
       "ShiftRight",
       "Backspace",
+      "KeyM",
+      "KeyN",
     ].includes(event.code)
   ) {
     keys.add(event.code);
@@ -1213,6 +1585,17 @@ window.addEventListener("keyup", (event) => {
 window.addEventListener("blur", () => keys.clear());
 
 resetButton.addEventListener("click", resetPlanet);
+navigationModeSelect.addEventListener("change", () => {
+  const mode = navigationModeSelect.value;
+  if (mode === "surface" || mode === "orbit" || mode === "free") {
+    setNavigationMode(mode);
+  }
+});
+focusBodySelect.addEventListener("change", () => {
+  if (isSolarSystemBodyId(focusBodySelect.value)) {
+    setFocusBody(focusBodySelect.value);
+  }
+});
 
 function aircraftStreamAllowed(): boolean {
   return shouldStreamAircraft({
