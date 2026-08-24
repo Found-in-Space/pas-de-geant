@@ -144,3 +144,37 @@ export function spaceTravelSpeedRoomMPerSecond(
     : displayRadiusM * 0.5;
   return Math.max(1.35, focusRelativeSpeed) * (boosted ? 4 : 1);
 }
+
+/** Gives orbital controls fine precision near centre without limiting full input. */
+export function shapedOrbitalAxis(axis: number): number {
+  const finiteAxis = Number.isFinite(axis) ? Math.max(-1, Math.min(1, axis)) : 0;
+  return finiteAxis * finiteAxis * finiteAxis;
+}
+
+/** Calm target-centred angular travel, expressed as radians for one frame. */
+export function orbitalAngularStepRadians(
+  axis: number,
+  deltaSeconds: number,
+  boosted: boolean,
+  degreesPerSecond = 20,
+): number {
+  return shapedOrbitalAxis(axis) * degreesPerSecond * Math.PI / 180 *
+    Math.max(0, deltaSeconds) * (boosted ? 2 : 1);
+}
+
+/** Unbounded proportional altitude/scale response: full input doubles in 4 s. */
+export function orbitalLogarithmicValue(
+  value: number,
+  axis: number,
+  deltaSeconds: number,
+  boosted: boolean,
+  octavesPerSecond = 0.25,
+): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError("Orbital value must be positive and finite.");
+  }
+  return value * 2 ** (
+    shapedOrbitalAxis(axis) * octavesPerSecond * Math.max(0, deltaSeconds) *
+    (boosted ? 2 : 1)
+  );
+}

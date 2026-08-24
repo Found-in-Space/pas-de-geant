@@ -2,6 +2,8 @@ import { Quaternion, Vector2, Vector3 } from "three";
 
 export interface ControllerIntent {
   travel: Vector2;
+  /** Raw left-stick intent retained for target-centred orbital movement. */
+  orbit: Vector2;
   scaleAxis: number;
   radialAxis: number;
   boost: boolean;
@@ -88,6 +90,7 @@ export function controllerIntent(
   if (!bPressed || reset) latch.bStartedAt = null;
   return {
     travel: new Vector2(leftTriggerPressed ? 0 : travelX, travelY),
+    orbit: new Vector2(travelX, orbitAxisY(travelY)),
     // Up increases scale; right increases radial exaggeration.
     scaleAxis: scaleAxis === 0 ? 0 : -scaleAxis,
     radialAxis,
@@ -97,6 +100,37 @@ export function controllerIntent(
     toggleTextureTileOverlay,
     toggleAgent,
     reset,
+  };
+}
+
+function orbitAxisY(stickY: number): number {
+  return stickY === 0 ? 0 : -stickY;
+}
+
+export type DominantStickAxis = "horizontal" | "vertical" | null;
+
+/**
+ * Keeps a diagonal right-stick gesture on one function until the stick is
+ * released, preventing altitude and scale from compounding.
+ */
+export function dominantStickAxes(
+  horizontal: number,
+  vertical: number,
+  latched: DominantStickAxis,
+): {
+  horizontal: number;
+  vertical: number;
+  latched: DominantStickAxis;
+} {
+  if (horizontal === 0 && vertical === 0) {
+    return { horizontal: 0, vertical: 0, latched: null };
+  }
+  const selected = latched ??
+    (Math.abs(horizontal) >= Math.abs(vertical) ? "horizontal" : "vertical");
+  return {
+    horizontal: selected === "horizontal" ? horizontal : 0,
+    vertical: selected === "vertical" ? vertical : 0,
+    latched: selected,
   };
 }
 

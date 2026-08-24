@@ -2,10 +2,16 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
   controllerIntent,
+  dominantStickAxes,
   freshButtonLatch,
   headRelativeTravel,
   isHandTrackingInputSource,
 } from "../apps/pas-de-geant/src/controller-input.js";
+import {
+  orbitalAngularStepRadians,
+  orbitalLogarithmicValue,
+  shapedOrbitalAxis,
+} from "../apps/pas-de-geant/src/world-navigation.js";
 import {
   applyLogarithmicScale,
   applyRadialMultiplierRate,
@@ -143,6 +149,8 @@ describe("Pas de Géant controller regressions", () => {
     expect(turning.turnAxis).toBeGreaterThan(0);
     expect(turning.travel.x).toBe(0);
     expect(turning.travel.y).toBeLessThan(0);
+    expect(turning.orbit.x).toBeGreaterThan(0);
+    expect(turning.orbit.y).toBeGreaterThan(0);
 
     grip.pressed = true;
     grip.value = 1;
@@ -191,5 +199,29 @@ describe("Pas de Géant controller regressions", () => {
     expect(applyLogarithmicScale(1, -1, 10)).toBeLessThan(1);
     expect(applyRadialMultiplierRate(20, 1, 1)).toBeGreaterThan(20);
     expect(applyRadialMultiplierRate(0, -1, 1)).toBe(0);
+  });
+
+  it("uses calm cubic orbital response with four-second doubling", () => {
+    expect(shapedOrbitalAxis(0.5)).toBeCloseTo(0.125, 12);
+    expect(THREE.MathUtils.radToDeg(
+      orbitalAngularStepRadians(1, 1, false),
+    )).toBeCloseTo(20, 12);
+    expect(orbitalLogarithmicValue(3, 1, 4, false)).toBeCloseTo(6, 12);
+    expect(orbitalLogarithmicValue(3, -1, 4, false)).toBeCloseTo(1.5, 12);
+  });
+
+  it("latches a diagonal right stick to one orbital function", () => {
+    const altitude = dominantStickAxes(0.8, 0.6, null);
+    expect(altitude).toEqual({
+      horizontal: 0.8,
+      vertical: 0,
+      latched: "horizontal",
+    });
+    expect(dominantStickAxes(0.2, 0.9, altitude.latched)).toEqual({
+      horizontal: 0.2,
+      vertical: 0,
+      latched: "horizontal",
+    });
+    expect(dominantStickAxes(0, 0, altitude.latched).latched).toBeNull();
   });
 });

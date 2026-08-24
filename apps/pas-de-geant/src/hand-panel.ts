@@ -63,6 +63,7 @@ export interface HandPanelStatus {
   agentState: RealtimeAgentState;
   navigationMode?: "surface" | "orbit" | "free";
   focusBody?: string;
+  focusDistanceBodyRadii?: number;
 }
 
 export const HAND_PANEL_ACTION = {
@@ -85,6 +86,7 @@ interface EarthLocationMapProps extends HandPanelLocation {
   map: BitmapHandle;
   height: number;
   northDirection: HandPanelDirection;
+  locationLabel: string;
 }
 
 interface HandPanelStatusProps extends HandPanelStatus {
@@ -178,7 +180,7 @@ const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
         componentId: ctx.id,
         role: "earth-map-label",
         rect: labelRect,
-        text: "UNDERFOOT",
+        text: ctx.props.locationLabel,
         color: theme.accentColor,
         align: "center",
         verticalAlign: "middle",
@@ -253,12 +255,15 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
       valueColor?: string;
     }> = [
       {
-        label: "GLOBAL SCALE",
-        value: `${ctx.props.globalScaleFactor.toFixed(2)}×`,
+        label: "BODY RADIUS",
+        value: `${ctx.props.globalScaleFactor.toFixed(2)} m`,
       },
       {
-        label: "RADIAL",
-        value: `${ctx.props.radialMultiplier.toFixed(1)}×`,
+        label: ctx.props.navigationMode === "orbit" ? "DISTANCE" : "RADIAL",
+        value: ctx.props.navigationMode === "orbit" &&
+            ctx.props.focusDistanceBodyRadii !== undefined
+          ? `${ctx.props.focusDistanceBodyRadii.toFixed(2)} R`
+          : `${ctx.props.radialMultiplier.toFixed(1)}×`,
       },
       {
         label: "AUTO LOD · X TILES",
@@ -354,6 +359,9 @@ export function createHandPanelRoot(
   northDirection: HandPanelDirection = { x: 0, y: -1 },
   status: HandPanelStatus = DEFAULT_HAND_PANEL_STATUS,
 ): DisplayNode<unknown> {
+  const locationLabel = status.navigationMode === "orbit"
+    ? "Sub-observer"
+    : "Underfoot";
   return createColumn("pas-de-geant-hand-panel", {
     padding: 8,
     gap: 6,
@@ -363,10 +371,11 @@ export function createHandPanelRoot(
         ...location,
         map,
         northDirection,
+        locationLabel: locationLabel.toUpperCase(),
         height: 190,
       }),
       createValueReadout("pas-de-geant-coordinates", {
-        label: "Underfoot",
+        label: locationLabel,
         value: formatCoordinates(
           location.latitudeDegrees,
           location.longitudeDegrees,

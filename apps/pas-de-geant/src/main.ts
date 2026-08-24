@@ -27,11 +27,23 @@ import {
 import { AtmosphereLayer } from "./atmosphere.js";
 import {
   controllerIntent,
+  dominantStickAxes,
   freshButtonLatch,
   headRelativeTravel,
   isHandTrackingInputSource,
+  type DominantStickAxis,
 } from "./controller-input.js";
+import { bodyFixedToRenderQuaternion } from "./body-attitude.js";
 import { CelestialSphere } from "./celestial-sphere.js";
+import {
+  observerProjectedToEarthRadius,
+  updateObserverEarthOrbit,
+  type EclipseObserverTransform,
+} from "./eclipse-observer.js";
+import {
+  eclipseEarthSurfaceObservation,
+  eclipseTopographicSurfaceRadius,
+} from "./eclipse-earth-surface.js";
 import {
   parseCelestialVisibilityArguments,
 } from "./celestial-visibility.js";
@@ -65,14 +77,12 @@ import { proxiedTileConfiguration } from "./tile-proxy.js";
 import {
   applyLogarithmicScale,
   applyRadialMultiplierRate,
+  contactFrame,
   coordinatesForFrame,
   EARTH_MEAN_RADIUS_KM,
   geodeticSurfaceEcefKm,
-  horizontalWorldMetresForKilometres,
   initialPlanetState,
   INITIAL_DISPLAY_RADIUS_M,
-  radialWorldMetresForKilometres,
-  referenceDistanceForDisplayRadius,
   rollContactFrame,
   solvePlanetPose,
   type PlanetState,
@@ -93,12 +103,15 @@ import { MOON_SURFACE_MODEL } from "./surface-model.js";
 import {
   SOLAR_SYSTEM_BODIES,
   bodyPositionJ2000M,
+  bodyRotation,
   celestialBody,
   isSolarSystemBodyId,
   type SolarSystemBodyId,
   type Vector3d,
 } from "./solar-system.js";
 import {
+  orbitalAngularStepRadians,
+  orbitalLogarithmicValue,
   relativeJ2000MetresToRender,
   roomScaleForDisplayRadius,
   spaceTravelSpeedRoomMPerSecond,
@@ -294,6 +307,10 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(0, 1.65, 0);
 camera.rotation.order = "YXZ";
 camera.rotation.x = -0.55;
+const observerRig = new THREE.Group();
+observerRig.name = "world-observer-rig";
+observerRig.add(camera);
+scene.add(observerRig);
 const realtimeAudioElement = document.createElement("audio");
 realtimeAudioElement.autoplay = true;
 realtimeAudioElement.setAttribute("playsinline", "");
@@ -403,6 +420,17 @@ let state = initialPlanetState(
 let navigationMode: NavigationMode = "surface";
 let focusBodyId: SolarSystemBodyId = "earth";
 let freeObserverJ2000M: Vector3d | undefined;
+interface OrbitNavigationState {
+  observer: EclipseObserverTransform;
+  focusWorldPosition: THREE.Vector3;
+  systemFrameQuaternion: THREE.Quaternion;
+}
+let orbitNavigation: OrbitNavigationState | undefined;
+interface FreeNavigationFrame {
+  anchorWorldPosition: THREE.Vector3;
+  systemFrameQuaternion: THREE.Quaternion;
+}
+let freeNavigationFrame: FreeNavigationFrame | undefined;
 const benchmarkScale = Number(benchmarkParameters.get("benchmarkScale"));
 if (Number.isFinite(benchmarkScale) && benchmarkScale >= 1) {
   state.displayRadiusM = benchmarkScale;
@@ -634,6 +662,7 @@ const inverseWorldRotationQuaternion = new THREE.Quaternion();
 const geographicTravel = new THREE.Vector2();
 const keys = new Set<string>();
 const buttonLatch = freshButtonLatch();
+let orbitDominantAxis: DominantStickAxis = null;
 const worldRotationQuaternion = new THREE.Quaternion();
 const worldRotationPivot = new THREE.Vector3();
 const worldUp = new THREE.Vector3(0, 1, 0);
@@ -709,6 +738,101 @@ const satelliteGroups: Record<SatelliteGroupId, SatelliteGroupRuntime> = {
   },
 };
 
+function currentViewCamera(): THREE.Camera {
+  return renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+}
+
+function commitObserverTransform(transform: EclipseObserverTransform): void {
+  const normalized = transform.quaternion.clone().normalize();
+  observerRig.position.copy(transform.position);
+  observerRig.quaternion.copy(normalized);
+  observerRig.scale.set(1, 1, 1);
+  observerRig.updateMatrixWorld(true);
+  if (orbitNavigation) {
+    orbitNavigation.observer = {
+      position: transform.position.clone(),
+      quaternion: normalized,
+    };
+  }
+}
+
+function resetObserverRig(): void {
+  observerRig.position.set(0, 0, 0);
+  observerRig.quaternion.identity();
+  observerRig.scale.set(1, 1, 1);
+  observerRig.updateMatrixWorld(true);
+}
+
+function syncHeadsetFloorPosition(): void {
+  const viewCamera = currentViewCamera();
+  viewCamera.updateWorldMatrix(true, false);
+  const head = viewCamera.getWorldPosition(new THREE.Vector3());
+  headsetFloorPosition.set(head.x, head.z);
+}
+
+function initializeOrbit(): void {
+  freeNavigationFrame = undefined;
+  resetObserverRig();
+  const viewCamera = currentViewCamera();
+  viewCamera.updateWorldMatrix(true, false);
+  const headPosition = new THREE.Vector3();
+  const headQuaternion = new THREE.Quaternion();
+  viewCamera.getWorldPosition(headPosition);
+  viewCamera.getWorldQuaternion(headQuaternion);
+  const forward = new THREE.Vector3(0, 0, -1)
+    .applyQuaternion(headQuaternion).normalize();
+  const desiredRadial = forward.clone().negate();
+  const focusWorldPosition = headPosition.clone().addScaledVector(
+    forward,
+    state.displayRadiusM * 3,
+  );
+
+  const when = new Date();
+  const bodyAttitude = bodyFixedToRenderQuaternion(
+    bodyRotation(focusBodyId, when),
+  );
+  const localRadial = focusBodyId === "earth" || focusBodyId === "moon"
+    ? state.contact.upEcef.clone()
+    : new THREE.Vector3(0, 0, 1);
+  const localNorth = focusBodyId === "earth" || focusBodyId === "moon"
+    ? state.contact.northEcef.clone()
+    : new THREE.Vector3(0, 1, 0);
+  const inertialRadial = localRadial.applyQuaternion(bodyAttitude).normalize();
+  const alignRadial = new THREE.Quaternion().setFromUnitVectors(
+    inertialRadial,
+    desiredRadial,
+  );
+  const alignedNorth = localNorth.applyQuaternion(bodyAttitude)
+    .applyQuaternion(alignRadial);
+  alignedNorth.addScaledVector(
+    desiredRadial,
+    -alignedNorth.dot(desiredRadial),
+  );
+  const desiredUp = new THREE.Vector3(0, 1, 0)
+    .applyQuaternion(headQuaternion);
+  desiredUp.addScaledVector(desiredRadial, -desiredUp.dot(desiredRadial));
+  if (alignedNorth.lengthSq() > 1e-8 && desiredUp.lengthSq() > 1e-8) {
+    alignedNorth.normalize();
+    desiredUp.normalize();
+    const twistRadians = Math.atan2(
+      desiredRadial.dot(alignedNorth.clone().cross(desiredUp)),
+      alignedNorth.dot(desiredUp),
+    );
+    alignRadial.premultiply(
+      new THREE.Quaternion().setFromAxisAngle(desiredRadial, twistRadians),
+    );
+  }
+  orbitNavigation = {
+    observer: {
+      position: observerRig.position.clone(),
+      quaternion: observerRig.quaternion.clone(),
+    },
+    focusWorldPosition,
+    systemFrameQuaternion: alignRadial.normalize(),
+  };
+  freeObserverJ2000M = undefined;
+}
+
 function resetPlanet(): void {
   state = initialPlanetState(
     initialLocation.latitudeDegrees,
@@ -716,6 +840,12 @@ function resetPlanet(): void {
   );
   previousXrHead = null;
   freeObserverJ2000M = undefined;
+  if (navigationMode === "free") {
+    freeNavigationFrame = undefined;
+    resetObserverRig();
+    syncHeadsetFloorPosition();
+  }
+  if (navigationMode === "orbit") initializeOrbit();
   updatePresentation();
 }
 
@@ -726,10 +856,50 @@ function setNavigationMode(mode: NavigationMode): void {
   ) {
     mode = "orbit";
   }
+  const orbitToFree = navigationMode === "orbit" && mode === "free" &&
+    orbitNavigation
+    ? freeStateFromOrbit(orbitNavigation)
+    : undefined;
   navigationMode = mode;
-  if (mode !== "free") freeObserverJ2000M = undefined;
+  if (mode === "orbit") {
+    freeNavigationFrame = undefined;
+    initializeOrbit();
+  } else if (mode === "free" && orbitToFree) {
+    freeObserverJ2000M = orbitToFree.observerJ2000M;
+    freeNavigationFrame = orbitToFree.frame;
+    orbitNavigation = undefined;
+  } else {
+    orbitNavigation = undefined;
+    resetObserverRig();
+    syncHeadsetFloorPosition();
+    freeNavigationFrame = undefined;
+    if (mode !== "free") freeObserverJ2000M = undefined;
+  }
   previousXrHead = null;
   updatePresentation();
+}
+
+function freeStateFromOrbit(orbit: OrbitNavigationState): {
+  observerJ2000M: Vector3d;
+  frame: FreeNavigationFrame;
+} {
+  const viewCamera = currentViewCamera();
+  viewCamera.updateWorldMatrix(true, false);
+  const headWorld = viewCamera.getWorldPosition(new THREE.Vector3());
+  const renderOffset = headWorld.clone().sub(orbit.focusWorldPosition)
+    .applyQuaternion(orbit.systemFrameQuaternion.clone().invert());
+  const focusPosition = bodyPositionJ2000M(focusBodyId, new Date());
+  return {
+    observerJ2000M: translatedObserverJ2000M(
+      focusPosition,
+      renderOffset,
+      roomScaleForDisplayRadius(focusBodyId, state.displayRadiusM),
+    ),
+    frame: {
+      anchorWorldPosition: headWorld,
+      systemFrameQuaternion: orbit.systemFrameQuaternion.clone(),
+    },
+  };
 }
 
 function setFocusBody(bodyId: SolarSystemBodyId): void {
@@ -739,6 +909,8 @@ function setFocusBody(bodyId: SolarSystemBodyId): void {
     celestialBody(bodyId).surface === null
   ) navigationMode = "orbit";
   freeObserverJ2000M = undefined;
+  if (navigationMode === "free") freeNavigationFrame = undefined;
+  if (navigationMode === "orbit") initializeOrbit();
   previousXrHead = null;
   updatePresentation();
 }
@@ -751,6 +923,7 @@ function setUserLocation(
     latitudeDegrees,
     longitudeDegrees,
   ).contact;
+  if (navigationMode === "orbit") initializeOrbit();
   previousXrHead = null;
   updatePresentation();
   return coordinatesForFrame(state.contact);
@@ -796,6 +969,15 @@ function setViewDirection(argumentsValue: unknown): Record<string, unknown> {
 }
 
 function rotateViewDirection(degrees: number): void {
+  if (navigationMode === "free" && freeNavigationFrame) {
+    freeNavigationFrame.systemFrameQuaternion.premultiply(
+      new THREE.Quaternion().setFromAxisAngle(
+        worldUp,
+        THREE.MathUtils.degToRad(degrees),
+      ),
+    );
+    return;
+  }
   worldRotationRadians = worldRotationForViewDirection(
     worldRotationRadians,
     0,
@@ -818,7 +1000,7 @@ function setTextureTileOverlayVisible(visible: boolean): void {
 }
 
 function moveSpaceObserver(renderTravel: THREE.Vector3): void {
-  if (navigationMode === "surface") return;
+  if (navigationMode !== "free") return;
   const focus = celestialBody(focusBodyId);
   const focusPosition = bodyPositionJ2000M(focusBodyId, new Date());
   freeObserverJ2000M ??= systemObserverForFocus(
@@ -826,7 +1008,9 @@ function moveSpaceObserver(renderTravel: THREE.Vector3): void {
     focus.referenceRadiusM,
   );
   const roomScale = roomScaleForDisplayRadius(focusBodyId, state.displayRadiusM);
-  inverseWorldRotationQuaternion.copy(worldRotationQuaternion).invert();
+  inverseWorldRotationQuaternion.copy(
+    freeNavigationFrame?.systemFrameQuaternion ?? worldRotationQuaternion,
+  ).invert();
   unrotatedSpaceTravel.copy(renderTravel)
     .applyQuaternion(inverseWorldRotationQuaternion);
   freeObserverJ2000M = translatedObserverJ2000M(
@@ -837,6 +1021,12 @@ function moveSpaceObserver(renderTravel: THREE.Vector3): void {
 }
 
 function focusDistanceRoomM(): number {
+  if (navigationMode === "orbit" && orbitNavigation) {
+    const viewCamera = currentViewCamera();
+    viewCamera.updateWorldMatrix(true, false);
+    return viewCamera.getWorldPosition(new THREE.Vector3())
+      .distanceTo(orbitNavigation.focusWorldPosition);
+  }
   if (!freeObserverJ2000M) return state.displayRadiusM * 3;
   const focusPosition = bodyPositionJ2000M(focusBodyId, new Date());
   const roomScale = roomScaleForDisplayRadius(focusBodyId, state.displayRadiusM);
@@ -855,6 +1045,7 @@ const surfaceSouth = new THREE.Vector3();
 const surfaceBasis = new THREE.Matrix4();
 const surfaceQuaternion = new THREE.Quaternion();
 const surfacePoint = new THREE.Vector3();
+const systemBodyAttitudeQuaternion = new THREE.Quaternion();
 
 function terrainViewMetrics(): {
   eyeHeightWorldM: number;
@@ -891,6 +1082,88 @@ function terrainViewMetrics(): {
     eyeHeightWorldM,
     focalLengthPixels: Math.max(1, focalLengthPixels),
   };
+}
+
+interface BodySurfaceView {
+  latitudeDegrees: number;
+  longitudeDegrees: number;
+  observerHeightWorldM: number;
+  displayRadiusM: number;
+}
+
+function bodySurfaceView(
+  bodyId: "earth" | "moon",
+  root: THREE.Object3D,
+): BodySurfaceView {
+  const viewCamera = currentViewCamera();
+  viewCamera.updateWorldMatrix(true, false);
+  root.updateWorldMatrix(true, false);
+  const headLocal = viewCamera.getWorldPosition(new THREE.Vector3());
+  root.worldToLocal(headLocal);
+  const displayRadiusM = root.getWorldScale(new THREE.Vector3()).x;
+  if (bodyId === "earth") {
+    const observation = eclipseEarthSurfaceObservation(
+      headLocal,
+      displayRadiusM,
+    );
+    return {
+      latitudeDegrees: observation.latitudeDegrees,
+      longitudeDegrees: observation.longitudeDegrees,
+      observerHeightWorldM: Math.max(0.001, observation.headDistanceWorldM),
+      displayRadiusM,
+    };
+  }
+  const distance = Math.max(Number.EPSILON, headLocal.length());
+  return {
+    latitudeDegrees: THREE.MathUtils.radToDeg(Math.asin(
+      THREE.MathUtils.clamp(headLocal.y / distance, -1, 1),
+    )),
+    longitudeDegrees: THREE.MathUtils.radToDeg(
+      Math.atan2(-headLocal.z, headLocal.x),
+    ),
+    observerHeightWorldM: Math.max(0.001, (distance - 1) * displayRadiusM),
+    displayRadiusM,
+  };
+}
+
+function enforceOrbitSurfaceFloor(): void {
+  if (navigationMode !== "orbit" || !orbitNavigation) return;
+  const root = focusBodyId === "earth"
+    ? planetRoot
+    : focusBodyId === "moon" ? moonRoot : placeholderRoots.get(focusBodyId);
+  if (!root) return;
+  const viewCamera = currentViewCamera();
+  viewCamera.updateWorldMatrix(true, false);
+  root.updateWorldMatrix(true, false);
+  const headWorld = viewCamera.getWorldPosition(new THREE.Vector3());
+  const centreWorld = root.getWorldPosition(new THREE.Vector3());
+  const displayRadiusM = root.getWorldScale(new THREE.Vector3()).x;
+  let normalizedFloorRadius = 1;
+  if (focusBodyId === "earth") {
+    const headLocal = root.worldToLocal(headWorld.clone());
+    const observation = eclipseEarthSurfaceObservation(headLocal, displayRadiusM);
+    normalizedFloorRadius = eclipseTopographicSurfaceRadius(
+      observation,
+      terrain.sampleElevationMetres(
+        observation.latitudeDegrees,
+        observation.longitudeDegrees,
+      ) * state.radialMultiplier,
+    );
+  } else if (focusBodyId === "moon") {
+    const surface = bodySurfaceView("moon", root);
+    normalizedFloorRadius += moonTerrain.sampleElevationMetres(
+      surface.latitudeDegrees,
+      surface.longitudeDegrees,
+    ) * state.radialMultiplier / celestialBody("moon").referenceRadiusM;
+  }
+  const floorDistance = normalizedFloorRadius * displayRadiusM;
+  if (headWorld.distanceTo(centreWorld) >= floorDistance) return;
+  commitObserverTransform(observerProjectedToEarthRadius(
+    orbitNavigation.observer,
+    headWorld,
+    centreWorld,
+    floorDistance,
+  ));
 }
 
 function applySphericalSurfacePose(
@@ -937,7 +1210,16 @@ function updateSystemPresentation(): void {
     focusBodyId,
     state.displayRadiusM,
   );
-  const observer = navigationMode === "free" || navigationMode === "orbit"
+  if (navigationMode === "orbit" && !orbitNavigation) initializeOrbit();
+  if (navigationMode === "free" && !freeNavigationFrame) {
+    const viewCamera = currentViewCamera();
+    viewCamera.updateWorldMatrix(true, false);
+    freeNavigationFrame = {
+      anchorWorldPosition: viewCamera.getWorldPosition(new THREE.Vector3()),
+      systemFrameQuaternion: worldRotationQuaternion.clone(),
+    };
+  }
+  const observer = navigationMode === "free"
     ? (freeObserverJ2000M ??= systemObserverForFocus(
         focusPosition,
         focusBody.referenceRadiusM,
@@ -948,16 +1230,35 @@ function updateSystemPresentation(): void {
   const place = (bodyId: SolarSystemBodyId, root: THREE.Object3D): void => {
     const body = celestialBody(bodyId);
     const bodyPosition = bodyPositionJ2000M(bodyId, when);
+    const origin = navigationMode === "orbit" ? focusPosition : observer;
     const rendered = relativeJ2000MetresToRender({
-      x: bodyPosition.x - observer.x,
-      y: bodyPosition.y - observer.y,
-      z: bodyPosition.z - observer.z,
+      x: bodyPosition.x - origin.x,
+      y: bodyPosition.y - origin.y,
+      z: bodyPosition.z - origin.z,
     }, roomScale);
-    root.position.set(rendered.x, rendered.y + 1.65, rendered.z);
-    root.position.sub(worldRotationPivot)
-      .applyQuaternion(worldRotationQuaternion)
-      .add(worldRotationPivot);
-    root.quaternion.copy(worldRotationQuaternion);
+    const attitude = bodyFixedToRenderQuaternion(
+      bodyRotation(bodyId, when),
+      systemBodyAttitudeQuaternion,
+    );
+    if (navigationMode === "orbit" && orbitNavigation) {
+      root.position.set(rendered.x, rendered.y, rendered.z)
+        .applyQuaternion(orbitNavigation.systemFrameQuaternion)
+        .add(orbitNavigation.focusWorldPosition);
+      root.quaternion.copy(orbitNavigation.systemFrameQuaternion)
+        .multiply(attitude);
+    } else if (freeNavigationFrame) {
+      root.position.set(rendered.x, rendered.y, rendered.z)
+        .applyQuaternion(freeNavigationFrame.systemFrameQuaternion)
+        .add(freeNavigationFrame.anchorWorldPosition);
+      root.quaternion.copy(freeNavigationFrame.systemFrameQuaternion)
+        .multiply(attitude);
+    } else {
+      root.position.set(rendered.x, rendered.y + 1.65, rendered.z);
+      root.position.sub(worldRotationPivot)
+        .applyQuaternion(worldRotationQuaternion)
+        .add(worldRotationPivot);
+      root.quaternion.copy(worldRotationQuaternion).multiply(attitude);
+    }
     root.scale.setScalar(body.referenceRadiusM * roomScale);
     root.visible = true;
   };
@@ -968,7 +1269,7 @@ function updateSystemPresentation(): void {
 }
 
 function updatePresentation(): void {
-  const coordinates = coordinatesForFrame(state.contact);
+  let coordinates = coordinatesForFrame(state.contact);
   worldRotationQuaternion.setFromAxisAngle(worldUp, worldRotationRadians);
   worldRotationPivot.set(
     headsetFloorPosition.x,
@@ -981,6 +1282,7 @@ function updatePresentation(): void {
   focusBodySelect.value = focusBodyId;
   if (navigationMode !== "surface") {
     updateSystemPresentation();
+    enforceOrbitSurfaceFloor();
   } else {
     camera.far = 1_200;
     camera.updateProjectionMatrix();
@@ -1018,45 +1320,70 @@ function updatePresentation(): void {
       .add(worldRotationPivot);
   }
   const view = terrainViewMetrics();
+  const earthOrbitalView = navigationMode === "orbit"
+    ? bodySurfaceView("earth", planetRoot)
+    : undefined;
+  const moonOrbitalView = navigationMode === "orbit"
+    ? bodySurfaceView("moon", moonRoot)
+    : undefined;
+  const focusedOrbitalView = focusBodyId === "earth"
+    ? earthOrbitalView
+    : focusBodyId === "moon" ? moonOrbitalView : undefined;
+  if (focusedOrbitalView) {
+    state.contact = contactFrame(
+      focusedOrbitalView.latitudeDegrees,
+      focusedOrbitalView.longitudeDegrees,
+    );
+    coordinates = {
+      latitudeDegrees: focusedOrbitalView.latitudeDegrees,
+      longitudeDegrees: focusedOrbitalView.longitudeDegrees,
+    };
+  }
   document.body.dataset.displayScale = state.displayRadiusM.toFixed(2);
   terrain.update({
-    latitudeDegrees: coordinates.latitudeDegrees,
-    longitudeDegrees: coordinates.longitudeDegrees,
-    displayRadiusM: state.displayRadiusM,
+    latitudeDegrees:
+      earthOrbitalView?.latitudeDegrees ?? coordinates.latitudeDegrees,
+    longitudeDegrees:
+      earthOrbitalView?.longitudeDegrees ?? coordinates.longitudeDegrees,
+    displayRadiusM: earthOrbitalView?.displayRadiusM ?? state.displayRadiusM,
     radialMultiplier: state.radialMultiplier,
-    observerHeightWorldM: view.eyeHeightWorldM,
+    observerHeightWorldM:
+      earthOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
     focalLengthPixels: view.focalLengthPixels,
   });
   moonTerrain.update({
-    latitudeDegrees: coordinates.latitudeDegrees,
-    longitudeDegrees: coordinates.longitudeDegrees,
-    displayRadiusM: state.displayRadiusM,
+    latitudeDegrees:
+      moonOrbitalView?.latitudeDegrees ?? coordinates.latitudeDegrees,
+    longitudeDegrees:
+      moonOrbitalView?.longitudeDegrees ?? coordinates.longitudeDegrees,
+    displayRadiusM: moonOrbitalView?.displayRadiusM ?? state.displayRadiusM,
     radialMultiplier: state.radialMultiplier,
-    observerHeightWorldM: view.eyeHeightWorldM,
+    observerHeightWorldM:
+      moonOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
     focalLengthPixels: view.focalLengthPixels,
     projection: "geographic",
   });
   atmosphere.update({
-    displayRadiusM: state.displayRadiusM,
+    displayRadiusM: earthOrbitalView?.displayRadiusM ?? state.displayRadiusM,
     radialMultiplier: state.radialMultiplier,
-    observerHeightWorldM: view.eyeHeightWorldM,
+    observerHeightWorldM:
+      earthOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
   });
-  coordinatesReadout.textContent = navigationMode === "surface"
+  coordinatesReadout.textContent = navigationMode === "surface" ||
+      focusedOrbitalView
     ? `${celestialBody(focusBodyId).name} · ${formatCoordinates(
         coordinates.latitudeDegrees,
         coordinates.longitudeDegrees,
       )}`
     : `${celestialBody(focusBodyId).name} · ${navigationMode}`;
-  const referenceDistance =
-    referenceDistanceForDisplayRadius(state.displayRadiusM);
-  const horizontalMetresPerKilometre =
-    horizontalWorldMetresForKilometres(1, state.displayRadiusM);
+  const focusRoomScale = roomScaleForDisplayRadius(
+    focusBodyId,
+    state.displayRadiusM,
+  );
+  const referenceDistance = focusRoomScale * 1_000_000;
+  const horizontalMetresPerKilometre = focusRoomScale * 1_000;
   const radialMetresPerKilometre =
-    radialWorldMetresForKilometres(
-      1,
-      state.displayRadiusM,
-      state.radialMultiplier,
-    );
+    horizontalMetresPerKilometre * state.radialMultiplier;
   scaleReadout.textContent =
     `${referenceDistance < 1
       ? `1,000 km ≈ ${Math.round(referenceDistance * 100)} cm`
@@ -1088,6 +1415,9 @@ function handPanelStatus(
     agentState: realtimeAgentStatus.state,
     navigationMode,
     focusBody: celestialBody(focusBodyId).name,
+    focusDistanceBodyRadii: navigationMode === "orbit"
+      ? focusDistanceRoomM() / state.displayRadiusM
+      : undefined,
   };
 }
 
@@ -1110,6 +1440,7 @@ function handPanelStateSignature(
     status.agentState,
     status.navigationMode,
     status.focusBody,
+    status.focusDistanceBodyRadii?.toFixed(2),
   ].join(":");
 }
 
@@ -1154,11 +1485,18 @@ const voiceAgent = new RealtimeVoiceAgent({
   onRemoteStream: setRealtimeAudioStream,
   tools: {
     get_navigation_state() {
+      const orbitDistanceRoomM = navigationMode === "orbit"
+        ? focusDistanceRoomM()
+        : null;
       return {
         mode: navigationMode,
         focus_body: focusBodyId,
         display_radius_metres: state.displayRadiusM,
         radial_multiplier: state.radialMultiplier,
+        focus_distance_metres: orbitDistanceRoomM,
+        focus_distance_body_radii: orbitDistanceRoomM === null
+          ? null
+          : orbitDistanceRoomM / state.displayRadiusM,
       };
     },
     set_navigation(argumentsValue) {
@@ -1208,7 +1546,7 @@ const voiceAgent = new RealtimeVoiceAgent({
         longitude_degrees: coordinates.longitudeDegrees,
         coordinate_reference_system: "WGS 84",
         coordinate_source: "live app position under the user’s feet",
-        display_scale_factor: state.displayRadiusM,
+        display_radius_metres: state.displayRadiusM,
         location_detail: AGENT_LOCATION_DETAIL,
         named_location_is_approximate: namedLocation !== undefined,
         named_location: namedLocation ?? null,
@@ -1333,8 +1671,8 @@ for (const binding of xrControllerBindings) {
     binding.handedness = "none";
     binding.inputSource = undefined;
   });
-  scene.add(binding.controller);
-  scene.add(binding.grip);
+  observerRig.add(binding.controller);
+  observerRig.add(binding.grip);
 }
 
 function resolveHandPanelAnchorPose(): ThreeHostPose | undefined {
@@ -1442,18 +1780,28 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
   const session = renderer.xr.getSession();
   if (!session) return;
   const intent = controllerIntent(session, nowMs, buttonLatch);
-  if (intent.turnAxis !== 0) {
+  if (navigationMode !== "orbit" && intent.turnAxis !== 0) {
     rotateViewDirection(
       intent.turnAxis * XR_TURN_RATE_DEGREES_PER_SECOND * deltaSeconds,
     );
   }
   renderer.xr.getCamera().getWorldQuaternion(xrViewQuaternion);
+  if (navigationMode === "orbit") {
+    updateOrbitControls(
+      intent.orbit.x,
+      intent.orbit.y,
+      intent.radialAxis,
+      intent.scaleAxis,
+      intent.boost,
+      deltaSeconds,
+    );
+  }
   const travel = headRelativeTravel(intent.travel, xrViewQuaternion);
   if (travel.lengthSq() > 1) travel.normalize();
   if (navigationMode === "surface") {
     travel.multiplyScalar((intent.boost ? 4.2 : 1.35) * deltaSeconds);
   }
-  if (travel.lengthSq() > 0) {
+  if (navigationMode !== "orbit" && travel.lengthSq() > 0) {
     if (navigationMode === "surface") {
       state.contact = rollContactFrame(
         state.contact,
@@ -1470,7 +1818,7 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
       if (spaceTravel.lengthSq() > 1) spaceTravel.normalize();
       spaceTravel.multiplyScalar(
         spaceTravelSpeedRoomMPerSecond(
-          navigationMode === "orbit" ? "orbit" : "free",
+          "free",
           state.displayRadiusM,
           focusDistanceRoomM(),
           intent.boost,
@@ -1479,16 +1827,18 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
       moveSpaceObserver(spaceTravel);
     }
   }
-  state.displayRadiusM = applyLogarithmicScale(
-    state.displayRadiusM,
-    intent.scaleAxis,
-    deltaSeconds,
-  );
-  state.radialMultiplier = applyRadialMultiplierRate(
-    state.radialMultiplier,
-    intent.radialAxis,
-    deltaSeconds,
-  );
+  if (navigationMode !== "orbit") {
+    state.displayRadiusM = applyLogarithmicScale(
+      state.displayRadiusM,
+      intent.scaleAxis,
+      deltaSeconds,
+    );
+    state.radialMultiplier = applyRadialMultiplierRate(
+      state.radialMultiplier,
+      intent.radialAxis,
+      deltaSeconds,
+    );
+  }
   if (intent.toggleTileOverlay) {
     setTileOverlayVisible(!tileOverlayVisible);
   }
@@ -1501,6 +1851,73 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
   if (intent.reset) resetPlanet();
 }
 
+function orbitObserverByRadians(
+  horizontalRadians: number,
+  verticalRadians: number,
+): void {
+  if (!orbitNavigation) return;
+  const viewCamera = currentViewCamera();
+  viewCamera.updateWorldMatrix(true, false);
+  const headPosition = new THREE.Vector3();
+  const headQuaternion = new THREE.Quaternion();
+  viewCamera.getWorldPosition(headPosition);
+  viewCamera.getWorldQuaternion(headQuaternion);
+  commitObserverTransform(updateObserverEarthOrbit(
+    orbitNavigation.observer,
+    headPosition,
+    headQuaternion,
+    orbitNavigation.focusWorldPosition,
+    horizontalRadians,
+    verticalRadians,
+  ));
+}
+
+function updateOrbitControls(
+  orbitX: number,
+  orbitY: number,
+  altitudeAxis: number,
+  scaleAxis: number,
+  boosted: boolean,
+  deltaSeconds: number,
+): void {
+  if (!orbitNavigation) return;
+  orbitObserverByRadians(
+    orbitalAngularStepRadians(orbitX, deltaSeconds, boosted),
+    orbitalAngularStepRadians(orbitY, deltaSeconds, boosted),
+  );
+  const dominant = dominantStickAxes(
+    altitudeAxis,
+    scaleAxis,
+    orbitDominantAxis,
+  );
+  orbitDominantAxis = dominant.latched;
+  if (dominant.horizontal !== 0) {
+    const viewCamera = currentViewCamera();
+    viewCamera.updateWorldMatrix(true, false);
+    const headPosition = viewCamera.getWorldPosition(new THREE.Vector3());
+    const desiredDistance = orbitalLogarithmicValue(
+      headPosition.distanceTo(orbitNavigation.focusWorldPosition),
+      dominant.horizontal,
+      deltaSeconds,
+      boosted,
+    );
+    commitObserverTransform(observerProjectedToEarthRadius(
+      orbitNavigation.observer,
+      headPosition,
+      orbitNavigation.focusWorldPosition,
+      desiredDistance,
+    ));
+  }
+  if (dominant.vertical !== 0) {
+    state.displayRadiusM = orbitalLogarithmicValue(
+      state.displayRadiusM,
+      dominant.vertical,
+      deltaSeconds,
+      boosted,
+    );
+  }
+}
+
 function updateDesktopControls(deltaSeconds: number): void {
   const sideways =
     Number(keys.has("KeyD")) - Number(keys.has("KeyA"));
@@ -1508,6 +1925,18 @@ function updateDesktopControls(deltaSeconds: number): void {
     Number(keys.has("KeyW")) - Number(keys.has("KeyS"));
   desktopTravel.set(sideways, -forward);
   if (desktopTravel.lengthSq() > 1) desktopTravel.normalize();
+  if (navigationMode === "orbit") {
+    const boosted = keys.has("ShiftLeft") || keys.has("ShiftRight");
+    updateOrbitControls(
+      sideways,
+      forward,
+      Number(keys.has("KeyV")) - Number(keys.has("KeyC")),
+      Number(keys.has("KeyX")) - Number(keys.has("KeyZ")),
+      boosted,
+      deltaSeconds,
+    );
+    return;
+  }
   if (desktopTravel.lengthSq() > 0) {
     const boosted = keys.has("ShiftLeft") || keys.has("ShiftRight");
     const travel = headRelativeTravel(desktopTravel, camera.quaternion);
@@ -1528,7 +1957,7 @@ function updateDesktopControls(deltaSeconds: number): void {
       if (spaceTravel.lengthSq() > 1) spaceTravel.normalize();
       spaceTravel.multiplyScalar(
         spaceTravelSpeedRoomMPerSecond(
-          navigationMode === "orbit" ? "orbit" : "free",
+          "free",
           state.displayRadiusM,
           focusDistanceRoomM(),
           boosted,
@@ -1561,6 +1990,15 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
 });
 renderer.domElement.addEventListener("pointermove", (event) => {
   if (!pointerActive || renderer.xr.isPresenting) return;
+  if (navigationMode === "orbit") {
+    orbitObserverByRadians(
+      -(event.clientX - pointerX) * 0.002,
+      (event.clientY - pointerY) * 0.002,
+    );
+    pointerX = event.clientX;
+    pointerY = event.clientY;
+    return;
+  }
   yaw -= (event.clientX - pointerX) * 0.0035;
   pitch -= (event.clientY - pointerY) * 0.0035;
   pitch = Math.max(-1.35, Math.min(1.1, pitch));
@@ -1568,6 +2006,18 @@ renderer.domElement.addEventListener("pointermove", (event) => {
   pointerX = event.clientX;
   pointerY = event.clientY;
 });
+renderer.domElement.addEventListener("wheel", (event) => {
+  if (renderer.xr.isPresenting || navigationMode !== "orbit") return;
+  event.preventDefault();
+  updateOrbitControls(
+    0,
+    0,
+    Math.max(-1, Math.min(1, event.deltaY * 0.01)),
+    0,
+    false,
+    0.05,
+  );
+}, { passive: false });
 renderer.domElement.addEventListener("pointerup", (event) => {
   pointerActive = false;
   if (renderer.domElement.hasPointerCapture(event.pointerId)) {
@@ -1928,6 +2378,7 @@ renderer.xr.addEventListener("sessionstart", () => {
   updateSatelliteReadout();
   camera.position.set(0, 0, 0);
   camera.rotation.set(0, 0, 0);
+  if (navigationMode === "orbit") orbitNavigation = undefined;
   previousXrHead = null;
   renderer.xr.setFoveation(1);
   const frameRate = renderer.xr.getSession()?.frameRate;
@@ -1949,6 +2400,7 @@ renderer.xr.addEventListener("sessionend", () => {
   updateAircraftReadout();
   camera.position.set(0, 1.65, 0);
   camera.rotation.set(pitch, yaw, 0);
+  if (navigationMode === "orbit") orbitNavigation = undefined;
   headsetFloorPosition.set(0, 0);
   previousXrHead = null;
 });
@@ -2006,8 +2458,28 @@ function debugTileTarget(target: TileDebugTarget): TileDebugTarget {
 
 function debugControlState(): Record<string, unknown> {
   const coordinates = coordinatesForFrame(state.contact);
+  const viewCamera = currentViewCamera();
+  viewCamera.updateWorldMatrix(true, false);
+  const debugObserverPosition = viewCamera.getWorldPosition(new THREE.Vector3());
+  const orbitDistanceM = orbitNavigation
+    ? debugObserverPosition.distanceTo(orbitNavigation.focusWorldPosition)
+    : null;
   return {
     location: coordinates,
+    navigation: {
+      mode: navigationMode,
+      focusBody: focusBodyId,
+      focusDistanceRoomM: orbitDistanceM,
+      focusDistanceBodyRadii: orbitDistanceM === null
+        ? null
+        : orbitDistanceM / state.displayRadiusM,
+      observerRig: {
+        position: observerRig.position.toArray(),
+        quaternion: observerRig.quaternion.toArray(),
+        scale: observerRig.scale.toArray(),
+      },
+      focusWorldPosition: orbitNavigation?.focusWorldPosition.toArray() ?? null,
+    },
     displayRadiusM: state.displayRadiusM,
     radialMultiplier: state.radialMultiplier,
     view: {
@@ -2476,6 +2948,7 @@ if (import.meta.env.DEV || benchmarkParameters.get("debug") === "1") {
 
 const cameraWorldPosition = new THREE.Vector3();
 const celestialObserverAppEcefKm = new THREE.Vector3();
+const earthWorldScale = new THREE.Vector3();
 function render(nowMs: number): void {
   const applicationStartMs = performance.now();
   const xrFrameRate = renderer.xr.getSession()?.frameRate;
@@ -2495,29 +2968,38 @@ function render(nowMs: number): void {
     }
   }
   updatePresentation();
+  const earthDisplayRadiusM = navigationMode === "surface"
+    ? state.displayRadiusM
+    : planetRoot.getWorldScale(earthWorldScale).x;
   aircraftLayer.update(
     utcMilliseconds,
-    state.displayRadiusM,
+    earthDisplayRadiusM,
     state.radialMultiplier,
   );
   satelliteLayer.update(
     utcMilliseconds,
-    state.displayRadiusM,
+    earthDisplayRadiusM,
     state.radialMultiplier,
   );
   const viewCamera = renderer.xr.isPresenting
     ? renderer.xr.getCamera()
     : camera;
   viewCamera.getWorldPosition(cameraWorldPosition);
-  const observerCoordinates = coordinatesForFrame(state.contact);
-  geodeticSurfaceEcefKm(
-    observerCoordinates.latitudeDegrees,
-    observerCoordinates.longitudeDegrees,
-    celestialObserverAppEcefKm,
-  ).addScaledVector(
-    state.contact.upEcef,
-    cameraWorldPosition.y / 1_000,
-  );
+  if (navigationMode === "orbit") {
+    celestialObserverAppEcefKm.copy(cameraWorldPosition);
+    planetRoot.worldToLocal(celestialObserverAppEcefKm);
+    celestialObserverAppEcefKm.multiplyScalar(EARTH_MEAN_RADIUS_KM);
+  } else {
+    const observerCoordinates = coordinatesForFrame(state.contact);
+    geodeticSurfaceEcefKm(
+      observerCoordinates.latitudeDegrees,
+      observerCoordinates.longitudeDegrees,
+      celestialObserverAppEcefKm,
+    ).addScaledVector(
+      state.contact.upEcef,
+      cameraWorldPosition.y / 1_000,
+    );
+  }
   celestialSphere.update(
     planetRoot.quaternion,
     cameraWorldPosition,

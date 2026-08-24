@@ -17,8 +17,9 @@ From the repository root:
 npm run dev -- --port 4197
 ```
 
-Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel, Z/X to
-change planet scale, C/V to change radial exaggeration, and Backspace to reset.
+Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel or orbit,
+Z/X to change planet scale, C/V to change orbital altitude or radial
+exaggeration, and Backspace to reset.
 Use the World and Navigation selectors for Earth/Moon ground mode and any-body
 orbit/free mode. M cycles navigation modes and N switches Earth/Moon.
 
@@ -139,11 +140,11 @@ re-entering; foveation can change during a session.
 
 ## Controls
 
-- Left stick: head-relative travel
+- Left stick: surface/free travel, or target-locked orbital movement
 - Left trigger + left stick left/right: turn the view
 - Left grip: faster travel
 - Right stick vertical: whole-planet scale
-- Right stick horizontal: radial terrain and altitude exaggeration
+- Right stick horizontal: orbital altitude, or surface radial exaggeration
 - X: toggle committed terrain-tile tint and boundaries
 - Y: toggle photographic source-tile boundaries
 - A: toggle the Realtime voice guide
@@ -151,10 +152,11 @@ re-entering; foveation can change during a session.
 - M (desktop): cycle ground, orbital, and free-roam placement
 - N (desktop): switch between Earth and Moon
 
-Ground travel uses a walking-scale velocity. Orbit and free-roam travel use
-the same left stick/WASD input as head-relative 3D thrust, with velocity scaled
-to the displayed body radius. Free roam also increases velocity with distance
-from the focused body; left grip/Shift applies a 4× boost.
+Ground travel uses a walking-scale velocity. Orbit uses the left stick/WASD to
+move around the focused body in headset-screen directions while keeping it
+framed; right-stick horizontal or C/V changes altitude independently. Free roam
+uses head-relative 3D thrust and increases velocity with distance from the
+focused body. Left grip/Shift accelerates movement.
 
 The hand panel uses touch-os and the embedded NASA Blue Marble image to show
 the underfoot point, display scale, radial multiplier, committed terrain zoom
