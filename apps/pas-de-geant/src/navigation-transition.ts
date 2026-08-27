@@ -146,3 +146,22 @@ export function sampleScaleTransition(
     complete,
   };
 }
+
+function normalizeAngleRadians(radians: number): number {
+  const turn = Math.PI * 2;
+  return ((radians + Math.PI) % turn + turn) % turn - Math.PI;
+}
+
+export function sampleAngleTransition(
+  transition: TimedTransition<number>,
+  nowMs: number,
+): TransitionSample<number> {
+  const { progress, complete } = easedProgress(transition, nowMs);
+  if (complete) return { value: transition.to, complete: true };
+  if (progress <= 0) return { value: transition.from, complete: false };
+  const shortestDelta = normalizeAngleRadians(transition.to - transition.from);
+  return {
+    value: normalizeAngleRadians(transition.from + shortestDelta * progress),
+    complete: false,
+  };
+}

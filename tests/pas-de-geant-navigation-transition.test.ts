@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  sampleAngleTransition,
   sampleScaleTransition,
   sampleWarpTransition,
 } from "../apps/pas-de-geant/src/navigation-transition.js";
@@ -44,5 +45,24 @@ describe("timed navigation transitions", () => {
     const finished = sampleScaleTransition(transition, 2_000);
     expect(finished.value).toBe(100);
     expect(finished.complete).toBe(true);
+  });
+
+  it("turns through the shortest angle when a heading crosses north", () => {
+    const transition = {
+      from: 170 * Math.PI / 180,
+      to: -170 * Math.PI / 180,
+      startedAtMs: 0,
+      durationSeconds: 2,
+    };
+
+    expect(sampleAngleTransition(transition, 0).value * 180 / Math.PI)
+      .toBeCloseTo(170, 10);
+    expect(Math.abs(
+      sampleAngleTransition(transition, 1_000).value * 180 / Math.PI,
+    )).toBeCloseTo(180, 10);
+    expect(sampleAngleTransition(transition, 2_000)).toEqual({
+      value: transition.to,
+      complete: true,
+    });
   });
 });

@@ -98,6 +98,34 @@ describe("supervision protocol", () => {
         displayRadiusM,
       })).toThrow();
     }
+    expect(parseSupervisionCommand({
+      kind: "setRadialMultiplier",
+      radialMultiplier: 12.5,
+    })).toEqual({
+      kind: "setRadialMultiplier",
+      radialMultiplier: 12.5,
+    });
+    for (const radialMultiplier of [-1, Number.POSITIVE_INFINITY, Number.NaN]) {
+      expect(() => parseSupervisionCommand({
+        kind: "setRadialMultiplier",
+        radialMultiplier,
+      })).toThrow();
+    }
+    expect(parseSupervisionCommand({
+      kind: "setHeading",
+      headingDegrees: 270,
+      time: 0.5,
+    })).toEqual({
+      kind: "setHeading",
+      headingDegrees: 270,
+      time: 0.5,
+    });
+    for (const headingDegrees of [Number.POSITIVE_INFINITY, Number.NaN]) {
+      expect(() => parseSupervisionCommand({
+        kind: "setHeading",
+        headingDegrees,
+      })).toThrow(/heading/i);
+    }
     for (const time of [-1, Number.POSITIVE_INFINITY, Number.NaN]) {
       expect(() => parseSupervisionCommand({
         kind: "warp",
@@ -242,6 +270,14 @@ describe("voice and supervisor navigation parity", () => {
         calls.push(["scale", time]);
         state = { ...state, displayRadiusM };
       },
+      setRadialMultiplier(radialMultiplier) {
+        calls.push(["radial", undefined]);
+        state = { ...state, radialMultiplier };
+      },
+      setHeading(headingDegrees, time) {
+        calls.push(["heading", time]);
+        state = { ...state, headingDegrees };
+      },
       readState() {
         const { sequence: _sequence, ...snapshot } = state;
         return snapshot;
@@ -270,12 +306,22 @@ describe("voice and supervisor navigation parity", () => {
       { kind: "setDisplayRadius", displayRadiusM: 1e12, time: 3 },
       mutations,
     );
+    const supervisorRadialState = applySupervisorNavigationMutation(
+      { kind: "setRadialMultiplier", radialMultiplier: 15 },
+      mutations,
+    );
+    const supervisorHeadingState = applySupervisorNavigationMutation(
+      { kind: "setHeading", headingDegrees: 270, time: 0.5 },
+      mutations,
+    );
 
     expect(calls).toEqual([
       ["warp", 1.5],
       ["warp", 2],
       ["scale", 2.5],
       ["scale", 3],
+      ["radial", undefined],
+      ["heading", 0.5],
     ]);
     expect(voiceWarpState).toMatchObject({
       latitudeDegrees: 35.6762,
@@ -287,6 +333,8 @@ describe("voice and supervisor navigation parity", () => {
     });
     expect(voiceScaleState.displayRadiusM).toBe(37.25);
     expect(supervisorScaleState.displayRadiusM).toBe(1e12);
+    expect(supervisorRadialState.radialMultiplier).toBe(15);
+    expect(supervisorHeadingState.headingDegrees).toBe(270);
   });
 
   it("routes voice and supervisor pin operations through one canonical store", () => {

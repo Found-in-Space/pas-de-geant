@@ -117,6 +117,7 @@ import {
   type CanonicalNavigationMutations,
 } from "./navigation-mutation-adapters.js";
 import {
+  sampleAngleTransition,
   sampleScaleTransition,
   sampleWarpTransition,
   type NavigationCoordinates,
@@ -171,6 +172,7 @@ import {
   parseViewDirectionToolArguments,
   viewHeadingDegreesFromQuaternion,
   worldRotationForViewDirection,
+  type ViewDirectionCommand,
 } from "./view-direction.js";
 import type {
   SupervisionCommand,
@@ -455,6 +457,7 @@ let state = initialPlanetState(
 );
 let warpTransition: TimedTransition<NavigationCoordinates> | undefined;
 let scaleTransition: TimedTransition<number> | undefined;
+let headingTransition: TimedTransition<number> | undefined;
 let navigationMode: NavigationMode = "surface";
 let focusBodyId: SolarSystemBodyId = "earth";
 let freeObserverJ2000M: Vector3d | undefined;
@@ -880,6 +883,7 @@ function initializeOrbit(): void {
 function resetPlanet(): void {
   warpTransition = undefined;
   scaleTransition = undefined;
+  headingTransition = undefined;
   state = initialPlanetState(
     initialLocation.latitudeDegrees,
     initialLocation.longitudeDegrees,
@@ -901,6 +905,7 @@ function resetPlanet(): void {
 function setNavigationMode(mode: NavigationMode): void {
   warpTransition = undefined;
   scaleTransition = undefined;
+  headingTransition = undefined;
   if (
     mode === "surface" &&
     celestialBody(focusBodyId).surface === null
@@ -959,6 +964,7 @@ function freeStateFromOrbit(orbit: OrbitNavigationState): {
 function setFocusBody(bodyId: SolarSystemBodyId): void {
   warpTransition = undefined;
   scaleTransition = undefined;
+  headingTransition = undefined;
   focusBodyId = bodyId;
   if (
     navigationMode === "surface" &&
@@ -979,6 +985,15 @@ function setDisplayRadius(displayRadiusM: number): number {
   state.displayRadiusM = displayRadiusM;
   updatePresentation();
   return state.displayRadiusM;
+}
+
+function setRadialMultiplier(radialMultiplier: number): number {
+  if (!Number.isFinite(radialMultiplier) || radialMultiplier < 0) {
+    throw new Error("Radial multiplier must be nonnegative and finite.");
+  }
+  state.radialMultiplier = radialMultiplier;
+  updatePresentation();
+  return state.radialMultiplier;
 }
 
 function setUserLocation(
@@ -1057,6 +1072,11 @@ function updateNavigationTransitions(nowMs: number): void {
     state.displayRadiusM = sample.value;
     if (sample.complete) scaleTransition = undefined;
   }
+  if (headingTransition) {
+    const sample = sampleAngleTransition(headingTransition, nowMs);
+    worldRotationRadians = sample.value;
+    if (sample.complete) headingTransition = undefined;
+  }
 }
 
 const viewDirectionQuaternion = new THREE.Quaternion();
@@ -1079,6 +1099,40 @@ function viewDirectionState(): Record<string, unknown> {
     ),
     reference: "clockwise from geographic north",
   };
+}
+
+function applyViewDirection(command: ViewDirectionCommand): number {
+  headingTransition = undefined;
+  worldRotationRadians = worldRotationForViewDirection(
+    worldRotationRadians,
+    viewWorldHeadingDegrees(),
+    command,
+  );
+  updatePresentation();
+  return geographicViewHeadingDegrees(
+    viewWorldHeadingDegrees(),
+    worldRotationRadians,
+  );
+}
+
+function setHeading(headingDegrees: number): number {
+  return applyViewDirection({ mode: "absolute", degrees: headingDegrees });
+}
+
+function transitionHeading(headingDegrees: number, time?: number): number {
+  const durationSeconds = transitionDuration(time);
+  if (durationSeconds === 0) return setHeading(headingDegrees);
+  headingTransition = {
+    from: worldRotationRadians,
+    to: worldRotationForViewDirection(
+      worldRotationRadians,
+      viewWorldHeadingDegrees(),
+      { mode: "absolute", degrees: headingDegrees },
+    ),
+    startedAtMs: performance.now(),
+    durationSeconds,
+  };
+  return normalizeHeadingDegrees(headingDegrees);
 }
 
 function supervisionNavigationState(): SupervisionNavigationSnapshot {
@@ -1106,6 +1160,8 @@ function supervisionNavigationState(): SupervisionNavigationSnapshot {
 const canonicalNavigationMutations: CanonicalNavigationMutations = {
   warp: warpUserLocation,
   setDisplayRadius: transitionDisplayRadius,
+  setRadialMultiplier,
+  setHeading: transitionHeading,
   readState: supervisionNavigationState,
 };
 
@@ -1215,22 +1271,18 @@ function pinGuidanceFromVoiceArguments(
 
 function setViewDirection(argumentsValue: unknown): Record<string, unknown> {
   const command = parseViewDirectionToolArguments(argumentsValue);
-  const viewWorldHeading = viewWorldHeadingDegrees();
-  worldRotationRadians = worldRotationForViewDirection(
-    worldRotationRadians,
-    viewWorldHeading,
-    command,
-  );
-  updatePresentation();
+  const headingDegrees = applyViewDirection(command);
   return {
     ok: true,
     mode: command.mode,
     requested_degrees: command.degrees,
-    ...viewDirectionState(),
+    heading_degrees: headingDegrees,
+    reference: "clockwise from geographic north",
   };
 }
 
 function rotateViewDirection(degrees: number): void {
+  headingTransition = undefined;
   if (navigationMode === "free" && freeNavigationFrame) {
     freeNavigationFrame.systemFrameQuaternion.premultiply(
       new THREE.Quaternion().setFromAxisAngle(
@@ -3094,6 +3146,7 @@ const debugApi: PasDeGeantDebugApi = {
     pitch = 0;
     yaw = 0;
     worldRotationRadians = 0;
+    headingTransition = undefined;
     camera.rotation.set(0, 0, 0);
     terrain.setTilePixelRatio({
       target: "terrain",
@@ -3140,6 +3193,7 @@ const debugApi: PasDeGeantDebugApi = {
     pitch = restore.pitchRadians;
     yaw = restore.yawRadians;
     worldRotationRadians = restore.worldRotationRadians;
+    headingTransition = undefined;
     camera.rotation.set(pitch, yaw, 0);
     applyTileControlReadback(restore.tileControls);
     setTileOverlayVisible(restore.tileOverlayVisible);
@@ -3177,9 +3231,7 @@ const debugApi: PasDeGeantDebugApi = {
   },
   setRadialMultiplier(multiplier) {
     const value = finiteDebugNumber(multiplier, "multiplier");
-    if (value < 0) throw new Error("multiplier must be nonnegative.");
-    state.radialMultiplier = value;
-    updatePresentation();
+    setRadialMultiplier(value);
     return debugControlState();
   },
   setView(view) {

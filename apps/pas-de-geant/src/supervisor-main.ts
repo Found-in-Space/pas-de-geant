@@ -17,6 +17,7 @@ import {
 } from "./supervisor-client.js";
 import { SupervisorSavedLocationStore } from "./supervisor-saved-locations.js";
 import {
+  UI_HEADING_TRANSITION_SECONDS,
   UI_SCALE_TRANSITION_SECONDS,
   uiWarpTransitionTime,
 } from "./supervisor-transition-timing.js";
@@ -55,6 +56,12 @@ const addPinButton = element<HTMLButtonElement>("add-pin-button");
 const scaleForm = element<HTMLFormElement>("scale-form");
 const displayRadius = element<HTMLInputElement>("display-radius");
 const scaleButton = element<HTMLButtonElement>("scale-button");
+const radialForm = element<HTMLFormElement>("radial-form");
+const radialMultiplier = element<HTMLInputElement>("radial-multiplier");
+const radialButton = element<HTMLButtonElement>("radial-button");
+const headingDegrees = element<HTMLInputElement>("heading-degrees");
+const headingCurrent = element<HTMLSpanElement>("heading-current");
+const headingTarget = element<HTMLOutputElement>("heading-target");
 const commandStatus = element<HTMLParagraphElement>("command-status");
 const savedLocationCount = element<HTMLSpanElement>("saved-location-count");
 const savedLocationList = element<HTMLDivElement>("saved-location-list");
@@ -94,6 +101,9 @@ let destinationDraft: { latitudeDegrees: number; longitudeDegrees: number } |
 let destinationInitialized = false;
 let scaleDraftInitialized = false;
 let scaleDraftDirty = false;
+let radialDraftInitialized = false;
+let radialDraftDirty = false;
+let headingDraftDirty = false;
 let mapCenteredSessionId: string | undefined;
 const pendingCommands = new Map<string, PendingCommand>();
 const sessionListEntries = new Map<string, SessionListEntry>();
@@ -132,6 +142,11 @@ function sessionName(session: Pick<SupervisionSession, "sessionId" | "label">): 
 
 function formatRadius(value: number): string {
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 }).format(value)} m`;
+}
+
+function formatInputValue(value: number, fractionDigits: number): string {
+  const rounded = Number(value.toFixed(fractionDigits));
+  return String(rounded === 0 && value !== 0 ? value : rounded);
 }
 
 function elapsedLabel(startedAtMs: number): string {
@@ -244,7 +259,16 @@ function resetDrafts(session: SupervisionSession): void {
   destinationInitialized = false;
   scaleDraftInitialized = false;
   scaleDraftDirty = false;
+  radialDraftInitialized = false;
+  radialDraftDirty = false;
+  headingDraftDirty = false;
   if (session.state) initializeDrafts(session);
+}
+
+function setHeadingDraftValue(value: number): void {
+  const rounded = Math.round(value);
+  headingDegrees.value = String(rounded);
+  headingTarget.value = `${rounded}°`;
 }
 
 function setDestinationFieldValues(
@@ -269,8 +293,15 @@ function initializeDrafts(session: SupervisionSession): void {
     destinationInitialized = true;
   }
   if (!scaleDraftInitialized) {
-    displayRadius.value = String(session.state.displayRadiusM);
+    displayRadius.value = formatInputValue(session.state.displayRadiusM, 3);
     scaleDraftInitialized = true;
+  }
+  if (!radialDraftInitialized) {
+    radialMultiplier.value = formatInputValue(session.state.radialMultiplier, 1);
+    radialDraftInitialized = true;
+  }
+  if (!headingDraftDirty && session.state.headingDegrees !== null) {
+    setHeadingDraftValue(session.state.headingDegrees);
   }
 }
 
@@ -353,6 +384,12 @@ function renderControls(supported: boolean, connected: boolean): void {
   const scalePending = [...pendingCommands.values()].some(
     (pending) => pending.sessionId === selectedSessionId && pending.kind === "setDisplayRadius",
   );
+  const radialPending = [...pendingCommands.values()].some(
+    (pending) => pending.sessionId === selectedSessionId && pending.kind === "setRadialMultiplier",
+  );
+  const headingPending = [...pendingCommands.values()].some(
+    (pending) => pending.sessionId === selectedSessionId && pending.kind === "setHeading",
+  );
   destinationLatitude.disabled = !supported || !connected || warpPending;
   destinationLongitude.disabled = !supported || !connected || warpPending;
   useCurrentButton.disabled = !supported || !connected || warpPending;
@@ -361,6 +398,9 @@ function renderControls(supported: boolean, connected: boolean): void {
   addPinButton.disabled = !supported || !connected;
   displayRadius.disabled = !supported || !connected || scalePending;
   scaleButton.disabled = !supported || !connected || scalePending;
+  radialMultiplier.disabled = !supported || !connected || radialPending;
+  radialButton.disabled = !supported || !connected || radialPending;
+  headingDegrees.disabled = !supported || !connected || headingPending;
 }
 
 function showPinDestination(pin: LocationPin): void {
@@ -767,7 +807,19 @@ function render(): void {
       state.headingDegrees,
     );
     if (!scaleDraftDirty && !scaleDraftInitialized) {
-      displayRadius.value = String(state.displayRadiusM);
+      displayRadius.value = formatInputValue(state.displayRadiusM, 3);
+    }
+    if (!radialDraftDirty && !radialDraftInitialized) {
+      radialMultiplier.value = formatInputValue(state.radialMultiplier, 1);
+    }
+    headingCurrent.textContent = state.headingDegrees === null
+      ? "Current —"
+      : `Current ${formatInputValue(state.headingDegrees, 1)}°`;
+    if (
+      !headingDraftDirty &&
+      state.headingDegrees !== null
+    ) {
+      setHeadingDraftValue(state.headingDegrees);
     }
     if (mapCenteredSessionId !== session.sessionId) {
       mapCenteredSessionId = session.sessionId;
@@ -778,6 +830,7 @@ function render(): void {
     }
   } else {
     hideCurrentPosition();
+    headingCurrent.textContent = "Current —";
   }
   if (destinationDraft) {
     showDestination(
@@ -847,6 +900,24 @@ destinationLongitude.addEventListener("paste", pasteCoordinatePair);
 displayRadius.addEventListener("input", () => {
   scaleDraftDirty = true;
   scaleDraftInitialized = true;
+});
+radialMultiplier.addEventListener("input", () => {
+  radialDraftDirty = true;
+  radialDraftInitialized = true;
+});
+headingDegrees.addEventListener("input", () => {
+  headingDraftDirty = true;
+  const value = headingDegrees.valueAsNumber;
+  headingTarget.value = `${value}°`;
+});
+headingDegrees.addEventListener("change", () => {
+  const value = headingDegrees.valueAsNumber;
+  if (!Number.isFinite(value) || !isSupported(selectedLiveSession())) return;
+  sendCommand({
+    kind: "setHeading",
+    headingDegrees: value,
+    time: UI_HEADING_TRANSITION_SECONDS,
+  }, "Heading change");
 });
 
 useCurrentButton.addEventListener("click", () => {
@@ -929,6 +1000,23 @@ scaleForm.addEventListener("submit", (event) => {
   }, "Scale change");
 });
 
+radialForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const value = radialMultiplier.valueAsNumber;
+  if (!Number.isFinite(value) || value < 0) {
+    radialMultiplier.setCustomValidity("Enter a nonnegative finite amplification.");
+    radialMultiplier.reportValidity();
+    radialMultiplier.setCustomValidity("");
+    return;
+  }
+  if (!radialForm.reportValidity()) return;
+  if (!selectedLiveSession()?.state) return;
+  sendCommand({
+    kind: "setRadialMultiplier",
+    radialMultiplier: value,
+  }, "Radial amplification change");
+});
+
 function handleRelayStatus(status: SupervisorConnectionStatus): void {
   relayStatus.dataset.state = status;
   relayStatus.textContent = status === "connected"
@@ -959,9 +1047,24 @@ function handleCommandResult(result: CommandResultMessage): void {
       if (pending.sessionId === selectedSessionId) selectedSessionCache = updated;
     }
     if (pending.command.kind === "setDisplayRadius") {
-      displayRadius.value = String(pending.command.displayRadiusM);
+      displayRadius.value = formatInputValue(pending.command.displayRadiusM, 3);
       scaleDraftDirty = false;
       scaleDraftInitialized = true;
+    }
+    if (pending.command.kind === "setRadialMultiplier") {
+      radialMultiplier.value = formatInputValue(
+        pending.command.radialMultiplier,
+        1,
+      );
+      radialDraftDirty = false;
+      radialDraftInitialized = true;
+    }
+    if (pending.command.kind === "setHeading") {
+      const acknowledgedHeading = result.state.headingDegrees;
+      if (acknowledgedHeading !== null) {
+        setHeadingDraftValue(acknowledgedHeading);
+      }
+      headingDraftDirty = false;
     }
     setCommandStatus(
       `${pending.description} acknowledged at state ${result.state.sequence}.`,

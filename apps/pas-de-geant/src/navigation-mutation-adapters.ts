@@ -11,6 +11,8 @@ export interface CanonicalNavigationMutations {
     time?: number,
   ) => unknown;
   readonly setDisplayRadius: (displayRadiusM: number, time?: number) => unknown;
+  readonly setRadialMultiplier: (radialMultiplier: number) => unknown;
+  readonly setHeading: (headingDegrees: number, time?: number) => unknown;
   readonly readState: () => SupervisionNavigationSnapshot;
 }
 
@@ -22,7 +24,13 @@ export interface WarpCoordinates {
 
 type NavigationSupervisionCommand = Extract<
   SupervisionCommand,
-  { kind: "warp" | "setDisplayRadius" }
+  {
+    kind:
+      | "warp"
+      | "setDisplayRadius"
+      | "setRadialMultiplier"
+      | "setHeading";
+  }
 >;
 
 type PinSupervisionCommand = Extract<
@@ -68,8 +76,12 @@ export function applySupervisorNavigationMutation(
       command.longitudeDegrees,
       command.time,
     );
-  } else {
+  } else if (command.kind === "setDisplayRadius") {
     mutations.setDisplayRadius(command.displayRadiusM, command.time);
+  } else if (command.kind === "setRadialMultiplier") {
+    mutations.setRadialMultiplier(command.radialMultiplier);
+  } else {
+    mutations.setHeading(command.headingDegrees, command.time);
   }
   return mutations.readState();
 }

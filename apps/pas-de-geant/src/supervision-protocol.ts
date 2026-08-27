@@ -40,6 +40,17 @@ export type SupervisionCommand =
     readonly time?: number;
   }
   | {
+    readonly kind: "setRadialMultiplier";
+    readonly radialMultiplier: number;
+  }
+  | {
+    readonly kind: "setHeading";
+    /** Absolute compass heading, in degrees clockwise from geographic north. */
+    readonly headingDegrees: number;
+    /** Eased transition duration in seconds. Omit or use zero for an instant turn. */
+    readonly time?: number;
+  }
+  | {
     readonly kind: "setPin";
     readonly pin: LocationPin;
   }
@@ -256,6 +267,24 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
     return {
       kind: "setDisplayRadius",
       displayRadiusM,
+      ...(time === undefined ? {} : { time }),
+    };
+  }
+  if (candidate.kind === "setRadialMultiplier") {
+    const radialMultiplier = finiteNumber(
+      candidate.radialMultiplier,
+      "Radial multiplier",
+    );
+    if (radialMultiplier < 0) {
+      throw new Error("Radial multiplier must be nonnegative.");
+    }
+    return { kind: "setRadialMultiplier", radialMultiplier };
+  }
+  if (candidate.kind === "setHeading") {
+    const time = optionalTransitionTime(candidate.time);
+    return {
+      kind: "setHeading",
+      headingDegrees: finiteNumber(candidate.headingDegrees, "Heading"),
       ...(time === undefined ? {} : { time }),
     };
   }

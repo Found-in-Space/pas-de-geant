@@ -78,18 +78,58 @@
                   </div>
                 </form>
 
-                <form id="scale-form" class="command-card">
+                <section class="command-card">
                   <div class="command-title">
                     <div>
                       <p class="eyebrow">Scale</p>
-                      <h3>Displayed Earth radius</h3>
+                      <h3>Earth size and relief</h3>
                     </div>
                   </div>
-                  <label>Radius in room metres
-                    <input id="display-radius" type="number" min="0" step="any" required>
-                  </label>
-                  <button id="scale-button" class="primary-button" type="submit">Apply radius</button>
-                </form>
+                  <div class="scale-control-grid">
+                    <form id="scale-form" class="scale-control">
+                      <label for="display-radius">Radius
+                        <span class="field-hint">Room metres</span>
+                      </label>
+                      <div class="input-action">
+                        <input id="display-radius" type="number" min="0" step="any" required>
+                        <button id="scale-button" class="compact-button" type="submit" aria-label="Apply radius">Go</button>
+                      </div>
+                    </form>
+                    <form id="radial-form" class="scale-control">
+                      <label for="radial-multiplier">Radial amplification
+                        <span class="field-hint">Higher mountains</span>
+                      </label>
+                      <div class="input-action">
+                        <input id="radial-multiplier" type="number" min="0" step="any" required>
+                        <button id="radial-button" class="compact-button" type="submit" aria-label="Apply radial amplification">Go</button>
+                      </div>
+                    </form>
+                  </div>
+                </section>
+
+                <section class="command-card">
+                  <div class="command-title">
+                    <div>
+                      <p class="eyebrow">Orientation</p>
+                      <h3>Heading</h3>
+                    </div>
+                    <span id="heading-current" class="command-readout">Current —</span>
+                  </div>
+                  <div class="heading-control-label">
+                    <label for="heading-degrees">Set current facing direction
+                      <span class="field-hint">Drag to align the room with the compass</span>
+                    </label>
+                    <output id="heading-target" for="heading-degrees">—°</output>
+                  </div>
+                  <input id="heading-degrees" class="heading-slider" type="range" min="0" max="360" step="1">
+                  <div class="heading-compass" aria-hidden="true">
+                    <span>N</span>
+                    <span>E</span>
+                    <span>S</span>
+                    <span>W</span>
+                    <span>N</span>
+                  </div>
+                </section>
               </div>
 
               <p id="command-status" class="command-status" data-state="idle" aria-live="polite">Ready.</p>
