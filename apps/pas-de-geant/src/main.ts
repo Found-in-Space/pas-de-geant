@@ -151,6 +151,7 @@ import {
   DEFAULT_SCALE_DENOMINATOR,
   headsetScaleFactorForDenominatorChange,
   headsetMetresForPhysicalMetres,
+  physicalMetresForHeadsetMetres,
   scaleDenominatorAfterInput,
   validScaleDenominator,
 } from "./world-scale.js";
@@ -1706,6 +1707,29 @@ function bodySurfaceView(
   };
 }
 
+function focusSurfaceAltitudePhysicalM(): number | undefined {
+  if (navigationMode !== "orbit" || !orbitNavigation) return undefined;
+  if (focusBodyId === "earth") {
+    return physicalMetresForHeadsetMetres(
+      bodySurfaceView("earth", planetRoot).observerHeightWorldM,
+      scaleDenominator,
+    );
+  }
+  if (focusBodyId === "moon") {
+    return physicalMetresForHeadsetMetres(
+      bodySurfaceView("moon", moonRoot).observerHeightWorldM,
+      scaleDenominator,
+    );
+  }
+  return Math.max(
+    0,
+    physicalMetresForHeadsetMetres(
+      focusDistanceHeadsetM(),
+      scaleDenominator,
+    ) - celestialBody(focusBodyId).referenceRadiusM,
+  );
+}
+
 function enforceOrbitSurfaceFloor(): void {
   if (navigationMode !== "orbit" || !orbitNavigation) return;
   const root = focusBodyId === "earth"
@@ -1967,9 +1991,7 @@ function handPanelStatus(
     agentState: realtimeAgentStatus.state,
     navigationMode,
     focusBody: celestialBody(focusBodyId).name,
-    focusDistanceHeadsetM: navigationMode === "orbit"
-      ? focusDistanceHeadsetM()
-      : undefined,
+    focusAltitudePhysicalM: focusSurfaceAltitudePhysicalM(),
   };
 }
 
@@ -1992,7 +2014,7 @@ function handPanelStateSignature(
     status.agentState,
     status.navigationMode,
     status.focusBody,
-    status.focusDistanceHeadsetM?.toFixed(2),
+    status.focusAltitudePhysicalM?.toFixed(0),
   ].join(":");
 }
 

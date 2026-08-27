@@ -4,11 +4,16 @@ import {
   imageryUvForGeographicPoint,
   sampleTerrariumElevationMetres,
   sourceUvForTilePoint,
+  terrainTargetForView,
 } from "../apps/pas-de-geant/src/terrain-surface.js";
 import {
   decodeHeightMetres,
+  EARTH_SURFACE_MODEL,
   MOON_SURFACE_MODEL,
 } from "../apps/pas-de-geant/src/surface-model.js";
+import {
+  elevationSourceZoomForTile,
+} from "../apps/pas-de-geant/src/terrain-lod.js";
 
 describe("Terrain surface composition", () => {
   it("maps adjacent overzoom children to the same source coordinate at their join", () => {
@@ -44,6 +49,41 @@ describe("Terrain surface composition", () => {
 
     expect(sameScaleRatio).toBeCloseTo(first, 12);
     expect(higherObserver).toBeCloseTo(first * 2, 12);
+  });
+
+  it("keeps orbit topology scale-invariant while refining beyond source zoom", () => {
+    const referenceRadiusM = EARTH_SURFACE_MODEL.referenceRadiusM;
+    const targetAt = (physicalAltitudeM: number, scaleDenominator: number) =>
+      terrainTargetForView({
+        latitudeDegrees: 0,
+        longitudeDegrees: 0,
+        displayRadiusM: referenceRadiusM / scaleDenominator,
+        radialMultiplier: 1,
+        observerHeightWorldM: physicalAltitudeM / scaleDenominator,
+        focalLengthPixels: 1_000,
+      }, EARTH_SURFACE_MODEL.elevationMetadata.tilePixels, {
+        referenceRadiusM,
+      });
+
+    const tenKilometres = targetAt(10_000, 60_000);
+    expect(targetAt(10_000, 120_000).maxZoom).toBe(
+      tenKilometres.maxZoom,
+    );
+
+    const descendingTargets = [100_000, 10_000, 1_000].map((altitudeM) =>
+      targetAt(altitudeM, 60_000).maxZoom
+    );
+    expect(descendingTargets[1]).toBeGreaterThan(descendingTargets[0]!);
+    expect(descendingTargets[2]).toBeGreaterThan(descendingTargets[1]!);
+
+    const closeOrbitZoom = descendingTargets[2]!;
+    const maximumElevationSourceZoom =
+      EARTH_SURFACE_MODEL.elevationMetadata.maxSourceZoom;
+    expect(closeOrbitZoom).toBeGreaterThan(maximumElevationSourceZoom);
+    expect(elevationSourceZoomForTile(
+      { z: closeOrbitZoom },
+      maximumElevationSourceZoom,
+    )).toBe(maximumElevationSourceZoom);
   });
 
   it("maps photographic pages in Web Mercator rather than equirectangular latitude", () => {
