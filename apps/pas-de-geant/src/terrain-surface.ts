@@ -453,8 +453,11 @@ const VERTEX_SHADER = `
   out vec2 vBlueMarbleUv;
   out vec2 vTileUv;
   out vec2 vImageryUv;
+  out vec3 vBaseWorldPosition;
   out vec3 vWorldPosition;
   out vec3 vBaseNormal;
+  out float vElevationHeightWorld;
+  out float vSkirt;
 
   float decodeTerrarium(vec3 encoded) {
     vec3 bytes = floor(encoded * 255.0 + 0.5);
@@ -489,6 +492,9 @@ const VERTEX_SHADER = `
   void main() {
     vec2 elevationUv = tileUv * elevationUvTransform.xy + elevationUvTransform.zw;
     float heightM = elevationEnabled > 0.5 ? elevationAt(elevationUv) : 0.0;
+    vec3 baseNormalWorld = normalize(mat3(modelMatrix) * normal);
+    vec3 elevationOffsetWorld = mat3(modelMatrix) *
+      (normal * heightM * bodyLocalUnitsPerElevationMetre);
     vec3 displaced =
       position + normal * heightM * bodyLocalUnitsPerElevationMetre -
       normal * bodyLocalSkirtDepth * skirt;
@@ -496,8 +502,11 @@ const VERTEX_SHADER = `
     vBlueMarbleUv = baseUv;
     vTileUv = tileUv;
     vImageryUv = imageryUv;
+    vBaseWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
     vWorldPosition = worldPosition.xyz;
-    vBaseNormal = normalize(mat3(modelMatrix) * normal);
+    vBaseNormal = baseNormalWorld;
+    vElevationHeightWorld = dot(elevationOffsetWorld, baseNormalWorld);
+    vSkirt = skirt;
     gl_Position = projectionMatrix * viewMatrix * worldPosition;
   }
 `;
@@ -510,9 +519,42 @@ const FRAGMENT_SHADER = `
   uniform vec3 tileTint;
   uniform vec3 sunlight;
   in vec2 vTileUv;
+  in vec3 vBaseWorldPosition;
   in vec3 vWorldPosition;
   in vec3 vBaseNormal;
+  in float vElevationHeightWorld;
+  in float vSkirt;
   out vec4 surfaceColour;
+
+  vec3 outwardFaceNormal(vec3 baseNormal) {
+    vec3 faceNormal = normalize(cross(dFdx(vWorldPosition), dFdy(vWorldPosition)));
+    return dot(faceNormal, baseNormal) < 0.0 ? -faceNormal : faceNormal;
+  }
+
+  vec3 smoothDisplacedNormal(vec3 baseNormal) {
+    // Keep body curvature smooth, then perturb it only by the rendered height
+    // field. Derivatives of the fully displaced position would flatten the
+    // entire body to one lighting normal per geometry triangle.
+    vec3 positionDx = dFdx(vBaseWorldPosition);
+    vec3 positionDy = dFdy(vBaseWorldPosition);
+    vec3 gradientAcrossX = cross(positionDy, baseNormal);
+    vec3 gradientAcrossY = cross(baseNormal, positionDx);
+    float determinant = dot(positionDx, gradientAcrossX);
+    float tangentProduct = length(positionDx) * length(positionDy);
+    if (
+      tangentProduct == 0.0 ||
+      abs(determinant) < tangentProduct * 1e-5
+    ) return baseNormal;
+    vec3 heightGradient = sign(determinant) * (
+      dFdx(vElevationHeightWorld) * gradientAcrossX +
+      dFdy(vElevationHeightWorld) * gradientAcrossY
+    );
+    vec3 reconstructed = abs(determinant) * baseNormal - heightGradient;
+    float reconstructedLengthSquared = dot(reconstructed, reconstructed);
+    return reconstructedLengthSquared > 0.0
+      ? reconstructed * inversesqrt(reconstructedLengthSquared)
+      : baseNormal;
+  }
 
   float edgeOverlay(vec2 uv) {
     vec2 edgeDistance = min(uv, 1.0 - uv);
@@ -528,9 +570,12 @@ const FRAGMENT_SHADER = `
     vec3 albedo = photographicImageryAllowed > 0.5
       ? resolvedImageryAlbedo()
       : texture(blueMarbleMap, vBlueMarbleUv).rgb;
-    vec3 derivedNormal = normalize(cross(dFdx(vWorldPosition), dFdy(vWorldPosition)));
-    if (dot(derivedNormal, vBaseNormal) < 0.0) derivedNormal *= -1.0;
-    float direct = max(0.0, dot(derivedNormal, normalize(sunlight)));
+    vec3 baseNormal = normalize(vBaseNormal);
+    vec3 smoothNormal = smoothDisplacedNormal(baseNormal);
+    vec3 lightingNormal = vSkirt > 0.0
+      ? outwardFaceNormal(baseNormal)
+      : smoothNormal;
+    float direct = max(0.0, dot(lightingNormal, normalize(sunlight)));
     float luminance = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
     float darkSurface = 1.0 - smoothstep(0.12, 0.5, luminance);
     float liftedLuminance = mix(

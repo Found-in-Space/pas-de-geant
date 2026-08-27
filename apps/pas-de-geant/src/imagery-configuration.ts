@@ -1,4 +1,5 @@
 import type { XyzImageryConfiguration } from "./imagery-provider.js";
+import { tileProxyUrlTemplate } from "./tile-proxy.js";
 
 function optionalNumber(value: string | undefined): number | undefined {
   if (!value) return undefined;
@@ -10,8 +11,7 @@ export function imageryConfiguration(): XyzImageryConfiguration | undefined {
   if (window.__PAS_DE_GEANT_IMAGERY_CONFIG__) {
     return window.__PAS_DE_GEANT_IMAGERY_CONFIG__;
   }
-  const urlTemplate = import.meta.env.VITE_IMAGERY_XYZ_TEMPLATE;
-  if (!urlTemplate) return undefined;
+  if (!import.meta.env.PAS_DE_GEANT_IMAGERY_CONFIGURED) return undefined;
   const attribution = import.meta.env.VITE_IMAGERY_ATTRIBUTION;
   if (!attribution) {
     console.warn(
@@ -21,7 +21,7 @@ export function imageryConfiguration(): XyzImageryConfiguration | undefined {
   }
   return {
     id: import.meta.env.VITE_IMAGERY_PROVIDER_ID,
-    urlTemplate,
+    urlTemplate: tileProxyUrlTemplate("textures-source"),
     attribution,
     tileSize: optionalNumber(import.meta.env.VITE_IMAGERY_TILE_SIZE),
     minZoom: optionalNumber(import.meta.env.VITE_IMAGERY_MIN_ZOOM),

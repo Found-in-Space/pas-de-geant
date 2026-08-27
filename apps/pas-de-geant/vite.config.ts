@@ -13,7 +13,7 @@ import {
   type TileProxyScheme,
 } from "./src/tile-proxy-server.js";
 import { selectImageryVariant } from "./src/imagery-variants.js";
-import { MAPTERHORN_ELEVATION_URL_TEMPLATE } from "./src/elevation-cache.js";
+import { MAPTERHORN_ELEVATION_URL_TEMPLATE } from "./src/tile-upstream-configuration.js";
 
 function optionalNumber(value: string | undefined): number | undefined {
   if (!value) return undefined;
@@ -205,8 +205,13 @@ export default defineConfig(({ mode }) => {
   );
   const satelliteFeedMiddleware = createSatelliteFeedMiddleware();
   const textureUrlTemplate =
-    serverEnvironment.PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE ||
-    serverEnvironment.VITE_IMAGERY_XYZ_TEMPLATE;
+    serverEnvironment.PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE;
+  const lunarImageryUrlTemplate =
+    serverEnvironment
+      .PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE;
+  const lunarElevationUrlTemplate =
+    serverEnvironment
+      .PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE;
   const textureScheme = tileScheme(
     serverEnvironment.PAS_DE_GEANT_TILE_PROXY_TEXTURES_SCHEME,
   );
@@ -269,6 +274,40 @@ export default defineConfig(({ mode }) => {
       fallbackTtlMs: textureFallbackTtlMs,
     };
   }
+  if (lunarImageryUrlTemplate) {
+    providers["lunar-imagery"] = {
+      urlTemplate: lunarImageryUrlTemplate,
+      scheme: tileScheme(
+        serverEnvironment.PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_SCHEME,
+      ),
+      upstreamHeaders: configuredHeaders(
+        serverEnvironment
+          .PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_HEADERS_JSON,
+        "Lunar imagery proxy upstream headers",
+      ),
+      forwardRequestHeaders: optionalCommaSeparated(
+        serverEnvironment
+          .PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_FORWARD_REQUEST_HEADERS,
+      ),
+    };
+  }
+  if (lunarElevationUrlTemplate) {
+    providers["lunar-elevation"] = {
+      urlTemplate: lunarElevationUrlTemplate,
+      scheme: tileScheme(
+        serverEnvironment.PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_SCHEME,
+      ),
+      upstreamHeaders: configuredHeaders(
+        serverEnvironment
+          .PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_HEADERS_JSON,
+        "Lunar elevation proxy upstream headers",
+      ),
+      forwardRequestHeaders: optionalCommaSeparated(
+        serverEnvironment
+          .PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_FORWARD_REQUEST_HEADERS,
+      ),
+    };
+  }
   Object.assign(
     providers,
     configuredTileProviders(
@@ -310,6 +349,17 @@ export default defineConfig(({ mode }) => {
     ),
   });
   return {
+    define: {
+      "import.meta.env.PAS_DE_GEANT_IMAGERY_CONFIGURED": JSON.stringify(
+        Boolean(textureUrlTemplate),
+      ),
+      "import.meta.env.PAS_DE_GEANT_LUNAR_IMAGERY_CONFIGURED": JSON.stringify(
+        Boolean(lunarImageryUrlTemplate),
+      ),
+      "import.meta.env.PAS_DE_GEANT_LUNAR_ELEVATION_CONFIGURED": JSON.stringify(
+        Boolean(lunarElevationUrlTemplate),
+      ),
+    },
     plugins: [
       enforceSingleThreeRuntime(),
       {
@@ -331,6 +381,7 @@ export default defineConfig(({ mode }) => {
           server.middlewares.use(locationGeocodeMiddleware);
           server.middlewares.use(externalKnowledgeMiddleware);
           server.middlewares.use(satelliteFeedMiddleware);
+          server.middlewares.use(tileProxyMiddleware);
         },
       },
     ],

@@ -231,8 +231,8 @@ For detailed colour and LOLA topography, configure two geographic XYZ
 pyramids (linear longitude and latitude, including both poles):
 
 ```sh
-VITE_LUNAR_IMAGERY_XYZ_TEMPLATE='https://tiles.example/moon/imagery/{z}/{x}/{y}.png'
-VITE_LUNAR_ELEVATION_XYZ_TEMPLATE='https://tiles.example/moon/elevation/{z}/{x}/{y}.png'
+PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE='https://tiles.example/moon/imagery/{z}/{x}/{y}.png'
+PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE='https://tiles.example/moon/elevation/{z}/{x}/{y}.png'
 ```
 
 Elevation PNGs store the source unsigned 16-bit LOLA value in the red and
@@ -300,10 +300,11 @@ the independent committed terrain cut.
 
 ### Optional photographic imagery
 
-No network imagery provider is hard-coded. Configure one at build time:
+No photographic imagery provider is hard-coded. Configure its server-side
+cached upstream and public metadata:
 
 ```sh
-VITE_IMAGERY_XYZ_TEMPLATE='https://example.test/{z}/{x}/{y}.jpg'
+PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE='https://example.test/{z}/{x}/{y}.jpg'
 VITE_IMAGERY_ATTRIBUTION='Required provider attribution'
 VITE_IMAGERY_PROVIDER_ID='provider-id'
 VITE_IMAGERY_TILE_SIZE=512
@@ -311,9 +312,10 @@ VITE_IMAGERY_MIN_ZOOM=0
 VITE_IMAGERY_MAX_ZOOM=22
 ```
 
-The URL and attribution are required together. Source tiles retain their
-native dimensions, requests never exceed the provider maximum zoom, and deep
-draw levels crop the corresponding source ancestor.
+The upstream URL and any credentials in it remain server-side. Browser code
+receives only the attribution, source metadata, and same-origin cached route.
+Source tiles retain their native dimensions, requests never exceed the provider
+maximum zoom, and deep draw levels crop the corresponding source ancestor.
 
 When the configured source is MapTiler `satellite-v2`, the application uses
 MapTiler Satellite Plain's 256 px raster endpoint by default while preserving
@@ -330,25 +332,25 @@ onion remains 8 by 8 in both cases. Its source-pixel size is supplied to the
 existing imagery zoom selector, and each variant has a distinct provider and
 request URL so their pages cannot share cache identity.
 
-During local development, textures and elevation use the canonical same-origin
-route `/api/tiles/{provider}/{z}/{x}/{y}`. The server registry expands those
+Textures and elevation always use the canonical same-origin route
+`/api/tiles/{provider}/{z}/{x}/{y}`. The server registry expands those
 coordinates through the selected provider's HTTP(S) URL template. Provider IDs
 not present in the registry return 404, so the endpoint cannot be used as an
 open forward proxy.
 
-The initial registry exposes `textures`, the diagnostic `textures-source`, and
-`elevation`. Each provider has its own request coalescing, throttle queue, and
-cache namespace below a user-level cache shared by checkouts and worktrees.
+The initial registry exposes `textures`, the diagnostic `textures-source`,
+`elevation`, and configured lunar sources. Each provider has its own request
+coalescing, throttle queue, and cache namespace below a user-level cache shared
+by checkouts and worktrees.
 The default root is `~/Library/Caches/pas-de-geant/tiles` on macOS,
 `$XDG_CACHE_HOME/pas-de-geant/tiles` when `XDG_CACHE_HOME` is an absolute path,
 `%LOCALAPPDATA%\pas-de-geant\tiles` on Windows, and
 `~/.cache/pas-de-geant/tiles` otherwise. By default, each queue permits 16
 upstream requests at a time and spaces starts by 10 ms (about 100 starts per
 second). A provider's `Retry-After` pauses only its own queue; rate-limit
-responses without that header use a five-second fallback. Production builds
-and previews keep the configured direct provider URLs.
+responses without that header use a five-second fallback.
 
-The development defaults can be tuned in `.env.local`:
+The cache defaults can be tuned in `.env.local`:
 
 ```sh
 PAS_DE_GEANT_TILE_PROXY_MAX_CONCURRENCY=16
@@ -363,12 +365,20 @@ PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE=
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_SCHEME=xyz
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_TEMPLATE=https://tiles.mapterhorn.com/{z}/{x}/{y}.webp
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_SCHEME=xyz
+PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_SCHEME=xyz
+PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_SCHEME=xyz
 PAS_DE_GEANT_TILE_PROXY_UPSTREAM_HEADERS_JSON={}
 PAS_DE_GEANT_TILE_PROXY_FORWARD_REQUEST_HEADERS=origin,referer,user-agent
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_HEADERS_JSON=
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_FORWARD_REQUEST_HEADERS=
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_HEADERS_JSON=
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_FORWARD_REQUEST_HEADERS=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_HEADERS_JSON=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_FORWARD_REQUEST_HEADERS=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_HEADERS_JSON=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_FORWARD_REQUEST_HEADERS=
 PAS_DE_GEANT_TILE_PROXY_PROVIDERS_JSON=
 ```
 

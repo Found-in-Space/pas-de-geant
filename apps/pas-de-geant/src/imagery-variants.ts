@@ -1,4 +1,5 @@
 import type { XyzImageryConfiguration } from "./imagery-provider.js";
+import { tileProxyUrlTemplate } from "./tile-proxy.js";
 
 export const MAPTILER_IMAGERY_VARIANT_PARAMETER = "imageryVariant";
 
@@ -8,6 +9,7 @@ export const MAPTILER_512_VARIANT: MapTilerImageryVariant = "maptiler-512";
 export const MAPTILER_256_VARIANT: MapTilerImageryVariant = "maptiler-256";
 const MAPTILER_SATELLITE_V2_PATH =
   /^\/tiles\/satellite-v2\/\{z\}\/\{x\}\/\{y\}(?:\.(?:jpe?g|png|webp))?\/?$/i;
+const MAPTILER_SATELLITE_V2_PROVIDER_ID = "maptiler-satellite-v2";
 
 function configuredMapTilerSatelliteUrl(
   configuration: XyzImageryConfiguration,
@@ -48,13 +50,18 @@ export function selectImageryVariant(
   ) return configuration;
 
   const configuredUrl = configuredMapTilerSatelliteUrl(configuration);
-  if (!configuredUrl) return configuration;
+  const cachedSource =
+    configuration.id?.trim().toLowerCase() ===
+      MAPTILER_SATELLITE_V2_PROVIDER_ID &&
+    configuration.urlTemplate === tileProxyUrlTemplate("textures-source");
+  if (!configuredUrl && !cachedSource) return configuration;
   return {
     ...configuration,
     id: `${configuration.id?.trim() || "configured-xyz"}:maptiler-satellite-v4-256`,
-    urlTemplate:
-      `${configuredUrl.origin}/maps/satellite-v4/256/{z}/{x}/{y}.jpg` +
-      configuredUrl.search + configuredUrl.hash,
+    urlTemplate: configuredUrl
+      ? `${configuredUrl.origin}/maps/satellite-v4/256/{z}/{x}/{y}.jpg` +
+        configuredUrl.search + configuredUrl.hash
+      : tileProxyUrlTemplate("textures"),
     tileSize: 256,
   };
 }

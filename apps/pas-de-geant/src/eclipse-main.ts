@@ -226,15 +226,12 @@ const selectedImageryConfiguration = baseImageryConfiguration
 const runtimeImageryConfiguration = selectedImageryConfiguration
   ? proxiedTileConfiguration(
       selectedImageryConfiguration,
-      import.meta.env.DEV &&
-        Boolean(import.meta.env.VITE_IMAGERY_XYZ_TEMPLATE),
       selectedImageryConfiguration === baseImageryConfiguration
         ? "textures-source"
         : "textures",
     )
   : undefined;
 const photographicImageryProvider =
-  window.__PAS_DE_GEANT_IMAGERY_PROVIDER__ ??
   configuredXyzImageryProvider(runtimeImageryConfiguration);
 document.body.dataset.imageryProvider =
   photographicImageryProvider?.id ?? "blue-marble";
