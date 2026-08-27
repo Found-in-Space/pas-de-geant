@@ -102,6 +102,15 @@ import {
   RealtimeVoiceAgent,
   type RealtimeAgentStatus,
 } from "./realtime-agent.js";
+import type {
+  SupervisionCommand,
+  SupervisionControlState,
+  SupervisionNavigationSnapshot,
+} from "./supervision-protocol.js";
+import type {
+  SupervisionClient,
+  SupervisionConnectionStatus,
+} from "./supervision-client.js";
 import { TerrainSurface, type TerrainSurfaceView } from "./terrain-surface.js";
 import { proxiedTileConfiguration } from "./tile-proxy.js";
 
@@ -775,6 +784,100 @@ function eclipseStateReadback(): Record<string, unknown> {
   };
 }
 
+function eclipseSupervisionNavigationState(): SupervisionNavigationSnapshot {
+  return {
+    mode: "orbit",
+    focusBody: "earth",
+    latitudeDegrees: latestEarthSurfaceObservation.latitudeDegrees,
+    longitudeDegrees: latestEarthSurfaceObservation.longitudeDegrees,
+    displayRadiusM: state.stage.metresPerEarthRadius,
+    radialMultiplier: 1,
+    headingDegrees: null,
+  };
+}
+
+function eclipseSupervisionControlState(): SupervisionControlState {
+  return {
+    aircraft: {
+      aircraft: false,
+      labels: false,
+    },
+    satellites: {
+      brightest: false,
+      space_stations: false,
+      science_education: false,
+    },
+    eclipse: {
+      active: true,
+      playing: state.playing,
+      eventId: state.event.id,
+      eventKind: state.event.kind,
+      peakUtc: state.event.peakUtc,
+      atUtc: new Date(state.atMs).toISOString(),
+      playbackRate: PLAYBACK_RATE,
+    },
+  };
+}
+
+async function applyEclipseSupervisionCommand(
+  command: SupervisionCommand,
+): Promise<void> {
+  if (command.kind === "setEclipsePlayback") {
+    setPlaying(command.playing);
+    return;
+  }
+  if (command.kind === "setEclipseTime") {
+    await setTimeUtc(command.utc);
+    return;
+  }
+  throw new Error("This command requires an immersive Earth surface session.");
+}
+
+let supervisionClient: SupervisionClient | undefined;
+let supervisionClientModule: Promise<typeof import("./supervision-client.js")> |
+  undefined;
+let supervisionSessionGeneration = 0;
+const supervisionSessionLabel = eclipseParameters.get("sessionLabel")?.trim() ||
+  undefined;
+
+function setSupervisionStatus(status: SupervisionConnectionStatus): void {
+  document.body.dataset.supervisionStatus = status;
+}
+
+async function startSupervisionSession(): Promise<void> {
+  if (!import.meta.env.DEV) return;
+  const generation = ++supervisionSessionGeneration;
+  try {
+    supervisionClientModule ??= import("./supervision-client.js");
+    const { SupervisionClient: Client } = await supervisionClientModule;
+    if (
+      generation !== supervisionSessionGeneration ||
+      !renderer.xr.isPresenting
+    ) {
+      return;
+    }
+    supervisionClient ??= new Client({
+      readState: eclipseSupervisionNavigationState,
+      readControlState: eclipseSupervisionControlState,
+      readPinState: () => ({ pins: [], guidedPinIds: [] }),
+      applyCommand: applyEclipseSupervisionCommand,
+      onStatus: setSupervisionStatus,
+    });
+    supervisionClient.start(supervisionSessionLabel);
+  } catch (error) {
+    document.body.dataset.supervisionStatus = "unavailable";
+    console.debug(
+      "Development supervision is unavailable; continuing without it.",
+      error,
+    );
+  }
+}
+
+function stopSupervisionSession(): void {
+  supervisionSessionGeneration += 1;
+  supervisionClient?.stop();
+}
+
 function timeFraction(): number {
   const start = Date.parse(state.contacts.startUtc);
   const end = Date.parse(state.contacts.endUtc);
@@ -1324,8 +1427,10 @@ renderer.domElement.addEventListener("wheel", (event) => {
 
 renderer.xr.addEventListener("sessionstart", () => {
   state.panelVisible = true;
+  void startSupervisionSession();
 });
 renderer.xr.addEventListener("sessionend", () => {
+  stopSupervisionSession();
   handPanel.enabled = false;
   voiceAgent.disable();
   pointerPressed = false;
@@ -1515,6 +1620,7 @@ function render(nowMs: number): void {
   enforceTopographicFloor(viewCamera);
   updateEclipseTerrain(nowMs, viewCamera);
   updateHandPanel(nowMs, viewCamera);
+  supervisionClient?.update(nowMs);
   sunWorldPosition.copy(sunStagePosition);
   modelRoot.localToWorld(sunWorldPosition);
   modelRoot.getWorldPosition(earthWorldPosition);
@@ -1537,6 +1643,7 @@ function render(nowMs: number): void {
 }
 
 window.addEventListener("beforeunload", () => {
+  stopSupervisionSession();
   voiceAgent.disable();
   worker.dispose();
   handPanel.dispose();

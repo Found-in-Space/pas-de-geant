@@ -62,6 +62,15 @@ const initialControls: SupervisionControlState = {
     space_stations: false,
     science_education: true,
   },
+  eclipse: {
+    active: false,
+    playing: false,
+    eventId: null,
+    eventKind: null,
+    peakUtc: null,
+    atUtc: null,
+    playbackRate: null,
+  },
 };
 
 describe("supervision protocol", () => {
@@ -221,6 +230,21 @@ describe("supervision protocol", () => {
       group: "weather",
       enabled: true,
     })).toThrow(/satellite group/i);
+    expect(parseSupervisionCommand({
+      kind: "setEclipsePlayback",
+      playing: true,
+    })).toEqual({ kind: "setEclipsePlayback", playing: true });
+    expect(parseSupervisionCommand({
+      kind: "setEclipseTime",
+      utc: "2026-08-12T17:47:00Z",
+    })).toEqual({
+      kind: "setEclipseTime",
+      utc: "2026-08-12T17:47:00.000Z",
+    });
+    expect(() => parseSupervisionCommand({
+      kind: "setEclipseTime",
+      utc: "not-a-date",
+    })).toThrow(/UTC/i);
   });
 
   it("validates full navigation state sequences and nullable heading", () => {
@@ -255,6 +279,39 @@ describe("supervision protocol", () => {
         aircraft: { aircraft: "yes", labels: false },
       },
     }))).toThrow(/aircraft symbols/i);
+  });
+
+  it("validates active eclipse telemetry", () => {
+    const eclipse = {
+      active: true,
+      playing: true,
+      eventId: "solar-2026-08-12-total",
+      eventKind: "total",
+      peakUtc: "2026-08-12T17:47:00Z",
+      atUtc: "2026-08-12T17:45:30Z",
+      playbackRate: 180,
+    };
+    expect(parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: initialState,
+      controls: { ...initialControls, eclipse },
+    }))).toMatchObject({
+      controls: {
+        eclipse: {
+          ...eclipse,
+          peakUtc: "2026-08-12T17:47:00.000Z",
+          atUtc: "2026-08-12T17:45:30.000Z",
+        },
+      },
+    });
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: initialState,
+      controls: {
+        ...initialControls,
+        eclipse: { ...eclipse, atUtc: null },
+      },
+    }))).toThrow(/active eclipse/i);
   });
 });
 

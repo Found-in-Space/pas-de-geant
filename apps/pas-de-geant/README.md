@@ -55,6 +55,11 @@ Multiple guides can be active together. Headset visibility survives supervision
 socket reconnects but clears when the immersive XR session ends; saved locations
 remain on the dashboard's development origin until removed there.
 
+An immersive Eclipse Observatory session also appears in the dashboard. Its
+supervisor workspace shows the selected event, peak and current UTC, and can
+play or pause the eclipse timeline or set an exact UTC within 24 hours of the
+selected eclipse peak.
+
 Warp and displayed-radius supervision commands accept an optional `time`
 duration in seconds. Positive values animate from the live state to the target
 with ease-in/out; omitting `time` or setting it to zero preserves the instant

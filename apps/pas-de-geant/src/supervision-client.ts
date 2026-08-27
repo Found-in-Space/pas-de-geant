@@ -31,7 +31,7 @@ export interface SupervisionClientOptions {
   readonly readState: () => SupervisionNavigationSnapshot;
   readonly readControlState: () => SupervisionControlState;
   readonly readPinState: () => LocationPinState;
-  readonly applyCommand: (command: SupervisionCommand) => void;
+  readonly applyCommand: (command: SupervisionCommand) => void | Promise<void>;
   readonly onStatus?: (status: SupervisionConnectionStatus) => void;
   readonly createSocket?: (url: string, protocol: string) => SupervisionSocket;
   readonly createSessionId?: () => string;
@@ -52,7 +52,9 @@ export class SupervisionClient {
   private readonly readState: () => SupervisionNavigationSnapshot;
   private readonly readControlState: () => SupervisionControlState;
   private readonly readPinState: () => LocationPinState;
-  private readonly applyCommand: (command: SupervisionCommand) => void;
+  private readonly applyCommand: (
+    command: SupervisionCommand,
+  ) => void | Promise<void>;
   private readonly onStatus?: (status: SupervisionConnectionStatus) => void;
   private readonly createSocket: (url: string, protocol: string) => SupervisionSocket;
   private readonly createSessionId: () => string;
@@ -156,7 +158,9 @@ export class SupervisionClient {
           this.publishState(this.now());
           return;
         }
-        if (message.type === "command") this.handleCommand(message.commandId, message.command);
+        if (message.type === "command") {
+          void this.handleCommand(message.commandId, message.command);
+        }
       } catch (error) {
         console.debug("Ignoring invalid supervision relay message.", error);
       }
@@ -174,10 +178,13 @@ export class SupervisionClient {
     });
   }
 
-  private handleCommand(commandId: string, command: SupervisionCommand): void {
+  private async handleCommand(
+    commandId: string,
+    command: SupervisionCommand,
+  ): Promise<void> {
     let result: CommandResultMessage;
     try {
-      this.applyCommand(command);
+      await this.applyCommand(command);
       const pinState = this.readPinState();
       result = {
         protocolVersion: SUPERVISION_PROTOCOL_VERSION,
