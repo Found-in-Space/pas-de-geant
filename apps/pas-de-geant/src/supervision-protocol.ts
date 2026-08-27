@@ -30,6 +30,18 @@ export type SupervisionNavigationSnapshot = Omit<
 export interface SupervisionControlState {
   readonly aircraft: Readonly<Record<AircraftDisplayTarget, boolean>>;
   readonly satellites: Readonly<Record<SatelliteToolGroup, boolean>>;
+  readonly eclipse: SupervisionEclipseControlState;
+}
+
+export interface SupervisionEclipseControlState {
+  /** True when this session is running the standalone Eclipse Observatory. */
+  readonly active: boolean;
+  readonly playing: boolean;
+  readonly eventId: string | null;
+  readonly eventKind: string | null;
+  readonly peakUtc: string | null;
+  readonly atUtc: string | null;
+  readonly playbackRate: number | null;
 }
 
 export const DEFAULT_SUPERVISION_CONTROL_STATE: SupervisionControlState = {
@@ -41,6 +53,15 @@ export const DEFAULT_SUPERVISION_CONTROL_STATE: SupervisionControlState = {
     brightest: false,
     space_stations: false,
     science_education: false,
+  },
+  eclipse: {
+    active: false,
+    playing: false,
+    eventId: null,
+    eventKind: null,
+    peakUtc: null,
+    atUtc: null,
+    playbackRate: null,
   },
 };
 
@@ -91,6 +112,14 @@ export type SupervisionCommand =
     readonly kind: "setSatelliteGroupVisibility";
     readonly group: SatelliteToolGroup;
     readonly enabled: boolean;
+  }
+  | {
+    readonly kind: "setEclipsePlayback";
+    readonly playing: boolean;
+  }
+  | {
+    readonly kind: "setEclipseTime";
+    readonly utc: string;
   };
 
 export interface SupervisionSession {
@@ -253,6 +282,19 @@ function requiredBoolean(value: unknown, description: string): boolean {
   return value;
 }
 
+function nullableString(value: unknown, description: string): string | null {
+  if (value === null) return null;
+  return requiredString(value, description);
+}
+
+function nullableUtc(value: unknown, description: string): string | null {
+  const result = nullableString(value, description);
+  if (result === null) return null;
+  const timeMs = Date.parse(result);
+  if (!Number.isFinite(timeMs)) throw new Error(`${description} must be valid.`);
+  return new Date(timeMs).toISOString();
+}
+
 export function parseSupervisionControlState(
   value: unknown,
 ): SupervisionControlState {
@@ -260,6 +302,25 @@ export function parseSupervisionControlState(
   const candidate = record(value, "Control state");
   const aircraft = record(candidate.aircraft, "Aircraft control state");
   const satellites = record(candidate.satellites, "Satellite control state");
+  const eclipse = candidate.eclipse === undefined
+    ? DEFAULT_SUPERVISION_CONTROL_STATE.eclipse
+    : record(candidate.eclipse, "Eclipse control state");
+  const eclipseActive = requiredBoolean(eclipse.active, "Eclipse active");
+  const eclipsePlaying = requiredBoolean(eclipse.playing, "Eclipse playing");
+  const eventId = nullableString(eclipse.eventId, "Eclipse event ID");
+  const eventKind = nullableString(eclipse.eventKind, "Eclipse event kind");
+  const peakUtc = nullableUtc(eclipse.peakUtc, "Eclipse peak UTC");
+  const atUtc = nullableUtc(eclipse.atUtc, "Eclipse current UTC");
+  const playbackRate = eclipse.playbackRate === null
+    ? null
+    : finiteNumber(eclipse.playbackRate, "Eclipse playback rate");
+  if (
+    eclipseActive &&
+    (!eventId || !eventKind || !peakUtc || !atUtc ||
+      playbackRate === null || playbackRate <= 0)
+  ) {
+    throw new Error("An active eclipse requires event, UTC, and playback details.");
+  }
   return {
     aircraft: {
       aircraft: requiredBoolean(
@@ -281,6 +342,15 @@ export function parseSupervisionControlState(
         satellites.science_education,
         "Science and education satellites enabled",
       ),
+    },
+    eclipse: {
+      active: eclipseActive,
+      playing: eclipsePlaying,
+      eventId,
+      eventKind,
+      peakUtc,
+      atUtc,
+      playbackRate,
     },
   };
 }
@@ -409,6 +479,18 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
         "Satellite visibility enabled",
       ),
     };
+  }
+  if (candidate.kind === "setEclipsePlayback") {
+    return {
+      kind: "setEclipsePlayback",
+      playing: requiredBoolean(candidate.playing, "Eclipse playback"),
+    };
+  }
+  if (candidate.kind === "setEclipseTime") {
+    const utc = requiredString(candidate.utc, "Eclipse UTC");
+    const timeMs = Date.parse(utc);
+    if (!Number.isFinite(timeMs)) throw new Error("Eclipse UTC must be valid.");
+    return { kind: "setEclipseTime", utc: new Date(timeMs).toISOString() };
   }
   throw new Error("Unknown supervision command.");
 }

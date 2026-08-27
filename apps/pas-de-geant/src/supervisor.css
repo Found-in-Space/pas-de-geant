@@ -411,6 +411,69 @@ h3 {
   background: rgb(15 31 37 / 70%);
 }
 
+.eclipse-workspace {
+  display: grid;
+  max-width: 760px;
+  margin: 0 auto;
+  padding-top: clamp(8px, 5vh, 52px);
+}
+
+.eclipse-workspace[hidden],
+#earth-workspace[hidden] { display: none; }
+
+.eclipse-supervision-card {
+  display: grid;
+  gap: 16px;
+  padding: clamp(16px, 3vw, 28px);
+  border: 1px solid rgb(156 211 215 / 16%);
+  border-radius: 13px;
+  background:
+    radial-gradient(circle at 82% 8%, rgb(48 120 153 / 19%), transparent 18rem),
+    rgb(10 24 31 / 84%);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 24%);
+}
+
+.eclipse-readouts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgb(156 211 215 / 12%);
+  border-radius: 9px;
+  background: rgb(156 211 215 / 10%);
+}
+
+.eclipse-readouts > div {
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  background: #081318;
+}
+
+.eclipse-readouts > div:first-child { grid-column: 1 / -1; }
+
+.eclipse-readouts dt {
+  color: #718a8f;
+  font-size: 0.61rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.eclipse-readouts dd {
+  margin: 0;
+  color: #dce9e9;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.eclipse-playback-control { padding: 10px 11px; }
+
+.eclipse-time-form {
+  display: grid;
+  gap: 7px;
+}
+
 .command-title {
   display: flex;
   align-items: flex-start;
@@ -801,6 +864,7 @@ input:focus {
 }
 
 .command-status {
+  margin-top: 10px;
   border-radius: 7px;
   padding: 8px 10px;
   background: rgb(14 31 37 / 70%);
@@ -866,6 +930,8 @@ input:focus {
   .workspace-header h2 { font-size: 1.08rem; }
   .mode-chip { max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .scale-control-grid { grid-template-columns: 1fr; }
+  .eclipse-readouts { grid-template-columns: 1fr; }
+  .eclipse-readouts > div:first-child { grid-column: auto; }
 }
 
 @media (max-height: 700px) and (min-width: 701px) {

@@ -1213,6 +1213,15 @@ function supervisionControlState(): SupervisionControlState {
       space_stations: satelliteGroups.stations.enabled,
       science_education: satelliteGroups["science-education"].enabled,
     },
+    eclipse: {
+      active: false,
+      playing: false,
+      eventId: null,
+      eventKind: null,
+      peakUtc: null,
+      atUtc: null,
+      playbackRate: null,
+    },
   };
 }
 
@@ -1292,6 +1301,13 @@ function applySupervisionCommand(command: SupervisionCommand): void {
   } else if (command.kind === "setSatelliteGroupVisibility") {
     const { group, enabled } = parseSatelliteVisibilityArguments(command);
     void setSatelliteGroupEnabled(group, enabled);
+  } else if (
+    command.kind === "setEclipsePlayback" ||
+    command.kind === "setEclipseTime"
+  ) {
+    throw new Error(
+      "Eclipse controls require the Eclipse Observatory experience.",
+    );
   } else {
     applySupervisorNavigationMutation(command, canonicalNavigationMutations);
   }

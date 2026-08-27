@@ -46,6 +46,8 @@ const selectedTitle = element<HTMLHeadingElement>("selected-title");
 const selectedMode = element<HTMLParagraphElement>("selected-mode");
 const emptyState = element<HTMLDivElement>("empty-state");
 const sessionWorkspace = element<HTMLDivElement>("session-workspace");
+const earthWorkspace = element<HTMLDivElement>("earth-workspace");
+const eclipseWorkspace = element<HTMLDivElement>("eclipse-workspace");
 const unsupportedNotice = element<HTMLParagraphElement>("unsupported-notice");
 const mapElement = element<HTMLDivElement>("earth-map");
 const centerMapButton = element<HTMLButtonElement>("center-map-button");
@@ -73,6 +75,17 @@ const satelliteControls: Record<SatelliteToolGroup, HTMLInputElement> = {
   space_stations: element<HTMLInputElement>("satellite-stations-control"),
   science_education: element<HTMLInputElement>("satellite-science-control"),
 };
+const eclipseEventReadout = element<HTMLElement>("eclipse-event-readout");
+const eclipsePeakReadout = element<HTMLElement>("eclipse-peak-readout");
+const eclipseTimeReadout = element<HTMLElement>("eclipse-time-readout");
+const eclipsePlaybackReadout = element<HTMLElement>("eclipse-playback-readout");
+const eclipsePlaybackHint = element<HTMLElement>("eclipse-playback-hint");
+const eclipsePlaybackControl = element<HTMLInputElement>(
+  "eclipse-playback-control",
+);
+const eclipseTimeForm = element<HTMLFormElement>("eclipse-time-form");
+const eclipseTimeControl = element<HTMLInputElement>("eclipse-time-control");
+const eclipseTimeButton = element<HTMLButtonElement>("eclipse-time-button");
 const commandStatus = element<HTMLParagraphElement>("command-status");
 const savedLocationCount = element<HTMLSpanElement>("saved-location-count");
 const savedLocationList = element<HTMLDivElement>("saved-location-list");
@@ -115,6 +128,7 @@ let scaleDraftDirty = false;
 let radialDraftInitialized = false;
 let radialDraftDirty = false;
 let headingDraftDirty = false;
+let eclipseTimeDraftDirty = false;
 let mapCenteredSessionId: string | undefined;
 const pendingCommands = new Map<string, PendingCommand>();
 const sessionListEntries = new Map<string, SessionListEntry>();
@@ -158,6 +172,28 @@ function formatRadius(value: number): string {
 function formatInputValue(value: number, fractionDigits: number): string {
   const rounded = Number(value.toFixed(fractionDigits));
   return String(rounded === 0 && value !== 0 ? value : rounded);
+}
+
+function formatUtc(utc: string | null): string {
+  if (!utc) return "—";
+  return new Date(utc).toISOString()
+    .replace("T", " ")
+    .replace(".000Z", "Z");
+}
+
+function utcInputValue(utc: string): string {
+  return new Date(utc).toISOString().slice(0, 19);
+}
+
+function utcFromInput(value: string): string | undefined {
+  if (!value) return undefined;
+  const timeMs = Date.parse(`${value}Z`);
+  return Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : undefined;
+}
+
+function eclipseKindLabel(kind: string | null): string {
+  if (!kind) return "Solar eclipse";
+  return `${kind[0]!.toUpperCase()}${kind.slice(1)} solar eclipse`;
 }
 
 function elapsedLabel(startedAtMs: number): string {
@@ -273,6 +309,7 @@ function resetDrafts(session: SupervisionSession): void {
   radialDraftInitialized = false;
   radialDraftDirty = false;
   headingDraftDirty = false;
+  eclipseTimeDraftDirty = false;
   if (session.state) initializeDrafts(session);
 }
 
@@ -374,7 +411,12 @@ function renderSessionList(): void {
     entry.button.ariaCurrent = String(session.sessionId === selectedSessionId);
     entry.name.textContent = sessionName(session);
     entry.timing.textContent = elapsedLabel(session.connectedAtMs);
-    entry.location.textContent = session.state
+    const eclipse = session.controls.eclipse;
+    entry.location.textContent = eclipse.active
+      ? `${eclipseKindLabel(eclipse.eventKind)} · ${
+        eclipse.playing ? "running" : "paused"
+      }`
+      : session.state
       ? `${session.state.latitudeDegrees.toFixed(3)}°, ${session.state.longitudeDegrees.toFixed(3)}° · ${formatRadius(session.state.displayRadiusM)} · ${
         session.state.headingDegrees === null
           ? "—"
@@ -443,6 +485,57 @@ function renderControls(supported: boolean, connected: boolean): void {
       session.controls.satellites[group];
     satelliteControls[group].disabled = !supported || !connected ||
       pending !== undefined;
+  }
+}
+
+function renderEclipseControls(
+  session: SupervisionSession,
+  connected: boolean,
+): void {
+  const eclipse = session.controls.eclipse;
+  const playbackPending = [...pendingCommands.values()].find(
+    (pending) => pending.sessionId === selectedSessionId &&
+      pending.command.kind === "setEclipsePlayback",
+  );
+  const timePending = [...pendingCommands.values()].find(
+    (pending) => pending.sessionId === selectedSessionId &&
+      pending.command.kind === "setEclipseTime",
+  );
+  const pendingPlaying = playbackPending?.command.kind === "setEclipsePlayback"
+    ? playbackPending.command.playing
+    : undefined;
+
+  eclipseEventReadout.textContent = eclipse.eventId
+    ? `${eclipseKindLabel(eclipse.eventKind)} · ${eclipse.eventId}`
+    : "Waiting for eclipse telemetry";
+  eclipsePeakReadout.textContent = formatUtc(eclipse.peakUtc);
+  eclipseTimeReadout.textContent = formatUtc(eclipse.atUtc);
+  eclipsePlaybackControl.checked = pendingPlaying ?? eclipse.playing;
+  eclipsePlaybackControl.disabled = !connected || playbackPending !== undefined;
+  eclipsePlaybackReadout.textContent = (pendingPlaying ?? eclipse.playing)
+    ? "Running"
+    : "Paused";
+  eclipsePlaybackHint.textContent = eclipse.playbackRate === null
+    ? "Advance the selected eclipse timeline"
+    : `Advance the selected eclipse timeline at ${eclipse.playbackRate}×`;
+
+  eclipseTimeControl.disabled = !connected || timePending !== undefined;
+  eclipseTimeButton.disabled = !connected || timePending !== undefined;
+  if (!eclipseTimeDraftDirty && timePending === undefined && eclipse.atUtc) {
+    eclipseTimeControl.value = utcInputValue(eclipse.atUtc);
+  }
+  if (eclipse.peakUtc) {
+    const peakMs = Date.parse(eclipse.peakUtc);
+    const dayMs = 24 * 60 * 60 * 1_000;
+    eclipseTimeControl.min = utcInputValue(
+      new Date(peakMs - dayMs).toISOString(),
+    );
+    eclipseTimeControl.max = utcInputValue(
+      new Date(peakMs + dayMs).toISOString(),
+    );
+  } else {
+    eclipseTimeControl.removeAttribute("min");
+    eclipseTimeControl.removeAttribute("max");
   }
 }
 
@@ -825,11 +918,28 @@ function render(): void {
   emptyState.hidden = true;
   sessionWorkspace.hidden = false;
   const connected = liveSession !== undefined;
+  const eclipseActive = session.controls.eclipse.active;
   selectedMode.textContent = connected
-    ? session.state
+    ? eclipseActive
+      ? `Eclipse Observatory · ${session.controls.eclipse.eventKind ?? "solar"}`
+      : session.state
       ? `${session.state.focusBody} · ${session.state.mode}`
       : "Connected · awaiting telemetry"
     : "Disconnected";
+
+  earthWorkspace.hidden = eclipseActive;
+  eclipseWorkspace.hidden = !eclipseActive;
+  if (eclipseActive) {
+    hideCurrentPosition();
+    hideDestination();
+    unsupportedNotice.hidden = connected;
+    if (!connected) {
+      unsupportedNotice.textContent =
+        "This headset has disconnected. Select another session explicitly to continue.";
+    }
+    renderEclipseControls(session, connected);
+    return;
+  }
 
   initializeDrafts(session);
   const supported = connected && isSupported(session);
@@ -1009,6 +1119,36 @@ for (const group of Object.keys(satelliteControls) as SatelliteToolGroup[]) {
   });
 }
 
+eclipsePlaybackControl.addEventListener("change", () => {
+  if (!selectedLiveSession()?.controls.eclipse.active) return;
+  sendCommand({
+    kind: "setEclipsePlayback",
+    playing: eclipsePlaybackControl.checked,
+  }, eclipsePlaybackControl.checked
+    ? "Eclipse simulation started"
+    : "Eclipse simulation paused");
+});
+
+eclipseTimeControl.addEventListener("input", () => {
+  eclipseTimeDraftDirty = true;
+});
+
+eclipseTimeForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (
+    !selectedLiveSession()?.controls.eclipse.active ||
+    !eclipseTimeForm.reportValidity()
+  ) return;
+  const utc = utcFromInput(eclipseTimeControl.value);
+  if (!utc) {
+    eclipseTimeControl.setCustomValidity("Enter a valid UTC date and time.");
+    eclipseTimeControl.reportValidity();
+    eclipseTimeControl.setCustomValidity("");
+    return;
+  }
+  sendCommand({ kind: "setEclipseTime", utc }, "Eclipse date and time");
+});
+
 function sendCommand(command: SupervisionCommand, description: string): void {
   if (!selectedSessionId) return;
   try {
@@ -1137,6 +1277,13 @@ function handleCommandResult(result: CommandResultMessage): void {
         setHeadingDraftValue(acknowledgedHeading);
       }
       headingDraftDirty = false;
+    }
+    if (pending.command.kind === "setEclipseTime") {
+      const acknowledgedUtc = result.controls.eclipse.atUtc;
+      if (acknowledgedUtc) {
+        eclipseTimeControl.value = utcInputValue(acknowledgedUtc);
+      }
+      eclipseTimeDraftDirty = false;
     }
     setCommandStatus(
       `${pending.description} acknowledged at state ${result.state.sequence}.`,
