@@ -10,7 +10,7 @@ import {
 import * as THREE from "three";
 import {
   EARTH_MEAN_RADIUS_KM,
-  normalizedBodyLocalRadialOffset,
+  normalizedBodyLocalPhysicalOffset,
   WGS84_A_KM,
   WGS84_B_KM,
 } from "./planet-state.js";
@@ -45,7 +45,6 @@ const instanceMatrix = new THREE.Matrix4();
 
 export function satelliteNormalizedPosition(
   geodetic: GeodeticLocation,
-  radialMultiplier: number,
   target = new THREE.Vector3(),
 ): THREE.Vector3 {
   const sineLatitude = Math.sin(geodetic.latitude);
@@ -70,9 +69,8 @@ export function satelliteNormalizedPosition(
   );
   return target.addScaledVector(
     surfaceNormal,
-    normalizedBodyLocalRadialOffset(
+    normalizedBodyLocalPhysicalOffset(
       Math.max(0, geodetic.height) * 1_000,
-      radialMultiplier,
       EARTH_SURFACE_MODEL.referenceRadiusM,
     ),
   );
@@ -170,7 +168,6 @@ export class SatelliteLayer {
   update(
     atMs: number,
     displayRadiusM: number,
-    radialMultiplier: number,
   ): void {
     let anyVisible = false;
     for (const current of this.groups.values()) {
@@ -200,7 +197,6 @@ export class SatelliteLayer {
         if (!state) continue;
         satelliteNormalizedPosition(
           eciToGeodetic(state.position, siderealTime),
-          radialMultiplier,
           markerPosition,
         );
         instanceMatrix.compose(markerPosition, identityRotation, markerScale);

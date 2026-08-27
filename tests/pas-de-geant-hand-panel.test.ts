@@ -3,10 +3,17 @@ import { Quaternion, Vector3 } from "three";
 import {
   earthMapImageRects,
   earthMapPoint,
+  formatPhysicalAltitude,
 } from "../apps/pas-de-geant/src/hand-panel.js";
 import { directionOnHandPanel } from "../apps/pas-de-geant/src/hand-panel-orientation.js";
 
 describe("Pas de Géant hand-panel regressions", () => {
+  it("shows orbit altitude in physical metres and kilometres", () => {
+    expect(formatPhysicalAltitude(999)).toBe("999 m");
+    expect(formatPhysicalAltitude(100_000)).toBe("100 km");
+    expect(formatPhysicalAltitude(12_742_018)).toBe("12,742 km");
+  });
+
   it("keeps the user centred while the north-up map wraps beneath them", () => {
     const rect = { x: 10, y: 20, width: 360, height: 180 };
     const initial = earthMapImageRects(40, -4, rect);

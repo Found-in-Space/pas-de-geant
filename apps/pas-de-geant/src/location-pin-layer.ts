@@ -3,7 +3,7 @@ import {
   contactFrame,
   EARTH_MEAN_RADIUS_KM,
   geodeticSurfaceEcefKm,
-  normalizedBodyLocalRadialOffset,
+  normalizedBodyLocalTerrainOffset,
 } from "./planet-state.js";
 import { EARTH_SURFACE_MODEL } from "./surface-model.js";
 import {
@@ -43,14 +43,14 @@ export interface LocationPinLayerUpdate {
   readonly userLatitudeDegrees: number;
   readonly userLongitudeDegrees: number;
   readonly displayRadiusM: number;
-  readonly radialMultiplier: number;
+  readonly terrainMultiplier: number;
   readonly visible: boolean;
 }
 
 export function locationPinNormalizedAnchor(
   pin: LocationPin,
   elevationMetres: number,
-  radialMultiplier: number,
+  terrainMultiplier: number,
   target = new THREE.Vector3(),
 ): THREE.Vector3 {
   const normal = contactFrame(pin.latitudeDegrees, pin.longitudeDegrees).upEcef;
@@ -58,9 +58,9 @@ export function locationPinNormalizedAnchor(
     geodeticSurfaceEcefKm(pin.latitudeDegrees, pin.longitudeDegrees),
   ).multiplyScalar(1 / EARTH_MEAN_RADIUS_KM).addScaledVector(
     normal,
-    normalizedBodyLocalRadialOffset(
+    normalizedBodyLocalTerrainOffset(
       elevationMetres,
-      radialMultiplier,
+      terrainMultiplier,
       EARTH_SURFACE_MODEL.referenceRadiusM,
     ),
   );
@@ -343,7 +343,7 @@ export class LocationPinLayer {
       locationPinNormalizedAnchor(
         pin,
         elevationMetres,
-        options.radialMultiplier,
+        options.terrainMultiplier,
         pinPosition,
       ).addScaledVector(
         pinNormal,

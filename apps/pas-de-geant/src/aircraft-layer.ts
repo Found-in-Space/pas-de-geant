@@ -10,7 +10,7 @@ import {
 import {
   EARTH_MEAN_RADIUS_KM,
   geodeticSurfaceEcefKm,
-  normalizedBodyLocalRadialOffset,
+  normalizedBodyLocalPhysicalOffset,
 } from "./planet-state.js";
 import { EARTH_SURFACE_MODEL } from "./surface-model.js";
 
@@ -350,13 +350,24 @@ export function aircraftRenderAttitude(
 
 export function aircraftNormalizedAltitude(
   altitudeFt: number | null,
-  radialMultiplier: number,
 ): number {
-  return normalizedBodyLocalRadialOffset(
+  return normalizedBodyLocalPhysicalOffset(
     Math.max(0, altitudeFt ?? 0) * FEET_TO_METRES,
-    radialMultiplier,
     EARTH_SURFACE_MODEL.referenceRadiusM,
   );
+}
+
+export function aircraftNormalizedHeight(
+  altitudeFt: number | null,
+  onGround: boolean | null,
+  terrainElevationMetres: number,
+): number {
+  return onGround
+    ? normalizedBodyLocalPhysicalOffset(
+      terrainElevationMetres,
+      EARTH_SURFACE_MODEL.referenceRadiusM,
+    )
+    : aircraftNormalizedAltitude(altitudeFt);
 }
 
 interface AircraftRetarget {
@@ -464,7 +475,6 @@ export class AircraftLayer {
   update(
     atMs: number,
     displayRadiusM: number,
-    radialMultiplier: number,
   ): void {
     if (!this.group.visible) return;
     const aircraftSymbolScale = AIRCRAFT_SYMBOL_SIZE_M / displayRadiusM;
@@ -509,18 +519,19 @@ export class AircraftLayer {
         Math.sin(latitude),
         -Math.cos(latitude) * Math.sin(longitude),
       );
+      const terrainElevationMetres = report.onGround
+        ? this.terrainElevationMetres(
+          aircraft.latitudeDegrees,
+          aircraft.longitudeDegrees,
+        )
+        : 0;
       position.addScaledVector(
         normal,
-        report.onGround
-          ? normalizedBodyLocalRadialOffset(
-            this.terrainElevationMetres(
-              aircraft.latitudeDegrees,
-              aircraft.longitudeDegrees,
-            ),
-            radialMultiplier,
-            EARTH_SURFACE_MODEL.referenceRadiusM,
-          )
-          : aircraftNormalizedAltitude(aircraft.altitudeFt, radialMultiplier),
+        aircraftNormalizedHeight(
+          aircraft.altitudeFt,
+          report.onGround,
+          terrainElevationMetres,
+        ),
       );
 
       east.set(-Math.sin(longitude), 0, -Math.cos(longitude)).normalize();

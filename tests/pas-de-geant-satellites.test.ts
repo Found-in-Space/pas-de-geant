@@ -62,29 +62,20 @@ describe("Pas de Géant satellite layers", () => {
     })).toThrow("Satellite group");
   });
 
-  it("applies the same radial multiplier to orbital altitude", () => {
+  it("places orbital altitude at true physical scale", () => {
     const surface = satelliteNormalizedPosition({
       latitude: 0,
       longitude: 0,
-      height: 400,
-    }, 0);
-    const trueScale = satelliteNormalizedPosition({
+      height: 0,
+    });
+    const orbit = satelliteNormalizedPosition({
       latitude: 0,
       longitude: 0,
       height: 400,
-    }, 1);
-    const exaggerated = satelliteNormalizedPosition({
-      latitude: 0,
-      longitude: 0,
-      height: 400,
-    }, 3);
+    });
 
-    expect(trueScale.length() - surface.length()).toBeCloseTo(
+    expect(orbit.length() - surface.length()).toBeCloseTo(
       400 / EARTH_MEAN_RADIUS_KM,
-      10,
-    );
-    expect(exaggerated.length() - surface.length()).toBeCloseTo(
-      1_200 / EARTH_MEAN_RADIUS_KM,
       10,
     );
   });
@@ -93,7 +84,7 @@ describe("Pas de Géant satellite layers", () => {
     const layer = new SatelliteLayer();
     expect(layer.setSatellites("stations", [omm(25544, "ISS")])).toBe(1);
     layer.setGroupVisible("stations", true);
-    layer.update(Date.parse("2026-08-07T00:05:00Z"), 64, 1);
+    layer.update(Date.parse("2026-08-07T00:05:00Z"), 64);
 
     const mesh = layer.group.getObjectByName(
       "satellites-stations",

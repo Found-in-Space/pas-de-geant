@@ -23,7 +23,7 @@ npm run dev -- --port 4197
 ```
 
 Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel, Z/X to
-change planet scale, C/V to change the radial multiplier, and Backspace to
+change planet scale, C/V to change the terrain multiplier, and Backspace to
 reset.
 
 WebXR requires a secure context. A USB-connected Quest can use an Android
@@ -49,7 +49,7 @@ Quest Browser JavaScript console through its DevTools connection.
 - Left trigger + left stick left/right: turn the view
 - Left grip: faster travel
 - Right stick vertical: whole-planet scale
-- Right stick horizontal: terrain and altitude exaggeration
+- Right stick horizontal: orbital altitude, or surface terrain exaggeration
 - X: toggle committed terrain-tile tint and boundary outlines
 - Y: toggle photographic source-tile boundaries
 - Hold B: reset location and scale

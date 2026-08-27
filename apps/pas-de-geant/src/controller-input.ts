@@ -91,7 +91,7 @@ export function controllerIntent(
   return {
     travel: new Vector2(leftTriggerPressed ? 0 : travelX, travelY),
     orbit: new Vector2(travelX, orbitAxisY(travelY)),
-    // Up increases scale; right increases radial exaggeration.
+    // Up increases scale; right increases terrain exaggeration or orbit radius.
     scaleAxis: scaleAxis === 0 ? 0 : -scaleAxis,
     radialAxis,
     boost: (leftButtons[1]?.value ?? 0) > 0.55,

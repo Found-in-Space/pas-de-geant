@@ -1,12 +1,14 @@
 import { Vector2 } from "three";
 import { describe, expect, it } from "vitest";
 import {
-  applyRadialMultiplierRate,
+  applyTerrainMultiplierRate,
   apexError,
   contactFrame,
   coordinatesForFrame,
   frameIsOrthonormal,
   initialPlanetState,
+  normalizedBodyLocalPhysicalOffset,
+  normalizedBodyLocalTerrainOffset,
   rollContactFrame,
   solvePlanetPose,
 } from "../apps/pas-de-geant/src/planet-state.js";
@@ -14,10 +16,15 @@ import {
 const DISPLAY_RADIUS_M = 3_000;
 
 describe("Pas de Géant rolling-planet regressions", () => {
-  it("does not allow the radial multiplier to become negative", () => {
-    expect(applyRadialMultiplierRate(0.1, -1, 1)).toBe(0);
-    expect(applyRadialMultiplierRate(0, -1, 1)).toBe(0);
-    expect(applyRadialMultiplierRate(0, 1, 1)).toBe(3);
+  it("does not allow the terrain multiplier to become negative", () => {
+    expect(applyTerrainMultiplierRate(0.1, -1, 1)).toBe(0);
+    expect(applyTerrainMultiplierRate(0, -1, 1)).toBe(0);
+    expect(applyTerrainMultiplierRate(0, 1, 1)).toBe(3);
+  });
+
+  it("keeps physical offsets separate from terrain exaggeration", () => {
+    expect(normalizedBodyLocalPhysicalOffset(250, 1_000)).toBe(0.25);
+    expect(normalizedBodyLocalTerrainOffset(250, 4, 1_000)).toBe(1);
   });
 
   it("rolls continuously across the antimeridian and over a pole", () => {
@@ -51,8 +58,8 @@ describe("Pas de Géant rolling-planet regressions", () => {
     );
     const headset = new Vector2(2.4, -1.1);
 
-    for (const radialMultiplier of [0, 1, 20]) {
-      state.radialMultiplier = radialMultiplier;
+    for (const terrainMultiplier of [0, 1, 20]) {
+      state.terrainMultiplier = terrainMultiplier;
       for (const radius of [
         1,
         DISPLAY_RADIUS_M,

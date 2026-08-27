@@ -6,29 +6,29 @@ import {
 import { EARTH_MEAN_RADIUS_KM } from "../apps/pas-de-geant/src/planet-state.js";
 
 describe("Pas de Geant atmosphere", () => {
-  it("only renders the exterior halo while the observer is above it", () => {
+  it("uses global scale for its height and exterior-halo visibility", () => {
     const atmosphere = new AtmosphereLayer();
     const displayRadiusM = EARTH_MEAN_RADIUS_KM / ATMOSPHERE_TOP_KM;
 
     atmosphere.update({
       displayRadiusM,
-      radialMultiplier: 1,
       observerHeightWorldM: 1.01,
     });
     expect(atmosphere.mesh.visible).toBe(true);
+    expect(
+      atmosphere.mesh.material.uniforms.bodyLocalAtmosphereOffset!.value,
+    ).toBeCloseTo(ATMOSPHERE_TOP_KM / EARTH_MEAN_RADIUS_KM, 10);
 
     atmosphere.update({
       displayRadiusM,
-      radialMultiplier: 1,
       observerHeightWorldM: 1,
     });
     expect(atmosphere.mesh.visible).toBe(false);
 
     atmosphere.update({
       displayRadiusM: displayRadiusM / 2,
-      radialMultiplier: 2,
       observerHeightWorldM: 1,
     });
-    expect(atmosphere.mesh.visible).toBe(false);
+    expect(atmosphere.mesh.visible).toBe(true);
   });
 });

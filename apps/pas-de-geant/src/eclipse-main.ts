@@ -226,15 +226,12 @@ const selectedImageryConfiguration = baseImageryConfiguration
 const runtimeImageryConfiguration = selectedImageryConfiguration
   ? proxiedTileConfiguration(
       selectedImageryConfiguration,
-      import.meta.env.DEV &&
-        Boolean(import.meta.env.VITE_IMAGERY_XYZ_TEMPLATE),
       selectedImageryConfiguration === baseImageryConfiguration
         ? "textures-source"
         : "textures",
     )
   : undefined;
 const photographicImageryProvider =
-  window.__PAS_DE_GEANT_IMAGERY_PROVIDER__ ??
   configuredXyzImageryProvider(runtimeImageryConfiguration);
 document.body.dataset.imageryProvider =
   photographicImageryProvider?.id ?? "blue-marble";
@@ -604,7 +601,7 @@ function eclipseTerrainView(viewCamera: THREE.Camera): {
         EARTH_REFERENCE_RADIUS_M,
         state.stage.scaleDenominator,
       ),
-      radialMultiplier: 1,
+      terrainMultiplier: 1,
       observerHeightWorldM: headsetMetresForPhysicalMetres(
         observation.headDistancePhysicalM,
         state.stage.scaleDenominator,
@@ -818,7 +815,7 @@ function eclipseSupervisionNavigationState(): SupervisionNavigationSnapshot {
     latitudeDegrees: latestEarthSurfaceObservation.latitudeDegrees,
     longitudeDegrees: latestEarthSurfaceObservation.longitudeDegrees,
     scaleDenominator: state.stage.scaleDenominator,
-    radialMultiplier: 1,
+    terrainMultiplier: 1,
     headingDegrees: null,
   };
 }

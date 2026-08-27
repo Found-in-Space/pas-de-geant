@@ -64,15 +64,15 @@ export interface HandPanelDirection {
 
 export interface HandPanelStatus {
   scaleDenominator: number;
-  radialMultiplier: number;
+  terrainMultiplier: number;
   minimumTerrainZoom: number;
   maximumTerrainZoom: number;
   terrainBudgetLimited: boolean;
   agentState: RealtimeAgentState;
   navigationMode?: "surface" | "orbit" | "free";
   focusBody?: string;
-  focusDistanceHeadsetM?: number;
   eclipseConesVisible?: boolean;
+  focusAltitudePhysicalM?: number;
 }
 
 export const HAND_PANEL_ACTION = {
@@ -107,9 +107,19 @@ interface HandPanelStatusProps extends HandPanelStatus {
 }
 
 const EARTH_MAP_BORDER_WIDTH = 12;
+
+export function formatPhysicalAltitude(metres: number): string {
+  if (!Number.isFinite(metres)) return "—";
+  const nonnegative = Math.max(0, metres);
+  if (nonnegative < 1_000) return `${nonnegative.toFixed(0)} m`;
+  return `${(nonnegative / 1_000).toLocaleString("en-GB", {
+    maximumFractionDigits: nonnegative < 1_000_000 ? 1 : 0,
+  })} km`;
+}
+
 const DEFAULT_HAND_PANEL_STATUS: HandPanelStatus = {
   scaleDenominator: DEFAULT_SCALE_DENOMINATOR,
-  radialMultiplier: 1,
+  terrainMultiplier: 1,
   minimumTerrainZoom: 0,
   maximumTerrainZoom: 0,
   terrainBudgetLimited: false,
@@ -272,11 +282,11 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
         value: formatScaleRatio(ctx.props.scaleDenominator),
       },
       {
-        label: ctx.props.navigationMode === "orbit" ? "DISTANCE" : "RADIAL",
+        label: ctx.props.navigationMode === "orbit" ? "ALTITUDE" : "TERRAIN",
         value: ctx.props.navigationMode === "orbit" &&
-            ctx.props.focusDistanceHeadsetM !== undefined
-          ? `${ctx.props.focusDistanceHeadsetM.toFixed(2)} m`
-          : `${ctx.props.radialMultiplier.toFixed(1)}×`,
+            ctx.props.focusAltitudePhysicalM !== undefined
+          ? formatPhysicalAltitude(ctx.props.focusAltitudePhysicalM)
+          : `${ctx.props.terrainMultiplier.toFixed(1)}×`,
       },
       {
         label: "AUTO LOD · X TILES",

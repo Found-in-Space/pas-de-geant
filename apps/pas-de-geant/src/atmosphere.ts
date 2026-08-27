@@ -3,8 +3,7 @@ import {
   EARTH_MEAN_RADIUS_KM,
   contactFrame,
   geodeticSurfaceEcefKm,
-  normalizedBodyLocalRadialOffset,
-  radialHeadsetMetresForPhysicalMetres,
+  normalizedBodyLocalPhysicalOffset,
 } from "./planet-state.js";
 import { EARTH_SURFACE_MODEL } from "./surface-model.js";
 
@@ -15,27 +14,20 @@ const HEIGHT_SEGMENTS = 48;
 
 export interface AtmosphereView {
   readonly displayRadiusM: number;
-  readonly radialMultiplier: number;
   readonly observerHeightWorldM: number;
 }
 
 export function observerIsOutsideAtmosphere(
   view: AtmosphereView,
 ): boolean {
-  const atmosphereHeightWorldM = radialHeadsetMetresForPhysicalMetres(
-    ATMOSPHERE_TOP_KM * 1_000,
-    view.displayRadiusM,
-    view.radialMultiplier,
-    EARTH_SURFACE_MODEL.referenceRadiusM,
-  );
-  return view.radialMultiplier > 0 &&
-    view.observerHeightWorldM > atmosphereHeightWorldM;
+  const atmosphereHeightWorldM = ATMOSPHERE_TOP_KM * 1_000 *
+    view.displayRadiusM / EARTH_SURFACE_MODEL.referenceRadiusM;
+  return view.observerHeightWorldM > atmosphereHeightWorldM;
 }
 
 export function atmosphereSurfacePoint(
   latitudeDegrees: number,
   longitudeDegrees: number,
-  radialMultiplier: number,
 ): THREE.Vector3 {
   const normal = contactFrame(
     latitudeDegrees,
@@ -45,9 +37,8 @@ export function atmosphereSurfacePoint(
     .multiplyScalar(1 / EARTH_MEAN_RADIUS_KM)
     .addScaledVector(
       normal,
-      normalizedBodyLocalRadialOffset(
+      normalizedBodyLocalPhysicalOffset(
         ATMOSPHERE_TOP_KM * 1_000,
-        radialMultiplier,
         EARTH_SURFACE_MODEL.referenceRadiusM,
       ),
     );
@@ -147,9 +138,8 @@ export class AtmosphereLayer {
   update(view: AtmosphereView): void {
     this.mesh.visible = observerIsOutsideAtmosphere(view);
     this.mesh.material.uniforms.bodyLocalAtmosphereOffset!.value =
-      normalizedBodyLocalRadialOffset(
+      normalizedBodyLocalPhysicalOffset(
         ATMOSPHERE_TOP_KM * 1_000,
-        view.radialMultiplier,
         EARTH_SURFACE_MODEL.referenceRadiusM,
       );
   }

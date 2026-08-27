@@ -172,7 +172,7 @@ export class TerrainRenderVisibility {
   private readonly timingSamples = new Float64Array(TIMING_SAMPLE_CAPACITY);
   private readonly elevationBounds: ElevationBoundsMetres | undefined;
   private enabledValue = true;
-  private radialMultiplier = Number.NaN;
+  private terrainMultiplier = Number.NaN;
   private displayRadiusM = Number.NaN;
   private sphereExpansion = Number.POSITIVE_INFINITY;
   private elevationHorizonCertain = false;
@@ -265,18 +265,18 @@ export class TerrainRenderVisibility {
     if (!this.enabledValue) this.showAll();
   }
 
-  updateDisplacement(radialMultiplier: number, displayRadiusM: number): void {
+  updateDisplacement(terrainMultiplier: number, displayRadiusM: number): void {
     if (
-      this.radialMultiplier === radialMultiplier &&
+      this.terrainMultiplier === terrainMultiplier &&
       this.displayRadiusM === displayRadiusM
     ) return;
-    this.radialMultiplier = radialMultiplier;
+    this.terrainMultiplier = terrainMultiplier;
     this.displayRadiusM = displayRadiusM;
     const bounds = this.elevationBounds;
     const displacementIsFinite =
       Boolean(bounds) &&
-      Number.isFinite(radialMultiplier) &&
-      radialMultiplier >= 0 &&
+      Number.isFinite(terrainMultiplier) &&
+      terrainMultiplier >= 0 &&
       Number.isFinite(displayRadiusM) &&
       displayRadiusM > 0;
     if (!bounds || !displacementIsFinite) {
@@ -286,7 +286,7 @@ export class TerrainRenderVisibility {
     }
 
     const bodyLocalUnitsPerElevationMetre =
-      radialMultiplier / this.referenceRadiusM;
+      terrainMultiplier / this.referenceRadiusM;
     const bodyLocalSkirtDepth = 0.02 / displayRadiusM;
     this.sphereExpansion =
       Math.max(Math.abs(bounds.minimum), Math.abs(bounds.maximum)) *

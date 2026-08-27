@@ -859,7 +859,7 @@ describe("independent photographic imagery pipeline", () => {
       latitudeDegrees: 46,
       longitudeDegrees: 9,
       displayRadiusM: 1_000,
-      radialMultiplier: 1,
+      terrainMultiplier: 1,
       observerHeightWorldM: 1.65,
       focalLengthPixels: 250,
     };
@@ -888,7 +888,7 @@ describe("independent photographic imagery pipeline", () => {
       latitudeDegrees: 89,
       longitudeDegrees: -138,
       displayRadiusM: 1_000,
-      radialMultiplier: 1,
+      terrainMultiplier: 1,
       observerHeightWorldM: 1.65,
       focalLengthPixels: 250,
     };
@@ -1013,7 +1013,7 @@ describe("independent photographic imagery pipeline", () => {
       latitudeDegrees: 46,
       longitudeDegrees: 9,
       displayRadiusM: 1_000,
-      radialMultiplier: 1,
+      terrainMultiplier: 1,
       observerHeightWorldM: 1.65,
       focalLengthPixels: 250,
     };

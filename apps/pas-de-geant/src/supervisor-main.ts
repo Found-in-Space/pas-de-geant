@@ -66,9 +66,9 @@ const addPinButton = element<HTMLButtonElement>("add-pin-button");
 const scaleForm = element<HTMLFormElement>("scale-form");
 const scaleDenominatorInput = element<HTMLInputElement>("scale-denominator");
 const scaleButton = element<HTMLButtonElement>("scale-button");
-const radialForm = element<HTMLFormElement>("radial-form");
-const radialMultiplier = element<HTMLInputElement>("radial-multiplier");
-const radialButton = element<HTMLButtonElement>("radial-button");
+const terrainForm = element<HTMLFormElement>("terrain-form");
+const terrainMultiplier = element<HTMLInputElement>("terrain-multiplier");
+const terrainButton = element<HTMLButtonElement>("terrain-button");
 const headingDegrees = element<HTMLInputElement>("heading-degrees");
 const headingCurrent = element<HTMLSpanElement>("heading-current");
 const headingTarget = element<HTMLOutputElement>("heading-target");
@@ -130,8 +130,8 @@ let destinationDraft: { latitudeDegrees: number; longitudeDegrees: number } |
 let destinationInitialized = false;
 let scaleDraftInitialized = false;
 let scaleDraftDirty = false;
-let radialDraftInitialized = false;
-let radialDraftDirty = false;
+let terrainDraftInitialized = false;
+let terrainDraftDirty = false;
 let headingDraftDirty = false;
 let eclipseTimeDraftDirty = false;
 const eclipseTimeScrubber = new SupervisorEclipseScrubber({
@@ -307,8 +307,8 @@ function resetDrafts(session: SupervisionSession): void {
   destinationInitialized = false;
   scaleDraftInitialized = false;
   scaleDraftDirty = false;
-  radialDraftInitialized = false;
-  radialDraftDirty = false;
+  terrainDraftInitialized = false;
+  terrainDraftDirty = false;
   headingDraftDirty = false;
   eclipseTimeDraftDirty = false;
   eclipseTimeScrubber.cancel();
@@ -349,9 +349,9 @@ function initializeDrafts(session: SupervisionSession): void {
     );
     scaleDraftInitialized = true;
   }
-  if (!radialDraftInitialized) {
-    radialMultiplier.value = formatInputValue(session.state.radialMultiplier, 1);
-    radialDraftInitialized = true;
+  if (!terrainDraftInitialized) {
+    terrainMultiplier.value = formatInputValue(session.state.terrainMultiplier, 1);
+    terrainDraftInitialized = true;
   }
   if (!headingDraftDirty && session.state.headingDegrees !== null) {
     setHeadingDraftValue(session.state.headingDegrees);
@@ -443,8 +443,8 @@ function renderControls(supported: boolean, connected: boolean): void {
     (pending) => pending.sessionId === selectedSessionId &&
       pending.kind === "setScaleDenominator",
   );
-  const radialPending = [...pendingCommands.values()].some(
-    (pending) => pending.sessionId === selectedSessionId && pending.kind === "setRadialMultiplier",
+  const terrainPending = [...pendingCommands.values()].some(
+    (pending) => pending.sessionId === selectedSessionId && pending.kind === "setTerrainMultiplier",
   );
   const headingPending = [...pendingCommands.values()].some(
     (pending) => pending.sessionId === selectedSessionId && pending.kind === "setHeading",
@@ -457,8 +457,8 @@ function renderControls(supported: boolean, connected: boolean): void {
   addPinButton.disabled = !supported || !connected;
   scaleDenominatorInput.disabled = !supported || !connected || scalePending;
   scaleButton.disabled = !supported || !connected || scalePending;
-  radialMultiplier.disabled = !supported || !connected || radialPending;
-  radialButton.disabled = !supported || !connected || radialPending;
+  terrainMultiplier.disabled = !supported || !connected || terrainPending;
+  terrainButton.disabled = !supported || !connected || terrainPending;
   headingDegrees.disabled = !supported || !connected || headingPending;
 
   const session = selectedLiveSession() ?? selectedSessionCache;
@@ -961,8 +961,8 @@ function render(): void {
         3,
       );
     }
-    if (!radialDraftDirty && !radialDraftInitialized) {
-      radialMultiplier.value = formatInputValue(state.radialMultiplier, 1);
+    if (!terrainDraftDirty && !terrainDraftInitialized) {
+      terrainMultiplier.value = formatInputValue(state.terrainMultiplier, 1);
     }
     headingCurrent.textContent = state.headingDegrees === null
       ? "Current —"
@@ -1053,9 +1053,9 @@ scaleDenominatorInput.addEventListener("input", () => {
   scaleDraftDirty = true;
   scaleDraftInitialized = true;
 });
-radialMultiplier.addEventListener("input", () => {
-  radialDraftDirty = true;
-  radialDraftInitialized = true;
+terrainMultiplier.addEventListener("input", () => {
+  terrainDraftDirty = true;
+  terrainDraftInitialized = true;
 });
 headingDegrees.addEventListener("input", () => {
   headingDraftDirty = true;
@@ -1218,21 +1218,21 @@ scaleForm.addEventListener("submit", (event) => {
   }, "Scale change");
 });
 
-radialForm.addEventListener("submit", (event) => {
+terrainForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const value = radialMultiplier.valueAsNumber;
+  const value = terrainMultiplier.valueAsNumber;
   if (!Number.isFinite(value) || value < 0) {
-    radialMultiplier.setCustomValidity("Enter a nonnegative finite amplification.");
-    radialMultiplier.reportValidity();
-    radialMultiplier.setCustomValidity("");
+    terrainMultiplier.setCustomValidity("Enter a nonnegative finite multiplier.");
+    terrainMultiplier.reportValidity();
+    terrainMultiplier.setCustomValidity("");
     return;
   }
-  if (!radialForm.reportValidity()) return;
+  if (!terrainForm.reportValidity()) return;
   if (!selectedLiveSession()?.state) return;
   sendCommand({
-    kind: "setRadialMultiplier",
-    radialMultiplier: value,
-  }, "Radial amplification change");
+    kind: "setTerrainMultiplier",
+    terrainMultiplier: value,
+  }, "Terrain multiplier change");
 });
 
 function handleRelayStatus(status: SupervisorConnectionStatus): void {
@@ -1283,13 +1283,13 @@ function handleCommandResult(result: CommandResultMessage): void {
       scaleDraftDirty = false;
       scaleDraftInitialized = true;
     }
-    if (pending.command.kind === "setRadialMultiplier") {
-      radialMultiplier.value = formatInputValue(
-        pending.command.radialMultiplier,
+    if (pending.command.kind === "setTerrainMultiplier") {
+      terrainMultiplier.value = formatInputValue(
+        pending.command.terrainMultiplier,
         1,
       );
-      radialDraftDirty = false;
-      radialDraftInitialized = true;
+      terrainDraftDirty = false;
+      terrainDraftInitialized = true;
     }
     if (pending.command.kind === "setHeading") {
       const acknowledgedHeading = result.state.headingDegrees;
