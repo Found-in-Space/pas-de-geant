@@ -2,8 +2,6 @@ import {
   createButton,
   createColumn,
   createNode,
-  createRow,
-  createValueReadout,
   type BitmapHandle,
   type DisplayComponent,
   type DisplayNode,
@@ -22,8 +20,8 @@ import type { RealtimeAgentState } from "./realtime-agent.js";
 export { earthMapImageRects, earthMapPoint } from "./earth-map.js";
 
 export const HAND_PANEL_SURFACE: Partial<SurfaceMetrics> = {
-  width: 640,
-  height: 360,
+  width: 480,
+  height: 600,
   pixelDensity: 1,
   safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
 };
@@ -38,7 +36,7 @@ export const HAND_PANEL_THEME: Partial<ThemeTokens> = {
   borderColor: "#24566a",
   focusColor: "#f7d36f",
   overlayColor: "rgba(1, 8, 14, 0.78)",
-  controlHeight: 40,
+  controlHeight: 48,
   spacing: 6,
   padding: 10,
   radius: 8,
@@ -92,7 +90,7 @@ interface EarthLocationMapProps extends HandPanelLocation {
   map: BitmapHandle;
   height: number;
   northDirection: HandPanelDirection;
-  locationLabel: string;
+  coordinateLabel: string;
 }
 
 interface HandPanelStatusProps extends HandPanelStatus {
@@ -134,12 +132,13 @@ const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
       ctx.props.northDirection,
       borderRect,
     );
-    const labelRect: Rect = {
+    const coordinateRect: Rect = {
       x: mapRect.x + EARTH_MAP_BORDER_WIDTH + 6,
       y: mapRect.y + EARTH_MAP_BORDER_WIDTH + 6,
-      width: 132,
-      height: 28,
+      width: 212,
+      height: 32,
     };
+    const coordinateTextRect = insetRect(coordinateRect, 9);
     const commands: DrawCommand[] = [
       {
         type: "rect",
@@ -173,8 +172,8 @@ const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
       {
         type: "rect",
         componentId: ctx.id,
-        role: "earth-map-label-background",
-        rect: labelRect,
+        role: "earth-map-coordinates-background",
+        rect: coordinateRect,
         fill: theme.overlayColor,
         stroke: theme.borderColor,
         strokeWidth: 1,
@@ -183,11 +182,11 @@ const EarthLocationMapComponent: DisplayComponent<EarthLocationMapProps> = {
       {
         type: "text",
         componentId: ctx.id,
-        role: "earth-map-label",
-        rect: labelRect,
-        text: ctx.props.locationLabel,
+        role: "earth-map-coordinates",
+        rect: coordinateTextRect,
+        text: ctx.props.coordinateLabel,
         color: theme.accentColor,
-        align: "center",
+        align: "left",
         verticalAlign: "middle",
         fontSize: 14,
         fontWeight: 750,
@@ -289,27 +288,27 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
     ];
     const commands: DrawCommand[] = [];
     for (const [index, field] of fields.entries()) {
-      const x =
-        ctx.bounds.x + ctx.bounds.width * index / fields.length;
-      const nextX =
-        ctx.bounds.x + ctx.bounds.width * (index + 1) / fields.length;
+      const y =
+        ctx.bounds.y + ctx.bounds.height * index / fields.length;
+      const nextY =
+        ctx.bounds.y + ctx.bounds.height * (index + 1) / fields.length;
       const rect: Rect = {
-        x,
-        y: ctx.bounds.y,
-        width: nextX - x,
-        height: ctx.bounds.height,
+        x: ctx.bounds.x,
+        y,
+        width: ctx.bounds.width,
+        height: nextY - y,
       };
       const labelRect: Rect = {
-        x: rect.x + 6,
-        y: rect.y + 2,
-        width: rect.width - 12,
-        height: rect.height * 0.42,
+        x: rect.x + 12,
+        y: rect.y,
+        width: rect.width * 0.52 - 12,
+        height: rect.height,
       };
       const valueRect: Rect = {
-        x: rect.x + 6,
-        y: rect.y + rect.height * 0.38,
-        width: rect.width - 12,
-        height: rect.height * 0.6,
+        x: rect.x + rect.width * 0.52,
+        y: rect.y,
+        width: rect.width * 0.48 - 12,
+        height: rect.height,
       };
       commands.push(
         {
@@ -332,7 +331,7 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
           rect: labelRect,
           text: field.label,
           color: theme.mutedTextColor,
-          align: "center",
+          align: "left",
           verticalAlign: "middle",
           fontSize: 12,
           fontWeight: 700,
@@ -344,7 +343,7 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
           rect: valueRect,
           text: field.value,
           color: field.valueColor ?? theme.textColor,
-          align: "center",
+          align: "right",
           verticalAlign: "middle",
           fontSize: 16,
           fontWeight: 750,
@@ -364,9 +363,6 @@ export function createHandPanelRoot(
   northDirection: HandPanelDirection = { x: 0, y: -1 },
   status: HandPanelStatus = DEFAULT_HAND_PANEL_STATUS,
 ): DisplayNode<unknown> {
-  const locationLabel = status.navigationMode === "orbit"
-    ? "Sub-observer"
-    : "Underfoot";
   return createColumn("pas-de-geant-hand-panel", {
     padding: 8,
     gap: 6,
@@ -376,17 +372,13 @@ export function createHandPanelRoot(
         ...location,
         map,
         northDirection,
-        locationLabel: locationLabel.toUpperCase(),
-        height: 190,
-      }),
-      createValueReadout("pas-de-geant-coordinates", {
-        label: locationLabel,
-        value: formatCoordinates(
+        coordinateLabel: formatCoordinates(
           location.latitudeDegrees,
           location.longitudeDegrees,
         ),
+        height: 232,
       }),
-      createRow("pas-de-geant-navigation-actions", {
+      createColumn("pas-de-geant-navigation-actions", {
         gap: 6,
         children: [
           createButton("pas-de-geant-mode", {
@@ -404,7 +396,7 @@ export function createHandPanelRoot(
         HandPanelStatusComponent,
         {
           ...status,
-          height: 48,
+          height: 238,
         },
       ),
     ],

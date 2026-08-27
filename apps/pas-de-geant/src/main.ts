@@ -7,6 +7,7 @@ import {
   createPoseAnchoredPanelDriver,
   createThreePanelSession,
   createXrRayPointerSource,
+  type PointerPresenter,
   type ThreeHostPose,
   type ThreePointerPhase,
 } from "@found-in-space/touch-os/hosts/three";
@@ -662,13 +663,102 @@ const HAND_PANEL_TILT_RADIANS = -Math.PI * 0.24;
 const panelPointerOrigin = new THREE.Vector3();
 const panelPointerQuaternion = new THREE.Quaternion();
 const panelPointerDirection = new THREE.Vector3();
+const panelPointerEnd = new THREE.Vector3();
 let panelPointerPressed = false;
+const panelPointerRayGeometry = new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(),
+  new THREE.Vector3(0, 0, -1),
+]);
+const panelPointerRayMaterial = new THREE.LineBasicMaterial({
+  color: 0x76ddf1,
+  transparent: true,
+  opacity: 0.82,
+  depthTest: false,
+  depthWrite: false,
+});
+const panelPointerRay = new THREE.Line(
+  panelPointerRayGeometry,
+  panelPointerRayMaterial,
+);
+panelPointerRay.frustumCulled = false;
+panelPointerRay.renderOrder = 101;
+panelPointerRay.visible = false;
+scene.add(panelPointerRay);
+const panelPointerReticle = new THREE.Mesh(
+  new THREE.RingGeometry(0.006, 0.011, 24),
+  new THREE.MeshBasicMaterial({
+    color: 0xb7f5ff,
+    transparent: true,
+    opacity: 0.95,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  }),
+);
+panelPointerReticle.renderOrder = 102;
+panelPointerReticle.visible = false;
+scene.add(panelPointerReticle);
+
+function hidePanelPointerVisual(): void {
+  panelPointerRay.visible = false;
+  panelPointerReticle.visible = false;
+}
+
+const panelPointerPresenter: PointerPresenter = {
+  update(state) {
+    if (!state.active && !state.hit) {
+      hidePanelPointerVisual();
+      return;
+    }
+    const rayLength = state.hit?.length ?? 1.5;
+    panelPointerEnd.copy(panelPointerOrigin).addScaledVector(
+      panelPointerDirection,
+      rayLength,
+    );
+    const positions = panelPointerRayGeometry.getAttribute("position");
+    positions.setXYZ(
+      0,
+      panelPointerOrigin.x,
+      panelPointerOrigin.y,
+      panelPointerOrigin.z,
+    );
+    positions.setXYZ(
+      1,
+      panelPointerEnd.x,
+      panelPointerEnd.y,
+      panelPointerEnd.z,
+    );
+    positions.needsUpdate = true;
+    panelPointerRayGeometry.computeBoundingSphere();
+    panelPointerRayMaterial.color.set(
+      panelPointerPressed ? 0xf7d36f : state.hit ? 0x8cf7d0 : 0x76ddf1,
+    );
+    panelPointerRay.visible = true;
+    panelPointerReticle.visible = state.hit !== null;
+    if (state.hit) {
+      panelPointerReticle.position.copy(panelPointerEnd);
+      panelPointerReticle.quaternion.copy(panelPointerQuaternion);
+      (panelPointerReticle.material as THREE.MeshBasicMaterial).color.set(
+        panelPointerPressed ? 0xf7d36f : 0xb7f5ff,
+      );
+    }
+  },
+  dispose() {
+    scene.remove(panelPointerRay, panelPointerReticle);
+    panelPointerRayGeometry.dispose();
+    panelPointerRayMaterial.dispose();
+    panelPointerReticle.geometry.dispose();
+    (panelPointerReticle.material as THREE.Material).dispose();
+  },
+};
+
 const panelPointerSource = createXrRayPointerSource(() => {
   const binding = xrControllerBindings.find(
     (candidate) => candidate.inputSource?.handedness === "right",
   );
   if (!binding?.inputSource) {
     panelPointerPressed = false;
+    hidePanelPointerVisual();
     return undefined;
   }
   binding.controller.getWorldPosition(panelPointerOrigin);
@@ -696,15 +786,17 @@ const handPanelDriver = createPoseAnchoredPanelDriver({
   runtime: handPanelRuntime,
   parent: handPanelHostRoot,
   surface: HAND_PANEL_SURFACE,
-  panelWidth: 0.32,
-  panelHeight: 0.18,
+  panelWidth: 0.24,
+  panelHeight: 0.3,
   tiltRadians: HAND_PANEL_TILT_RADIANS,
-  offset: { x: 0.04, y: 0.05, z: -0.03 },
+  offset: { x: 0.04, y: 0.08, z: -0.03 },
   depthTest: false,
   depthWrite: false,
   renderOrder: 100,
   pointerClaimPolicy: "block-on-hit",
   pointerSources: [panelPointerSource],
+  pointerPresenter: panelPointerPresenter,
+  ownsPointerPresenter: true,
   textureQuality: {
     anisotropy: Math.min(4, renderer.capabilities.getMaxAnisotropy()),
   },
@@ -2167,11 +2259,13 @@ function resolveHandPanelAnchorPose(): ThreeHostPose | undefined {
 function updateHandPanel(nowMs: number): void {
   if (!renderer.xr.isPresenting || !handPanelVisible) {
     if (handPanel.enabled) handPanel.enabled = false;
+    hidePanelPointerVisual();
     return;
   }
   const anchorPose = resolveHandPanelAnchorPose();
   if (!anchorPose) {
     if (handPanel.enabled) handPanel.enabled = false;
+    hidePanelPointerVisual();
     return;
   }
   handPanel.enabled = true;
