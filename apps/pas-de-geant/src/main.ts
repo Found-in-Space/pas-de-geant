@@ -1,5 +1,3 @@
-import "./style.css";
-
 import {
   createRuntime,
   type BitmapHandle,
@@ -255,33 +253,59 @@ const element = <T extends HTMLElement>(id: string): T => {
 const sceneRoot = element<HTMLDivElement>("scene-root");
 const benchmarkParameters = new URLSearchParams(window.location.search);
 const vrSlot = element<HTMLDivElement>("vr-slot");
-const loadingState = element<HTMLDivElement>("loading-state");
+const worldCheck = element<HTMLLIElement>("world-check");
+const worldCheckStatus = element<HTMLSpanElement>("world-check-status");
+const locationCheck = element<HTMLLIElement>("location-check");
+const locationCheckStatus = element<HTMLSpanElement>("location-check-status");
+const xrCheck = element<HTMLLIElement>("xr-check");
+const xrCheckStatus = element<HTMLSpanElement>("xr-check-status");
+const xrRequirements = element<HTMLParagraphElement>("xr-requirements");
 const errorState = element<HTMLDivElement>("error-state");
 const errorMessage = element<HTMLParagraphElement>("error-message");
-const coordinatesReadout = element<HTMLElement>("coordinates");
-const scaleReadout = element<HTMLElement>("scale-readout");
-const radialReadout = element<HTMLElement>("radial-readout");
-const aircraftReadout = element<HTMLElement>("aircraft-readout");
-const satelliteReadout = element<HTMLElement>("satellite-readout");
-const resetButton = element<HTMLButtonElement>("reset-button");
-const navigationModeSelect = element<HTMLSelectElement>("navigation-mode");
-const focusBodySelect = element<HTMLSelectElement>("focus-body");
-const aircraftToggle = element<HTMLInputElement>("aircraft-toggle");
-const aircraftLabelsToggle = element<HTMLInputElement>(
-  "aircraft-labels-toggle",
-);
-const satelliteToggles: Record<SatelliteGroupId, HTMLInputElement> = {
-  visual: element<HTMLInputElement>("satellite-visual-toggle"),
-  stations: element<HTMLInputElement>("satellite-stations-toggle"),
-  "science-education": element<HTMLInputElement>(
-    "satellite-science-education-toggle",
-  ),
-};
 const imageryAttribution = element<HTMLElement>("imagery-attribution");
 const researchRegion = element<HTMLElement>("research-region");
 const researchAnswer = element<HTMLParagraphElement>("research-answer");
 const researchSources = element<HTMLUListElement>("research-sources");
 const initialLocationPromise = resolveInitialLocation();
+
+type PreflightState = "pending" | "ready" | "failed";
+
+function setPreflightCheck(
+  check: HTMLElement,
+  status: HTMLElement,
+  state: PreflightState,
+  message: string,
+): void {
+  check.dataset.state = state;
+  check.setAttribute("aria-busy", String(state === "pending"));
+  status.textContent = message;
+}
+
+async function refreshXrSupport(): Promise<void> {
+  try {
+    const supported = await navigator.xr?.isSessionSupported("immersive-vr") ??
+      false;
+    setPreflightCheck(
+      xrCheck,
+      xrCheckStatus,
+      supported ? "ready" : "failed",
+      supported ? "Headset ready" : "Not available in this browser",
+    );
+    xrRequirements.hidden = supported;
+    vrSlot.classList.toggle("is-unavailable", !supported);
+  } catch {
+    setPreflightCheck(
+      xrCheck,
+      xrCheckStatus,
+      "failed",
+      "Could not check XR support",
+    );
+    xrRequirements.hidden = false;
+    vrSlot.classList.add("is-unavailable");
+  }
+}
+
+void refreshXrSupport();
 
 function clearResearch(): void {
   researchAnswer.textContent = "";
@@ -320,7 +344,12 @@ try {
     logarithmicDepthBuffer: true,
   });
 } catch (error) {
-  loadingState.hidden = true;
+  setPreflightCheck(
+    worldCheck,
+    worldCheckStatus,
+    "failed",
+    "WebGL unavailable",
+  );
   errorState.hidden = false;
   errorMessage.textContent =
     error instanceof Error ? error.message : "WebGL is unavailable.";
@@ -457,6 +486,15 @@ imageryAttribution.textContent = photographicImageryProvider
   : "";
 const initialLocation = await initialLocationPromise;
 document.body.dataset.locationSource = initialLocation.source;
+setPreflightCheck(
+  locationCheck,
+  locationCheckStatus,
+  "ready",
+  formatCoordinates(
+    initialLocation.latitudeDegrees,
+    initialLocation.longitudeDegrees,
+  ),
+);
 let state = initialPlanetState(
   initialLocation.latitudeDegrees,
   initialLocation.longitudeDegrees,
@@ -743,12 +781,10 @@ const aircraftStream = new FlightFollowerClient({
     aircraftLayer.setAircraft(tracks);
     aircraftCount = tracks.length;
     document.body.dataset.aircraftCount = String(aircraftCount);
-    updateAircraftReadout();
   },
   onStatus(status) {
     aircraftStreamState = status.state;
     document.body.dataset.aircraftStreamState = status.state;
-    updateAircraftReadout();
   },
 });
 
@@ -1655,8 +1691,6 @@ function updatePresentation(): void {
   );
   document.body.dataset.navigationMode = navigationMode;
   document.body.dataset.focusBody = focusBodyId;
-  navigationModeSelect.value = navigationMode;
-  focusBodySelect.value = focusBodyId;
   if (navigationMode !== "surface") {
     updateSystemPresentation();
     enforceOrbitSurfaceFloor();
@@ -1746,36 +1780,6 @@ function updatePresentation(): void {
     observerHeightWorldM:
       earthOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
   });
-  coordinatesReadout.textContent = navigationMode === "surface" ||
-      focusedOrbitalView
-    ? `${celestialBody(focusBodyId).name} · ${formatCoordinates(
-        coordinates.latitudeDegrees,
-        coordinates.longitudeDegrees,
-      )}`
-    : `${celestialBody(focusBodyId).name} · ${navigationMode}`;
-  const focusRoomScale = roomScaleForDisplayRadius(
-    focusBodyId,
-    state.displayRadiusM,
-  );
-  const referenceDistance = focusRoomScale * 1_000_000;
-  const horizontalMetresPerKilometre = focusRoomScale * 1_000;
-  const radialMetresPerKilometre =
-    horizontalMetresPerKilometre * state.radialMultiplier;
-  scaleReadout.textContent =
-    `${referenceDistance < 1
-      ? `1,000 km ≈ ${Math.round(referenceDistance * 100)} cm`
-      : `1,000 km ≈ ${referenceDistance.toFixed(1)} m`} · ` +
-    `1 km = ${formatRoomDistance(horizontalMetresPerKilometre)}`;
-  radialReadout.textContent =
-    `${state.radialMultiplier.toFixed(1)}× · ` +
-    `1 km = ${formatRoomDistance(radialMetresPerKilometre)}`;
-}
-
-function formatRoomDistance(metres: number): string {
-  if (metres === 0) return "0";
-  if (metres < 0.0095) return `${(metres * 1_000).toFixed(1)} mm`;
-  if (metres < 1) return `${(metres * 100).toFixed(1)} cm`;
-  return `${metres.toFixed(2)} m`;
 }
 
 function handPanelStatus(
@@ -2497,19 +2501,6 @@ window.addEventListener("keyup", (event) => {
 });
 window.addEventListener("blur", () => keys.clear());
 
-resetButton.addEventListener("click", resetPlanet);
-navigationModeSelect.addEventListener("change", () => {
-  const mode = navigationModeSelect.value;
-  if (mode === "surface" || mode === "orbit" || mode === "free") {
-    setNavigationMode(mode);
-  }
-});
-focusBodySelect.addEventListener("change", () => {
-  if (isSolarSystemBodyId(focusBodySelect.value)) {
-    setFocusBody(focusBodySelect.value);
-  }
-});
-
 function aircraftStreamAllowed(): boolean {
   return shouldStreamAircraft({
     enabled: aircraftEnabled || aircraftLabelsEnabled,
@@ -2539,31 +2530,6 @@ function scheduleAircraftRetarget(): void {
   }, AIRCRAFT_SUBSCRIPTION_REFRESH_INTERVAL_MS);
 }
 
-function updateAircraftReadout(): void {
-  const displayEnabled = aircraftEnabled || aircraftLabelsEnabled;
-  if (!displayEnabled) {
-    aircraftReadout.textContent = "Off · optional";
-  } else if (!vrSessionActive) {
-    aircraftReadout.textContent = "Ready for VR";
-  } else if (document.hidden) {
-    aircraftReadout.textContent = aircraftCount > 0
-      ? `${aircraftCount} nearby · paused`
-      : "Paused";
-  } else if (aircraftStreamState === "live") {
-    aircraftReadout.textContent = `${aircraftCount} nearby · live`;
-  } else if (aircraftStreamState === "retrying") {
-    aircraftReadout.textContent = aircraftCount > 0
-      ? `${aircraftCount} nearby · reconnecting`
-      : "Reconnecting…";
-  } else if (aircraftStreamState === "error") {
-    aircraftReadout.textContent = aircraftCount > 0
-      ? `${aircraftCount} nearby · stale`
-      : "Unavailable";
-  } else {
-    aircraftReadout.textContent = "Connecting…";
-  }
-}
-
 function aircraftDisplayState(): Record<string, unknown> {
   return {
     aircraft_enabled: aircraftEnabled,
@@ -2589,18 +2555,15 @@ function syncAircraftDisplay(): void {
   } else {
     stopAircraftStream();
   }
-  updateAircraftReadout();
 }
 
 function setAircraftEnabled(enabled: boolean): void {
   aircraftEnabled = enabled;
-  aircraftToggle.checked = enabled;
   syncAircraftDisplay();
 }
 
 function setAircraftLabelsEnabled(enabled: boolean): void {
   aircraftLabelsEnabled = enabled;
-  aircraftLabelsToggle.checked = enabled;
   syncAircraftDisplay();
 }
 
@@ -2612,13 +2575,6 @@ function setAircraftDisplay(
   else setAircraftLabelsEnabled(enabled);
   return { ok: true, ...aircraftDisplayState() };
 }
-
-aircraftToggle.addEventListener("change", () => {
-  setAircraftEnabled(aircraftToggle.checked);
-});
-aircraftLabelsToggle.addEventListener("change", () => {
-  setAircraftLabelsEnabled(aircraftLabelsToggle.checked);
-});
 
 function satelliteGroupControlState(
   group: SatelliteGroupId,
@@ -2643,29 +2599,10 @@ function updateSatelliteReadout(): void {
   const enabled = SATELLITE_GROUPS.filter(
     ({ id }) => satelliteGroups[id].enabled,
   );
-  const loading = enabled.filter(({ id }) => satelliteGroups[id].request);
-  const unavailable = enabled.filter(
-    ({ id }) => satelliteGroups[id].unavailable,
-  );
   const count = enabled.reduce(
     (total, { id }) => total + satelliteGroups[id].count,
     0,
   );
-  if (enabled.length === 0) {
-    satelliteReadout.textContent = "All groups off";
-  } else if (!vrSessionActive) {
-    satelliteReadout.textContent =
-      `${enabled.length} ${enabled.length === 1 ? "group" : "groups"} · ready for VR`;
-  } else if (loading.length > 0) {
-    satelliteReadout.textContent = `${loading.length} loading…`;
-  } else if (unavailable.length > 0 && count === 0) {
-    satelliteReadout.textContent = "Unavailable";
-  } else if (unavailable.length > 0) {
-    satelliteReadout.textContent = `${count} tracked · stale`;
-  } else {
-    satelliteReadout.textContent =
-      `${count} tracked · ${enabled.length} ${enabled.length === 1 ? "group" : "groups"}`;
-  }
   document.body.dataset.satelliteCount = String(count);
   for (const { id } of SATELLITE_GROUPS) {
     document.body.setAttribute(
@@ -2782,7 +2719,6 @@ async function setSatelliteGroupEnabled(
 ): Promise<SatelliteGroupControlState> {
   const runtime = satelliteGroups[group];
   runtime.enabled = enabled;
-  satelliteToggles[group].checked = enabled;
   satelliteLayer.setGroupVisible(group, enabled && vrSessionActive);
   if (!enabled) {
     stopSatelliteGroup(group);
@@ -2793,16 +2729,9 @@ async function setSatelliteGroupEnabled(
   return await loadSatelliteGroup(group);
 }
 
-for (const { id } of SATELLITE_GROUPS) {
-  satelliteToggles[id].addEventListener("change", () => {
-    void setSatelliteGroupEnabled(id, satelliteToggles[id].checked);
-  });
-}
-
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopAircraftStream();
-    updateAircraftReadout();
     for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
   } else {
     syncAircraftDisplay();
@@ -2855,6 +2784,7 @@ function stopSupervisionSession(): void {
 const vrButton = VRButton.createButton(renderer);
 vrSlot.append(vrButton);
 renderer.xr.addEventListener("sessionstart", () => {
+  document.body.classList.add("xr-presenting");
   locationPinStore.clear();
   vrSessionActive = true;
   syncAircraftDisplay();
@@ -2876,6 +2806,7 @@ renderer.xr.addEventListener("sessionstart", () => {
   void startSupervisionSession();
 });
 renderer.xr.addEventListener("sessionend", () => {
+  document.body.classList.remove("xr-presenting");
   stopSupervisionSession();
   locationPinStore.clear();
   vrSessionActive = false;
@@ -2888,7 +2819,6 @@ renderer.xr.addEventListener("sessionend", () => {
     satelliteLayer.setGroupVisible(id, false);
   }
   updateSatelliteReadout();
-  updateAircraftReadout();
   camera.position.set(0, 1.65, 0);
   camera.rotation.set(pitch, yaw, 0);
   if (navigationMode === "orbit") orbitNavigation = undefined;
@@ -3544,14 +3474,13 @@ const benchmarkMetricsTimer = benchmarkParameters.get("benchmarkMetrics") === "1
 updatePresentation();
 setTileOverlayVisible(false);
 setTextureTileOverlayVisible(false);
-loadingState.hidden = true;
+setPreflightCheck(worldCheck, worldCheckStatus, "ready", "World ready");
 errorState.hidden = true;
 aircraftLayer.visible = false;
 setAircraftEnabled(false);
 setAircraftLabelsEnabled(false);
 for (const { id } of SATELLITE_GROUPS) {
   satelliteLayer.setGroupVisible(id, false);
-  satelliteToggles[id].checked = false;
 }
 updateSatelliteReadout();
 renderer.setAnimationLoop(render);

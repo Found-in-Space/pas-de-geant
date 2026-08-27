@@ -1,3 +1,5 @@
+import "./style.css";
+
 import { installRequestedXrEmulation } from "./xr-emulation.js";
 export type { PasDeGeantXrEmulatorApi } from "./xr-emulation.js";
 

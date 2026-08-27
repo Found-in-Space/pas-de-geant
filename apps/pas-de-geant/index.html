@@ -14,59 +14,51 @@
     <main class="experience">
       <div id="scene-root" class="scene-root" aria-hidden="true"></div>
 
-      <header class="topbar">
-        <div>
-          <p class="kicker">Room-scale relief Earth</p>
-          <h1>Pas de Géant</h1>
-          <p class="tagline">Walk around worlds, one small step at a time.</p>
-          <p><a href="./eclipse/">Open the Eclipse Observatory →</a></p>
+      <header class="topbar" aria-label="Found in Space application">
+        <img class="brand-mark" src="./robbie.svg" alt="" aria-hidden="true">
+        <div class="brand-copy">
+          <p>Found in Space</p>
+          <strong>Pas de Géant</strong>
         </div>
-        <div id="vr-slot" class="vr-slot"></div>
       </header>
 
-      <section class="readout" aria-live="polite">
-        <div>
-          <span>Navigation</span>
-          <strong><select id="navigation-mode" aria-label="Navigation mode">
-            <option value="surface">On ground</option>
-            <option value="orbit">Orbital</option>
-            <option value="free">Free roam</option>
-          </select></strong>
-        </div>
-        <div>
-          <span>World</span>
-          <strong><select id="focus-body" aria-label="Focus world">
-            <option value="earth">Earth</option>
-            <option value="moon">Moon</option>
-            <option value="sun">Sun</option>
-            <option value="mercury">Mercury</option>
-            <option value="venus">Venus</option>
-            <option value="mars">Mars</option>
-            <option value="jupiter">Jupiter</option>
-            <option value="saturn">Saturn</option>
-            <option value="uranus">Uranus</option>
-            <option value="neptune">Neptune</option>
-          </select></strong>
-        </div>
-        <div>
-          <span>Underfoot</span>
-          <strong id="coordinates">Locating…</strong>
-        </div>
-        <div>
-          <span>Planet scale</span>
-          <strong id="scale-readout">1,000 km ≈ 10.0 m</strong>
-        </div>
-        <div>
-          <span>Radial multiplier</span>
-          <strong id="radial-readout">1.0× · 1 km = 1.0 cm</strong>
-        </div>
-        <div>
-          <span>Live aircraft</span>
-          <strong id="aircraft-readout">Off · optional</strong>
-        </div>
-        <div>
-          <span>Satellites</span>
-          <strong id="satellite-readout">All groups off</strong>
+      <section id="preflight" class="preflight" aria-labelledby="preflight-title">
+        <div class="preflight-card">
+          <div class="clipboard-clip" aria-hidden="true"></div>
+          <header class="preflight-heading">
+            <h1 id="preflight-title">Pre Flight Checklist</h1>
+          </header>
+
+          <ol class="checklist" aria-label="Pre-flight checklist" aria-live="polite">
+            <li id="world-check" data-state="pending" aria-busy="true">
+              <span class="check-mark" aria-hidden="true"></span>
+              <span class="check-copy">
+                <strong>Relief world</strong>
+                <span id="world-check-status">Raising the continents</span>
+              </span>
+            </li>
+            <li id="location-check" data-state="pending" aria-busy="true">
+              <span class="check-mark" aria-hidden="true"></span>
+              <span class="check-copy">
+                <strong>Starting point</strong>
+                <span id="location-check-status">Locating</span>
+              </span>
+            </li>
+            <li id="xr-check" data-state="pending" aria-busy="true">
+              <span class="check-mark" aria-hidden="true"></span>
+              <span class="check-copy">
+                <strong>Immersive XR</strong>
+                <span id="xr-check-status">Checking this browser</span>
+              </span>
+            </li>
+          </ol>
+
+          <div id="vr-slot" class="vr-slot"></div>
+          <p id="xr-requirements" class="xr-requirements" hidden>
+            Immersive XR is unavailable here. Use a WebXR-capable headset and
+            open Pas de Géant from HTTPS or localhost.
+          </p>
+          <a class="secondary-link" href="./eclipse/">Open the Eclipse Observatory →</a>
         </div>
       </section>
 
@@ -83,66 +75,21 @@
         <ul id="research-sources" aria-labelledby="research-sources-label"></ul>
       </section>
 
-      <aside class="instructions">
-        <p><strong>On ground</strong> walk to roll the world beneath you.</p>
-        <p><strong>Orbital</strong> circles the selected world while keeping it framed.</p>
-        <p><strong>Free roam</strong> uses head-relative 3D travel.</p>
-        <p><strong>Left stick</strong> travels or orbits · <strong>left grip</strong> accelerates.</p>
-        <p><strong>Left trigger + stick left/right</strong> turns the view.</p>
-        <p><strong>Right stick</strong> changes orbital altitude/scale or surface scale/relief.</p>
-        <p><strong>X</strong> toggles tile surfaces and boundary outlines.</p>
-        <p><strong>Y</strong> toggles photographic source-tile boundaries.</p>
-        <p><strong>A</strong> toggles the spatial voice agent.</p>
-        <p><strong>Hold B</strong> to reset.</p>
-        <p class="desktop-hint">Desktop: WASD travel/orbit · Z/X planet scale · C/V altitude/relief · Backspace reset</p>
-      </aside>
-
-      <button id="reset-button" class="utility-button reset-button" type="button">
-        Reset view
-      </button>
-      <div class="tracking-options" aria-label="Optional tracked objects">
-        <label class="tracking-option">
-          <input id="aircraft-toggle" type="checkbox">
-          <span>Aircraft</span>
-        </label>
-        <label class="tracking-option">
-          <input id="aircraft-labels-toggle" type="checkbox">
-          <span>Labels</span>
-        </label>
-        <label class="tracking-option satellite-visual-option">
-          <input id="satellite-visual-toggle" type="checkbox">
-          <span>Brightest satellites</span>
-        </label>
-        <label class="tracking-option satellite-stations-option">
-          <input id="satellite-stations-toggle" type="checkbox">
-          <span>Space stations</span>
-        </label>
-        <label class="tracking-option satellite-science-option">
-          <input id="satellite-science-education-toggle" type="checkbox">
-          <span>Science / education</span>
-        </label>
-      </div>
-
-      <div id="loading-state" class="loading-state" role="status" aria-live="polite">
-        <div class="loading-globe" aria-hidden="true"></div>
-        <p>Raising the continents…</p>
-      </div>
-
       <div id="error-state" class="error-state" role="alert" hidden>
         <strong>Pas de Géant could not start</strong>
         <p id="error-message"></p>
       </div>
 
-      <footer>
-        Terrain:
+      <footer class="credits">
+        <span>Terrain:
         <a href="https://mapterhorn.com/attribution/">© Mapterhorn</a> /
-        Copernicus GLO-30 ·
-        Imagery: embedded NASA Blue Marble<span id="imagery-attribution"></span>
-        · Stars: Found in Space SkyKit,
-        Gaia DR3 / Hipparcos · Aircraft: Airplanes.live · Satellites:
-        <a href="https://celestrak.org/">CelesTrak</a> · Approximate
-        location: <a href="https://www.geojs.io/">GeoJS</a> · Named locations:
-        <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>
+        Copernicus GLO-30</span>
+        <span>Imagery: embedded NASA Blue Marble<span id="imagery-attribution"></span></span>
+        <span>Stars: Found in Space SkyKit, Gaia DR3 / Hipparcos</span>
+        <span>Aircraft: Airplanes.live · Satellites:
+          <a href="https://celestrak.org/">CelesTrak</a></span>
+        <span>Location: <a href="https://www.geojs.io/">GeoJS</a> ·
+          <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a></span>
       </footer>
     </main>
     <script type="module" src="/src/bootstrap.ts"></script>
