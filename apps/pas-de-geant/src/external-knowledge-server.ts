@@ -26,15 +26,6 @@ function normalizedQuery(url: URL): string | undefined {
   return query ? query : undefined;
 }
 
-function requestHost(request: IncomingMessage): string | undefined {
-  const forwardedHost = request.headers["x-forwarded-host"];
-  return (
-    (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost)
-      ?.split(",")[0]
-      ?.trim() ?? request.headers.host
-  );
-}
-
 function wikipediaUrl(title: string, canonicalUrl?: string): string {
   if (canonicalUrl) {
     try {
@@ -222,7 +213,7 @@ export function createExternalKnowledgeMiddleware(
       sendError(response, 405, "method_not_allowed", "Method not allowed.");
       return;
     }
-    if (!isAllowedRequestOrigin(request.headers.origin, requestHost(request))) {
+    if (!isAllowedRequestOrigin(request.headers.origin)) {
       sendError(response, 403, "cross_origin_denied", "Cross-origin requests are denied.");
       return;
     }

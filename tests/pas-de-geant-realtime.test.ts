@@ -500,16 +500,29 @@ describe("Pas de Géant Realtime voice agent", () => {
     });
   });
 
-  it("allows same-origin token requests and rejects cross-origin callers", () => {
-    expect(
-      isAllowedRequestOrigin(
-        "https://geant.dev.k-si.com",
-        "geant.dev.k-si.com",
-      ),
-    ).toBe(true);
-    expect(
-      isAllowedRequestOrigin("https://malicious.example", "127.0.0.1:4197"),
-    ).toBe(false);
-    expect(isAllowedRequestOrigin("not a URL", "127.0.0.1:4197")).toBe(false);
+  it("allows local, private-network, and k-si.com request origins", () => {
+    for (const origin of [
+      undefined,
+      "http://localhost:4197",
+      "http://quest.localhost:4197",
+      "http://127.0.0.1:4197",
+      "http://10.20.30.40",
+      "http://172.31.0.1",
+      "http://192.168.1.20",
+      "http://[::1]:4197",
+      "http://[fd12:3456::1]",
+      "https://geant.demo.k-si.com",
+      "https://k-si.com",
+    ]) {
+      expect(isAllowedRequestOrigin(origin), origin).toBe(true);
+    }
+    for (const origin of [
+      "https://malicious.example",
+      "https://k-si.com.malicious.example",
+      "http://8.8.8.8",
+      "not a URL",
+    ]) {
+      expect(isAllowedRequestOrigin(origin), origin).toBe(false);
+    }
   });
 });

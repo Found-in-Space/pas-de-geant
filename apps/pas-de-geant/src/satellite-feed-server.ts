@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { isAllowedRequestOrigin } from "./realtime-token-server.js";
 import {
   SATELLITE_FEED_PATH,
   SATELLITE_REFRESH_INTERVAL_MS,
@@ -115,28 +116,6 @@ export function createSatelliteGroupLoader(
   };
 }
 
-function requestHost(request: IncomingMessage): string | undefined {
-  const forwardedHost = request.headers["x-forwarded-host"];
-  return (
-    (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost)
-      ?.split(",")[0]
-      ?.trim() ?? request.headers.host
-  );
-}
-
-function requestOriginAllowed(
-  origin: string | undefined,
-  host: string | undefined,
-): boolean {
-  if (!origin) return true;
-  if (!host) return false;
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
-  }
-}
-
 export function createSatelliteFeedMiddleware(
   loadGroup: SatelliteGroupLoader = createSatelliteGroupLoader(),
 ) {
@@ -158,7 +137,7 @@ export function createSatelliteFeedMiddleware(
       response.end(JSON.stringify({ error: "Method not allowed." }));
       return;
     }
-    if (!requestOriginAllowed(request.headers.origin, requestHost(request))) {
+    if (!isAllowedRequestOrigin(request.headers.origin)) {
       response.statusCode = 403;
       response.end(JSON.stringify({ error: "Cross-origin requests are denied." }));
       return;

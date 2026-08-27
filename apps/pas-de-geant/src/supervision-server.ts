@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
+import { isAllowedRequestOrigin } from "./realtime-token-server.js";
 import {
   parseSupervisionMessage,
   SUPERVISION_PATH,
@@ -30,27 +31,6 @@ interface UpgradeServer {
     event: "upgrade",
     listener: (request: IncomingMessage, socket: Duplex, head: Buffer) => void,
   ): unknown;
-}
-
-function sameOrigin(request: IncomingMessage): boolean {
-  const origin = request.headers.origin;
-  const host = request.headers.host;
-  if (!origin || !host) return false;
-  try {
-    const originUrl = new URL(origin);
-    const forwardedProtocol = request.headers["x-forwarded-proto"]
-      ?.toString()
-      .split(",")[0]
-      ?.trim();
-    const requestProtocol = forwardedProtocol === "http" || forwardedProtocol === "https"
-      ? `${forwardedProtocol}:`
-      : (request.socket as { encrypted?: boolean }).encrypted
-        ? "https:"
-        : "http:";
-    return originUrl.host === host && originUrl.protocol === requestProtocol;
-  } catch {
-    return false;
-  }
 }
 
 function send(socket: WebSocket, message: SupervisionMessage): void {
@@ -108,7 +88,10 @@ export class SupervisionRelay {
     const protocols = (request.headers["sec-websocket-protocol"] ?? "")
       .split(",")
       .map((entry) => entry.trim());
-    if (!sameOrigin(request) || !protocols.includes(SUPERVISION_SUBPROTOCOL)) {
+    if (
+      !isAllowedRequestOrigin(request.headers.origin) ||
+      !protocols.includes(SUPERVISION_SUBPROTOCOL)
+    ) {
       socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;

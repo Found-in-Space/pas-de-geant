@@ -64,6 +64,13 @@ interrupt the headset experience, and production or preview builds contain no
 supervision client or dashboard. MQDH casting remains separate from this map
 and command channel.
 
+Development and preview hosts, local HTTP APIs, the tile proxy, and the
+supervision socket accept browser origins on `localhost`, private or link-local
+IP networks, and `k-si.com` subdomains. The origin policy does not compare the
+public browser host with the Vite process's internal host, so it also works
+behind a reverse proxy. Both servers listen on all local interfaces so a device
+on the private subnet can connect directly.
+
 WebXR requires a secure context. A USB-connected Quest can use an Android
 reverse tunnel:
 

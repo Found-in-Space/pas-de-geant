@@ -54,12 +54,12 @@ function recordedResponse(): RecordedResponse {
 function request(
   url: string,
   method = "GET",
-  origin = "http://local.test",
+  origin = "http://localhost",
 ): IncomingMessage {
   return {
     url,
     method,
-    headers: { host: "local.test", origin },
+    headers: { host: "localhost", origin },
   } as IncomingMessage;
 }
 

@@ -40,8 +40,8 @@ function request(
     url,
     method,
     headers: {
-      host: "local.test",
-      origin: "http://local.test",
+      host: "localhost",
+      origin: "http://localhost",
       ...headers,
     },
   } as IncomingMessage;
@@ -341,7 +341,7 @@ describe("development tile proxy", () => {
     const fetchImplementation = vi.fn<typeof fetch>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       expect(headers.get("origin")).toBe("https://configured.example.test");
-      expect(headers.get("referer")).toBe("http://local.test/globe");
+      expect(headers.get("referer")).toBe("http://localhost/globe");
       expect(headers.get("user-agent")).toBe("Example Headset/1.0");
       expect(headers.get("x-provider-token")).toBe("configured-token");
       expect(headers.has("cookie")).toBe(false);
@@ -371,7 +371,9 @@ describe("development tile proxy", () => {
 
     await middleware(
       request("/api/tiles/textures/3/4/2", "GET", {
-        referer: "http://local.test/globe",
+        host: "127.0.0.1:4197",
+        origin: "https://geant.demo.k-si.com",
+        referer: "http://localhost/globe",
         "user-agent": "Example Headset/1.0",
         cookie: "session=not-forwarded",
       }),

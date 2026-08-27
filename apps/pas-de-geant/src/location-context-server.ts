@@ -144,15 +144,6 @@ export async function requestReverseGeocode(
     : undefined;
 }
 
-function requestHost(request: IncomingMessage): string | undefined {
-  const forwardedHost = request.headers["x-forwarded-host"];
-  return (
-    (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost)
-      ?.split(",")[0]
-      ?.trim() ?? request.headers.host
-  );
-}
-
 export function createReverseGeocodeMiddleware(
   geocoderUrl = DEFAULT_GEOCODER_URL,
   fetchImplementation: typeof fetch = fetch,
@@ -200,7 +191,7 @@ export function createReverseGeocodeMiddleware(
       response.end(JSON.stringify({ error: "Method not allowed." }));
       return;
     }
-    if (!isAllowedRequestOrigin(request.headers.origin, requestHost(request))) {
+    if (!isAllowedRequestOrigin(request.headers.origin)) {
       response.statusCode = 403;
       response.end(JSON.stringify({ error: "Cross-origin requests are denied." }));
       return;

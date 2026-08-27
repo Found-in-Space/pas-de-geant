@@ -235,15 +235,6 @@ function nonNegativeInteger(
   return Number.isSafeInteger(value) && value! >= 0 ? value! : fallback;
 }
 
-function requestHost(request: IncomingMessage): string | undefined {
-  const forwardedHost = request.headers["x-forwarded-host"];
-  return (
-    (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost)
-      ?.split(",")[0]
-      ?.trim() ?? request.headers.host
-  );
-}
-
 function retryAfterMilliseconds(value: string | undefined, now: number): number {
   if (!value) return 0;
   const seconds = Number(value);
@@ -748,7 +739,7 @@ export function createTileProxyMiddleware(options: TileProxyOptions) {
       response.end("Method not allowed.");
       return;
     }
-    if (!isAllowedRequestOrigin(request.headers.origin, requestHost(request))) {
+    if (!isAllowedRequestOrigin(request.headers.origin)) {
       response.statusCode = 403;
       response.end("Cross-origin requests are denied.");
       return;

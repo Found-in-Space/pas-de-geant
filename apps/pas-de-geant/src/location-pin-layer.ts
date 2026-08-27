@@ -109,8 +109,8 @@ function canvasTexture(
   if (!context) throw new Error("Location pin labels require a 2D canvas.");
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = false;
-  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
   return { canvas, context, texture };
 }
@@ -276,6 +276,8 @@ const cameraWorldPosition = new THREE.Vector3();
 const cameraLocalPosition = new THREE.Vector3();
 const targetWorldPosition = new THREE.Vector3();
 const targetNdc = new THREE.Vector3();
+const pinWorldUp = new THREE.Vector3();
+const pinUpNdc = new THREE.Vector3();
 const cameraDirection = new THREE.Vector3();
 const cameraQuaternion = new THREE.Quaternion();
 const inverseCameraQuaternion = new THREE.Quaternion();
@@ -370,8 +372,24 @@ export class LocationPinLayer {
         localHeight,
         1,
       );
+      pinWorldUp.copy(pinNormal).transformDirection(options.earthRoot.matrixWorld);
+      targetNdc.copy(targetWorldPosition).project(options.camera);
+      pinUpNdc.copy(targetWorldPosition)
+        .addScaledVector(pinWorldUp, worldHeightM)
+        .project(options.camera)
+        .sub(targetNdc);
+      if (pinUpNdc.lengthSq() > 1e-12) {
+        // Sprites face the camera, so counter-rotate the canvas until its
+        // vertical axis follows the Earth's projected local-up direction.
+        // Undo the projection's X/Y scaling because SpriteMaterial rotates in
+        // view space, before the projection matrix is applied.
+        const projection = options.camera.projectionMatrix.elements;
+        renderable.material.rotation = -Math.atan2(
+          pinUpNdc.x / projection[0],
+          pinUpNdc.y / projection[5],
+        );
+      }
       if (guided) {
-        targetNdc.copy(targetWorldPosition).project(options.camera);
         const aboveHorizon = locationPinIsAboveHorizon(
           cameraLocalPosition,
           renderable.sprite.position,

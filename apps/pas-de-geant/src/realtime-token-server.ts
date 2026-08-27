@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { BlockList, isIP } from "node:net";
 
 type FetchImplementation = typeof fetch;
 
@@ -12,14 +13,41 @@ export function realtimeExperienceFromUrl(url: URL): RealtimeExperience | null {
   return null;
 }
 
-export function isAllowedRequestOrigin(
-  origin: string | undefined,
-  requestHost: string | undefined,
-): boolean {
+const PRIVATE_NETWORKS = new BlockList();
+PRIVATE_NETWORKS.addSubnet("10.0.0.0", 8, "ipv4");
+PRIVATE_NETWORKS.addSubnet("100.64.0.0", 10, "ipv4");
+PRIVATE_NETWORKS.addSubnet("127.0.0.0", 8, "ipv4");
+PRIVATE_NETWORKS.addSubnet("169.254.0.0", 16, "ipv4");
+PRIVATE_NETWORKS.addSubnet("172.16.0.0", 12, "ipv4");
+PRIVATE_NETWORKS.addSubnet("192.168.0.0", 16, "ipv4");
+PRIVATE_NETWORKS.addAddress("::1", "ipv6");
+PRIVATE_NETWORKS.addSubnet("fc00::", 7, "ipv6");
+PRIVATE_NETWORKS.addSubnet("fe80::", 10, "ipv6");
+
+export function isAllowedConnectionHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/\.$/, "");
+  if (normalized === "localhost" || normalized.endsWith(".localhost")) {
+    return true;
+  }
+  if (normalized === "k-si.com" || normalized.endsWith(".k-si.com")) {
+    return true;
+  }
+  const address = normalized.startsWith("[") && normalized.endsWith("]")
+    ? normalized.slice(1, -1)
+    : normalized;
+  const version = isIP(address);
+  return version !== 0 && PRIVATE_NETWORKS.check(
+    address,
+    version === 4 ? "ipv4" : "ipv6",
+  );
+}
+
+export function isAllowedRequestOrigin(origin: string | undefined): boolean {
   if (!origin) return true;
-  if (!requestHost) return false;
   try {
-    return new URL(origin).host === requestHost;
+    const url = new URL(origin);
+    return (url.protocol === "http:" || url.protocol === "https:") &&
+      isAllowedConnectionHostname(url.hostname);
   } catch {
     return false;
   }
@@ -666,13 +694,7 @@ export function createRealtimeTokenMiddleware(apiKey: string | undefined) {
       response.end(JSON.stringify({ error: "Unknown Realtime experience." }));
       return;
     }
-    const origin = request.headers.origin;
-    const forwardedHost = request.headers["x-forwarded-host"];
-    const requestHost =
-      (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost)
-        ?.split(",")[0]
-        ?.trim() ?? request.headers.host;
-    if (!isAllowedRequestOrigin(origin, requestHost)) {
+    if (!isAllowedRequestOrigin(request.headers.origin)) {
       response.statusCode = 403;
       response.end(
         JSON.stringify({ error: "Cross-origin requests are denied." }),
