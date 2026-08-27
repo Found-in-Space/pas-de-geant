@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { createReverseGeocodeMiddleware } from "./src/location-context-server.js";
+import { createLocationGeocodeMiddleware } from "./src/location-context-server.js";
 import { createRealtimeTokenMiddleware } from "./src/realtime-token-server.js";
 import { createExternalKnowledgeMiddleware } from "./src/external-knowledge-server.js";
 import { createSatelliteFeedMiddleware } from "./src/satellite-feed-server.js";
@@ -196,9 +196,11 @@ export default defineConfig(({ mode }) => {
   const apiKey = process.env.OPENAI_API_KEY || serverEnvironment.OPENAI_API_KEY;
   const realtimeTokenMiddleware = createRealtimeTokenMiddleware(apiKey);
   const externalKnowledgeMiddleware = createExternalKnowledgeMiddleware(apiKey);
-  const reverseGeocodeMiddleware = createReverseGeocodeMiddleware(
+  const locationGeocodeMiddleware = createLocationGeocodeMiddleware(
     process.env.PAS_DE_GEANT_GEOCODER_URL ||
       serverEnvironment.PAS_DE_GEANT_GEOCODER_URL,
+    process.env.PAS_DE_GEANT_FORWARD_GEOCODER_URL ||
+      serverEnvironment.PAS_DE_GEANT_FORWARD_GEOCODER_URL,
   );
   const satelliteFeedMiddleware = createSatelliteFeedMiddleware();
   const textureUrlTemplate =
@@ -317,14 +319,14 @@ export default defineConfig(({ mode }) => {
             httpServer.once("close", detachSupervisionRelay);
           }
           server.middlewares.use(realtimeTokenMiddleware);
-          server.middlewares.use(reverseGeocodeMiddleware);
+          server.middlewares.use(locationGeocodeMiddleware);
           server.middlewares.use(externalKnowledgeMiddleware);
           server.middlewares.use(satelliteFeedMiddleware);
           server.middlewares.use(tileProxyMiddleware);
         },
         configurePreviewServer(server) {
           server.middlewares.use(realtimeTokenMiddleware);
-          server.middlewares.use(reverseGeocodeMiddleware);
+          server.middlewares.use(locationGeocodeMiddleware);
           server.middlewares.use(externalKnowledgeMiddleware);
           server.middlewares.use(satelliteFeedMiddleware);
         },

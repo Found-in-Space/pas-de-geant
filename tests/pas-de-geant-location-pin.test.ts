@@ -62,6 +62,20 @@ describe("Pas de Géant location pins", () => {
     store.setGuidance("florence", true);
     store.setGuidance("pisa", true);
     expect(store.snapshot().guidedPinIds).toEqual(["florence", "pisa"]);
+    store.setVisibility("florence", false);
+    expect(store.snapshot()).toEqual({ pins: [pisa], guidedPinIds: ["pisa"] });
+    expect(store.catalogSnapshot()).toEqual({
+      pins: [florence, pisa],
+      visiblePinIds: ["pisa"],
+      guidedPinIds: ["pisa"],
+    });
+    store.rename("florence", "Stop 1");
+    expect(store.catalogSnapshot()).toMatchObject({
+      pins: [{ ...florence, label: "Stop 1" }, pisa],
+      visiblePinIds: ["pisa"],
+      guidedPinIds: ["pisa"],
+    });
+    store.setVisibility("florence", true);
     store.setGuidance("florence", false);
     expect(store.snapshot().guidedPinIds).toEqual(["pisa"]);
     store.remove("florence");

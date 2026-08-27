@@ -209,10 +209,14 @@ The Realtime voice guide also exposes `get_navigation_state` and
 the visible controls. Bodies without a detailed surface automatically enter
 orbit instead of pretending to provide ground terrain.
 
-In an immersive Earth surface session, the guide can also list, add, remove,
-and independently enable or disable guidance for labeled location pins. For
-example, while standing over Pisa it can place a Florence pin and report the
-exact current great-circle distance.
+In an immersive Earth surface session, the guide can also look up named places,
+then list, add, rename, show, hide, remove, and independently enable or disable
+guidance for labeled location pins. Voice-created pins and their visibility are
+held only in the current XR session: hiding retains a pin so the guide can show
+it again, while removing it forgets it. Requests such as “drop a pin over
+Florence”, “turn the Florence pin off”, and “rename the Florence pin to Stop 1”
+are resolved into the required lookup and pin-tool calls without exposing pin
+IDs to the user.
 
 ## Lunar surface data
 
@@ -406,9 +410,9 @@ Realtime client secret from `POST /api/realtime/token`.
 cp apps/pas-de-geant/.env.example apps/pas-de-geant/.env.local
 ```
 
-The local server also performs cached OpenStreetMap Nominatim reverse lookups
-for the guide. The upstream endpoint can be replaced with
-`PAS_DE_GEANT_GEOCODER_URL`.
+The local server also performs cached OpenStreetMap Nominatim forward and
+reverse lookups for the guide. Their upstream endpoints can be replaced with
+`PAS_DE_GEANT_FORWARD_GEOCODER_URL` and `PAS_DE_GEANT_GEOCODER_URL`.
 
 Location questions give the guide the unrounded live WGS 84 latitude and
 longitude underfoot, plus an address-level reverse lookup with mapped feature,

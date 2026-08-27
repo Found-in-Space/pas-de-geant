@@ -100,6 +100,8 @@ import { LocationPinLayer } from "./location-pin-layer.js";
 import {
   AGENT_LOCATION_DETAIL,
   fetchNamedLocationContext,
+  lookupLocations,
+  parseLocationLookupArguments,
 } from "./location-context.js";
 import {
   parseLocationToolArguments,
@@ -110,9 +112,11 @@ import {
   applySupervisorLocationPinMutation,
   applySupervisorNavigationMutation,
   applyVoiceDisplayRadiusMutation,
+  applyVoiceRenamePinMutation,
   applyVoiceRemovePinMutation,
   applyVoiceSetPinGuidanceMutation,
   applyVoiceSetPinMutation,
+  applyVoiceSetPinVisibilityMutation,
   applyVoiceWarpMutation,
   type CanonicalLocationPinMutations,
   type CanonicalNavigationMutations,
@@ -1209,9 +1213,24 @@ function setLocationPinGuidance(
   return locationPinStore.setGuidance(pinId, enabled);
 }
 
+function setLocationPinVisibility(
+  pinId: string,
+  visible: boolean,
+): LocationPinState {
+  requireEarthSurfacePinSession();
+  return locationPinStore.setVisibility(pinId, visible);
+}
+
+function renameLocationPin(pinId: string, label: string): LocationPinState {
+  requireEarthSurfacePinSession();
+  return locationPinStore.rename(pinId, label);
+}
+
 const canonicalLocationPinMutations: CanonicalLocationPinMutations = {
   setPin: setLocationPin,
   removePin: removeLocationPin,
+  setPinVisibility: setLocationPinVisibility,
+  renamePin: renameLocationPin,
   setPinGuidance: setLocationPinGuidance,
   readPinState: () => locationPinStore.snapshot(),
 };
@@ -1241,7 +1260,7 @@ function applySupervisionCommand(command: SupervisionCommand): void {
 
 function locationPinVoiceState(): Record<string, unknown> {
   const coordinates = coordinatesForFrame(state.contact);
-  const pinState = locationPinStore.snapshot();
+  const pinState = locationPinStore.catalogSnapshot();
   return {
     guided_pin_ids: pinState.guidedPinIds,
     pins: pinState.pins.map((pin) => ({
@@ -1255,6 +1274,7 @@ function locationPinVoiceState(): Record<string, unknown> {
         pin.latitudeDegrees,
         pin.longitudeDegrees,
       ),
+      visible: pinState.visiblePinIds.includes(pin.pinId),
       guided: pinState.guidedPinIds.includes(pin.pinId),
     })),
   };
@@ -1288,6 +1308,28 @@ function pinGuidanceFromVoiceArguments(
     throw new Error("Pin guidance enabled must be boolean.");
   }
   return { pinId, enabled };
+}
+
+function pinVisibilityFromVoiceArguments(
+  argumentsValue: unknown,
+): { pinId: string; visible: boolean } {
+  const pinId = pinIdFromVoiceArguments(argumentsValue);
+  const visible = (argumentsValue as Record<string, unknown>).visible;
+  if (typeof visible !== "boolean") {
+    throw new Error("Pin visibility must be boolean.");
+  }
+  return { pinId, visible };
+}
+
+function pinRenameFromVoiceArguments(
+  argumentsValue: unknown,
+): { pinId: string; label: string } {
+  const pinId = pinIdFromVoiceArguments(argumentsValue);
+  const label = (argumentsValue as Record<string, unknown>).new_label;
+  if (typeof label !== "string" || !label.trim()) {
+    throw new Error("New pin label must be a non-empty string.");
+  }
+  return { pinId, label: label.trim() };
 }
 
 function setViewDirection(argumentsValue: unknown): Record<string, unknown> {
@@ -1912,6 +1954,10 @@ const voiceAgent = new RealtimeVoiceAgent({
         transition_time_seconds: location.time ?? 0,
       };
     },
+    async lookup_location(argumentsValue) {
+      const { query } = parseLocationLookupArguments(argumentsValue);
+      return await lookupLocations(query);
+    },
     get_location_pins() {
       return locationPinVoiceState();
     },
@@ -1935,6 +1981,20 @@ const voiceAgent = new RealtimeVoiceAgent({
         canonicalLocationPinMutations,
       );
       return { ok: true, ...locationPinVoiceState() };
+    },
+    set_location_pin_visibility(argumentsValue) {
+      const { pinId, visible } = pinVisibilityFromVoiceArguments(argumentsValue);
+      applyVoiceSetPinVisibilityMutation(
+        pinId,
+        visible,
+        canonicalLocationPinMutations,
+      );
+      return { ok: true, ...locationPinVoiceState() };
+    },
+    rename_location_pin(argumentsValue) {
+      const { pinId, label } = pinRenameFromVoiceArguments(argumentsValue);
+      applyVoiceRenamePinMutation(pinId, label, canonicalLocationPinMutations);
+      return { ok: true, pin_id: pinId, ...locationPinVoiceState() };
     },
     set_location_pin_guidance(argumentsValue) {
       const { pinId, enabled } = pinGuidanceFromVoiceArguments(argumentsValue);
