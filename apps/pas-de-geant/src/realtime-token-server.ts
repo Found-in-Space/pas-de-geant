@@ -94,9 +94,20 @@ export function realtimeSessionConfiguration(
         "optional time in seconds for an eased transition; use it when the user " +
         "asks for a smooth or gradual move, and omit it for an instant change. " +
         "Be clear when coordinates are approximate. " +
-        "Use get_location_pins before reporting or changing existing map pins. " +
-        "Use add_location_pin to place a labeled Earth pin, remove_location_pin " +
-        "to delete one, and set_location_pin_guidance to enable or disable " +
+        "When the user asks to drop or place a pin at a named place without " +
+        "supplying coordinates, call lookup_location first, then pass the chosen " +
+        "result’s coordinates to add_location_pin. Use the first ranked result " +
+        "when it is a clear match; if multiple results are plausibly what the user " +
+        "meant, ask one short clarification question. Use get_location_pins before " +
+        "reporting or changing existing map pins. Users refer to pins by their " +
+        "spoken labels, not pin IDs: match labels case-insensitively and use the " +
+        "returned pin_id without asking the user for it. If multiple pins have the " +
+        "same matching label, ask which one they mean. Use add_location_pin to " +
+        "place and show a labeled Earth pin. Use rename_location_pin to change only " +
+        "a pin’s label. Use " +
+        "set_location_pin_visibility to show, hide, turn on, or turn off a pin " +
+        "without forgetting it. Use remove_location_pin only when the user asks " +
+        "to remove, delete, or forget a pin, and set_location_pin_guidance to enable or disable " +
         "off-screen guidance independently for one or more pins. Pins require " +
         "an immersive Earth surface session. " +
         "Use set_satellite_group_visibility when the user asks to show, hide, " +
@@ -215,16 +226,35 @@ export function realtimeSessionConfiguration(
         },
         {
           type: "function",
+          name: "lookup_location",
+          description:
+            "Resolve a spoken place name or address into ranked latitude/longitude candidates before moving there or dropping a pin.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                minLength: 1,
+                description:
+                  "The place name or address as spoken, including country or region when supplied.",
+              },
+            },
+            required: ["query"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
           name: "get_location_pins",
           description:
-            "List the current XR session’s labeled Earth pins, exact coordinates, distances, and active guidance pin.",
+            "List the current XR session’s labeled Earth pins, exact coordinates, distances, visibility, and guidance state.",
           parameters: { type: "object", properties: {}, additionalProperties: false },
         },
         {
           type: "function",
           name: "add_location_pin",
           description:
-            "Add a labeled Earth pin at exact coordinates and make it the active guidance pin.",
+            "Add and show a labeled Earth pin at exact coordinates for the current XR session.",
           parameters: {
             type: "object",
             properties: {
@@ -253,6 +283,36 @@ export function realtimeSessionConfiguration(
             type: "object",
             properties: { pin_id: { type: "string", minLength: 1 } },
             required: ["pin_id"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_location_pin_visibility",
+          description:
+            "Show or hide one current-session location pin without forgetting it. Hidden pins can be shown again later in the same XR session.",
+          parameters: {
+            type: "object",
+            properties: {
+              pin_id: { type: "string", minLength: 1 },
+              visible: { type: "boolean" },
+            },
+            required: ["pin_id", "visible"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "rename_location_pin",
+          description:
+            "Rename one current-session location pin without changing its coordinates, visibility, or guidance state.",
+          parameters: {
+            type: "object",
+            properties: {
+              pin_id: { type: "string", minLength: 1 },
+              new_label: { type: "string", minLength: 1 },
+            },
+            required: ["pin_id", "new_label"],
             additionalProperties: false,
           },
         },

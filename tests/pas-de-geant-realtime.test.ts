@@ -6,9 +6,12 @@ import {
   type RealtimeAgentStatus,
 } from "../apps/pas-de-geant/src/realtime-agent.js";
 import {
+  parseForwardGeocodeRequest,
   parseReverseGeocodeRequest,
+  requestForwardGeocode,
   requestReverseGeocode,
 } from "../apps/pas-de-geant/src/location-context-server.js";
+import { parseLocationLookupArguments } from "../apps/pas-de-geant/src/location-context.js";
 import {
   isAllowedRequestOrigin,
   realtimeSessionConfiguration,
@@ -125,6 +128,54 @@ describe("Pas de Géant Realtime voice agent", () => {
       region: "North Holland",
       locality: "Amsterdam",
       water: undefined,
+    });
+  });
+
+  it("resolves spoken place names into ranked pin coordinates", async () => {
+    expect(parseLocationLookupArguments({ query: "  Florence  " })).toEqual({
+      query: "Florence",
+    });
+    expect(parseForwardGeocodeRequest(
+      new URL("http://local/api/location/search?q=Florence"),
+    )).toEqual({ query: "Florence" });
+
+    let capturedUrl = "";
+    const result = await requestForwardGeocode(
+      { query: "Florence" },
+      async (input) => {
+        capturedUrl = String(input);
+        return new Response(JSON.stringify([
+          {
+            display_name: "Florence, Tuscany, Italy",
+            lat: "43.7698712",
+            lon: "11.2555757",
+            category: "boundary",
+            addresstype: "city",
+            importance: 0.8,
+          },
+          {
+            display_name: "Invalid coordinate",
+            lat: "not-a-number",
+            lon: "11",
+          },
+        ]));
+      },
+    );
+
+    const lookupUrl = new URL(capturedUrl);
+    expect(lookupUrl.pathname).toBe("/search");
+    expect(lookupUrl.searchParams.get("q")).toBe("Florence");
+    expect(lookupUrl.searchParams.get("limit")).toBe("5");
+    expect(result).toEqual({
+      query: "Florence",
+      results: [{
+        display_name: "Florence, Tuscany, Italy",
+        latitude_degrees: 43.7698712,
+        longitude_degrees: 11.2555757,
+        category: "boundary",
+        feature_type: "city",
+        importance: 0.8,
+      }],
     });
   });
 
@@ -330,9 +381,12 @@ describe("Pas de Géant Realtime voice agent", () => {
       "set_navigation",
       "get_user_location",
       "set_user_location",
+      "lookup_location",
       "get_location_pins",
       "add_location_pin",
       "remove_location_pin",
+      "set_location_pin_visibility",
+      "rename_location_pin",
       "set_location_pin_guidance",
       "get_view_direction",
       "set_view_direction",
@@ -349,6 +403,15 @@ describe("Pas de Géant Realtime voice agent", () => {
       "set_tile_max_zoom",
       "set_tile_recalculation",
     ]);
+    expect(configuration.session.tools.find(
+      ({ name }) => name === "lookup_location",
+    )?.parameters.required).toEqual(["query"]);
+    expect(configuration.session.tools.find(
+      ({ name }) => name === "set_location_pin_visibility",
+    )?.parameters.required).toEqual(["pin_id", "visible"]);
+    expect(configuration.session.tools.find(
+      ({ name }) => name === "rename_location_pin",
+    )?.parameters.required).toEqual(["pin_id", "new_label"]);
     expect(configuration.session.tools.find(
       ({ name }) => name === "set_location_pin_guidance",
     )?.parameters.required).toEqual(["pin_id", "enabled"]);
@@ -368,7 +431,19 @@ describe("Pas de Géant Realtime voice agent", () => {
       "positive degrees turn clockwise/right",
     );
     expect(configuration.session.instructions).toContain(
+      "call lookup_location first",
+    );
+    expect(configuration.session.instructions).toContain(
+      "spoken labels, not pin IDs",
+    );
+    expect(configuration.session.instructions).toContain(
+      "Use rename_location_pin to change only a pin’s label",
+    );
+    expect(configuration.session.instructions).toContain(
       "Use get_location_pins before reporting or changing existing map pins",
+    );
+    expect(configuration.session.instructions).toContain(
+      "set_location_pin_visibility to show, hide, turn on, or turn off a pin",
     );
     expect(configuration.session.instructions).toContain(
       "set_aircraft_display to turn either one on or off",

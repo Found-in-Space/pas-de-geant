@@ -13,8 +13,10 @@ import {
   applySupervisorNavigationMutation,
   applyVoiceDisplayRadiusMutation,
   applyVoiceRemovePinMutation,
+  applyVoiceRenamePinMutation,
   applyVoiceSetPinGuidanceMutation,
   applyVoiceSetPinMutation,
+  applyVoiceSetPinVisibilityMutation,
   applyVoiceWarpMutation,
   type CanonicalLocationPinMutations,
   type CanonicalNavigationMutations,
@@ -294,6 +296,8 @@ describe("voice and supervisor navigation parity", () => {
     const mutations: CanonicalLocationPinMutations = {
       setPin: (pin) => store.set(pin),
       removePin: (pinId) => store.remove(pinId),
+      setPinVisibility: (pinId, visible) => store.setVisibility(pinId, visible),
+      renamePin: (pinId, label) => store.rename(pinId, label),
       setPinGuidance: (pinId, enabled) => store.setGuidance(pinId, enabled),
       readPinState: () => store.snapshot(),
     };
@@ -319,6 +323,18 @@ describe("voice and supervisor navigation parity", () => {
     ).guidedPinIds).toEqual(["pisa"]);
     expect(applyVoiceSetPinGuidanceMutation("florence", true, mutations).guidedPinIds)
       .toEqual(["pisa", "florence"]);
+    expect(applyVoiceSetPinVisibilityMutation(
+      "florence",
+      false,
+      mutations,
+    )).toEqual({ pins: [pisa], guidedPinIds: ["pisa"] });
+    expect(store.catalogSnapshot().visiblePinIds).toEqual(["pisa"]);
+    applyVoiceRenamePinMutation("florence", "Stop 1", mutations);
+    expect(store.catalogSnapshot().pins[0]).toEqual({
+      ...florence,
+      label: "Stop 1",
+    });
+    applyVoiceSetPinVisibilityMutation("florence", true, mutations);
     expect(applyVoiceRemovePinMutation("florence", mutations)).toEqual({
       pins: [pisa],
       guidedPinIds: ["pisa"],

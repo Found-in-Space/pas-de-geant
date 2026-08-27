@@ -12,6 +12,12 @@ export interface LocationPinState {
   readonly guidedPinIds: readonly string[];
 }
 
+export interface LocationPinCatalogState {
+  readonly pins: readonly LocationPin[];
+  readonly visiblePinIds: readonly string[];
+  readonly guidedPinIds: readonly string[];
+}
+
 function requiredText(value: unknown, description: string): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`${description} must be a non-empty string.`);
@@ -59,11 +65,13 @@ export function parseLocationPin(value: unknown): LocationPin {
 
 export class LocationPinStore {
   private readonly pins = new Map<string, LocationPin>();
+  private readonly visibleIds = new Set<string>();
   private readonly guidedIds = new Set<string>();
 
   set(pinValue: LocationPin): LocationPinState {
     const pin = parseLocationPin(pinValue);
     this.pins.set(pin.pinId, pin);
+    this.visibleIds.add(pin.pinId);
     return this.snapshot();
   }
 
@@ -72,7 +80,32 @@ export class LocationPinStore {
     if (!this.pins.delete(pinId)) {
       throw new Error("Location pin does not exist.");
     }
+    this.visibleIds.delete(pinId);
     this.guidedIds.delete(pinId);
+    return this.snapshot();
+  }
+
+  setVisibility(pinIdValue: string, visible: boolean): LocationPinState {
+    const pinId = requiredText(pinIdValue, "Pin ID");
+    if (!this.pins.has(pinId)) {
+      throw new Error("Location pin does not exist.");
+    }
+    if (visible) this.visibleIds.add(pinId);
+    else {
+      this.visibleIds.delete(pinId);
+      this.guidedIds.delete(pinId);
+    }
+    return this.snapshot();
+  }
+
+  rename(pinIdValue: string, labelValue: string): LocationPinState {
+    const pinId = requiredText(pinIdValue, "Pin ID");
+    const pin = this.pins.get(pinId);
+    if (!pin) throw new Error("Location pin does not exist.");
+    this.pins.set(pinId, {
+      ...pin,
+      label: requiredText(labelValue, "Pin label"),
+    });
     return this.snapshot();
   }
 
@@ -81,6 +114,9 @@ export class LocationPinStore {
     if (!this.pins.has(pinId)) {
       throw new Error("Location pin does not exist.");
     }
+    if (enabled && !this.visibleIds.has(pinId)) {
+      throw new Error("Location pin must be visible before guidance can be enabled.");
+    }
     if (enabled) this.guidedIds.add(pinId);
     else this.guidedIds.delete(pinId);
     return this.snapshot();
@@ -88,13 +124,24 @@ export class LocationPinStore {
 
   clear(): LocationPinState {
     this.pins.clear();
+    this.visibleIds.clear();
     this.guidedIds.clear();
     return this.snapshot();
   }
 
   snapshot(): LocationPinState {
     return {
+      pins: [...this.pins.values()].filter(({ pinId }) =>
+        this.visibleIds.has(pinId)
+      ),
+      guidedPinIds: [...this.guidedIds],
+    };
+  }
+
+  catalogSnapshot(): LocationPinCatalogState {
+    return {
       pins: [...this.pins.values()],
+      visiblePinIds: [...this.visibleIds],
       guidedPinIds: [...this.guidedIds],
     };
   }

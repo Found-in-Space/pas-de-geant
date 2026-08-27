@@ -33,6 +33,8 @@ type PinSupervisionCommand = Extract<
 export interface CanonicalLocationPinMutations {
   readonly setPin: (pin: LocationPin) => unknown;
   readonly removePin: (pinId: string) => unknown;
+  readonly setPinVisibility: (pinId: string, visible: boolean) => unknown;
+  readonly renamePin: (pinId: string, label: string) => unknown;
   readonly setPinGuidance: (pinId: string, enabled: boolean) => unknown;
   readonly readPinState: () => LocationPinState;
 }
@@ -102,6 +104,24 @@ export function applyVoiceRemovePinMutation(
   mutations: CanonicalLocationPinMutations,
 ): LocationPinState {
   mutations.removePin(pinId);
+  return mutations.readPinState();
+}
+
+export function applyVoiceSetPinVisibilityMutation(
+  pinId: string,
+  visible: boolean,
+  mutations: CanonicalLocationPinMutations,
+): LocationPinState {
+  mutations.setPinVisibility(pinId, visible);
+  return mutations.readPinState();
+}
+
+export function applyVoiceRenamePinMutation(
+  pinId: string,
+  label: string,
+  mutations: CanonicalLocationPinMutations,
+): LocationPinState {
+  mutations.renamePin(pinId, label);
   return mutations.readPinState();
 }
 

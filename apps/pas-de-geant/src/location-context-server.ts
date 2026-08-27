@@ -1,13 +1,18 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAllowedRequestOrigin } from "./realtime-token-server.js";
 import type {
+  LocationLookupResponse,
+  LocationLookupResult,
   LocationContextDetail,
   NamedLocationContext,
 } from "./location-context.js";
 
 export const REVERSE_LOCATION_PATH = "/api/location/reverse";
+export const FORWARD_LOCATION_PATH = "/api/location/search";
 export const DEFAULT_GEOCODER_URL =
   "https://nominatim.openstreetmap.org/reverse";
+export const DEFAULT_FORWARD_GEOCODER_URL =
+  "https://nominatim.openstreetmap.org/search";
 const GEOCODER_USER_AGENT =
   "Pas-de-Geant/0.1 (+https://github.com/Found-in-Space/pas-de-geant)";
 const MINIMUM_REQUEST_INTERVAL_MS = 1_000;
@@ -41,12 +46,19 @@ interface NominatimAddress {
 }
 
 interface NominatimResponse {
+  lat?: string;
+  lon?: string;
+  importance?: number;
   name?: string;
   display_name?: string;
   category?: string;
   type?: string;
   addresstype?: string;
   address?: NominatimAddress;
+}
+
+export interface ForwardGeocodeRequest {
+  readonly query: string;
 }
 
 export interface ReverseGeocodeRequest {
@@ -85,6 +97,72 @@ export function parseReverseGeocodeRequest(
     return undefined;
   }
   return { latitudeDegrees, longitudeDegrees, detail };
+}
+
+export function parseForwardGeocodeRequest(
+  url: URL,
+): ForwardGeocodeRequest | undefined {
+  const query = url.searchParams.get("q")?.trim();
+  return query ? { query } : undefined;
+}
+
+function responseCoordinate(
+  value: string | undefined,
+  minimum: number,
+  maximum: number,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum
+    ? parsed
+    : undefined;
+}
+
+export async function requestForwardGeocode(
+  request: ForwardGeocodeRequest,
+  fetchImplementation: typeof fetch = fetch,
+  geocoderUrl = DEFAULT_FORWARD_GEOCODER_URL,
+): Promise<LocationLookupResponse> {
+  const url = new URL(geocoderUrl);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("accept-language", "en");
+  url.searchParams.set("limit", "5");
+  url.searchParams.set("q", request.query);
+  const response = await fetchImplementation(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": GEOCODER_USER_AGENT,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Location lookup failed (${response.status}).`);
+  }
+  const payload = await response.json() as unknown;
+  const results: LocationLookupResult[] = [];
+  if (Array.isArray(payload)) {
+    for (const value of payload) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const candidate = value as NominatimResponse;
+      const displayName = candidate.display_name?.trim();
+      const latitudeDegrees = responseCoordinate(candidate.lat, -90, 90);
+      const longitudeDegrees = responseCoordinate(candidate.lon, -180, 180);
+      if (!displayName || latitudeDegrees === undefined ||
+          longitudeDegrees === undefined) continue;
+      results.push({
+        display_name: displayName,
+        latitude_degrees: latitudeDegrees,
+        longitude_degrees: longitudeDegrees,
+        category: candidate.category,
+        feature_type: candidate.addresstype ?? candidate.type,
+        importance: typeof candidate.importance === "number" &&
+            Number.isFinite(candidate.importance)
+          ? candidate.importance
+          : undefined,
+      });
+    }
+  }
+  return { query: request.query, results };
 }
 
 export async function requestReverseGeocode(
@@ -144,17 +222,17 @@ export async function requestReverseGeocode(
     : undefined;
 }
 
-export function createReverseGeocodeMiddleware(
-  geocoderUrl = DEFAULT_GEOCODER_URL,
+export function createLocationGeocodeMiddleware(
+  reverseGeocoderUrl = DEFAULT_GEOCODER_URL,
+  forwardGeocoderUrl = DEFAULT_FORWARD_GEOCODER_URL,
   fetchImplementation: typeof fetch = fetch,
 ) {
   const cache = new Map<string, NamedLocationContext | null>();
+  const forwardCache = new Map<string, LocationLookupResponse>();
   let requestQueue = Promise.resolve();
   let lastRequestAt = 0;
 
-  const scheduleLookup = (
-    request: ReverseGeocodeRequest,
-  ): Promise<NamedLocationContext | undefined> => {
+  const scheduleLookup = <T>(lookup: () => Promise<T>): Promise<T> => {
     const run = requestQueue.then(async () => {
       const waitMs = Math.max(
         0,
@@ -164,7 +242,7 @@ export function createReverseGeocodeMiddleware(
         await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
       lastRequestAt = Date.now();
-      return requestReverseGeocode(request, fetchImplementation, geocoderUrl);
+      return await lookup();
     });
     requestQueue = run.then(
       () => undefined,
@@ -179,7 +257,9 @@ export function createReverseGeocodeMiddleware(
     next: () => void,
   ): Promise<void> => {
     const url = new URL(request.url ?? "/", "http://local");
-    if (url.pathname !== REVERSE_LOCATION_PATH) {
+    const reverse = url.pathname === REVERSE_LOCATION_PATH;
+    const forward = url.pathname === FORWARD_LOCATION_PATH;
+    if (!reverse && !forward) {
       next();
       return;
     }
@@ -196,28 +276,50 @@ export function createReverseGeocodeMiddleware(
       response.end(JSON.stringify({ error: "Cross-origin requests are denied." }));
       return;
     }
-    const parsed = parseReverseGeocodeRequest(url);
+    const parsed = reverse
+      ? parseReverseGeocodeRequest(url)
+      : parseForwardGeocodeRequest(url);
     if (!parsed) {
       response.statusCode = 400;
       response.end(JSON.stringify({ error: "Invalid location query." }));
       return;
     }
-    const cacheKey = JSON.stringify(parsed);
     try {
-      let result = cache.get(cacheKey);
-      if (result === undefined) {
-        result = (await scheduleLookup(parsed)) ?? null;
-        cache.set(cacheKey, result);
+      if (reverse) {
+        const reverseRequest = parsed as ReverseGeocodeRequest;
+        const cacheKey = JSON.stringify(reverseRequest);
+        let result = cache.get(cacheKey);
+        if (result === undefined) {
+          result = (await scheduleLookup(() => requestReverseGeocode(
+            reverseRequest,
+            fetchImplementation,
+            reverseGeocoderUrl,
+          ))) ?? null;
+          cache.set(cacheKey, result);
+        }
+        if (!result) {
+          response.statusCode = 404;
+          response.end(JSON.stringify({ error: "No named location found." }));
+          return;
+        }
+        response.statusCode = 200;
+        response.end(JSON.stringify(result));
+      } else {
+        const forwardRequest = parsed as ForwardGeocodeRequest;
+        let result = forwardCache.get(forwardRequest.query);
+        if (!result) {
+          result = await scheduleLookup(() => requestForwardGeocode(
+            forwardRequest,
+            fetchImplementation,
+            forwardGeocoderUrl,
+          ));
+          forwardCache.set(forwardRequest.query, result);
+        }
+        response.statusCode = 200;
+        response.end(JSON.stringify(result));
       }
-      if (!result) {
-        response.statusCode = 404;
-        response.end(JSON.stringify({ error: "No named location found." }));
-        return;
-      }
-      response.statusCode = 200;
-      response.end(JSON.stringify(result));
     } catch (error) {
-      console.error("Reverse-geocoding request failed:", error);
+      console.error("Location-geocoding request failed:", error);
       response.statusCode = 502;
       response.end(JSON.stringify({ error: "Location lookup failed." }));
     }
