@@ -9,8 +9,8 @@ import {
 import { validScaleDenominator } from "./world-scale.js";
 
 export const SUPERVISION_PATH = "/api/supervision";
-export const SUPERVISION_SUBPROTOCOL = "pas-de-geant.supervision.v2";
-export const SUPERVISION_PROTOCOL_VERSION = 2;
+export const SUPERVISION_SUBPROTOCOL = "pas-de-geant.supervision.v3";
+export const SUPERVISION_PROTOCOL_VERSION = 3;
 
 export interface SupervisionNavigationState {
   readonly sequence: number;
@@ -19,7 +19,7 @@ export interface SupervisionNavigationState {
   readonly latitudeDegrees: number;
   readonly longitudeDegrees: number;
   readonly scaleDenominator: number;
-  readonly radialMultiplier: number;
+  readonly terrainMultiplier: number;
   readonly headingDegrees: number | null;
 }
 
@@ -85,8 +85,8 @@ export type SupervisionCommand =
     readonly time?: number;
   }
   | {
-    readonly kind: "setRadialMultiplier";
-    readonly radialMultiplier: number;
+    readonly kind: "setTerrainMultiplier";
+    readonly terrainMultiplier: number;
   }
   | {
     readonly kind: "setHeading";
@@ -411,7 +411,12 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
   const candidate = record(value, "Supervision command");
   if ("displayRadiusM" in candidate) {
     throw new Error(
-      "displayRadiusM is not supported by protocol v2; use scaleDenominator.",
+      "displayRadiusM is not supported by protocol v3; use scaleDenominator.",
+    );
+  }
+  if ("radialMultiplier" in candidate) {
+    throw new Error(
+      "radialMultiplier is not supported by protocol v3; use terrainMultiplier.",
     );
   }
   if (candidate.kind === "warp") {
@@ -435,15 +440,15 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
       ...(time === undefined ? {} : { time }),
     };
   }
-  if (candidate.kind === "setRadialMultiplier") {
-    const radialMultiplier = finiteNumber(
-      candidate.radialMultiplier,
-      "Radial multiplier",
+  if (candidate.kind === "setTerrainMultiplier") {
+    const terrainMultiplier = finiteNumber(
+      candidate.terrainMultiplier,
+      "Terrain multiplier",
     );
-    if (radialMultiplier < 0) {
-      throw new Error("Radial multiplier must be nonnegative.");
+    if (terrainMultiplier < 0) {
+      throw new Error("Terrain multiplier must be nonnegative.");
     }
-    return { kind: "setRadialMultiplier", radialMultiplier };
+    return { kind: "setTerrainMultiplier", terrainMultiplier };
   }
   if (candidate.kind === "setHeading") {
     const time = optionalTransitionTime(candidate.time);
@@ -525,7 +530,12 @@ export function parseSupervisionNavigationState(
   const candidate = record(value, "Navigation state");
   if ("displayRadiusM" in candidate) {
     throw new Error(
-      "displayRadiusM is not supported by protocol v2; use scaleDenominator.",
+      "displayRadiusM is not supported by protocol v3; use scaleDenominator.",
+    );
+  }
+  if ("radialMultiplier" in candidate) {
+    throw new Error(
+      "radialMultiplier is not supported by protocol v3; use terrainMultiplier.",
     );
   }
   const sequence = finiteNumber(candidate.sequence, "State sequence");
@@ -546,12 +556,12 @@ export function parseSupervisionNavigationState(
     candidate.scaleDenominator,
     "Scale denominator",
   ));
-  const radialMultiplier = finiteNumber(
-    candidate.radialMultiplier,
-    "Radial multiplier",
+  const terrainMultiplier = finiteNumber(
+    candidate.terrainMultiplier,
+    "Terrain multiplier",
   );
-  if (radialMultiplier < 0) {
-    throw new Error("Radial multiplier must be nonnegative.");
+  if (terrainMultiplier < 0) {
+    throw new Error("Terrain multiplier must be nonnegative.");
   }
   let headingDegrees: number | null = null;
   if (candidate.headingDegrees !== null) {
@@ -567,7 +577,7 @@ export function parseSupervisionNavigationState(
     latitudeDegrees: latitude(candidate.latitudeDegrees),
     longitudeDegrees: longitude(candidate.longitudeDegrees),
     scaleDenominator,
-    radialMultiplier,
+    terrainMultiplier,
     headingDegrees,
   };
 }

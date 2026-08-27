@@ -604,7 +604,7 @@ function eclipseTerrainView(viewCamera: THREE.Camera): {
         EARTH_REFERENCE_RADIUS_M,
         state.stage.scaleDenominator,
       ),
-      radialMultiplier: 1,
+      terrainMultiplier: 1,
       observerHeightWorldM: headsetMetresForPhysicalMetres(
         observation.headDistancePhysicalM,
         state.stage.scaleDenominator,
@@ -818,7 +818,7 @@ function eclipseSupervisionNavigationState(): SupervisionNavigationSnapshot {
     latitudeDegrees: latestEarthSurfaceObservation.latitudeDegrees,
     longitudeDegrees: latestEarthSurfaceObservation.longitudeDegrees,
     scaleDenominator: state.stage.scaleDenominator,
-    radialMultiplier: 1,
+    terrainMultiplier: 1,
     headingDegrees: null,
   };
 }

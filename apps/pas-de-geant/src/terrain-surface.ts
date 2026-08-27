@@ -81,7 +81,7 @@ export interface TerrainSurfaceView {
   readonly latitudeDegrees: number;
   readonly longitudeDegrees: number;
   readonly displayRadiusM: number;
-  readonly radialMultiplier: number;
+  readonly terrainMultiplier: number;
   /** Eye height above the un-displaced, flat local surface in render metres. */
   readonly observerHeightWorldM: number;
   readonly focalLengthPixels: number;
@@ -605,7 +605,7 @@ export class TerrainSurface {
       this.surfaceModel.referenceRadiusM,
     );
     this.renderVisibility.updateDisplacement(
-      initialView.radialMultiplier,
+      initialView.terrainMultiplier,
       initialView.displayRadiusM,
     );
     this.latestView = initialView;
@@ -669,7 +669,7 @@ export class TerrainSurface {
     this.sharedUniforms = {
       bodyLocalUnitsPerElevationMetre: {
         value:
-          initialView.radialMultiplier / this.surfaceModel.referenceRadiusM,
+          initialView.terrainMultiplier / this.surfaceModel.referenceRadiusM,
       },
       bodyLocalSkirtDepth: {
         value: SKIRT_DEPTH_WORLD_METRES / initialView.displayRadiusM,
@@ -721,11 +721,11 @@ export class TerrainSurface {
     view = { ...view, projection: this.surfaceModel.projection };
     this.latestView = view;
     this.sharedUniforms.bodyLocalUnitsPerElevationMetre!.value =
-      view.radialMultiplier / this.surfaceModel.referenceRadiusM;
+      view.terrainMultiplier / this.surfaceModel.referenceRadiusM;
     this.sharedUniforms.bodyLocalSkirtDepth!.value =
       SKIRT_DEPTH_WORLD_METRES / view.displayRadiusM;
     this.renderVisibility.updateDisplacement(
-      view.radialMultiplier,
+      view.terrainMultiplier,
       view.displayRadiusM,
     );
     this.horizonView = {

@@ -76,7 +76,7 @@ import {
 } from "./imagery-variants.js";
 import { proxiedTileConfiguration } from "./tile-proxy.js";
 import {
-  applyRadialMultiplierRate,
+  applyTerrainMultiplierRate,
   contactFrame,
   coordinatesForFrame,
   EARTH_MEAN_RADIUS_KM,
@@ -204,13 +204,13 @@ interface PasDeGeantDebugApi {
     latitudeDegrees?: number;
     longitudeDegrees?: number;
     scaleDenominator?: number;
-    radialMultiplier?: number;
+    terrainMultiplier?: number;
   }): Record<string, unknown>;
   endBenchmark(): Record<string, unknown>;
   reset(): Record<string, unknown>;
   setLocation(latitudeDegrees: number, longitudeDegrees: number): unknown;
   setScaleDenominator(scaleDenominator: number): Record<string, unknown>;
-  setRadialMultiplier(multiplier: number): Record<string, unknown>;
+  setTerrainMultiplier(multiplier: number): Record<string, unknown>;
   setView(view: {
     pitchRadians?: number;
     yawRadians?: number;
@@ -546,7 +546,7 @@ const terrain = new TerrainSurface({
     latitudeDegrees: initialLocation.latitudeDegrees,
     longitudeDegrees: initialLocation.longitudeDegrees,
     displayRadiusM: displayRadiusForScale("earth", scaleDenominator),
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     observerHeightWorldM: 1.65,
     focalLengthPixels: 1_000,
   },
@@ -577,7 +577,7 @@ const moonTerrain = new TerrainSurface({
     latitudeDegrees: initialLocation.latitudeDegrees,
     longitudeDegrees: initialLocation.longitudeDegrees,
     displayRadiusM: displayRadiusForScale("moon", scaleDenominator),
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     observerHeightWorldM: 1.65,
     focalLengthPixels: 1_000,
   },
@@ -1179,13 +1179,13 @@ function setScaleDenominator(nextScaleDenominator: number): number {
   return scaleDenominator;
 }
 
-function setRadialMultiplier(radialMultiplier: number): number {
-  if (!Number.isFinite(radialMultiplier) || radialMultiplier < 0) {
-    throw new Error("Radial multiplier must be nonnegative and finite.");
+function setTerrainMultiplier(terrainMultiplier: number): number {
+  if (!Number.isFinite(terrainMultiplier) || terrainMultiplier < 0) {
+    throw new Error("Terrain multiplier must be nonnegative and finite.");
   }
-  state.radialMultiplier = radialMultiplier;
+  state.terrainMultiplier = terrainMultiplier;
   updatePresentation();
-  return state.radialMultiplier;
+  return state.terrainMultiplier;
 }
 
 function setUserLocation(
@@ -1340,7 +1340,7 @@ function supervisionNavigationState(): SupervisionNavigationSnapshot {
     latitudeDegrees: coordinates.latitudeDegrees,
     longitudeDegrees: coordinates.longitudeDegrees,
     scaleDenominator,
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     headingDegrees,
   };
 }
@@ -1373,7 +1373,7 @@ function supervisionControlState(): SupervisionControlState {
 const canonicalNavigationMutations: CanonicalNavigationMutations = {
   warp: warpUserLocation,
   setScaleDenominator: transitionScaleDenominator,
-  setRadialMultiplier,
+  setTerrainMultiplier,
   setHeading: transitionHeading,
   readState: supervisionNavigationState,
 };
@@ -1730,14 +1730,14 @@ function enforceOrbitSurfaceFloor(): void {
       terrain.sampleElevationMetres(
         observation.latitudeDegrees,
         observation.longitudeDegrees,
-      ) * state.radialMultiplier,
+      ) * state.terrainMultiplier,
     ) / earthReferenceRadiusM;
   } else if (focusBodyId === "moon") {
     const surface = bodySurfaceView("moon", root);
     normalizedFloorRadius += moonTerrain.sampleElevationMetres(
       surface.latitudeDegrees,
       surface.longitudeDegrees,
-    ) * state.radialMultiplier / celestialBody("moon").referenceRadiusM;
+    ) * state.terrainMultiplier / celestialBody("moon").referenceRadiusM;
   }
   const floorDistance = normalizedFloorRadius * displayRadiusM;
   if (headWorld.distanceTo(centreWorld) >= floorDistance) return;
@@ -1928,7 +1928,7 @@ function updatePresentation(): void {
     longitudeDegrees:
       earthOrbitalView?.longitudeDegrees ?? coordinates.longitudeDegrees,
     displayRadiusM: earthOrbitalView?.displayRadiusM ?? earthDisplayRadiusM,
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     observerHeightWorldM:
       earthOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
     focalLengthPixels: view.focalLengthPixels,
@@ -1939,7 +1939,7 @@ function updatePresentation(): void {
     longitudeDegrees:
       moonOrbitalView?.longitudeDegrees ?? coordinates.longitudeDegrees,
     displayRadiusM: moonOrbitalView?.displayRadiusM ?? moonDisplayRadiusM,
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     observerHeightWorldM:
       moonOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
     focalLengthPixels: view.focalLengthPixels,
@@ -1947,7 +1947,6 @@ function updatePresentation(): void {
   });
   atmosphere.update({
     displayRadiusM: earthOrbitalView?.displayRadiusM ?? earthDisplayRadiusM,
-    radialMultiplier: state.radialMultiplier,
     observerHeightWorldM:
       earthOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
   });
@@ -1960,7 +1959,7 @@ function handPanelStatus(
   const lod = terrain.getLodStatus();
   return {
     scaleDenominator,
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     minimumTerrainZoom: lod.minZoom,
     maximumTerrainZoom: lod.maxZoom,
     terrainBudgetLimited: lod.budgetLimited,
@@ -1985,7 +1984,7 @@ function handPanelStateSignature(
     longitudeDegrees.toFixed(2),
     northAngle.toFixed(2),
     status.scaleDenominator.toFixed(3),
-    status.radialMultiplier.toFixed(1),
+    status.terrainMultiplier.toFixed(1),
     status.minimumTerrainZoom,
     status.maximumTerrainZoom,
     status.terrainBudgetLimited ? "capped" : "screen",
@@ -2044,7 +2043,7 @@ const voiceAgent = new RealtimeVoiceAgent({
         mode: navigationMode,
         focus_body: focusBodyId,
         scale_denominator: scaleDenominator,
-        radial_multiplier: state.radialMultiplier,
+        terrain_multiplier: state.terrainMultiplier,
         focus_distance_headset_metres: orbitDistanceHeadsetM,
         focus_distance_physical_metres: orbitDistanceHeadsetM === null
           ? null
@@ -2456,8 +2455,8 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
       intent.scaleAxis,
       deltaSeconds,
     ));
-    state.radialMultiplier = applyRadialMultiplierRate(
-      state.radialMultiplier,
+    state.terrainMultiplier = applyTerrainMultiplierRate(
+      state.terrainMultiplier,
       intent.radialAxis,
       deltaSeconds,
     );
@@ -2605,8 +2604,8 @@ function updateDesktopControls(deltaSeconds: number): void {
     scaleAxis,
     deltaSeconds,
   ));
-  state.radialMultiplier = applyRadialMultiplierRate(
-    state.radialMultiplier,
+  state.terrainMultiplier = applyTerrainMultiplierRate(
+    state.terrainMultiplier,
     radialAxis,
     deltaSeconds,
   );
@@ -3033,7 +3032,7 @@ interface BenchmarkRestoreState {
     readonly longitudeDegrees: number;
   };
   readonly scaleDenominator: number;
-  readonly radialMultiplier: number;
+  readonly terrainMultiplier: number;
   readonly pitchRadians: number;
   readonly yawRadians: number;
   readonly worldRotationRadians: number;
@@ -3095,7 +3094,7 @@ function debugControlState(): Record<string, unknown> {
     },
     scaleDenominator,
     focusedBodyDisplayRadiusM: focusedDisplayRadiusM(),
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     view: {
       pitchRadians: pitch,
       yawRadians: yaw,
@@ -3233,7 +3232,7 @@ function captureBenchmarkRestoreState(): BenchmarkRestoreState {
   return {
     coordinates: coordinatesForFrame(state.contact),
     scaleDenominator,
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     pitchRadians: pitch,
     yawRadians: yaw,
     worldRotationRadians,
@@ -3300,7 +3299,7 @@ const debugApi: PasDeGeantDebugApi = {
       snapshot: "snapshot() — controls, frames, renderer, tiles, network, browser",
       marks: "mark(name?), marks(), clearMetrics()",
       benchmark: "beginBenchmark(options?), then freeze with setTileRecalculation(\"both\", false) once planner work is zero; endBenchmark() restores the captured session",
-      position: "setLocation(lat, lon), setScaleDenominator(value), setRadialMultiplier(value), setView({pitchRadians?, yawRadians?}), reset()",
+      position: "setLocation(lat, lon), setScaleDenominator(value), setTerrainMultiplier(value), setView({pitchRadians?, yawRadians?}), reset()",
       tiles: "setTilePixelRatio(target, ratio), setMaxZ(target, z|null), setTileRecalculation(target, enabled)",
       rendering: "setRendering(enabled), setInputEnabled(enabled), setFoveation(0..1), setFramebufferScale(value), setDesktopPixelRatio(value)",
       terrainRenderCulling: "setTerrainRenderCulling(enabled) — same-build render-only visibility A/B",
@@ -3336,20 +3335,20 @@ const debugApi: PasDeGeantDebugApi = {
       options.scaleDenominator ?? DEFAULT_SCALE_DENOMINATOR,
       "scaleDenominator",
     );
-    const radialMultiplier = finiteDebugNumber(
-      options.radialMultiplier ?? 1,
-      "radialMultiplier",
+    const terrainMultiplier = finiteDebugNumber(
+      options.terrainMultiplier ?? 1,
+      "terrainMultiplier",
     );
     validScaleDenominator(benchmarkScaleDenominator);
-    if (radialMultiplier < 0) {
-      throw new Error("radialMultiplier must be nonnegative.");
+    if (terrainMultiplier < 0) {
+      throw new Error("terrainMultiplier must be nonnegative.");
     }
     benchmarkRestoreState ??= captureBenchmarkRestoreState();
     setSimulationInputEnabled(false);
     terrain.setTileRecalculation({ target: "both", enabled: false });
     setUserLocation(latitudeDegrees, longitudeDegrees);
     commitScaleDenominator(benchmarkScaleDenominator);
-    state.radialMultiplier = radialMultiplier;
+    state.terrainMultiplier = terrainMultiplier;
     pitch = 0;
     yaw = 0;
     worldRotationRadians = 0;
@@ -3396,7 +3395,7 @@ const debugApi: PasDeGeantDebugApi = {
       restore.coordinates.longitudeDegrees,
     );
     commitScaleDenominator(restore.scaleDenominator);
-    state.radialMultiplier = restore.radialMultiplier;
+    state.terrainMultiplier = restore.terrainMultiplier;
     pitch = restore.pitchRadians;
     yaw = restore.yawRadians;
     worldRotationRadians = restore.worldRotationRadians;
@@ -3436,9 +3435,9 @@ const debugApi: PasDeGeantDebugApi = {
     setScaleDenominator(value);
     return debugControlState();
   },
-  setRadialMultiplier(multiplier) {
+  setTerrainMultiplier(multiplier) {
     const value = finiteDebugNumber(multiplier, "multiplier");
-    setRadialMultiplier(value);
+    setTerrainMultiplier(value);
     return debugControlState();
   },
   setView(view) {
@@ -3588,7 +3587,7 @@ function render(nowMs: number): void {
     userLatitudeDegrees: pinCoordinates.latitudeDegrees,
     userLongitudeDegrees: pinCoordinates.longitudeDegrees,
     displayRadiusM: displayRadiusForScale("earth", scaleDenominator),
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     visible: renderer.xr.isPresenting &&
       navigationMode === "surface" && focusBodyId === "earth",
   });
@@ -3599,12 +3598,10 @@ function render(nowMs: number): void {
   aircraftLayer.update(
     utcMilliseconds,
     earthDisplayRadiusM,
-    state.radialMultiplier,
   );
   satelliteLayer.update(
     utcMilliseconds,
     earthDisplayRadiusM,
-    state.radialMultiplier,
   );
   const viewCamera = currentViewCamera();
   viewCamera.getWorldPosition(cameraWorldPosition);

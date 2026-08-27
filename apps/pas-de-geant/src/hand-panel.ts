@@ -64,7 +64,7 @@ export interface HandPanelDirection {
 
 export interface HandPanelStatus {
   scaleDenominator: number;
-  radialMultiplier: number;
+  terrainMultiplier: number;
   minimumTerrainZoom: number;
   maximumTerrainZoom: number;
   terrainBudgetLimited: boolean;
@@ -104,7 +104,7 @@ interface HandPanelStatusProps extends HandPanelStatus {
 const EARTH_MAP_BORDER_WIDTH = 12;
 const DEFAULT_HAND_PANEL_STATUS: HandPanelStatus = {
   scaleDenominator: DEFAULT_SCALE_DENOMINATOR,
-  radialMultiplier: 1,
+  terrainMultiplier: 1,
   minimumTerrainZoom: 0,
   maximumTerrainZoom: 0,
   terrainBudgetLimited: false,
@@ -267,11 +267,11 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
         value: formatScaleRatio(ctx.props.scaleDenominator),
       },
       {
-        label: ctx.props.navigationMode === "orbit" ? "DISTANCE" : "RADIAL",
+        label: ctx.props.navigationMode === "orbit" ? "DISTANCE" : "TERRAIN",
         value: ctx.props.navigationMode === "orbit" &&
             ctx.props.focusDistanceHeadsetM !== undefined
           ? `${ctx.props.focusDistanceHeadsetM.toFixed(2)} m`
-          : `${ctx.props.radialMultiplier.toFixed(1)}×`,
+          : `${ctx.props.terrainMultiplier.toFixed(1)}×`,
       },
       {
         label: "AUTO LOD · X TILES",

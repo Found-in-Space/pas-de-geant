@@ -18,7 +18,7 @@ npm run dev -- --port 4197
 ```
 
 Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel or orbit,
-Z/X to change planet scale, C/V to change orbital altitude or radial
+Z/X to change planet scale, C/V to change orbital altitude or terrain
 exaggeration, and Backspace to reset.
 Use the World and Navigation selectors for Earth/Moon ground mode and any-body
 orbit/free mode. M cycles navigation modes and N switches Earth/Moon.
@@ -112,7 +112,7 @@ pasDeGeantDebug.help()
 pasDeGeantDebug.snapshot()
 pasDeGeantDebug.setLocation(45.88, 6.89)
 pasDeGeantDebug.setScaleDenominator(80000)
-pasDeGeantDebug.setRadialMultiplier(2)
+pasDeGeantDebug.setTerrainMultiplier(2)
 pasDeGeantDebug.setMaxZ("textures", 14)
 pasDeGeantDebug.setTilePixelRatio("textures", 1.5)
 ```
@@ -152,7 +152,7 @@ pasDeGeantDebug.beginBenchmark({
   latitudeDegrees: 43.722952,
   longitudeDegrees: 10.396597,
   scaleDenominator: 2548.40352,
-  radialMultiplier: 1,
+  terrainMultiplier: 1,
 })
 ```
 
@@ -191,7 +191,7 @@ re-entering; foveation can change during a session.
 - Left trigger + left stick left/right: turn the view
 - Left grip: faster travel
 - Right stick vertical: whole-planet scale
-- Right stick horizontal: orbital altitude, or surface radial exaggeration
+- Right stick horizontal: orbital altitude, or surface terrain exaggeration
 - X: toggle committed terrain-tile tint and boundaries
 - Y: toggle photographic source-tile boundaries
 - A: toggle the Realtime voice guide
@@ -206,7 +206,7 @@ uses head-relative 3D thrust and increases velocity with distance from the
 focused body. Left grip/Shift accelerates movement.
 
 The hand panel uses touch-os and the embedded NASA Blue Marble image to show
-the underfoot point, display scale, radial multiplier, committed terrain zoom
+the underfoot point, display scale, terrain multiplier, committed terrain zoom
 range, and voice-agent state.
 
 The Realtime voice guide also exposes `get_navigation_state` and
@@ -490,13 +490,15 @@ Live Flight Follower traffic is opt-in and only streams during an immersive VR
 session. Leaving VR, hiding the page, or disabling the layer closes the stream.
 The client follows Flight Follower's predicted trajectories, renders reported
 surface-vehicle categories distinctly, and anchors explicit on-ground reports
-to the same Mapterhorn elevation tiles used by the terrain surface.
+to the physical elevation sampled from the same Mapterhorn tiles used by the
+terrain surface. Terrain exaggeration does not change traffic altitude.
 
 CelesTrak satellite tracking is also opt-in. The 100 brightest, space-station,
 and combined science/education groups can be enabled independently from the
 page or by asking the voice guide. Orbital elements are cached for CelesTrak's
 two-hour update interval, while SGP4 propagation moves the markers locally.
-Satellite altitude uses the same radial multiplier as terrain and aircraft.
+Satellite altitude remains at the universal global scale and is independent of
+terrain exaggeration.
 
 ## Validation
 

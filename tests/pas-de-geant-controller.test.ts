@@ -13,7 +13,7 @@ import {
   shapedOrbitalAxis,
 } from "../apps/pas-de-geant/src/world-navigation.js";
 import {
-  applyRadialMultiplierRate,
+  applyTerrainMultiplierRate,
 } from "../apps/pas-de-geant/src/planet-state.js";
 import {
   scaleDenominatorAfterInput,
@@ -159,7 +159,7 @@ describe("Pas de Géant controller regressions", () => {
     expect(controllerIntent(session, 16, latch).boost).toBe(true);
   });
 
-  it("maps right-stick vertical to scale and horizontal to radial amplification", () => {
+  it("maps right-stick vertical to scale and horizontal to terrain amplification", () => {
     const stick = [0, 0, 0, 0];
     const session = {
       inputSources: [
@@ -197,10 +197,10 @@ describe("Pas de Géant controller regressions", () => {
     expect(intent.radialAxis).toBeGreaterThan(0);
   });
 
-  it("keeps global scale unbounded and radial amplification non-negative", () => {
+  it("keeps global scale unbounded and terrain amplification non-negative", () => {
     expect(scaleDenominatorAfterInput(60_000, 1, 10)).toBeLessThan(60_000);
-    expect(applyRadialMultiplierRate(20, 1, 1)).toBeGreaterThan(20);
-    expect(applyRadialMultiplierRate(0, -1, 1)).toBe(0);
+    expect(applyTerrainMultiplierRate(20, 1, 1)).toBeGreaterThan(20);
+    expect(applyTerrainMultiplierRate(0, -1, 1)).toBe(0);
   });
 
   it("uses calm cubic orbital response with four-second doubling", () => {

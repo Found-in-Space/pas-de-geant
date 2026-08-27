@@ -48,7 +48,7 @@ const initialState: SupervisionNavigationState = {
   latitudeDegrees: 51.5074,
   longitudeDegrees: -0.1278,
   scaleDenominator: 60_000,
-  radialMultiplier: 1,
+  terrainMultiplier: 1,
   headingDegrees: 42.5,
 };
 
@@ -77,10 +77,14 @@ const initialControls: SupervisionControlState = {
 
 describe("supervision protocol", () => {
   it("rejects incompatible versions and unknown message types", () => {
-    expect(() => parseSupervisionMessage({
-      protocolVersion: 1,
-      type: "supervisor.hello",
-    })).toThrow(/version/i);
+    for (const protocolVersion of [1, 2]) {
+      expect(() => parseSupervisionMessage({
+        protocolVersion,
+        type: "headset.hello",
+        sessionId: "legacy",
+        startedAtMs: 0,
+      })).toThrow(/version/i);
+    }
     expect(() => parseSupervisionMessage(protocolMessage({
       type: "future.message",
     }))).toThrow(/type/i);
@@ -134,18 +138,22 @@ describe("supervision protocol", () => {
       displayRadiusM: 10,
     })).toThrow(/displayRadiusM/i);
     expect(parseSupervisionCommand({
-      kind: "setRadialMultiplier",
-      radialMultiplier: 12.5,
+      kind: "setTerrainMultiplier",
+      terrainMultiplier: 12.5,
     })).toEqual({
-      kind: "setRadialMultiplier",
-      radialMultiplier: 12.5,
+      kind: "setTerrainMultiplier",
+      terrainMultiplier: 12.5,
     });
-    for (const radialMultiplier of [-1, Number.POSITIVE_INFINITY, Number.NaN]) {
+    for (const terrainMultiplier of [-1, Number.POSITIVE_INFINITY, Number.NaN]) {
       expect(() => parseSupervisionCommand({
-        kind: "setRadialMultiplier",
-        radialMultiplier,
+        kind: "setTerrainMultiplier",
+        terrainMultiplier,
       })).toThrow();
     }
+    expect(() => parseSupervisionCommand({
+      kind: "setRadialMultiplier",
+      radialMultiplier: 12.5,
+    })).toThrow(/radialMultiplier/i);
     expect(parseSupervisionCommand({
       kind: "setHeading",
       headingDegrees: 270,
@@ -272,6 +280,10 @@ describe("supervision protocol", () => {
       type: "headset.state",
       state: { ...initialState, displayRadiusM: 10 },
     }))).toThrow(/displayRadiusM/i);
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: { ...initialState, radialMultiplier: 1 },
+    }))).toThrow(/radialMultiplier/i);
     expect(() => parseSupervisionMessage(protocolMessage({
       type: "headset.state",
       state: { ...initialState, sequence: 1.5 },
@@ -412,9 +424,9 @@ describe("voice and supervisor navigation parity", () => {
         calls.push(["scale", time]);
         state = { ...state, scaleDenominator };
       },
-      setRadialMultiplier(radialMultiplier) {
-        calls.push(["radial", undefined]);
-        state = { ...state, radialMultiplier };
+      setTerrainMultiplier(terrainMultiplier) {
+        calls.push(["terrain", undefined]);
+        state = { ...state, terrainMultiplier };
       },
       setHeading(headingDegrees, time) {
         calls.push(["heading", time]);
@@ -448,8 +460,8 @@ describe("voice and supervisor navigation parity", () => {
       { kind: "setScaleDenominator", scaleDenominator: 1e12, time: 3 },
       mutations,
     );
-    const supervisorRadialState = applySupervisorNavigationMutation(
-      { kind: "setRadialMultiplier", radialMultiplier: 15 },
+    const supervisorTerrainState = applySupervisorNavigationMutation(
+      { kind: "setTerrainMultiplier", terrainMultiplier: 15 },
       mutations,
     );
     const supervisorHeadingState = applySupervisorNavigationMutation(
@@ -462,7 +474,7 @@ describe("voice and supervisor navigation parity", () => {
       ["warp", 2],
       ["scale", 2.5],
       ["scale", 3],
-      ["radial", undefined],
+      ["terrain", undefined],
       ["heading", 0.5],
     ]);
     expect(voiceWarpState).toMatchObject({
@@ -475,7 +487,7 @@ describe("voice and supervisor navigation parity", () => {
     });
     expect(voiceScaleState.scaleDenominator).toBe(37.25);
     expect(supervisorScaleState.scaleDenominator).toBe(1e12);
-    expect(supervisorRadialState.radialMultiplier).toBe(15);
+    expect(supervisorTerrainState.terrainMultiplier).toBe(15);
     expect(supervisorHeadingState.headingDegrees).toBe(270);
   });
 

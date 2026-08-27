@@ -14,7 +14,7 @@ export interface CanonicalNavigationMutations {
     scaleDenominator: number,
     time?: number,
   ) => unknown;
-  readonly setRadialMultiplier: (radialMultiplier: number) => unknown;
+  readonly setTerrainMultiplier: (terrainMultiplier: number) => unknown;
   readonly setHeading: (headingDegrees: number, time?: number) => unknown;
   readonly readState: () => SupervisionNavigationSnapshot;
 }
@@ -31,7 +31,7 @@ type NavigationSupervisionCommand = Extract<
     kind:
       | "warp"
       | "setScaleDenominator"
-      | "setRadialMultiplier"
+      | "setTerrainMultiplier"
       | "setHeading";
   }
 >;
@@ -83,8 +83,8 @@ export function applySupervisorNavigationMutation(
     );
   } else if (command.kind === "setScaleDenominator") {
     mutations.setScaleDenominator(command.scaleDenominator, command.time);
-  } else if (command.kind === "setRadialMultiplier") {
-    mutations.setRadialMultiplier(command.radialMultiplier);
+  } else if (command.kind === "setTerrainMultiplier") {
+    mutations.setTerrainMultiplier(command.terrainMultiplier);
   } else {
     mutations.setHeading(command.headingDegrees, command.time);
   }
