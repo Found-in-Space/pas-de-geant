@@ -13,17 +13,13 @@ import {
   type XyzImageryConfiguration,
 } from "./imagery-provider.js";
 import { MOON_SURFACE_MODEL } from "./surface-model.js";
-
-function template(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
+import { tileProxyUrlTemplate } from "./tile-proxy.js";
 
 export function lunarImageryProvider(): ImageryProvider | undefined {
-  const urlTemplate = template(import.meta.env.VITE_LUNAR_IMAGERY_XYZ_TEMPLATE);
-  if (!urlTemplate) return undefined;
+  if (!import.meta.env.PAS_DE_GEANT_LUNAR_IMAGERY_CONFIGURED) return undefined;
   const configuration: XyzImageryConfiguration = {
     id: "lro-lunar-imagery",
-    urlTemplate,
+    urlTemplate: tileProxyUrlTemplate("lunar-imagery"),
     attribution: "NASA LRO / LROC",
     tileSize: 512,
     minZoom: 0,
@@ -33,9 +29,12 @@ export function lunarImageryProvider(): ImageryProvider | undefined {
 }
 
 export function lunarElevationProvider(): TerrainElevationProvider {
-  const urlTemplate = template(import.meta.env.VITE_LUNAR_ELEVATION_XYZ_TEMPLATE);
-  if (!urlTemplate) return new FlatElevationTileProvider(512);
-  const configuration: XyzElevationConfiguration = { urlTemplate };
+  if (!import.meta.env.PAS_DE_GEANT_LUNAR_ELEVATION_CONFIGURED) {
+    return new FlatElevationTileProvider(512);
+  }
+  const configuration: XyzElevationConfiguration = {
+    urlTemplate: tileProxyUrlTemplate("lunar-elevation"),
+  };
   return new ElevationTileProvider(
     createXyzElevationTileProvider(
       MOON_SURFACE_MODEL.elevationMetadata,
