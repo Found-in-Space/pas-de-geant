@@ -72,20 +72,25 @@ export interface HandPanelStatus {
   navigationMode?: "surface" | "orbit" | "free";
   focusBody?: string;
   focusDistanceHeadsetM?: number;
+  eclipseConesVisible?: boolean;
 }
 
 export const HAND_PANEL_ACTION = {
   cycleMode: "world.navigation.cycle-mode",
   toggleEarthMoon: "world.navigation.toggle-earth-moon",
+  toggleEclipseCones: "world.eclipse-cones.toggle",
 } as const;
 
 export function handPanelNavigationAction(
   output: RuntimeOutput,
-): "cycle-mode" | "toggle-earth-moon" | null {
+): "cycle-mode" | "toggle-earth-moon" | "toggle-eclipse-cones" | null {
   if (output.type !== "action") return null;
   if (output.actionId === HAND_PANEL_ACTION.cycleMode) return "cycle-mode";
   if (output.actionId === HAND_PANEL_ACTION.toggleEarthMoon) {
     return "toggle-earth-moon";
+  }
+  if (output.actionId === HAND_PANEL_ACTION.toggleEclipseCones) {
+    return "toggle-eclipse-cones";
   }
   return null;
 }
@@ -393,6 +398,10 @@ export function createHandPanelRoot(
             label: `World · ${status.focusBody ?? "earth"}`,
             actionId: HAND_PANEL_ACTION.toggleEarthMoon,
           }),
+          createButton("pas-de-geant-eclipse-cones", {
+            label: `Eclipse cones · ${status.eclipseConesVisible ? "on" : "off"}`,
+            actionId: HAND_PANEL_ACTION.toggleEclipseCones,
+          }),
         ],
       }),
       createNode(
@@ -400,7 +409,7 @@ export function createHandPanelRoot(
         HandPanelStatusComponent,
         {
           ...status,
-          height: 238,
+          height: 184,
         },
       ),
     ],

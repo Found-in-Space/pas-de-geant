@@ -146,7 +146,7 @@ export function perpendicularBasis(
   return [first, second];
 }
 
-interface ConeUpdate {
+export interface ShadowConeUpdate {
   moonPosition: THREE.Vector3;
   shadowAxis: THREE.Vector3;
   physicalLengthM: number;
@@ -288,7 +288,7 @@ diffuseColor.a *= mix( 0.82, 1.16, coneEdge );`,
     this.mesh.renderOrder = 3;
   }
 
-  update(options: ConeUpdate, slope: number): void {
+  update(options: ShadowConeUpdate, slope: number): void {
     this.coneToEarthFixed.copy(options.coneToEarthFixed);
     const [first, second] = perpendicularBasis(options.shadowAxis);
     const row = this.radialSegments + 1;
@@ -349,7 +349,7 @@ export class RetainedShadowCones {
     this.group.add(this.penumbra.mesh, this.central.mesh);
   }
 
-  update(options: ConeUpdate): void {
+  update(options: ShadowConeUpdate): void {
     this.penumbra.update(options, options.penumbraConeSlope);
     this.central.update(options, options.centralConeSlope);
   }
