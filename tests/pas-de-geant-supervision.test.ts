@@ -62,6 +62,10 @@ const initialControls: SupervisionControlState = {
     space_stations: false,
     science_education: true,
   },
+  amazonForestOutlines: {
+    availableYears: [1986, 2023],
+    visibleYears: [1986],
+  },
   eclipse: {
     active: false,
     playing: false,
@@ -242,6 +246,20 @@ describe("supervision protocol", () => {
       enabled: true,
     })).toThrow(/satellite group/i);
     expect(parseSupervisionCommand({
+      kind: "setAmazonForestYearVisibility",
+      year: 2023,
+      visible: true,
+    })).toEqual({
+      kind: "setAmazonForestYearVisibility",
+      year: 2023,
+      visible: true,
+    });
+    expect(() => parseSupervisionCommand({
+      kind: "setAmazonForestYearVisibility",
+      year: 2023.5,
+      visible: true,
+    })).toThrow(/integer/i);
+    expect(parseSupervisionCommand({
       kind: "setEclipsePlayback",
       playing: true,
     })).toEqual({ kind: "setEclipsePlayback", playing: true });
@@ -294,6 +312,17 @@ describe("supervision protocol", () => {
         aircraft: { aircraft: "yes", labels: false },
       },
     }))).toThrow(/aircraft symbols/i);
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: initialState,
+      controls: {
+        ...initialControls,
+        amazonForestOutlines: {
+          availableYears: [1986],
+          visibleYears: [2023],
+        },
+      },
+    }))).toThrow(/must be available/i);
   });
 
   it("validates active eclipse telemetry", () => {

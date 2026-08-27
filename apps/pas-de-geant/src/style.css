@@ -156,6 +156,52 @@ a {
   line-height: 1;
 }
 
+.preflight-option {
+  margin-top: 20px;
+  padding: 0;
+  border: 0;
+  color: #4c4438;
+  font-size: 0.82rem;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.preflight-option legend {
+  float: left;
+}
+
+.amazon-forest-year-controls {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  text-transform: none;
+}
+
+.amazon-forest-year-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #28231b;
+  cursor: pointer;
+  letter-spacing: normal;
+}
+
+.amazon-forest-year-control input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.amazon-forest-year-swatch {
+  width: 9px;
+  height: 9px;
+  border: 1px solid rgb(40 35 27 / 35%);
+  border-radius: 50%;
+}
+
 .checklist {
   margin: 30px 0 0;
   padding: 0;

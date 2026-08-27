@@ -20,6 +20,13 @@ import {
 } from "./aircraft-feed.js";
 import { AircraftLayer } from "./aircraft-layer.js";
 import {
+  amazonForestOutlineColor,
+  amazonForestOutlineYearsWithVisibility,
+  parseAmazonForestOutlineVisibilityArguments,
+  type AmazonForestOutlineControlState,
+} from "./amazon-forest-outline-control.js";
+import { AmazonForestOutlineLayer } from "./amazon-forest-outline-layer.js";
+import {
   parseAircraftDisplayArguments,
   shouldStreamAircraft,
   type AircraftDisplayTarget,
@@ -271,6 +278,9 @@ const xrCheckStatus = element<HTMLSpanElement>("xr-check-status");
 const xrRequirements = element<HTMLParagraphElement>("xr-requirements");
 const errorState = element<HTMLDivElement>("error-state");
 const errorMessage = element<HTMLParagraphElement>("error-message");
+const amazonForestYearControls = element<HTMLDivElement>(
+  "amazon-forest-years",
+);
 const imageryAttribution = element<HTMLElement>("imagery-attribution");
 const researchRegion = element<HTMLElement>("research-region");
 const researchAnswer = element<HTMLParagraphElement>("research-answer");
@@ -552,6 +562,112 @@ const terrain = new TerrainSurface({
   },
 });
 planetRoot.add(terrain.group);
+const amazonForestOutlines = new AmazonForestOutlineLayer(
+  import.meta.env.VITE_AMAZON_FOREST_MANIFEST_URL?.trim() ||
+    "https://data.foundin.space/3592e66d-2b29-4e4b-97d0-7fc1d3e9e4f8/manifest.json",
+);
+planetRoot.add(amazonForestOutlines.group);
+document.body.dataset.amazonForestOutline = "off";
+let amazonForestAvailableYears: readonly number[] = [];
+let amazonForestVisibleYears: readonly number[] = [];
+let amazonForestMutationQueue = Promise.resolve();
+const amazonForestYearInputs = new Map<number, HTMLInputElement>();
+
+function amazonForestOutlineControlState(): AmazonForestOutlineControlState {
+  return {
+    availableYears: amazonForestAvailableYears,
+    visibleYears: amazonForestVisibleYears,
+  };
+}
+
+function amazonForestOutlineVoiceState(): Record<string, unknown> {
+  const controlState = amazonForestOutlineControlState();
+  return {
+    available_years: controlState.availableYears,
+    visible_years: controlState.visibleYears,
+  };
+}
+
+function syncAmazonForestYearControls(): void {
+  for (const [year, input] of amazonForestYearInputs) {
+    input.checked = amazonForestVisibleYears.includes(year);
+  }
+  document.body.dataset.amazonForestOutline =
+    amazonForestVisibleYears.join(",") || "off";
+}
+
+function setAmazonForestYearControlsDisabled(disabled: boolean): void {
+  for (const input of amazonForestYearInputs.values()) input.disabled = disabled;
+}
+
+function renderAmazonForestYearControls(): void {
+  amazonForestYearInputs.clear();
+  const controls = amazonForestAvailableYears.map((year) => {
+    const label = document.createElement("label");
+    label.className = "amazon-forest-year-control";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = String(year);
+    const swatch = document.createElement("span");
+    swatch.className = "amazon-forest-year-swatch";
+    swatch.style.backgroundColor = amazonForestOutlineColor(
+      year,
+      amazonForestAvailableYears,
+    );
+    const text = document.createElement("span");
+    text.textContent = String(year);
+    input.addEventListener("change", () => {
+      void setAmazonForestYearVisibility(year, input.checked).catch((error) => {
+        console.warn("Amazon forest outlines are unavailable:", error);
+      });
+    });
+    label.append(input, swatch, text);
+    amazonForestYearInputs.set(year, input);
+    return label;
+  });
+  amazonForestYearControls.replaceChildren(...controls);
+  syncAmazonForestYearControls();
+}
+
+const amazonForestAvailableYearsRequest = amazonForestOutlines.availableYears()
+  .then((years) => {
+    amazonForestAvailableYears = years;
+    renderAmazonForestYearControls();
+    return years;
+  });
+void amazonForestAvailableYearsRequest.catch((error) => {
+  amazonForestYearControls.textContent = "Unavailable";
+  document.body.dataset.amazonForestOutline = "unavailable";
+  console.warn("Amazon forest outline manifest is unavailable:", error);
+});
+
+function setAmazonForestYearVisibility(
+  year: number,
+  visible: boolean,
+): Promise<AmazonForestOutlineControlState> {
+  const mutation = amazonForestMutationQueue.then(async () => {
+    await amazonForestAvailableYearsRequest;
+    const nextYears = amazonForestOutlineYearsWithVisibility(
+      amazonForestVisibleYears,
+      amazonForestAvailableYears,
+      year,
+      visible,
+    );
+    setAmazonForestYearControlsDisabled(true);
+    document.body.dataset.amazonForestOutline = "loading";
+    try {
+      await amazonForestOutlines.setYears(nextYears);
+      amazonForestVisibleYears = nextYears;
+      syncAmazonForestYearControls();
+      return amazonForestOutlineControlState();
+    } finally {
+      setAmazonForestYearControlsDisabled(false);
+      syncAmazonForestYearControls();
+    }
+  });
+  amazonForestMutationQueue = mutation.then(() => undefined, () => undefined);
+  return mutation;
+}
 const locationPinStore = new LocationPinStore();
 const locationPinLayer = new LocationPinLayer((latitudeDegrees, longitudeDegrees) =>
   terrain.sampleElevationMetres(latitudeDegrees, longitudeDegrees)
@@ -1356,6 +1472,7 @@ function supervisionControlState(): SupervisionControlState {
       space_stations: satelliteGroups.stations.enabled,
       science_education: satelliteGroups["science-education"].enabled,
     },
+    amazonForestOutlines: amazonForestOutlineControlState(),
     eclipse: {
       active: false,
       playing: false,
@@ -1428,7 +1545,14 @@ const canonicalLocationPinMutations: CanonicalLocationPinMutations = {
   readPinState: () => locationPinStore.snapshot(),
 };
 
-function applySupervisionCommand(command: SupervisionCommand): void {
+async function applySupervisionCommand(command: SupervisionCommand): Promise<void> {
+  if (command.kind === "setAmazonForestYearVisibility") {
+    if (focusBodyId !== "earth") {
+      throw new Error("Amazon forest outlines require Earth to be selected.");
+    }
+    await setAmazonForestYearVisibility(command.year, command.visible);
+    return;
+  }
   if (navigationMode !== "surface" || focusBodyId !== "earth") {
     throw new Error("Supervision controls currently require Earth surface mode.");
   }
@@ -2201,6 +2325,19 @@ const voiceAgent = new RealtimeVoiceAgent({
       const { group, enabled } =
         parseSatelliteVisibilityArguments(argumentsValue);
       return await setSatelliteGroupEnabled(group, enabled);
+    },
+    async get_amazon_forest_outlines() {
+      await amazonForestAvailableYearsRequest;
+      return amazonForestOutlineVoiceState();
+    },
+    async set_amazon_forest_outline_visibility(argumentsValue) {
+      if (focusBodyId !== "earth") {
+        throw new Error("Amazon forest outlines require Earth to be selected.");
+      }
+      const { year, visible } =
+        parseAmazonForestOutlineVisibilityArguments(argumentsValue);
+      await setAmazonForestYearVisibility(year, visible);
+      return { ok: true, year, visible, ...amazonForestOutlineVoiceState() };
     },
     get_celestial_visibility() {
       return celestialSphere.getVisibility();

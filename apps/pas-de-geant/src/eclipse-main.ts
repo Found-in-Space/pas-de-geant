@@ -834,6 +834,10 @@ function eclipseSupervisionControlState(): SupervisionControlState {
       space_stations: false,
       science_education: false,
     },
+    amazonForestOutlines: {
+      availableYears: [],
+      visibleYears: [],
+    },
     eclipse: {
       active: true,
       playing: state.playing,

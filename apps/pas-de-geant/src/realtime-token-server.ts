@@ -114,6 +114,12 @@ export function realtimeSessionConfiguration(
         "turn on, or turn off the brightest satellites, space stations, or " +
         "science and education satellites. These are three independent groups, " +
         "so change only the requested group. " +
+        "Use get_amazon_forest_outlines before reporting which historical " +
+        "forest outlines are available or visible. Use " +
+        "set_amazon_forest_outline_visibility to show or hide one available " +
+        "year without changing any other visible years. Multiple years may be " +
+        "visible together, and an empty visible_years result means the overlay " +
+        "is off. " +
         "Use get_celestial_visibility before reporting which Solar System " +
         "bodies are shown. Use set_celestial_visibility to show or hide the " +
         "Sun, Moon, any named planet, the Sun and Moon together, all planets, " +
@@ -381,6 +387,28 @@ export function realtimeSessionConfiguration(
               enabled: { type: "boolean" },
             },
             required: ["group", "enabled"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "get_amazon_forest_outlines",
+          description:
+            "Read the available and currently visible Amazon forest outline years.",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+        {
+          type: "function",
+          name: "set_amazon_forest_outline_visibility",
+          description:
+            "Show or hide one available Amazon forest outline year without changing any other year.",
+          parameters: {
+            type: "object",
+            properties: {
+              year: { type: "integer" },
+              visible: { type: "boolean" },
+            },
+            required: ["year", "visible"],
             additionalProperties: false,
           },
         },

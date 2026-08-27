@@ -2,6 +2,7 @@ import type { SolarSystemBodyId } from "./solar-system.js";
 import type { NavigationMode } from "./world-navigation.js";
 import type { AircraftDisplayTarget } from "./aircraft-lifecycle.js";
 import type { SatelliteToolGroup } from "./satellite-groups.js";
+import type { AmazonForestOutlineControlState } from "./amazon-forest-outline-control.js";
 import {
   parseLocationPin,
   type LocationPin,
@@ -31,6 +32,7 @@ export type SupervisionNavigationSnapshot = Omit<
 export interface SupervisionControlState {
   readonly aircraft: Readonly<Record<AircraftDisplayTarget, boolean>>;
   readonly satellites: Readonly<Record<SatelliteToolGroup, boolean>>;
+  readonly amazonForestOutlines: AmazonForestOutlineControlState;
   readonly eclipse: SupervisionEclipseControlState;
 }
 
@@ -56,6 +58,10 @@ export const DEFAULT_SUPERVISION_CONTROL_STATE: SupervisionControlState = {
     brightest: false,
     space_stations: false,
     science_education: false,
+  },
+  amazonForestOutlines: {
+    availableYears: [],
+    visibleYears: [],
   },
   eclipse: {
     active: false,
@@ -117,6 +123,11 @@ export type SupervisionCommand =
     readonly kind: "setSatelliteGroupVisibility";
     readonly group: SatelliteToolGroup;
     readonly enabled: boolean;
+  }
+  | {
+    readonly kind: "setAmazonForestYearVisibility";
+    readonly year: number;
+    readonly visible: boolean;
   }
   | {
     readonly kind: "setEclipsePlayback";
@@ -287,6 +298,20 @@ function requiredBoolean(value: unknown, description: string): boolean {
   return value;
 }
 
+function integerYears(value: unknown, description: string): readonly number[] {
+  if (!Array.isArray(value)) throw new Error(`${description} must be an array.`);
+  const years = value.map((year) => {
+    if (typeof year !== "number" || !Number.isInteger(year)) {
+      throw new Error(`${description} must contain integer years.`);
+    }
+    return year;
+  });
+  if (new Set(years).size !== years.length) {
+    throw new Error(`${description} must not contain duplicate years.`);
+  }
+  return years;
+}
+
 function nullableString(value: unknown, description: string): string | null {
   if (value === null) return null;
   return requiredString(value, description);
@@ -307,6 +332,9 @@ export function parseSupervisionControlState(
   const candidate = record(value, "Control state");
   const aircraft = record(candidate.aircraft, "Aircraft control state");
   const satellites = record(candidate.satellites, "Satellite control state");
+  const amazonForestOutlines = candidate.amazonForestOutlines === undefined
+    ? DEFAULT_SUPERVISION_CONTROL_STATE.amazonForestOutlines
+    : record(candidate.amazonForestOutlines, "Amazon forest outline control state");
   const eclipse = candidate.eclipse === undefined
     ? DEFAULT_SUPERVISION_CONTROL_STATE.eclipse
     : record(candidate.eclipse, "Eclipse control state");
@@ -341,6 +369,17 @@ export function parseSupervisionControlState(
   ) {
     throw new Error("Eclipse contact end UTC must follow contact start UTC.");
   }
+  const availableForestYears = integerYears(
+    amazonForestOutlines.availableYears,
+    "Available Amazon forest outline years",
+  );
+  const visibleForestYears = integerYears(
+    amazonForestOutlines.visibleYears,
+    "Visible Amazon forest outline years",
+  );
+  if (visibleForestYears.some((year) => !availableForestYears.includes(year))) {
+    throw new Error("Visible Amazon forest outline years must be available.");
+  }
   return {
     aircraft: {
       aircraft: requiredBoolean(
@@ -362,6 +401,10 @@ export function parseSupervisionControlState(
         satellites.science_education,
         "Science and education satellites enabled",
       ),
+    },
+    amazonForestOutlines: {
+      availableYears: availableForestYears,
+      visibleYears: visibleForestYears,
     },
     eclipse: {
       active: eclipseActive,
@@ -501,6 +544,19 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
       enabled: requiredBoolean(
         candidate.enabled,
         "Satellite visibility enabled",
+      ),
+    };
+  }
+  if (candidate.kind === "setAmazonForestYearVisibility") {
+    if (typeof candidate.year !== "number" || !Number.isInteger(candidate.year)) {
+      throw new Error("Amazon forest outline year must be an integer.");
+    }
+    return {
+      kind: "setAmazonForestYearVisibility",
+      year: candidate.year,
+      visible: requiredBoolean(
+        candidate.visible,
+        "Amazon forest outline visibility",
       ),
     };
   }

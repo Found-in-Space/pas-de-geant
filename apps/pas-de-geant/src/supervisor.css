@@ -653,6 +653,26 @@ input:focus {
   gap: 5px;
 }
 
+.tracking-control-empty {
+  margin: 0;
+  color: #718a8f;
+  font-size: 0.66rem;
+}
+
+.forest-year-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.forest-year-swatch {
+  width: 9px;
+  height: 9px;
+  border: 1px solid rgb(232 244 244 / 55%);
+  border-radius: 50%;
+  box-shadow: 0 0 6px currentcolor;
+}
+
 .tracking-control {
   display: flex;
   min-width: 0;

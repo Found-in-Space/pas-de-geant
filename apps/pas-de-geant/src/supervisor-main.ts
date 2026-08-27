@@ -13,6 +13,7 @@ import {
 } from "./location-pin.js";
 import type { AircraftDisplayTarget } from "./aircraft-lifecycle.js";
 import type { SatelliteToolGroup } from "./satellite-groups.js";
+import { amazonForestOutlineColor } from "./amazon-forest-outline-control.js";
 import {
   SupervisorClient,
   type SupervisorConnectionStatus,
@@ -81,6 +82,7 @@ const satelliteControls: Record<SatelliteToolGroup, HTMLInputElement> = {
   space_stations: element<HTMLInputElement>("satellite-stations-control"),
   science_education: element<HTMLInputElement>("satellite-science-control"),
 };
+const amazonForestControls = element<HTMLDivElement>("amazon-forest-controls");
 const eclipseEventReadout = element<HTMLElement>("eclipse-event-readout");
 const eclipsePeakReadout = element<HTMLElement>("eclipse-peak-readout");
 const eclipseTimeReadout = element<HTMLElement>("eclipse-time-readout");
@@ -122,6 +124,11 @@ interface SavedLocationListEntry {
   readonly remove: HTMLButtonElement;
 }
 
+interface AmazonForestYearControl {
+  readonly row: HTMLLabelElement;
+  readonly input: HTMLInputElement;
+}
+
 let sessions = new Map<string, SupervisionSession>();
 let selectedSessionId: string | undefined;
 let selectedSessionCache: SupervisionSession | undefined;
@@ -148,6 +155,7 @@ let mapCenteredSessionId: string | undefined;
 const pendingCommands = new Map<string, PendingCommand>();
 const sessionListEntries = new Map<string, SessionListEntry>();
 const savedLocationListEntries = new Map<string, SavedLocationListEntry>();
+const amazonForestYearControls = new Map<number, AmazonForestYearControl>();
 const pinMapMarkers = new Map<string, { marker: L.Marker; signature: string }>();
 const savedLocationStore = new SupervisorSavedLocationStore(window.localStorage);
 let savedLocations = new Map(
@@ -491,6 +499,87 @@ function renderControls(supported: boolean, connected: boolean): void {
       session.controls.satellites[group];
     satelliteControls[group].disabled = !supported || !connected ||
       pending !== undefined;
+  }
+  renderAmazonForestControls(session, supported, connected);
+}
+
+function createAmazonForestYearControl(year: number): AmazonForestYearControl {
+  const row = document.createElement("label");
+  row.className = "tracking-control";
+  const copy = document.createElement("span");
+  const heading = document.createElement("strong");
+  heading.className = "forest-year-heading";
+  const swatch = document.createElement("span");
+  swatch.className = "forest-year-swatch";
+  const text = document.createElement("span");
+  text.textContent = String(year);
+  heading.append(swatch, text);
+  const detail = document.createElement("small");
+  detail.textContent = "Natural-forest extent";
+  copy.append(heading, detail);
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.addEventListener("change", () => {
+    sendCommand({
+      kind: "setAmazonForestYearVisibility",
+      year,
+      visible: input.checked,
+    }, `Amazon forest ${year} ${input.checked ? "on" : "off"}`);
+  });
+  row.append(copy, input);
+  return { row, input };
+}
+
+function renderAmazonForestControls(
+  session: SupervisionSession,
+  supported: boolean,
+  connected: boolean,
+): void {
+  const state = session.controls.amazonForestOutlines;
+  for (const [year, control] of amazonForestYearControls) {
+    if (state.availableYears.includes(year)) continue;
+    control.row.remove();
+    amazonForestYearControls.delete(year);
+  }
+  if (state.availableYears.length === 0) {
+    amazonForestYearControls.clear();
+    const empty = document.createElement("p");
+    empty.className = "tracking-control-empty";
+    empty.textContent = "No outline years reported by this headset.";
+    amazonForestControls.replaceChildren(empty);
+    return;
+  }
+
+  amazonForestControls.querySelector(".tracking-control-empty")?.remove();
+  let insertionPoint = amazonForestControls.firstElementChild;
+  for (const year of state.availableYears) {
+    let control = amazonForestYearControls.get(year);
+    if (!control) {
+      control = createAmazonForestYearControl(year);
+      amazonForestYearControls.set(year, control);
+    }
+    const swatch = control.row.querySelector<HTMLElement>(".forest-year-swatch");
+    if (swatch) {
+      swatch.style.backgroundColor = amazonForestOutlineColor(
+        year,
+        state.availableYears,
+      );
+    }
+    const pending = [...pendingCommands.values()].find(
+      (entry) => entry.sessionId === selectedSessionId &&
+        entry.command.kind === "setAmazonForestYearVisibility" &&
+        entry.command.year === year,
+    );
+    const pendingVisible = pending?.command.kind ===
+        "setAmazonForestYearVisibility"
+      ? pending.command.visible
+      : undefined;
+    control.input.checked = pendingVisible ?? state.visibleYears.includes(year);
+    control.input.disabled = !supported || !connected || pending !== undefined;
+    if (control.row !== insertionPoint) {
+      amazonForestControls.insertBefore(control.row, insertionPoint);
+    }
+    insertionPoint = control.row.nextElementSibling;
   }
 }
 
