@@ -22,6 +22,7 @@ import {
   supervisorEclipseTimelineFraction,
   supervisorEclipseTimelineUtc,
 } from "./supervisor-eclipse-timeline.js";
+import { SupervisorEclipseScrubber } from "./supervisor-eclipse-scrubber.js";
 import {
   UI_HEADING_TRANSITION_SECONDS,
   UI_SCALE_TRANSITION_SECONDS,
@@ -132,6 +133,16 @@ let radialDraftInitialized = false;
 let radialDraftDirty = false;
 let headingDraftDirty = false;
 let eclipseTimeDraftDirty = false;
+const eclipseTimeScrubber = new SupervisorEclipseScrubber({
+  send(utc, final) {
+    const commandId = sendCommand(
+      { kind: "setEclipseTime", utc },
+      final ? "Eclipse timeline" : "Eclipse timeline update",
+    );
+    if (!commandId) eclipseTimeDraftDirty = false;
+    return commandId;
+  },
+});
 let mapCenteredSessionId: string | undefined;
 const pendingCommands = new Map<string, PendingCommand>();
 const sessionListEntries = new Map<string, SessionListEntry>();
@@ -303,6 +314,7 @@ function resetDrafts(session: SupervisionSession): void {
   radialDraftDirty = false;
   headingDraftDirty = false;
   eclipseTimeDraftDirty = false;
+  eclipseTimeScrubber.cancel();
   if (session.state) initializeDrafts(session);
 }
 
@@ -490,10 +502,6 @@ function renderEclipseControls(
     (pending) => pending.sessionId === selectedSessionId &&
       pending.command.kind === "setEclipsePlayback",
   );
-  const timePending = [...pendingCommands.values()].find(
-    (pending) => pending.sessionId === selectedSessionId &&
-      pending.command.kind === "setEclipseTime",
-  );
   const pendingPlaying = playbackPending?.command.kind === "setEclipsePlayback"
     ? playbackPending.command.playing
     : undefined;
@@ -514,15 +522,15 @@ function renderEclipseControls(
 
   const timelineAvailable = eclipse.contactStartUtc !== null &&
     eclipse.contactEndUtc !== null;
-  eclipseTimeControl.disabled = !connected || !timelineAvailable ||
-    timePending !== undefined;
-  if (!eclipseTimeDraftDirty && timePending === undefined && eclipse.atUtc) {
+  eclipseTimeControl.disabled = !connected || !timelineAvailable;
+  if (!eclipseTimeDraftDirty && eclipse.atUtc) {
     const fraction = supervisorEclipseTimelineFraction(eclipse, eclipse.atUtc);
     if (fraction !== undefined) eclipseTimeControl.value = String(fraction);
   }
-  const targetUtc = timePending?.command.kind === "setEclipseTime"
-    ? timePending.command.utc
-    : supervisorEclipseTimelineUtc(eclipse, eclipseTimeControl.valueAsNumber);
+  const targetUtc = supervisorEclipseTimelineUtc(
+    eclipse,
+    eclipseTimeControl.valueAsNumber,
+  );
   eclipseTimeTarget.value = formatUtc(targetUtc ?? null);
 }
 
@@ -1123,6 +1131,7 @@ eclipseTimeControl.addEventListener("input", () => {
     ? supervisorEclipseTimelineUtc(eclipse, eclipseTimeControl.valueAsNumber)
     : undefined;
   eclipseTimeTarget.value = formatUtc(utc ?? null);
+  if (utc) eclipseTimeScrubber.update(utc);
 });
 
 eclipseTimeControl.addEventListener("change", () => {
@@ -1133,10 +1142,13 @@ eclipseTimeControl.addEventListener("change", () => {
     eclipseTimeControl.valueAsNumber,
   );
   if (!utc) return;
-  sendCommand({ kind: "setEclipseTime", utc }, "Eclipse timeline");
+  eclipseTimeScrubber.finish(utc);
 });
 
-function sendCommand(command: SupervisionCommand, description: string): void {
+function sendCommand(
+  command: SupervisionCommand,
+  description: string,
+): string | undefined {
   if (!selectedSessionId) return;
   try {
     const commandId = client.sendCommand(selectedSessionId, command);
@@ -1148,11 +1160,13 @@ function sendCommand(command: SupervisionCommand, description: string): void {
     });
     setCommandStatus(`${description} pending…`, "pending");
     render();
+    return commandId;
   } catch (error) {
     setCommandStatus(
       error instanceof Error ? error.message : "Command could not be sent.",
       "failed",
     );
+    return undefined;
   }
 }
 
@@ -1222,9 +1236,13 @@ function handleRelayStatus(status: SupervisorConnectionStatus): void {
     : status === "connecting"
       ? "Connecting…"
       : "Reconnecting…";
-  if (status === "reconnecting" && pendingCommands.size > 0) {
-    pendingCommands.clear();
-    setCommandStatus("Connection lost before acknowledgement.", "failed");
+  if (status === "reconnecting") {
+    eclipseTimeScrubber.cancel();
+    eclipseTimeDraftDirty = false;
+    if (pendingCommands.size > 0) {
+      pendingCommands.clear();
+      setCommandStatus("Connection lost before acknowledgement.", "failed");
+    }
   }
 }
 
@@ -1232,6 +1250,12 @@ function handleCommandResult(result: CommandResultMessage): void {
   const pending = pendingCommands.get(result.commandId);
   if (!pending) return;
   pendingCommands.delete(result.commandId);
+  const eclipseScrubAcknowledgement = pending.command.kind === "setEclipseTime"
+    ? eclipseTimeScrubber.acknowledge(result.commandId, result.ok)
+    : "ignored";
+  if (eclipseScrubAcknowledgement === "complete") {
+    eclipseTimeDraftDirty = false;
+  }
   if (result.ok) {
     const session = sessions.get(pending.sessionId);
     if (session) {
@@ -1265,17 +1289,15 @@ function handleCommandResult(result: CommandResultMessage): void {
       }
       headingDraftDirty = false;
     }
-    if (pending.command.kind === "setEclipseTime") {
-      eclipseTimeDraftDirty = false;
+    if (eclipseScrubAcknowledgement === "streaming") {
+      setCommandStatus("Eclipse timeline streaming…", "pending");
+    } else {
+      setCommandStatus(
+        `${pending.description} acknowledged at state ${result.state.sequence}.`,
+        "acknowledged",
+      );
     }
-    setCommandStatus(
-      `${pending.description} acknowledged at state ${result.state.sequence}.`,
-      "acknowledged",
-    );
   } else {
-    if (pending.command.kind === "setEclipseTime") {
-      eclipseTimeDraftDirty = false;
-    }
     setCommandStatus(`${pending.description} failed: ${result.error}`, "failed");
   }
   render();
@@ -1292,7 +1314,10 @@ const client = new SupervisorClient({
   onCommandResult: handleCommandResult,
 });
 
-window.addEventListener("beforeunload", () => client.stop());
+window.addEventListener("beforeunload", () => {
+  eclipseTimeScrubber.cancel();
+  client.stop();
+});
 window.setInterval(renderSessionList, 1_000);
 render();
 client.start();
