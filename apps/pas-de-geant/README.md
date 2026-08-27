@@ -337,12 +337,15 @@ open forward proxy.
 
 The initial registry exposes `textures`, the diagnostic `textures-source`, and
 `elevation`. Each provider has its own request coalescing, throttle queue, and
-cache namespace below the repository's ignored `.cache/tiles` directory. By
-default, each queue permits 16 upstream requests at a time and spaces starts
-by 10 ms (about 100 starts per second). A provider's `Retry-After` pauses only
-its own queue; rate-limit responses without that header use a five-second
-fallback. Production builds and previews keep the configured direct provider
-URLs.
+cache namespace below a user-level cache shared by checkouts and worktrees.
+The default root is `~/Library/Caches/pas-de-geant/tiles` on macOS,
+`$XDG_CACHE_HOME/pas-de-geant/tiles` when `XDG_CACHE_HOME` is an absolute path,
+`%LOCALAPPDATA%\pas-de-geant\tiles` on Windows, and
+`~/.cache/pas-de-geant/tiles` otherwise. By default, each queue permits 16
+upstream requests at a time and spaces starts by 10 ms (about 100 starts per
+second). A provider's `Retry-After` pauses only its own queue; rate-limit
+responses without that header use a five-second fallback. Production builds
+and previews keep the configured direct provider URLs.
 
 The development defaults can be tuned in `.env.local`:
 
@@ -352,7 +355,8 @@ PAS_DE_GEANT_TILE_PROXY_MIN_INTERVAL_MS=10
 PAS_DE_GEANT_TILE_PROXY_DEFAULT_TTL_MS=86400000
 PAS_DE_GEANT_TILE_PROXY_UPSTREAM_BACKOFF_MS=5000
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_FALLBACK_TTL_MS=60000
-PAS_DE_GEANT_TILE_PROXY_CACHE_DIRECTORY=../../.cache/tiles
+# Optional; defaults to the platform user cache described above.
+# PAS_DE_GEANT_TILE_PROXY_CACHE_DIRECTORY=/absolute/path/to/tile-cache
 PAS_DE_GEANT_TILE_PROXY_CACHE_KEY_IGNORED_QUERY_PARAMETERS=key
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE=
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_SCHEME=xyz
@@ -375,8 +379,13 @@ seconds by default); it is never written into the persistent tile cache. Cache
 hits remain available while the upstream is backed off. The default cache TTL
 applies only when an otherwise cacheable image response does not publish an
 explicit lifetime. `no-store` and `private` responses are never written to
-disk. The cache has no automatic size eviction; remove
-`.cache/tiles` manually when a clean development run is needed. The ignored
+disk. Cache files are committed by atomic rename, so multiple development
+servers can share the directory when a cache identity always denotes the same
+immutable tile. Request coalescing and upstream throttling remain local to each
+server, so simultaneous misses can still download the same tile more than once.
+Do not delete entries while another server is writing them. The cache has no
+automatic size eviction; remove the platform cache directory (or the configured
+override) manually when a clean development run is needed. The ignored
 query-parameter list keeps rotating credentials out of cache identity; set it
 to the parameter names used by the configured providers. URL templates may put
 `{z}`, `{x}`, and `{y}` in any order and may include extensions and query

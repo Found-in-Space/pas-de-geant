@@ -5,7 +5,8 @@ import type {
   IncomingMessage,
   ServerResponse,
 } from "node:http";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { isAllowedRequestOrigin } from "./realtime-token-server.js";
 import { TILE_PROXY_PATH } from "./tile-proxy.js";
@@ -29,6 +30,33 @@ const UPSTREAM_MANAGED_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
 ]);
+
+interface DefaultTileProxyCacheDirectoryOptions {
+  readonly environment?: Partial<
+    Pick<NodeJS.ProcessEnv, "LOCALAPPDATA" | "XDG_CACHE_HOME">
+  >;
+  readonly homeDirectory?: string;
+  readonly platform?: NodeJS.Platform;
+}
+
+/** A user-level cache remains shared by checkouts and disposable worktrees. */
+export function defaultTileProxyCacheDirectory(
+  options: DefaultTileProxyCacheDirectoryOptions = {},
+): string {
+  const environment = options.environment ?? process.env;
+  const homeDirectory = options.homeDirectory ?? homedir();
+  const platform = options.platform ?? process.platform;
+  const xdgCacheHome = environment.XDG_CACHE_HOME?.trim();
+  const localAppData = environment.LOCALAPPDATA?.trim();
+  const cacheRoot = xdgCacheHome && isAbsolute(xdgCacheHome)
+    ? xdgCacheHome
+    : platform === "darwin"
+    ? join(homeDirectory, "Library", "Caches")
+    : platform === "win32" && localAppData && isAbsolute(localAppData)
+    ? localAppData
+    : join(homeDirectory, ".cache");
+  return join(cacheRoot, "pas-de-geant", "tiles");
+}
 
 interface CachedTileMetadata {
   readonly version: 1;
