@@ -367,6 +367,9 @@ const planetRoot = new THREE.Group();
 scene.add(planetRoot);
 
 const celestialSphere = new CelestialSphere();
+// Temporarily hide the Sun, Moon, and planet sky objects: their finite render
+// distance can put them in front of Earth and make them show through at high zoom.
+celestialSphere.setVisibility("all", false);
 scene.add(celestialSphere.object3d);
 const textureLoader = new THREE.TextureLoader();
 const moonBaseTexturePromise = textureLoader.loadAsync(
