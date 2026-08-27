@@ -828,7 +828,12 @@ const satelliteGroups: Record<SatelliteGroupId, SatelliteGroupRuntime> = {
 };
 
 function currentViewCamera(): THREE.Camera {
-  return renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  // WebXRManager's ArrayCamera is not parented to observerRig. Asking it to
+  // update its world matrix therefore drops the rig transform and makes orbit
+  // altitude accumulate from the tracked-space pose instead of the rendered
+  // head pose. The application camera retains that parent relationship and is
+  // refreshed from the current XR view at the start of every frame.
+  return camera;
 }
 
 function commitObserverTransform(transform: EclipseObserverTransform): void {
@@ -1124,9 +1129,7 @@ function updateNavigationTransitions(nowMs: number): void {
 const viewDirectionQuaternion = new THREE.Quaternion();
 
 function viewWorldHeadingDegrees(): number {
-  const viewCamera = renderer.xr.isPresenting
-    ? renderer.xr.getCamera()
-    : camera;
+  const viewCamera = currentViewCamera();
   viewCamera.updateWorldMatrix(true, false);
   viewCamera.getWorldQuaternion(viewDirectionQuaternion);
   return viewHeadingDegreesFromQuaternion(viewDirectionQuaternion);
@@ -1464,17 +1467,16 @@ function terrainViewMetrics(): {
   eyeHeightWorldM: number;
   focalLengthPixels: number;
 } {
-  const viewCamera = renderer.xr.isPresenting
-    ? renderer.xr.getCamera()
-    : camera;
+  const viewCamera = currentViewCamera();
   viewCamera.updateWorldMatrix(true, false);
   viewCamera.getWorldPosition(terrainEyeWorldPosition);
   // The local-floor reference space measures eye height from world y=0,
   // which is the un-displaced flat base surface used for terrain LOD.
   const eyeHeightWorldM = Math.max(0.001, terrainEyeWorldPosition.y);
   let focalLengthPixels = 1;
-  if (renderer.xr.isPresenting && viewCamera instanceof THREE.ArrayCamera) {
-    for (const eyeCamera of viewCamera.cameras) {
+  if (renderer.xr.isPresenting) {
+    const xrCamera = renderer.xr.getCamera();
+    for (const eyeCamera of xrCamera.cameras) {
       const viewport = (
         eyeCamera as THREE.PerspectiveCamera & { viewport?: THREE.Vector4 }
       ).viewport;
@@ -2196,8 +2198,7 @@ function updateHandPanel(nowMs: number): void {
 }
 
 function updatePhysicalWalking(): void {
-  const xrCamera = renderer.xr.getCamera();
-  xrCamera.getWorldPosition(xrHeadPosition);
+  currentViewCamera().getWorldPosition(xrHeadPosition);
   headsetFloorPosition.set(xrHeadPosition.x, xrHeadPosition.z);
   if (previousXrHead && navigationMode === "surface") {
     const displacement = headsetFloorPosition.clone().sub(previousXrHead);
@@ -2225,7 +2226,7 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
       intent.turnAxis * XR_TURN_RATE_DEGREES_PER_SECOND * deltaSeconds,
     );
   }
-  renderer.xr.getCamera().getWorldQuaternion(xrViewQuaternion);
+  currentViewCamera().getWorldQuaternion(xrViewQuaternion);
   if (navigationMode === "orbit") {
     updateOrbitControls(
       intent.orbit.x,
@@ -3063,7 +3064,7 @@ function captureBenchmarkRestoreState(): BenchmarkRestoreState {
 
 function setSimulationInputEnabled(enabled: boolean): void {
   if (!enabled && renderer.xr.isPresenting) {
-    renderer.xr.getCamera().getWorldPosition(debugHeadWorldPosition);
+    currentViewCamera().getWorldPosition(debugHeadWorldPosition);
     headsetFloorPosition.set(debugHeadWorldPosition.x, debugHeadWorldPosition.z);
   }
   simulationInputEnabled = enabled;
@@ -3374,6 +3375,7 @@ function render(nowMs: number): void {
   if (xrFrameRate !== undefined && xrFrameRate > 0) {
     lastKnownXrFrameRate = xrFrameRate;
   }
+  if (renderer.xr.isPresenting) renderer.xr.updateCamera(camera);
   const utcMilliseconds = Date.now();
   const intervalMs = nowMs - previousFrameMs;
   const deltaSeconds = Math.min(0.05, intervalMs / 1000);
@@ -3414,9 +3416,7 @@ function render(nowMs: number): void {
     earthDisplayRadiusM,
     state.radialMultiplier,
   );
-  const viewCamera = renderer.xr.isPresenting
-    ? renderer.xr.getCamera()
-    : camera;
+  const viewCamera = currentViewCamera();
   viewCamera.getWorldPosition(cameraWorldPosition);
   if (navigationMode === "orbit") {
     celestialObserverAppEcefKm.copy(cameraWorldPosition);
