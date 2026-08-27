@@ -6,6 +6,7 @@ import { WebSocket, type RawData } from "ws";
 import {
   earthMapCoordinates,
   earthMapPoint,
+  parseEarthCoordinatePair,
 } from "../apps/pas-de-geant/src/earth-map.js";
 import {
   applySupervisorLocationPinMutation,
@@ -208,6 +209,23 @@ describe("equirectangular supervisor map", () => {
       longitudeDegrees: 180,
     });
     expect(earthMapPoint(0, 180, rect).x).toBe(rect.x);
+  });
+});
+
+describe("supervisor coordinate paste", () => {
+  it("parses a Google Maps latitude/longitude pair without losing precision", () => {
+    expect(parseEarthCoordinatePair(
+      "28.27103351877764, 85.37820569619699",
+    )).toEqual({
+      latitudeDegrees: 28.27103351877764,
+      longitudeDegrees: 85.37820569619699,
+    });
+  });
+
+  it("leaves ordinary or invalid coordinate text alone", () => {
+    expect(parseEarthCoordinatePair("28.27103351877764")).toBeUndefined();
+    expect(parseEarthCoordinatePair("91, 85.3782")).toBeUndefined();
+    expect(parseEarthCoordinatePair("28.271, west")).toBeUndefined();
   });
 });
 

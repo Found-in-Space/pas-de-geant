@@ -2,7 +2,10 @@ import "leaflet/dist/leaflet.css";
 import "./supervisor.css";
 
 import * as L from "leaflet";
-import { normalizeLongitudeDegrees } from "./earth-map.js";
+import {
+  normalizeLongitudeDegrees,
+  parseEarthCoordinatePair,
+} from "./earth-map.js";
 import {
   formatLocationPinDistance,
   greatCircleDistanceKm,
@@ -829,6 +832,18 @@ leafletMap.on("click", (event: L.LeafletMouseEvent) => {
 
 destinationLatitude.addEventListener("input", updateDestinationFromFields);
 destinationLongitude.addEventListener("input", updateDestinationFromFields);
+const pasteCoordinatePair = (event: ClipboardEvent): void => {
+  const coordinates = parseEarthCoordinatePair(
+    event.clipboardData?.getData("text/plain") ?? "",
+  );
+  if (!coordinates) return;
+  event.preventDefault();
+  destinationLatitude.value = String(coordinates.latitudeDegrees);
+  destinationLongitude.value = String(coordinates.longitudeDegrees);
+  updateDestinationFromFields();
+};
+destinationLatitude.addEventListener("paste", pasteCoordinatePair);
+destinationLongitude.addEventListener("paste", pasteCoordinatePair);
 displayRadius.addEventListener("input", () => {
   scaleDraftDirty = true;
   scaleDraftInitialized = true;

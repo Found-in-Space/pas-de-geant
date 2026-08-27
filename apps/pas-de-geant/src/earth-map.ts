@@ -10,6 +10,27 @@ export interface EarthCoordinates {
   readonly longitudeDegrees: number;
 }
 
+export function parseEarthCoordinatePair(
+  value: string,
+): EarthCoordinates | undefined {
+  const parts = value.split(",");
+  if (parts.length !== 2) return undefined;
+  const latitudeText = parts[0]?.trim() ?? "";
+  const longitudeText = parts[1]?.trim() ?? "";
+  if (!latitudeText || !longitudeText) return undefined;
+  const latitudeDegrees = Number(latitudeText);
+  const longitudeDegrees = Number(longitudeText);
+  if (
+    !Number.isFinite(latitudeDegrees) ||
+    latitudeDegrees < -90 ||
+    latitudeDegrees > 90 ||
+    !Number.isFinite(longitudeDegrees) ||
+    longitudeDegrees < -180 ||
+    longitudeDegrees > 180
+  ) return undefined;
+  return { latitudeDegrees, longitudeDegrees };
+}
+
 export function normalizeLongitudeDegrees(longitudeDegrees: number): number {
   return ((longitudeDegrees + 180) % 360 + 360) % 360 - 180;
 }
