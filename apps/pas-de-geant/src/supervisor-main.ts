@@ -326,7 +326,7 @@ function renderSessionList(): void {
     entry.name.textContent = sessionName(session);
     entry.timing.textContent = elapsedLabel(session.connectedAtMs);
     entry.location.textContent = session.state
-      ? `${session.state.latitudeDegrees.toFixed(3)}°, ${session.state.longitudeDegrees.toFixed(3)}° · ${formatRadius(session.state.displayRadiusM)} · heading ${
+      ? `${session.state.latitudeDegrees.toFixed(3)}°, ${session.state.longitudeDegrees.toFixed(3)}° · ${formatRadius(session.state.displayRadiusM)} · ${
         session.state.headingDegrees === null
           ? "—"
           : `${Math.round(session.state.headingDegrees) % 360}°`
