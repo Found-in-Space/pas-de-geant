@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#071015">
+    <meta name="description" content="Development supervision for active Pas de Géant XR sessions.">
+    <title>Pas de Géant — Supervisor</title>
+  </head>
+  <body>
+    <main class="dashboard">
+      <aside class="session-rail">
+        <header>
+          <p class="eyebrow">Pas de Géant</p>
+          <h1>Live supervision</h1>
+          <p id="relay-status" class="relay-status" data-state="connecting">Connecting…</p>
+        </header>
+        <div class="session-heading">
+          <h2>Headsets</h2>
+          <span id="session-count">0 live</span>
+        </div>
+        <div id="session-list" class="session-list" aria-live="polite"></div>
+      </aside>
+
+      <section class="workspace">
+        <header class="workspace-header">
+          <div>
+            <p class="eyebrow">Selected session</p>
+            <h2 id="selected-title">Choose a headset</h2>
+          </div>
+          <p id="selected-mode" class="mode-chip">No session selected</p>
+        </header>
+
+        <div id="empty-state" class="empty-state">
+          <p>Select a live headset to inspect its Earth surface position.</p>
+        </div>
+
+        <div id="session-workspace" class="session-workspace" hidden>
+          <p id="unsupported-notice" class="notice" hidden></p>
+
+          <section class="map-card" aria-label="Headset position and gaze">
+            <div id="earth-map" class="earth-map">
+              <img id="earth-map-image" alt="Equirectangular map of Earth">
+              <span id="current-marker" class="map-marker current-marker" aria-label="Current position"></span>
+              <span id="gaze-arrow" class="gaze-arrow" aria-label="Ground-projected gaze direction"></span>
+              <span id="destination-marker" class="map-marker destination-marker" aria-label="Warp destination"></span>
+            </div>
+            <p class="map-caption">Click the map to draft a destination. Warp is sent only from the button below.</p>
+          </section>
+
+          <section class="telemetry-grid" aria-label="Current navigation telemetry">
+            <div><span>Latitude</span><strong id="current-latitude">—</strong></div>
+            <div><span>Longitude</span><strong id="current-longitude">—</strong></div>
+            <div><span>Heading</span><strong id="current-heading">—</strong></div>
+            <div><span>Earth radius</span><strong id="current-radius">—</strong></div>
+            <div><span>Ground scale</span><strong id="ground-scale">—</strong></div>
+            <div><span>Relief</span><strong id="current-radial">—</strong></div>
+          </section>
+
+          <div class="command-grid">
+            <form id="warp-form" class="command-card">
+              <div class="command-title">
+                <div>
+                  <p class="eyebrow">Location</p>
+                  <h3>Warp destination</h3>
+                </div>
+                <button id="use-current-button" class="text-button" type="button">Use current</button>
+              </div>
+              <div class="field-grid">
+                <label>Latitude
+                  <input id="destination-latitude" type="number" min="-90" max="90" step="any" required>
+                </label>
+                <label>Longitude
+                  <input id="destination-longitude" type="number" min="-180" max="180" step="any" required>
+                </label>
+              </div>
+              <button id="warp-button" class="primary-button" type="submit">Warp headset</button>
+            </form>
+
+            <form id="scale-form" class="command-card">
+              <div class="command-title">
+                <div>
+                  <p class="eyebrow">Scale</p>
+                  <h3>Displayed Earth radius</h3>
+                </div>
+              </div>
+              <label>Radius in room metres
+                <input id="display-radius" type="number" min="0" step="any" required>
+              </label>
+              <button id="scale-button" class="primary-button" type="submit">Apply radius</button>
+            </form>
+          </div>
+
+          <p id="command-status" class="command-status" data-state="idle" aria-live="polite">Ready.</p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/src/supervisor-main.ts"></script>
+  </body>
+</html>

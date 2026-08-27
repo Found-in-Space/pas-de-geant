@@ -5,6 +5,7 @@ import { createReverseGeocodeMiddleware } from "./src/location-context-server.js
 import { createRealtimeTokenMiddleware } from "./src/realtime-token-server.js";
 import { createExternalKnowledgeMiddleware } from "./src/external-knowledge-server.js";
 import { createSatelliteFeedMiddleware } from "./src/satellite-feed-server.js";
+import { attachSupervisionRelay } from "./src/supervision-server.js";
 import {
   createTileProxyMiddleware,
   type TileProxyProviderOptions,
@@ -310,6 +311,11 @@ export default defineConfig(({ mode }) => {
       {
         name: "pas-de-geant-development-apis",
         configureServer(server) {
+          const httpServer = server.httpServer;
+          if (httpServer) {
+            const detachSupervisionRelay = attachSupervisionRelay(httpServer);
+            httpServer.once("close", detachSupervisionRelay);
+          }
           server.middlewares.use(realtimeTokenMiddleware);
           server.middlewares.use(reverseGeocodeMiddleware);
           server.middlewares.use(externalKnowledgeMiddleware);

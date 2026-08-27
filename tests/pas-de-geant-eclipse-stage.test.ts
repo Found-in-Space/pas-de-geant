@@ -19,6 +19,7 @@ import {
   observerTranslatedForHeadPosition,
   updateObserverEarthOrbit,
   updateObserverTwoGrip,
+  updateTargetLockedOrbitFrame,
   type EclipseObserverTransform,
 } from "../apps/pas-de-geant/src/eclipse-observer.js";
 import {
@@ -294,6 +295,26 @@ describe("Eclipse observatory system and observer transforms", () => {
     expect(nextEarthBearing.distanceTo(originalEarthBearing)).toBeLessThan(1e-10);
     expect(stopped.position.distanceTo(observer.position)).toBe(0);
     expect(stopped.quaternion.angleTo(observer.quaternion)).toBe(0);
+  });
+
+  it("updates target-locked orbital position without rotating XR space", () => {
+    const frame = new THREE.Quaternion();
+    const headPosition = new THREE.Vector3(0, 0, 4);
+    const headQuaternion = new THREE.Quaternion();
+    const target = new THREE.Vector3();
+    const surfacePoint = new THREE.Vector3(0, 0, 1);
+    const orbitedFrame = updateTargetLockedOrbitFrame(
+      frame,
+      headPosition,
+      headQuaternion,
+      target,
+      Math.PI / 2,
+      0,
+    );
+
+    expect(surfacePoint.applyQuaternion(orbitedFrame).x).toBeCloseTo(-1, 12);
+    expect(headPosition.toArray()).toEqual([0, 0, 4]);
+    expect(headQuaternion.angleTo(new THREE.Quaternion())).toBe(0);
   });
 
   it("changes radial distance proportionally without changing its direction", () => {

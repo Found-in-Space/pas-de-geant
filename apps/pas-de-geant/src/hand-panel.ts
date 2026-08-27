@@ -13,7 +13,13 @@ import {
   type ThemeTokens,
   type RuntimeOutput,
 } from "@found-in-space/touch-os";
+import {
+  earthMapImageRects,
+  earthMapPoint,
+} from "./earth-map.js";
 import type { RealtimeAgentState } from "./realtime-agent.js";
+
+export { earthMapImageRects, earthMapPoint } from "./earth-map.js";
 
 export const HAND_PANEL_SURFACE: Partial<SurfaceMetrics> = {
   width: 640,
@@ -93,7 +99,6 @@ interface HandPanelStatusProps extends HandPanelStatus {
   height: number;
 }
 
-const EARTH_MAP_ZOOM = 4;
 const EARTH_MAP_BORDER_WIDTH = 12;
 const DEFAULT_HAND_PANEL_STATUS: HandPanelStatus = {
   globalScaleFactor: 1,
@@ -404,44 +409,6 @@ export function createHandPanelRoot(
       ),
     ],
   });
-}
-
-export function earthMapImageRects(
-  latitudeDegrees: number,
-  longitudeDegrees: number,
-  rect: Rect,
-  zoom = EARTH_MAP_ZOOM,
-): Rect[] {
-  const latitude = Math.max(-90, Math.min(90, latitudeDegrees));
-  const longitude =
-    ((longitudeDegrees + 180) % 360 + 360) % 360 - 180;
-  const resolvedZoom = Math.max(1, zoom);
-  const width = rect.width * resolvedZoom;
-  const height = width / 2;
-  const centreX = rect.x + rect.width / 2;
-  const centreY = rect.y + rect.height / 2;
-  const x = centreX - (longitude + 180) / 360 * width;
-  const y = centreY - (90 - latitude) / 180 * height;
-  return [0, -1, 1].map((wrap) => ({
-    x: x + wrap * width,
-    y,
-    width,
-    height,
-  }));
-}
-
-export function earthMapPoint(
-  latitudeDegrees: number,
-  longitudeDegrees: number,
-  rect: Rect,
-): { x: number; y: number } {
-  const latitude = Math.max(-90, Math.min(90, latitudeDegrees));
-  const longitude =
-    ((longitudeDegrees + 180) % 360 + 360) % 360 - 180;
-  return {
-    x: rect.x + (longitude + 180) / 360 * rect.width,
-    y: rect.y + (90 - latitude) / 180 * rect.height,
-  };
 }
 
 export function compassBorderPoint(

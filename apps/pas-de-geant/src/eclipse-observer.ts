@@ -14,6 +14,31 @@ export interface ObserverTwoGripGesture {
 
 const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
 
+function targetOrbitRotation(
+  headWorldPosition: THREE.Vector3,
+  headWorldQuaternion: THREE.Quaternion,
+  targetWorldPosition: THREE.Vector3,
+  horizontalRadians: number,
+  verticalRadians: number,
+): THREE.Quaternion {
+  const angle = Math.hypot(horizontalRadians, verticalRadians);
+  if (angle === 0) return new THREE.Quaternion();
+  const radial = headWorldPosition.clone().sub(targetWorldPosition).normalize();
+  const screenRight = new THREE.Vector3(1, 0, 0)
+    .applyQuaternion(headWorldQuaternion);
+  screenRight.addScaledVector(radial, -screenRight.dot(radial));
+  const screenUp = new THREE.Vector3(0, 1, 0)
+    .applyQuaternion(headWorldQuaternion);
+  screenUp.addScaledVector(radial, -screenUp.dot(radial));
+  if (screenRight.lengthSq() > Number.EPSILON) screenRight.normalize();
+  if (screenUp.lengthSq() > Number.EPSILON) screenUp.normalize();
+  const tangent = screenRight.multiplyScalar(horizontalRadians)
+    .addScaledVector(screenUp, verticalRadians);
+  if (tangent.lengthSq() <= Number.EPSILON) return new THREE.Quaternion();
+  const axis = radial.clone().cross(tangent.normalize()).normalize();
+  return new THREE.Quaternion().setFromAxisAngle(axis, angle);
+}
+
 function observerMatrix(observer: EclipseObserverTransform): THREE.Matrix4 {
   return new THREE.Matrix4().compose(
     observer.position,
@@ -57,32 +82,13 @@ export function updateObserverEarthOrbit(
   horizontalRadians: number,
   verticalRadians: number,
 ): EclipseObserverTransform {
-  const angle = Math.hypot(horizontalRadians, verticalRadians);
-  if (angle === 0) {
-    return {
-      position: observer.position.clone(),
-      quaternion: observer.quaternion.clone(),
-    };
-  }
-  const radial = headWorldPosition.clone().sub(earthWorldPosition).normalize();
-  const screenRight = new THREE.Vector3(1, 0, 0)
-    .applyQuaternion(headWorldQuaternion);
-  screenRight.addScaledVector(radial, -screenRight.dot(radial));
-  const screenUp = new THREE.Vector3(0, 1, 0)
-    .applyQuaternion(headWorldQuaternion);
-  screenUp.addScaledVector(radial, -screenUp.dot(radial));
-  if (screenRight.lengthSq() > Number.EPSILON) screenRight.normalize();
-  if (screenUp.lengthSq() > Number.EPSILON) screenUp.normalize();
-  const tangent = screenRight.multiplyScalar(horizontalRadians)
-    .addScaledVector(screenUp, verticalRadians);
-  if (tangent.lengthSq() <= Number.EPSILON) {
-    return {
-      position: observer.position.clone(),
-      quaternion: observer.quaternion.clone(),
-    };
-  }
-  const axis = radial.clone().cross(tangent.normalize()).normalize();
-  const rotation = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+  const rotation = targetOrbitRotation(
+    headWorldPosition,
+    headWorldQuaternion,
+    earthWorldPosition,
+    horizontalRadians,
+    verticalRadians,
+  );
   return {
     position: observer.position.clone()
       .sub(earthWorldPosition)
@@ -90,6 +96,27 @@ export function updateObserverEarthOrbit(
       .add(earthWorldPosition),
     quaternion: rotation.clone().multiply(observer.quaternion).normalize(),
   };
+}
+
+/**
+ * Moves a target-locked observer by rotating the rendered system oppositely.
+ * The tracked XR space stays stable while the point beneath the observer moves.
+ */
+export function updateTargetLockedOrbitFrame(
+  systemFrameQuaternion: THREE.Quaternion,
+  headWorldPosition: THREE.Vector3,
+  headWorldQuaternion: THREE.Quaternion,
+  targetWorldPosition: THREE.Vector3,
+  horizontalRadians: number,
+  verticalRadians: number,
+): THREE.Quaternion {
+  return targetOrbitRotation(
+    headWorldPosition,
+    headWorldQuaternion,
+    targetWorldPosition,
+    horizontalRadians,
+    verticalRadians,
+  ).invert().multiply(systemFrameQuaternion).normalize();
 }
 
 /** Projects a candidate tracked-head position onto an Earth-centred sphere. */

@@ -40,6 +40,25 @@ show or hide the left-wrist panel.
 The right trigger operates the panel ray. Desktop drag orbits the observer and
 the wheel moves closer or farther as a diagnostic fallback.
 
+### Development supervision
+
+The Vite development server exposes a supervisor dashboard at
+`http://127.0.0.1:4197/supervisor/`. An Earth ground-mode headset appears there
+only while its immersive XR session is active. The dashboard shows live
+position, ground-projected gaze, displayed radius, and ground scale, and can
+send explicit warp or displayed-radius commands.
+
+Add an optional label to the headset URL when several devices are in use:
+
+```text
+http://localhost:4197/?sessionLabel=Quest%20lab
+```
+
+The session connection is an optional development aid: socket failures do not
+interrupt the headset experience, and production or preview builds contain no
+supervision client or dashboard. MQDH casting remains separate from this map
+and command channel.
+
 WebXR requires a secure context. A USB-connected Quest can use an Android
 reverse tunnel:
 

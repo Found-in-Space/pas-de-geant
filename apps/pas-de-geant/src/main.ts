@@ -37,7 +37,7 @@ import { bodyFixedToRenderQuaternion } from "./body-attitude.js";
 import { CelestialSphere } from "./celestial-sphere.js";
 import {
   observerProjectedToEarthRadius,
-  updateObserverEarthOrbit,
+  updateTargetLockedOrbitFrame,
   type EclipseObserverTransform,
 } from "./eclipse-observer.js";
 import {
@@ -97,6 +97,12 @@ import {
   RealtimeVoiceAgent,
   type RealtimeAgentStatus,
 } from "./realtime-agent.js";
+import {
+  applySupervisorNavigationMutation,
+  applyVoiceDisplayRadiusMutation,
+  applyVoiceWarpMutation,
+  type CanonicalNavigationMutations,
+} from "./navigation-mutation-adapters.js";
 import { TerrainSurface } from "./terrain-surface.js";
 import { lunarElevationProvider, lunarImageryProvider } from "./lunar-configuration.js";
 import { MOON_SURFACE_MODEL } from "./surface-model.js";
@@ -147,6 +153,14 @@ import {
   viewHeadingDegreesFromQuaternion,
   worldRotationForViewDirection,
 } from "./view-direction.js";
+import type {
+  SupervisionCommand,
+  SupervisionNavigationSnapshot,
+} from "./supervision-protocol.js";
+import type {
+  SupervisionClient,
+  SupervisionConnectionStatus,
+} from "./supervision-client.js";
 
 interface PasDeGeantDebugApi {
   help(): Record<string, string>;
@@ -426,6 +440,7 @@ interface OrbitNavigationState {
   systemFrameQuaternion: THREE.Quaternion;
 }
 let orbitNavigation: OrbitNavigationState | undefined;
+const EARTH_ORBIT_INITIAL_DISPLAY_RADIUS_M = 200;
 interface FreeNavigationFrame {
   anchorWorldPosition: THREE.Vector3;
   systemFrameQuaternion: THREE.Quaternion;
@@ -515,8 +530,7 @@ let realtimeAgentStatus: RealtimeAgentStatus = {
 document.body.dataset.agentStatus = realtimeAgentStatus.state;
 if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
   window.__PAS_DE_GEANT_TEST_SET_SCALE__ = (displayRadiusM): void => {
-    state.displayRadiusM = Math.max(1, displayRadiusM);
-    updatePresentation();
+    setDisplayRadius(displayRadiusM);
   };
   window.__PAS_DE_GEANT_TEST_SET_LOCATION__ = (
     latitudeDegrees,
@@ -838,6 +852,9 @@ function resetPlanet(): void {
     initialLocation.latitudeDegrees,
     initialLocation.longitudeDegrees,
   );
+  if (navigationMode === "orbit" && focusBodyId === "earth") {
+    state.displayRadiusM = EARTH_ORBIT_INITIAL_DISPLAY_RADIUS_M;
+  }
   previousXrHead = null;
   freeObserverJ2000M = undefined;
   if (navigationMode === "free") {
@@ -862,6 +879,9 @@ function setNavigationMode(mode: NavigationMode): void {
     : undefined;
   navigationMode = mode;
   if (mode === "orbit") {
+    if (focusBodyId === "earth") {
+      state.displayRadiusM = EARTH_ORBIT_INITIAL_DISPLAY_RADIUS_M;
+    }
     freeNavigationFrame = undefined;
     initializeOrbit();
   } else if (mode === "free" && orbitToFree) {
@@ -915,6 +935,15 @@ function setFocusBody(bodyId: SolarSystemBodyId): void {
   updatePresentation();
 }
 
+function setDisplayRadius(displayRadiusM: number): number {
+  if (!Number.isFinite(displayRadiusM) || displayRadiusM <= 0) {
+    throw new Error("Display radius must be positive and finite.");
+  }
+  state.displayRadiusM = displayRadiusM;
+  updatePresentation();
+  return state.displayRadiusM;
+}
+
 function setUserLocation(
   latitudeDegrees: number,
   longitudeDegrees: number,
@@ -949,6 +978,41 @@ function viewDirectionState(): Record<string, unknown> {
     ),
     reference: "clockwise from geographic north",
   };
+}
+
+function supervisionNavigationState(): SupervisionNavigationSnapshot {
+  const coordinates = coordinatesForFrame(state.contact);
+  let headingDegrees: number | null = null;
+  try {
+    headingDegrees = geographicViewHeadingDegrees(
+      viewWorldHeadingDegrees(),
+      worldRotationRadians,
+    );
+  } catch {
+    // A vertical gaze has no stable horizontal projection.
+  }
+  return {
+    mode: navigationMode,
+    focusBody: focusBodyId,
+    latitudeDegrees: coordinates.latitudeDegrees,
+    longitudeDegrees: coordinates.longitudeDegrees,
+    displayRadiusM: state.displayRadiusM,
+    radialMultiplier: state.radialMultiplier,
+    headingDegrees,
+  };
+}
+
+const canonicalNavigationMutations: CanonicalNavigationMutations = {
+  warp: setUserLocation,
+  setDisplayRadius,
+  readState: supervisionNavigationState,
+};
+
+function applySupervisionCommand(command: SupervisionCommand): void {
+  if (navigationMode !== "surface" || focusBodyId !== "earth") {
+    throw new Error("Supervision controls currently require Earth surface mode.");
+  }
+  applySupervisorNavigationMutation(command, canonicalNavigationMutations);
 }
 
 function setViewDirection(argumentsValue: unknown): Record<string, unknown> {
@@ -1520,12 +1584,10 @@ const voiceAgent = new RealtimeVoiceAgent({
         setNavigationMode(values.mode);
       }
       if (typeof values.display_radius_metres === "number") {
-        if (
-          !Number.isFinite(values.display_radius_metres) ||
-          values.display_radius_metres <= 0
-        ) throw new Error("Display radius must be positive and finite.");
-        state.displayRadiusM = values.display_radius_metres;
-        updatePresentation();
+        applyVoiceDisplayRadiusMutation(
+          values.display_radius_metres,
+          canonicalNavigationMutations,
+        );
       }
       return {
         ok: true,
@@ -1554,14 +1616,14 @@ const voiceAgent = new RealtimeVoiceAgent({
     },
     set_user_location(argumentsValue) {
       const location = parseLocationToolArguments(argumentsValue);
-      const coordinates = setUserLocation(
-        location.latitudeDegrees,
-        location.longitudeDegrees,
+      const resultingState = applyVoiceWarpMutation(
+        location,
+        canonicalNavigationMutations,
       );
       return {
         ok: true,
-        latitude_degrees: coordinates.latitudeDegrees,
-        longitude_degrees: coordinates.longitudeDegrees,
+        latitude_degrees: resultingState.latitudeDegrees,
+        longitude_degrees: resultingState.longitudeDegrees,
       };
     },
     get_view_direction() {
@@ -1851,7 +1913,7 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
   if (intent.reset) resetPlanet();
 }
 
-function orbitObserverByRadians(
+function orbitSystemFrameByRadians(
   horizontalRadians: number,
   verticalRadians: number,
 ): void {
@@ -1862,8 +1924,8 @@ function orbitObserverByRadians(
   const headQuaternion = new THREE.Quaternion();
   viewCamera.getWorldPosition(headPosition);
   viewCamera.getWorldQuaternion(headQuaternion);
-  commitObserverTransform(updateObserverEarthOrbit(
-    orbitNavigation.observer,
+  orbitNavigation.systemFrameQuaternion.copy(updateTargetLockedOrbitFrame(
+    orbitNavigation.systemFrameQuaternion,
     headPosition,
     headQuaternion,
     orbitNavigation.focusWorldPosition,
@@ -1881,7 +1943,7 @@ function updateOrbitControls(
   deltaSeconds: number,
 ): void {
   if (!orbitNavigation) return;
-  orbitObserverByRadians(
+  orbitSystemFrameByRadians(
     orbitalAngularStepRadians(orbitX, deltaSeconds, boosted),
     orbitalAngularStepRadians(orbitY, deltaSeconds, boosted),
   );
@@ -1991,7 +2053,7 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
 renderer.domElement.addEventListener("pointermove", (event) => {
   if (!pointerActive || renderer.xr.isPresenting) return;
   if (navigationMode === "orbit") {
-    orbitObserverByRadians(
+    orbitSystemFrameByRadians(
       -(event.clientX - pointerX) * 0.002,
       (event.clientY - pointerY) * 0.002,
     );
@@ -2365,6 +2427,46 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+let supervisionClient: SupervisionClient | undefined;
+let supervisionClientModule: Promise<typeof import("./supervision-client.js")> |
+  undefined;
+let supervisionSessionGeneration = 0;
+const supervisionSessionLabel = benchmarkParameters.get("sessionLabel")?.trim() ||
+  undefined;
+
+function setSupervisionStatus(status: SupervisionConnectionStatus): void {
+  document.body.dataset.supervisionStatus = status;
+}
+
+async function startSupervisionSession(): Promise<void> {
+  if (!import.meta.env.DEV) return;
+  const generation = ++supervisionSessionGeneration;
+  try {
+    supervisionClientModule ??= import("./supervision-client.js");
+    const { SupervisionClient: Client } = await supervisionClientModule;
+    if (generation !== supervisionSessionGeneration || !renderer.xr.isPresenting) {
+      return;
+    }
+    supervisionClient ??= new Client({
+      readState: supervisionNavigationState,
+      applyCommand: applySupervisionCommand,
+      onStatus: setSupervisionStatus,
+    });
+    supervisionClient.start(supervisionSessionLabel);
+  } catch (error) {
+    document.body.dataset.supervisionStatus = "unavailable";
+    console.debug(
+      "Development supervision is unavailable; continuing without it.",
+      error,
+    );
+  }
+}
+
+function stopSupervisionSession(): void {
+  supervisionSessionGeneration += 1;
+  supervisionClient?.stop();
+}
+
 const vrButton = VRButton.createButton(renderer);
 vrSlot.append(vrButton);
 renderer.xr.addEventListener("sessionstart", () => {
@@ -2385,8 +2487,10 @@ renderer.xr.addEventListener("sessionstart", () => {
   if (frameRate !== undefined && frameRate > 0) {
     lastKnownXrFrameRate = frameRate;
   }
+  void startSupervisionSession();
 });
 renderer.xr.addEventListener("sessionend", () => {
+  stopSupervisionSession();
   vrSessionActive = false;
   voiceAgent.disable();
   handPanel.enabled = false;
@@ -2819,9 +2923,7 @@ const debugApi: PasDeGeantDebugApi = {
   },
   setScale(displayRadiusM) {
     const value = finiteDebugNumber(displayRadiusM, "displayRadiusM");
-    if (value <= 0) throw new Error("displayRadiusM must be positive.");
-    state.displayRadiusM = value;
-    updatePresentation();
+    setDisplayRadius(value);
     return debugControlState();
   },
   setRadialMultiplier(multiplier) {
@@ -2968,6 +3070,7 @@ function render(nowMs: number): void {
     }
   }
   updatePresentation();
+  supervisionClient?.update(nowMs);
   const earthDisplayRadiusM = navigationMode === "surface"
     ? state.displayRadiusM
     : planetRoot.getWorldScale(earthWorldScale).x;
@@ -3017,6 +3120,7 @@ function render(nowMs: number): void {
 }
 
 window.addEventListener("beforeunload", () => {
+  stopSupervisionSession();
   if (benchmarkMetricsTimer !== undefined) {
     window.clearInterval(benchmarkMetricsTimer);
   }

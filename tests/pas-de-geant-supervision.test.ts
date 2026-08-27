@@ -1,0 +1,456 @@
+import { createServer, type Server } from "node:http";
+import { once } from "node:events";
+import { createConnection } from "node:net";
+import { describe, expect, it } from "vitest";
+import { WebSocket, type RawData } from "ws";
+import {
+  earthMapCoordinates,
+  earthMapPoint,
+} from "../apps/pas-de-geant/src/earth-map.js";
+import {
+  applySupervisorNavigationMutation,
+  applyVoiceDisplayRadiusMutation,
+  applyVoiceWarpMutation,
+  type CanonicalNavigationMutations,
+} from "../apps/pas-de-geant/src/navigation-mutation-adapters.js";
+import {
+  parseSupervisionCommand,
+  parseSupervisionMessage,
+  SUPERVISION_PROTOCOL_VERSION,
+  SUPERVISION_SUBPROTOCOL,
+  type SupervisionMessage,
+  type SupervisionNavigationState,
+} from "../apps/pas-de-geant/src/supervision-protocol.js";
+import {
+  attachSupervisionRelay,
+} from "../apps/pas-de-geant/src/supervision-server.js";
+
+function protocolMessage(
+  value: Omit<Record<string, unknown>, "protocolVersion">,
+): Record<string, unknown> {
+  return { protocolVersion: SUPERVISION_PROTOCOL_VERSION, ...value };
+}
+
+const initialState: SupervisionNavigationState = {
+  sequence: 0,
+  mode: "surface",
+  focusBody: "earth",
+  latitudeDegrees: 51.5074,
+  longitudeDegrees: -0.1278,
+  displayRadiusM: 10,
+  radialMultiplier: 1,
+  headingDegrees: 42.5,
+};
+
+describe("supervision protocol", () => {
+  it("rejects incompatible versions and unknown message types", () => {
+    expect(() => parseSupervisionMessage({
+      protocolVersion: 2,
+      type: "supervisor.hello",
+    })).toThrow(/version/i);
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "future.message",
+    }))).toThrow(/type/i);
+  });
+
+  it("validates coordinates and accepts positive finite scales without a ceiling", () => {
+    expect(parseSupervisionCommand({
+      kind: "warp",
+      latitudeDegrees: 90,
+      longitudeDegrees: 180,
+    })).toEqual({
+      kind: "warp",
+      latitudeDegrees: 90,
+      longitudeDegrees: 180,
+    });
+    expect(() => parseSupervisionCommand({
+      kind: "warp",
+      latitudeDegrees: 90.001,
+      longitudeDegrees: 0,
+    })).toThrow(/latitude/i);
+    expect(() => parseSupervisionCommand({
+      kind: "warp",
+      latitudeDegrees: 0,
+      longitudeDegrees: -180.001,
+    })).toThrow(/longitude/i);
+
+    expect(parseSupervisionCommand({
+      kind: "setDisplayRadius",
+      displayRadiusM: Number.MAX_VALUE,
+    })).toEqual({
+      kind: "setDisplayRadius",
+      displayRadiusM: Number.MAX_VALUE,
+    });
+    for (const displayRadiusM of [0, -1, Number.POSITIVE_INFINITY, Number.NaN]) {
+      expect(() => parseSupervisionCommand({
+        kind: "setDisplayRadius",
+        displayRadiusM,
+      })).toThrow();
+    }
+  });
+
+  it("validates full navigation state sequences and nullable heading", () => {
+    expect(parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: { ...initialState, headingDegrees: null },
+    }))).toMatchObject({
+      type: "headset.state",
+      state: { sequence: 0, headingDegrees: null },
+    });
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: { ...initialState, sequence: 1.5 },
+    }))).toThrow(/sequence/i);
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: { ...initialState, headingDegrees: 360 },
+    }))).toThrow(/heading/i);
+  });
+});
+
+describe("equirectangular supervisor map", () => {
+  const rect = { x: 17, y: 23, width: 720, height: 360 };
+
+  it.each([
+    { latitudeDegrees: 90, longitudeDegrees: -180 },
+    { latitudeDegrees: -90, longitudeDegrees: 179.999 },
+    { latitudeDegrees: 0, longitudeDegrees: 0 },
+    { latitudeDegrees: 51.5074, longitudeDegrees: -0.1278 },
+  ])("round-trips $latitudeDegrees°, $longitudeDegrees°", (coordinates) => {
+    const point = earthMapPoint(
+      coordinates.latitudeDegrees,
+      coordinates.longitudeDegrees,
+      rect,
+    );
+    const roundTrip = earthMapCoordinates(point.x, point.y, rect);
+    expect(roundTrip.latitudeDegrees).toBeCloseTo(coordinates.latitudeDegrees, 10);
+    expect(roundTrip.longitudeDegrees).toBeCloseTo(coordinates.longitudeDegrees, 10);
+  });
+
+  it("maps both antimeridian edges and both poles exactly", () => {
+    expect(earthMapCoordinates(rect.x, rect.y, rect)).toEqual({
+      latitudeDegrees: 90,
+      longitudeDegrees: -180,
+    });
+    expect(earthMapCoordinates(
+      rect.x + rect.width,
+      rect.y + rect.height,
+      rect,
+    )).toEqual({
+      latitudeDegrees: -90,
+      longitudeDegrees: 180,
+    });
+    expect(earthMapPoint(0, 180, rect).x).toBe(rect.x);
+  });
+});
+
+describe("voice and supervisor navigation parity", () => {
+  it("routes warp and scale through the same canonical mutations and returns exact state", () => {
+    let state = { ...initialState };
+    const calls: string[] = [];
+    const mutations: CanonicalNavigationMutations = {
+      warp(latitudeDegrees, longitudeDegrees) {
+        calls.push("warp");
+        state = { ...state, latitudeDegrees, longitudeDegrees };
+      },
+      setDisplayRadius(displayRadiusM) {
+        calls.push("scale");
+        state = { ...state, displayRadiusM };
+      },
+      readState() {
+        const { sequence: _sequence, ...snapshot } = state;
+        return snapshot;
+      },
+    };
+
+    const voiceWarpState = applyVoiceWarpMutation(
+      { latitudeDegrees: 35.6762, longitudeDegrees: 139.6503 },
+      mutations,
+    );
+    const supervisorWarpState = applySupervisorNavigationMutation(
+      { kind: "warp", latitudeDegrees: -33.8688, longitudeDegrees: 151.2093 },
+      mutations,
+    );
+    const voiceScaleState = applyVoiceDisplayRadiusMutation(37.25, mutations);
+    const supervisorScaleState = applySupervisorNavigationMutation(
+      { kind: "setDisplayRadius", displayRadiusM: 1e12 },
+      mutations,
+    );
+
+    expect(calls).toEqual(["warp", "warp", "scale", "scale"]);
+    expect(voiceWarpState).toMatchObject({
+      latitudeDegrees: 35.6762,
+      longitudeDegrees: 139.6503,
+    });
+    expect(supervisorWarpState).toMatchObject({
+      latitudeDegrees: -33.8688,
+      longitudeDegrees: 151.2093,
+    });
+    expect(voiceScaleState.displayRadiusM).toBe(37.25);
+    expect(supervisorScaleState.displayRadiusM).toBe(1e12);
+  });
+});
+
+type MessageType = SupervisionMessage["type"];
+
+function waitForMessage<T extends MessageType>(
+  socket: WebSocket,
+  type: T,
+  predicate: (
+    message: Extract<SupervisionMessage, { type: T }>,
+  ) => boolean = () => true,
+): Promise<Extract<SupervisionMessage, { type: T }>> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off("message", onMessage);
+      reject(new Error(`Timed out waiting for ${type}.`));
+    }, 2_000);
+    const onMessage = (data: RawData): void => {
+      const message = parseSupervisionMessage(data.toString());
+      if (message.type !== type) return;
+      const typed = message as Extract<SupervisionMessage, { type: T }>;
+      if (!predicate(typed)) return;
+      clearTimeout(timer);
+      socket.off("message", onMessage);
+      resolve(typed);
+    };
+    socket.on("message", onMessage);
+  });
+}
+
+async function connectClient(port: number): Promise<WebSocket> {
+  const origin = `http://127.0.0.1:${port}`;
+  const socket = new WebSocket(
+    `ws://127.0.0.1:${port}/api/supervision`,
+    SUPERVISION_SUBPROTOCOL,
+    { origin },
+  );
+  await once(socket, "open");
+  return socket;
+}
+
+async function closeSocket(socket: WebSocket): Promise<void> {
+  if (socket.readyState === WebSocket.CLOSED) return;
+  const closed = once(socket, "close");
+  socket.close();
+  await closed;
+}
+
+async function closeServer(server: Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
+}
+
+describe("development supervision relay", () => {
+  it("rejects cross-origin WebSocket upgrades", async () => {
+    const server = createServer();
+    const detach = attachSupervisionRelay(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected a TCP test server.");
+    }
+    try {
+      const socket = createConnection(address.port, "127.0.0.1");
+      await once(socket, "connect");
+      const closed = once(socket, "close");
+      const response = once(socket, "data");
+      socket.write([
+        "GET /api/supervision HTTP/1.1",
+        `Host: 127.0.0.1:${address.port}`,
+        "Connection: Upgrade",
+        "Upgrade: websocket",
+        "Sec-WebSocket-Version: 13",
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+        `Sec-WebSocket-Protocol: ${SUPERVISION_SUBPROTOCOL}`,
+        "Origin: https://untrusted.example",
+        "",
+        "",
+      ].join("\r\n"));
+      const [data] = await response;
+      expect(data.toString()).toMatch(/^HTTP\/1\.1 403 Forbidden/);
+      socket.destroy();
+      await closed;
+    } finally {
+      detach();
+      await closeServer(server);
+    }
+  });
+
+  it("broadcasts sessions, routes correlated commands, and preserves an ID across reconnect", async () => {
+    const server = createServer();
+    const detach = attachSupervisionRelay(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected a TCP test server.");
+    }
+    const port = address.port;
+    const clients: WebSocket[] = [];
+    try {
+      const supervisor = await connectClient(port);
+      clients.push(supervisor);
+      const receivedBySupervisor: SupervisionMessage[] = [];
+      supervisor.on("message", (data) => {
+        receivedBySupervisor.push(parseSupervisionMessage(data.toString()));
+      });
+      const snapshot = waitForMessage(supervisor, "sessions.snapshot");
+      supervisor.send(JSON.stringify(protocolMessage({ type: "supervisor.hello" })));
+      await expect(snapshot).resolves.toMatchObject({ sessions: [] });
+
+      const headset = await connectClient(port);
+      clients.push(headset);
+      const ready = waitForMessage(headset, "session.ready");
+      const appeared = waitForMessage(
+        supervisor,
+        "session.updated",
+        (message) => message.session.sessionId === "xr-session-1",
+      );
+      headset.send(JSON.stringify(protocolMessage({
+        type: "headset.hello",
+        sessionId: "xr-session-1",
+        label: "Quest lab",
+        startedAtMs: 1_000,
+      })));
+      await expect(ready).resolves.toMatchObject({ sessionId: "xr-session-1" });
+      await expect(appeared).resolves.toMatchObject({
+        session: {
+          sessionId: "xr-session-1",
+          label: "Quest lab",
+          connectedAtMs: 1_000,
+          state: null,
+        },
+      });
+
+      const stateBroadcast = waitForMessage(
+        supervisor,
+        "session.updated",
+        (message) => message.session.state?.sequence === 0,
+      );
+      headset.send(JSON.stringify(protocolMessage({
+        type: "headset.state",
+        state: initialState,
+      })));
+      await expect(stateBroadcast).resolves.toMatchObject({
+        session: { state: initialState },
+      });
+
+      const invalidResult = waitForMessage(
+        supervisor,
+        "command.result",
+        (message) => message.commandId === "invalid-command",
+      );
+      supervisor.send(JSON.stringify(protocolMessage({
+        type: "session.command",
+        sessionId: "xr-session-1",
+        commandId: "invalid-command",
+        command: {
+          kind: "warp",
+          latitudeDegrees: 91,
+          longitudeDegrees: 0,
+        },
+      })));
+      await expect(invalidResult).resolves.toMatchObject({
+        commandId: "invalid-command",
+        ok: false,
+        error: expect.stringMatching(/latitude/i),
+      });
+
+      const routedCommand = waitForMessage(headset, "command");
+      supervisor.send(JSON.stringify(protocolMessage({
+        type: "session.command",
+        sessionId: "xr-session-1",
+        commandId: "command-1",
+        command: {
+          kind: "warp",
+          latitudeDegrees: -33.8688,
+          longitudeDegrees: 151.2093,
+        },
+      })));
+      await expect(routedCommand).resolves.toMatchObject({
+        commandId: "command-1",
+        command: { kind: "warp", latitudeDegrees: -33.8688 },
+      });
+
+      headset.send(JSON.stringify(protocolMessage({
+        type: "command.result",
+        commandId: "not-the-pending-command",
+        ok: true,
+        state: { ...initialState, sequence: 1 },
+      })));
+      const resultingState = {
+        ...initialState,
+        sequence: 2,
+        latitudeDegrees: -33.8688,
+        longitudeDegrees: 151.2093,
+      };
+      const result = waitForMessage(
+        supervisor,
+        "command.result",
+        (message) => message.commandId === "command-1",
+      );
+      headset.send(JSON.stringify(protocolMessage({
+        type: "command.result",
+        commandId: "command-1",
+        ok: true,
+        state: resultingState,
+      })));
+      await expect(result).resolves.toMatchObject({
+        commandId: "command-1",
+        ok: true,
+        state: resultingState,
+      });
+      expect(
+        receivedBySupervisor.filter(
+          (message) => message.type === "command.result" &&
+            message.commandId === "not-the-pending-command",
+        ),
+      ).toHaveLength(0);
+
+      const replacement = await connectClient(port);
+      clients.push(replacement);
+      const replacementReady = waitForMessage(replacement, "session.ready");
+      const replacementUpdate = waitForMessage(
+        supervisor,
+        "session.updated",
+        (message) => message.session.sessionId === "xr-session-1" &&
+          message.session.state?.sequence === 2,
+      );
+      const originalClosed = once(headset, "close");
+      replacement.send(JSON.stringify(protocolMessage({
+        type: "headset.hello",
+        sessionId: "xr-session-1",
+        label: "Quest lab",
+        startedAtMs: 1_000,
+      })));
+      await replacementReady;
+      await replacementUpdate;
+      await originalClosed;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(
+        receivedBySupervisor.filter(
+          (message) => message.type === "session.removed" &&
+            message.sessionId === "xr-session-1",
+        ),
+      ).toHaveLength(0);
+
+      const removed = waitForMessage(
+        supervisor,
+        "session.removed",
+        (message) => message.sessionId === "xr-session-1",
+      );
+      await closeSocket(replacement);
+      await expect(removed).resolves.toMatchObject({ sessionId: "xr-session-1" });
+      await closeSocket(supervisor);
+    } finally {
+      for (const client of clients) {
+        if (client.readyState !== WebSocket.CLOSED) client.terminate();
+      }
+      detach();
+      await closeServer(server);
+    }
+  });
+});
