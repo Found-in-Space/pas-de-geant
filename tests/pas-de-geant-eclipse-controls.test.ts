@@ -11,7 +11,7 @@ import {
   eclipseYearFromEventId,
   parseEclipsePlaybackArguments,
   parseEclipseRangeArguments,
-  parseEclipseScaleArguments,
+  parseEclipseScaleDenominatorArguments,
   parseEclipseSelectionArguments,
   parseEclipseTimeArguments,
 } from "../apps/pas-de-geant/src/eclipse-tools.js";
@@ -110,13 +110,20 @@ describe("Eclipse observatory control surfaces", () => {
     expect(parseEclipseTimeArguments({ utc: "2027-08-02T10:07:49Z" }))
       .toBe("2027-08-02T10:07:49.000Z");
     expect(parseEclipsePlaybackArguments({ playing: true })).toBe(true);
-    expect(parseEclipseScaleArguments({ metres_per_earth_radius: 1e-9 }))
+    expect(parseEclipseScaleDenominatorArguments({ scale_denominator: 1e-9 }))
       .toBe(1e-9);
-    expect(parseEclipseScaleArguments({ metres_per_earth_radius: 1e9 }))
+    expect(parseEclipseScaleDenominatorArguments({ scale_denominator: 1e9 }))
       .toBe(1e9);
     expect(eclipseYearFromEventId("solar-2027-08-02-total")).toBe(2027);
     expect(eclipseYearFromEventId("made-up-2027-eclipse")).toBeNull();
-    expect(() => parseEclipseScaleArguments({ metres_per_earth_radius: 0 }))
+    expect(() => parseEclipseScaleDenominatorArguments({ scale_denominator: 0 }))
       .toThrow();
+    expect(() => parseEclipseScaleDenominatorArguments({
+      metres_per_earth_radius: 0.75,
+    })).toThrow(/scale_denominator/);
+    expect(() => parseEclipseScaleDenominatorArguments({
+      scale_denominator: 8_494_678.4,
+      metres_per_earth_radius: 0.75,
+    })).toThrow(/metres_per_earth_radius/);
   });
 });

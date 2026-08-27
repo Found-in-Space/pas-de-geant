@@ -11,7 +11,9 @@ declare global {
     __PAS_DE_GEANT_ENABLE_TEST_HOOKS__?: boolean;
     __PAS_DE_GEANT_IMAGERY_CONFIG__?: XyzImageryConfiguration;
     __PAS_DE_GEANT_IMAGERY_PROVIDER__?: ImageryProvider;
-    __PAS_DE_GEANT_TEST_SET_SCALE__?: (displayRadiusM: number) => void;
+    __PAS_DE_GEANT_TEST_SET_SCALE_DENOMINATOR__?: (
+      scaleDenominator: number,
+    ) => void;
     __PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__?: (visible: boolean) => void;
     __PAS_DE_GEANT_TEST_SET_TEXTURE_TILE_OVERLAY__?: (
       visible: boolean,
@@ -27,11 +29,11 @@ declare global {
       beginBenchmark(options?: {
         latitudeDegrees?: number;
         longitudeDegrees?: number;
-        displayRadiusM?: number;
+        scaleDenominator?: number;
         radialMultiplier?: number;
       }): Record<string, unknown>;
       endBenchmark(): Record<string, unknown>;
-      setScale(displayRadiusM: number): Record<string, unknown>;
+      setScaleDenominator(scaleDenominator: number): Record<string, unknown>;
       setTerrainRenderCulling(enabled: boolean): Record<string, unknown>;
       setTileRecalculation(
         target: "terrain" | "textures" | "both",

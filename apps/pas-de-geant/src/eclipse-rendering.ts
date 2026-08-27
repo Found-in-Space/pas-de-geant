@@ -2,7 +2,6 @@ import * as THREE from "three";
 import {
   EARTH_MEAN_RADIUS_KM,
   MOON_RADIUS_KM,
-  SUN_RADIUS_KM,
   WGS84_A_KM,
   WGS84_B_KM,
   type CartesianVector,
@@ -11,16 +10,26 @@ import { earthTextureUv } from "./earth-texture-projection.js";
 import type { CartesianBasis } from "./eclipse-types.js";
 
 export const VISIBLE_SUN_FAR_M = 1_200;
-export const WGS84_DISPLAY_AXES = new THREE.Vector3(
-  WGS84_A_KM / EARTH_MEAN_RADIUS_KM,
-  WGS84_B_KM / EARTH_MEAN_RADIUS_KM,
-  WGS84_A_KM / EARTH_MEAN_RADIUS_KM,
+const METRES_PER_KILOMETRE = 1_000;
+export const WGS84_PHYSICAL_AXES_M = new THREE.Vector3(
+  WGS84_A_KM * METRES_PER_KILOMETRE,
+  WGS84_B_KM * METRES_PER_KILOMETRE,
+  WGS84_A_KM * METRES_PER_KILOMETRE,
 );
 
 const WGS84_ECCENTRICITY_SQUARED =
   1 - WGS84_B_KM * WGS84_B_KM / (WGS84_A_KM * WGS84_A_KM);
 
-export function ecefKmToDisplay(value: CartesianVector): THREE.Vector3 {
+export function ecefKmToPhysicalMetres(value: CartesianVector): THREE.Vector3 {
+  return new THREE.Vector3(
+    value.x * METRES_PER_KILOMETRE,
+    value.z * METRES_PER_KILOMETRE,
+    -value.y * METRES_PER_KILOMETRE,
+  );
+}
+
+/** Dimensionless body-local coordinates used only to build unit Earth meshes. */
+function ecefKmToBodyLocal(value: CartesianVector): THREE.Vector3 {
   return new THREE.Vector3(
     value.x / EARTH_MEAN_RADIUS_KM,
     value.z / EARTH_MEAN_RADIUS_KM,
@@ -28,14 +37,14 @@ export function ecefKmToDisplay(value: CartesianVector): THREE.Vector3 {
   );
 }
 
-export function displayDirection(value: CartesianVector): THREE.Vector3 {
+export function bodyLocalDirection(value: CartesianVector): THREE.Vector3 {
   return new THREE.Vector3(value.x, value.z, -value.y).normalize();
 }
 
 export function ecefToInertialMatrix(basis: CartesianBasis): THREE.Matrix4 {
-  const localX = displayDirection(basis.x);
-  const localY = displayDirection(basis.z);
-  const localZ = displayDirection(basis.y).multiplyScalar(-1);
+  const localX = bodyLocalDirection(basis.x);
+  const localY = bodyLocalDirection(basis.z);
+  const localZ = bodyLocalDirection(basis.y).multiplyScalar(-1);
   return new THREE.Matrix4().makeBasis(localX, localY, localZ);
 }
 
@@ -82,7 +91,7 @@ export function createGeodeticEllipsoidGeometry(
       const longitudeDegrees = -180 + column / longitudeSegments * 360;
       const longitude = THREE.MathUtils.degToRad(longitudeDegrees);
       const radialKm = (primeVerticalRadius + altitudeKm) * cosineLatitude;
-      const position = ecefKmToDisplay({
+      const position = ecefKmToBodyLocal({
         x: radialKm * Math.cos(longitude),
         y: radialKm * Math.sin(longitude),
         z:
@@ -140,7 +149,7 @@ export function perpendicularBasis(
 interface ConeUpdate {
   moonPosition: THREE.Vector3;
   shadowAxis: THREE.Vector3;
-  displayLength: number;
+  physicalLengthM: number;
   centralConeSlope: number;
   penumbraConeSlope: number;
   coneToEarthFixed: THREE.Matrix4;
@@ -198,7 +207,9 @@ class RetainedConeSurface {
       shader.uniforms["coneToEarthFixed"] = {
         value: this.coneToEarthFixed,
       };
-      shader.uniforms["wgs84DisplayAxes"] = { value: WGS84_DISPLAY_AXES };
+      shader.uniforms["wgs84PhysicalAxesM"] = {
+        value: WGS84_PHYSICAL_AXES_M,
+      };
       shader.uniforms["coneEdgeColor"] = { value: this.edgeColor };
       shader.vertexShader = shader.vertexShader
         .replace(
@@ -221,7 +232,7 @@ vConeViewPosition = ( modelViewMatrix * vec4( transformed, 1.0 ) ).xyz;`,
           "#include <common>",
           `#include <common>
 uniform mat4 coneToEarthFixed;
-uniform vec3 wgs84DisplayAxes;
+uniform vec3 wgs84PhysicalAxesM;
 uniform vec3 coneEdgeColor;
 varying vec3 vConeRayOrigin;
 varying vec3 vConePosition;
@@ -234,8 +245,9 @@ vec3 earthFixedStart =
   ( coneToEarthFixed * vec4( vConeRayOrigin, 1.0 ) ).xyz;
 vec3 earthFixedEnd =
   ( coneToEarthFixed * vec4( vConePosition, 1.0 ) ).xyz;
-vec3 ellipsoidStart = earthFixedStart / wgs84DisplayAxes;
-vec3 ellipsoidDelta = ( earthFixedEnd - earthFixedStart ) / wgs84DisplayAxes;
+vec3 ellipsoidStart = earthFixedStart / wgs84PhysicalAxesM;
+vec3 ellipsoidDelta =
+  ( earthFixedEnd - earthFixedStart ) / wgs84PhysicalAxesM;
 float segmentA = dot( ellipsoidDelta, ellipsoidDelta );
 float segmentB = 2.0 * dot( ellipsoidStart, ellipsoidDelta );
 float segmentC = dot( ellipsoidStart, ellipsoidStart ) - 1.0;
@@ -281,12 +293,11 @@ diffuseColor.a *= mix( 0.82, 1.16, coneEdge );`,
     const [first, second] = perpendicularBasis(options.shadowAxis);
     const row = this.radialSegments + 1;
     for (let alongIndex = 0; alongIndex <= this.lengthSegments; alongIndex += 1) {
-      const along = options.displayLength * alongIndex / this.lengthSegments;
-      const signedPhysicalRadiusKm =
-        MOON_RADIUS_KM + slope * along * EARTH_MEAN_RADIUS_KM;
-      const displayRadius =
-        Math.abs(signedPhysicalRadiusKm) / EARTH_MEAN_RADIUS_KM;
-      const moonRadiusDirection = Math.sign(signedPhysicalRadiusKm) || 1;
+      const along = options.physicalLengthM * alongIndex / this.lengthSegments;
+      const signedPhysicalRadiusM =
+        MOON_RADIUS_KM * METRES_PER_KILOMETRE + slope * along;
+      const physicalRadiusM = Math.abs(signedPhysicalRadiusM);
+      const moonRadiusDirection = Math.sign(signedPhysicalRadiusM) || 1;
       const centre = options.moonPosition
         .clone()
         .addScaledVector(options.shadowAxis, along);
@@ -296,10 +307,13 @@ diffuseColor.a *= mix( 0.82, 1.16, coneEdge );`,
           .clone()
           .multiplyScalar(Math.cos(angle))
           .addScaledVector(second, Math.sin(angle));
-        const point = centre.clone().addScaledVector(radialDirection, displayRadius);
+        const point = centre.clone().addScaledVector(
+          radialDirection,
+          physicalRadiusM,
+        );
         const rayOrigin = options.moonPosition.clone().addScaledVector(
           radialDirection,
-          moonRadiusDirection * MOON_RADIUS_KM / EARTH_MEAN_RADIUS_KM,
+          moonRadiusDirection * MOON_RADIUS_KM * METRES_PER_KILOMETRE,
         );
         const offset = (alongIndex * row + radialIndex) * 3;
         this.positions.set([point.x, point.y, point.z], offset);
@@ -436,7 +450,7 @@ export class EclipseFootprints {
   private addRing(ring: CartesianVector[], color: number): void {
     if (ring.length < 3) return;
     const points = ring.map((point) =>
-      ecefKmToDisplay(point).multiplyScalar(1.002)
+      ecefKmToPhysicalMetres(point).multiplyScalar(1.002)
     );
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const material = new THREE.LineBasicMaterial({

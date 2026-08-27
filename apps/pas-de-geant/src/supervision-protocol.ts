@@ -6,10 +6,11 @@ import {
   parseLocationPin,
   type LocationPin,
 } from "./location-pin.js";
+import { validScaleDenominator } from "./world-scale.js";
 
 export const SUPERVISION_PATH = "/api/supervision";
-export const SUPERVISION_SUBPROTOCOL = "pas-de-geant.supervision.v1";
-export const SUPERVISION_PROTOCOL_VERSION = 1;
+export const SUPERVISION_SUBPROTOCOL = "pas-de-geant.supervision.v2";
+export const SUPERVISION_PROTOCOL_VERSION = 2;
 
 export interface SupervisionNavigationState {
   readonly sequence: number;
@@ -17,7 +18,7 @@ export interface SupervisionNavigationState {
   readonly focusBody: SolarSystemBodyId;
   readonly latitudeDegrees: number;
   readonly longitudeDegrees: number;
-  readonly displayRadiusM: number;
+  readonly scaleDenominator: number;
   readonly radialMultiplier: number;
   readonly headingDegrees: number | null;
 }
@@ -78,8 +79,8 @@ export type SupervisionCommand =
     readonly time?: number;
   }
   | {
-    readonly kind: "setDisplayRadius";
-    readonly displayRadiusM: number;
+    readonly kind: "setScaleDenominator";
+    readonly scaleDenominator: number;
     /** Eased transition duration in seconds. Omit or use zero for an instant change. */
     readonly time?: number;
   }
@@ -408,6 +409,11 @@ function parseGuidedPinIds(
 
 export function parseSupervisionCommand(value: unknown): SupervisionCommand {
   const candidate = record(value, "Supervision command");
+  if ("displayRadiusM" in candidate) {
+    throw new Error(
+      "displayRadiusM is not supported by protocol v2; use scaleDenominator.",
+    );
+  }
   if (candidate.kind === "warp") {
     const time = optionalTransitionTime(candidate.time);
     return {
@@ -417,18 +423,15 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
       ...(time === undefined ? {} : { time }),
     };
   }
-  if (candidate.kind === "setDisplayRadius") {
-    const displayRadiusM = finiteNumber(
-      candidate.displayRadiusM,
-      "Display radius",
-    );
-    if (displayRadiusM <= 0) {
-      throw new Error("Display radius must be positive.");
-    }
+  if (candidate.kind === "setScaleDenominator") {
+    const scaleDenominator = validScaleDenominator(finiteNumber(
+      candidate.scaleDenominator,
+      "Scale denominator",
+    ));
     const time = optionalTransitionTime(candidate.time);
     return {
-      kind: "setDisplayRadius",
-      displayRadiusM,
+      kind: "setScaleDenominator",
+      scaleDenominator,
       ...(time === undefined ? {} : { time }),
     };
   }
@@ -520,6 +523,11 @@ export function parseSupervisionNavigationState(
   value: unknown,
 ): SupervisionNavigationState {
   const candidate = record(value, "Navigation state");
+  if ("displayRadiusM" in candidate) {
+    throw new Error(
+      "displayRadiusM is not supported by protocol v2; use scaleDenominator.",
+    );
+  }
   const sequence = finiteNumber(candidate.sequence, "State sequence");
   if (!Number.isInteger(sequence) || sequence < 0) {
     throw new Error("State sequence must be a nonnegative integer.");
@@ -534,11 +542,10 @@ export function parseSupervisionNavigationState(
   if (typeof candidate.focusBody !== "string" || !BODY_IDS.has(candidate.focusBody)) {
     throw new Error("Unknown focus body.");
   }
-  const displayRadiusM = finiteNumber(
-    candidate.displayRadiusM,
-    "Display radius",
-  );
-  if (displayRadiusM <= 0) throw new Error("Display radius must be positive.");
+  const scaleDenominator = validScaleDenominator(finiteNumber(
+    candidate.scaleDenominator,
+    "Scale denominator",
+  ));
   const radialMultiplier = finiteNumber(
     candidate.radialMultiplier,
     "Radial multiplier",
@@ -559,7 +566,7 @@ export function parseSupervisionNavigationState(
     focusBody: candidate.focusBody as SolarSystemBodyId,
     latitudeDegrees: latitude(candidate.latitudeDegrees),
     longitudeDegrees: longitude(candidate.longitudeDegrees),
-    displayRadiusM,
+    scaleDenominator,
     radialMultiplier,
     headingDegrees,
   };

@@ -15,18 +15,18 @@ describe("supervisor automatic transition timing", () => {
     expect(UI_SCALE_TRANSITION_SECONDS).toBe(2.5);
   });
 
-  it("measures warp arcs at the current displayed radius", () => {
+  it("measures warp arcs using the current scale denominator", () => {
     const target = { latitudeDegrees: 0, longitudeDegrees: 90 };
 
     expect(uiWarpTransitionTime({
       latitudeDegrees: 0,
       longitudeDegrees: 0,
-      displayRadiusM: 3,
+      scaleDenominator: 3_335_847,
     }, target)).toBe(1);
     expect(uiWarpTransitionTime({
       latitudeDegrees: 0,
       longitudeDegrees: 0,
-      displayRadiusM: 10,
+      scaleDenominator: 1_000_754.1,
     }, target)).toBe(2.5);
   });
 });

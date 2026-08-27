@@ -16,6 +16,10 @@ import {
   earthMapPoint,
 } from "./earth-map.js";
 import type { RealtimeAgentState } from "./realtime-agent.js";
+import {
+  DEFAULT_SCALE_DENOMINATOR,
+  formatScaleRatio,
+} from "./world-scale.js";
 
 export { earthMapImageRects, earthMapPoint } from "./earth-map.js";
 
@@ -59,7 +63,7 @@ export interface HandPanelDirection {
 }
 
 export interface HandPanelStatus {
-  globalScaleFactor: number;
+  scaleDenominator: number;
   radialMultiplier: number;
   minimumTerrainZoom: number;
   maximumTerrainZoom: number;
@@ -67,7 +71,7 @@ export interface HandPanelStatus {
   agentState: RealtimeAgentState;
   navigationMode?: "surface" | "orbit" | "free";
   focusBody?: string;
-  focusDistanceBodyRadii?: number;
+  focusDistanceHeadsetM?: number;
 }
 
 export const HAND_PANEL_ACTION = {
@@ -99,7 +103,7 @@ interface HandPanelStatusProps extends HandPanelStatus {
 
 const EARTH_MAP_BORDER_WIDTH = 12;
 const DEFAULT_HAND_PANEL_STATUS: HandPanelStatus = {
-  globalScaleFactor: 1,
+  scaleDenominator: DEFAULT_SCALE_DENOMINATOR,
   radialMultiplier: 1,
   minimumTerrainZoom: 0,
   maximumTerrainZoom: 0,
@@ -259,14 +263,14 @@ const HandPanelStatusComponent: DisplayComponent<HandPanelStatusProps> = {
       valueColor?: string;
     }> = [
       {
-        label: "BODY RADIUS",
-        value: `${ctx.props.globalScaleFactor.toFixed(2)} m`,
+        label: "SCALE",
+        value: formatScaleRatio(ctx.props.scaleDenominator),
       },
       {
         label: ctx.props.navigationMode === "orbit" ? "DISTANCE" : "RADIAL",
         value: ctx.props.navigationMode === "orbit" &&
-            ctx.props.focusDistanceBodyRadii !== undefined
-          ? `${ctx.props.focusDistanceBodyRadii.toFixed(2)} R`
+            ctx.props.focusDistanceHeadsetM !== undefined
+          ? `${ctx.props.focusDistanceHeadsetM.toFixed(2)} m`
           : `${ctx.props.radialMultiplier.toFixed(1)}×`,
       },
       {

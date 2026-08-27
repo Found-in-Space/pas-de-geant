@@ -24,18 +24,16 @@ It performs these steps:
    movement and reset the runtime controls.
 4. Wait until the terrain and photographic planner queues reach zero.
 5. Capture the default-scale stereo view.
-6. Call `pasDeGeantDebug.setScale(15000)`.
+6. Call `pasDeGeantDebug.setScaleDenominator(424.73392)`.
 7. Wait until both planner queues reach zero, then freeze tile recalculation as
    described by the normal benchmark workflow.
-8. Capture forward and downward stereo views at scale `15,000`.
+8. Capture forward and downward stereo views at `1:424.73392`.
 9. Turn the emulated headset left, backward, and right. Each pose must produce
    a newer XR render frame; the complete pose and runtime snapshot is recorded.
 10. Write a JSON audit, restore the benchmark state, and end the XR session.
 
-`15,000` is the exact scale value passed to `setScale`. It is not a route
-distance or a 15 km observation radius. Runtime snapshots retain the
-implementation's `displayRadiusM` field name, but the scenario and artifacts
-refer to the requested value as **scale 15,000**.
+`424.73392` is the exact scale denominator. It preserves the rendered size and
+LOD load of the former 15,000-m Earth-radius fixture.
 
 ## Run it
 
@@ -84,8 +82,8 @@ Each run writes ignored, disposable artifacts below
 `.cache/pas-de-geant-xr-testbed/`:
 
 - `01-pisa-default.png`
-- `02-pisa-scale-15000-forward.png`
-- `03-pisa-scale-15000-down.png`
+- `02-pisa-scale-denominator-forward.png`
+- `03-pisa-scale-denominator-down.png`
 - `pisa-quest3-webxr-audit.json`
 - a Playwright trace when the test fails
 

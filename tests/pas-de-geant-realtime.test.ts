@@ -367,6 +367,8 @@ describe("Pas de Géant Realtime voice agent", () => {
               mode?: { enum?: string[] };
               group?: { enum?: string[] };
               time?: { type?: string; minimum?: number };
+              scale_denominator?: { type?: string; exclusiveMinimum?: number };
+              display_radius_metres?: unknown;
             };
           };
         }>;
@@ -415,6 +417,14 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.tools.find(
       ({ name }) => name === "set_location_pin_guidance",
     )?.parameters.required).toEqual(["pin_id", "enabled"]);
+    const navigationScale = configuration.session.tools.find(
+      ({ name }) => name === "set_navigation",
+    )?.parameters.properties;
+    expect(navigationScale?.scale_denominator).toMatchObject({
+      type: "number",
+      exclusiveMinimum: 0,
+    });
+    expect(navigationScale?.display_radius_metres).toBeUndefined();
     expect(configuration.session.instructions).toContain(
       "call get_tile_debug_controls before reporting current values",
     );

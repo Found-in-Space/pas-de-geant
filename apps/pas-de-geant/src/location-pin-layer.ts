@@ -3,8 +3,9 @@ import {
   contactFrame,
   EARTH_MEAN_RADIUS_KM,
   geodeticSurfaceEcefKm,
-  normalizedRadialOffsetForMetres,
+  normalizedBodyLocalRadialOffset,
 } from "./planet-state.js";
+import { EARTH_SURFACE_MODEL } from "./surface-model.js";
 import {
   formatLocationPinDistance,
   greatCircleDistanceKm,
@@ -57,7 +58,11 @@ export function locationPinNormalizedAnchor(
     geodeticSurfaceEcefKm(pin.latitudeDegrees, pin.longitudeDegrees),
   ).multiplyScalar(1 / EARTH_MEAN_RADIUS_KM).addScaledVector(
     normal,
-    normalizedRadialOffsetForMetres(elevationMetres, radialMultiplier),
+    normalizedBodyLocalRadialOffset(
+      elevationMetres,
+      radialMultiplier,
+      EARTH_SURFACE_MODEL.referenceRadiusM,
+    ),
   );
 }
 

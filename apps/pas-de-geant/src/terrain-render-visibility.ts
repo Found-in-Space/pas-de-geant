@@ -194,6 +194,7 @@ export class TerrainRenderVisibility {
   constructor(
     private readonly terrainGroup: THREE.Object3D,
     elevationBounds: ElevationBoundsMetres | undefined,
+    private readonly referenceRadiusM = EARTH_MEAN_RADIUS_KM * 1_000,
   ) {
     this.elevationBounds = finiteElevationBounds(elevationBounds);
   }
@@ -284,17 +285,17 @@ export class TerrainRenderVisibility {
       return;
     }
 
-    const normalizedRadialMetres =
-      radialMultiplier / (EARTH_MEAN_RADIUS_KM * 1_000);
-    const normalizedSkirtDepth = 0.02 / displayRadiusM;
+    const bodyLocalUnitsPerElevationMetre =
+      radialMultiplier / this.referenceRadiusM;
+    const bodyLocalSkirtDepth = 0.02 / displayRadiusM;
     this.sphereExpansion =
       Math.max(Math.abs(bounds.minimum), Math.abs(bounds.maximum)) *
-        normalizedRadialMetres +
-      normalizedSkirtDepth;
+        bodyLocalUnitsPerElevationMetre +
+      bodyLocalSkirtDepth;
     const ellipsoidPerturbation =
       this.sphereExpansion * MAXIMUM_ELLIPSOID_SCALE;
     const maximumOutwardRadius =
-      1 + Math.max(0, bounds.maximum) * normalizedRadialMetres *
+      1 + Math.max(0, bounds.maximum) * bodyLocalUnitsPerElevationMetre *
         MAXIMUM_ELLIPSOID_SCALE;
     if (
       !Number.isFinite(this.sphereExpansion) ||

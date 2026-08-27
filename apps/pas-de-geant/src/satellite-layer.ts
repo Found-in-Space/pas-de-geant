@@ -10,10 +10,11 @@ import {
 import * as THREE from "three";
 import {
   EARTH_MEAN_RADIUS_KM,
-  normalizedRadialOffsetForKilometres,
+  normalizedBodyLocalRadialOffset,
   WGS84_A_KM,
   WGS84_B_KM,
 } from "./planet-state.js";
+import { EARTH_SURFACE_MODEL } from "./surface-model.js";
 import {
   SATELLITE_GROUPS,
   satelliteGroupConfiguration,
@@ -69,9 +70,10 @@ export function satelliteNormalizedPosition(
   );
   return target.addScaledVector(
     surfaceNormal,
-    normalizedRadialOffsetForKilometres(
-      Math.max(0, geodetic.height),
+    normalizedBodyLocalRadialOffset(
+      Math.max(0, geodetic.height) * 1_000,
       radialMultiplier,
+      EARTH_SURFACE_MODEL.referenceRadiusM,
     ),
   );
 }

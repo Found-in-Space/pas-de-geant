@@ -83,17 +83,18 @@
                   <div class="command-title">
                     <div>
                       <p class="eyebrow">Scale</p>
-                      <h3>Earth size and relief</h3>
+                      <h3>World scale and relief</h3>
                     </div>
                   </div>
                   <div class="scale-control-grid">
                     <form id="scale-form" class="scale-control">
-                      <label for="display-radius">Radius
-                        <span class="field-hint">Room metres</span>
+                      <label for="scale-denominator">Scale denominator
+                        <span class="field-hint">Physical metres per headset metre</span>
                       </label>
-                      <div class="input-action">
-                        <input id="display-radius" type="number" min="0" step="any" required>
-                        <button id="scale-button" class="compact-button" type="submit" aria-label="Apply radius">Go</button>
+                      <div class="input-action ratio-input">
+                        <span class="ratio-prefix">1 :</span>
+                        <input id="scale-denominator" type="number" min="0" step="any" required>
+                        <button id="scale-button" class="compact-button" type="submit" aria-label="Apply scale">Go</button>
                       </div>
                     </form>
                     <form id="radial-form" class="scale-control">

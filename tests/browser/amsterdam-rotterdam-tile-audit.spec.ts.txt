@@ -97,7 +97,7 @@ test("audits high-zoom travel from Amsterdam to Rotterdam after planned-delta or
     debug.beginBenchmark({
       latitudeDegrees: amsterdam.latitude,
       longitudeDegrees: amsterdam.longitude,
-      displayRadiusM: 1_500,
+      scaleDenominator: 4_247.3392,
     });
     debug.setTileRecalculation("both", true);
   }, { amsterdam });

@@ -1,10 +1,15 @@
 import * as THREE from "three";
+import {
+  headsetScaleFactorForDenominatorChange,
+} from "./world-scale.js";
+
+export const ECLIPSE_DEFAULT_SCALE_DENOMINATOR = 8_494_678.4;
 
 export interface EclipseStageTransform {
   position: THREE.Vector3;
   quaternion: THREE.Quaternion;
-  /** Headset metres per simulation unit; one simulation unit is 1 R⊕. */
-  metresPerEarthRadius: number;
+  /** Physical metres represented by one headset metre. */
+  scaleDenominator: number;
 }
 
 export interface GripPose {
@@ -14,35 +19,35 @@ export interface GripPose {
 
 /** Applies an unbounded multiplicative scale rate. */
 export function eclipseScaleAfterInput(
-  headsetMetresPerSimulationUnit: number,
+  scaleDenominator: number,
   axis: number,
   elapsedSeconds: number,
   octavesPerSecond = 1.2,
 ): number {
-  return headsetMetresPerSimulationUnit * 2 ** (
-    axis * octavesPerSecond * elapsedSeconds
+  return scaleDenominator * 2 ** (
+    -axis * octavesPerSecond * elapsedSeconds
   );
 }
 
 /**
- * Re-expresses a headset point after changing the simulation-to-headset
- * conversion. Simulation-space body sizes and separations are not involved.
+ * Re-expresses a headset point after changing the physical-to-headset
+ * conversion. Physical body sizes and separations are not involved.
  */
-export function headsetPointAfterSimulationScaleChange(
+export function headsetPointAfterScaleDenominatorChange(
   headsetPoint: THREE.Vector3,
-  simulationOriginInHeadset: THREE.Vector3,
-  oldHeadsetMetresPerSimulationUnit: number,
-  newHeadsetMetresPerSimulationUnit: number,
+  physicalOriginInHeadset: THREE.Vector3,
+  oldScaleDenominator: number,
+  newScaleDenominator: number,
   target = new THREE.Vector3(),
 ): THREE.Vector3 {
   return target
     .copy(headsetPoint)
-    .sub(simulationOriginInHeadset)
-    .multiplyScalar(
-      newHeadsetMetresPerSimulationUnit /
-        oldHeadsetMetresPerSimulationUnit,
-    )
-    .add(simulationOriginInHeadset);
+    .sub(physicalOriginInHeadset)
+    .multiplyScalar(headsetScaleFactorForDenominatorChange(
+      oldScaleDenominator,
+      newScaleDenominator,
+    ))
+    .add(physicalOriginInHeadset);
 }
 
 export interface EclipseCameraDepthRange {
@@ -51,26 +56,27 @@ export interface EclipseCameraDepthRange {
 }
 
 /**
- * Keeps clipping planes compatible with the simulation-to-headset conversion.
+ * Keeps clipping planes compatible with the physical-to-headset conversion.
  * The fixed far distance contains the camera-centred sky and Sun proxy; the
  * scale-relative distance contains the physical Earth–Moon scene.
  */
 export function eclipseCameraDepthRange(
-  headsetMetresPerSimulationUnit: number,
+  scaleDenominator: number,
   observerCentreDistanceM: number,
-  systemExtentSimulationUnits: number,
+  systemExtentPhysicalM: number,
   defaultNearM = 0.02,
   fixedFarM = 1_200,
+  nearFeaturePhysicalM = 127_420.176,
 ): EclipseCameraDepthRange {
   return {
     nearM: Math.min(
       defaultNearM,
-      headsetMetresPerSimulationUnit * 0.02,
+      nearFeaturePhysicalM / scaleDenominator,
     ),
     farM: Math.max(
       fixedFarM,
       (observerCentreDistanceM +
-        systemExtentSimulationUnits * headsetMetresPerSimulationUnit) * 1.05,
+        systemExtentPhysicalM / scaleDenominator) * 1.05,
     ),
   };
 }

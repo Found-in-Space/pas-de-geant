@@ -10,14 +10,14 @@ import {
 import {
   EARTH_MEAN_RADIUS_KM,
   geodeticSurfaceEcefKm,
-  normalizedRadialOffsetForKilometres,
-  normalizedRadialOffsetForMetres,
+  normalizedBodyLocalRadialOffset,
 } from "./planet-state.js";
+import { EARTH_SURFACE_MODEL } from "./surface-model.js";
 
 const MAX_AIRCRAFT = 800;
 const AIRCRAFT_SYMBOL_SIZE_M = 0.12;
 const VEHICLE_SYMBOL_SIZE_M = 0.075;
-const FEET_TO_KM = 0.0003048;
+const FEET_TO_METRES = 0.3048;
 const FEET_PER_MINUTE_TO_METRES_PER_SECOND = 0.00508;
 const KNOTS_TO_METRES_PER_SECOND = 0.514444;
 const STANDARD_GRAVITY_METRES_PER_SECOND_SQUARED = 9.80665;
@@ -352,9 +352,10 @@ export function aircraftNormalizedAltitude(
   altitudeFt: number | null,
   radialMultiplier: number,
 ): number {
-  return normalizedRadialOffsetForKilometres(
-    Math.max(0, altitudeFt ?? 0) * FEET_TO_KM,
+  return normalizedBodyLocalRadialOffset(
+    Math.max(0, altitudeFt ?? 0) * FEET_TO_METRES,
     radialMultiplier,
+    EARTH_SURFACE_MODEL.referenceRadiusM,
   );
 }
 
@@ -511,12 +512,13 @@ export class AircraftLayer {
       position.addScaledVector(
         normal,
         report.onGround
-          ? normalizedRadialOffsetForMetres(
+          ? normalizedBodyLocalRadialOffset(
             this.terrainElevationMetres(
               aircraft.latitudeDegrees,
               aircraft.longitudeDegrees,
             ),
             radialMultiplier,
+            EARTH_SURFACE_MODEL.referenceRadiusM,
           )
           : aircraftNormalizedAltitude(aircraft.altitudeFt, radialMultiplier),
       );

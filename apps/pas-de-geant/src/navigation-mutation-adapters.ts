@@ -10,7 +10,10 @@ export interface CanonicalNavigationMutations {
     longitudeDegrees: number,
     time?: number,
   ) => unknown;
-  readonly setDisplayRadius: (displayRadiusM: number, time?: number) => unknown;
+  readonly setScaleDenominator: (
+    scaleDenominator: number,
+    time?: number,
+  ) => unknown;
   readonly setRadialMultiplier: (radialMultiplier: number) => unknown;
   readonly setHeading: (headingDegrees: number, time?: number) => unknown;
   readonly readState: () => SupervisionNavigationSnapshot;
@@ -27,7 +30,7 @@ type NavigationSupervisionCommand = Extract<
   {
     kind:
       | "warp"
-      | "setDisplayRadius"
+      | "setScaleDenominator"
       | "setRadialMultiplier"
       | "setHeading";
   }
@@ -59,12 +62,12 @@ export function applyVoiceWarpMutation(
   return mutations.readState();
 }
 
-export function applyVoiceDisplayRadiusMutation(
-  displayRadiusM: number,
+export function applyVoiceScaleDenominatorMutation(
+  scaleDenominator: number,
   mutations: CanonicalNavigationMutations,
   time?: number,
 ): SupervisionNavigationSnapshot {
-  mutations.setDisplayRadius(displayRadiusM, time);
+  mutations.setScaleDenominator(scaleDenominator, time);
   return mutations.readState();
 }
 
@@ -78,8 +81,8 @@ export function applySupervisorNavigationMutation(
       command.longitudeDegrees,
       command.time,
     );
-  } else if (command.kind === "setDisplayRadius") {
-    mutations.setDisplayRadius(command.displayRadiusM, command.time);
+  } else if (command.kind === "setScaleDenominator") {
+    mutations.setScaleDenominator(command.scaleDenominator, command.time);
   } else if (command.kind === "setRadialMultiplier") {
     mutations.setRadialMultiplier(command.radialMultiplier);
   } else {

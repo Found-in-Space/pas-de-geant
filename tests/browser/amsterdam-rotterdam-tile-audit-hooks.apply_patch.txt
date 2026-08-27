@@ -77,7 +77,7 @@
 +      beginBenchmark(options?: {
 +        latitudeDegrees?: number;
 +        longitudeDegrees?: number;
-+        displayRadiusM?: number;
++        scaleDenominator?: number;
 +        radialMultiplier?: number;
 +      }): Record<string, unknown>;
 +      setLocation(latitudeDegrees: number, longitudeDegrees: number): unknown;

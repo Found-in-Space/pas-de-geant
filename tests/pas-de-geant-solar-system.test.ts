@@ -7,10 +7,9 @@ import {
   vector3dLength,
 } from "../apps/pas-de-geant/src/solar-system.js";
 import {
-  displayRadiusForRoomScale,
+  displayRadiusForScale,
   relativeJ2000MetresToRender,
-  roomScaleForDisplayRadius,
-  spaceTravelSpeedRoomMPerSecond,
+  spaceTravelSpeedHeadsetMPerSecond,
   translatedObserverJ2000M,
   withNavigationTarget,
   type WorldNavigationState,
@@ -18,9 +17,9 @@ import {
 
 describe("solar-system coordinate foundation", () => {
   it("uses one scale for every body", () => {
-    const scale = roomScaleForDisplayRadius("earth", 100);
-    expect(displayRadiusForRoomScale("earth", scale)).toBeCloseTo(100, 12);
-    expect(displayRadiusForRoomScale("moon", scale)).toBeCloseTo(
+    const scaleDenominator = celestialBody("earth").referenceRadiusM / 100;
+    expect(displayRadiusForScale("earth", scaleDenominator)).toBeCloseTo(100, 12);
+    expect(displayRadiusForScale("moon", scaleDenominator)).toBeCloseTo(
       100 * 1_737_400 / 6_371_008.8,
       12,
     );
@@ -41,7 +40,7 @@ describe("solar-system coordinate foundation", () => {
     const point = { x: origin.x + 12.5, y: origin.y - 3.25, z: origin.z + 8 };
     expect(relativeJ2000MetresToRender(
       subtractVector3d(point, origin),
-      0.1,
+      10,
     )).toEqual({ x: 1.25, y: 0.8, z: 0.325 });
   });
 
@@ -50,19 +49,19 @@ describe("solar-system coordinate foundation", () => {
     const moved = translatedObserverJ2000M(
       origin,
       { x: 2, y: -3, z: 4 },
-      0.25,
+      4,
     );
     expect(relativeJ2000MetresToRender(
       subtractVector3d(moved, origin),
-      0.25,
+      4,
     )).toEqual({ x: 2, y: -3, z: 4 });
   });
 
   it("scales space travel to remain visible without breaking toy scales", () => {
-    expect(spaceTravelSpeedRoomMPerSecond("orbit", 100, 300, false)).toBe(50);
-    expect(spaceTravelSpeedRoomMPerSecond("free", 100, 1_000, false)).toBe(150);
-    expect(spaceTravelSpeedRoomMPerSecond("orbit", 1, 3, false)).toBe(1.35);
-    expect(spaceTravelSpeedRoomMPerSecond("orbit", 100, 300, true)).toBe(200);
+    expect(spaceTravelSpeedHeadsetMPerSecond("orbit", 100, 300, false)).toBe(50);
+    expect(spaceTravelSpeedHeadsetMPerSecond("free", 100, 1_000, false)).toBe(150);
+    expect(spaceTravelSpeedHeadsetMPerSecond("orbit", 1, 3, false)).toBe(1.35);
+    expect(spaceTravelSpeedHeadsetMPerSecond("orbit", 100, 300, true)).toBe(200);
   });
 
   it("registers all major planets and rejects surface mode without a surface", () => {
@@ -73,7 +72,7 @@ describe("solar-system coordinate foundation", () => {
     const state = {
       mode: "free",
       focusBodyId: "earth",
-      roomMetresPerPhysicalMetre: 1 / celestialBody("earth").referenceRadiusM,
+      scaleDenominator: celestialBody("earth").referenceRadiusM,
       surfaceLocations: {},
       observerSystemPositionM: { x: 0, y: 0, z: 0 },
     } satisfies WorldNavigationState;

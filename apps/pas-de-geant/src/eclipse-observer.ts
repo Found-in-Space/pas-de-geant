@@ -119,17 +119,17 @@ export function updateTargetLockedOrbitFrame(
   ).invert().multiply(systemFrameQuaternion).normalize();
 }
 
-/** Projects a candidate tracked-head position onto an Earth-centred sphere. */
-export function observerProjectedToEarthRadius(
+/** Projects a candidate tracked-head position onto a body-centred sphere. */
+export function observerProjectedToBodyRadius(
   observer: EclipseObserverTransform,
   headWorldPosition: THREE.Vector3,
-  earthWorldPosition: THREE.Vector3,
+  bodyWorldPosition: THREE.Vector3,
   radiusM: number,
 ): EclipseObserverTransform {
   const desiredHeadPosition = headWorldPosition.clone()
-    .sub(earthWorldPosition)
+    .sub(bodyWorldPosition)
     .setLength(radiusM)
-    .add(earthWorldPosition);
+    .add(bodyWorldPosition);
   return observerTranslatedForHeadPosition(
     observer,
     headWorldPosition,

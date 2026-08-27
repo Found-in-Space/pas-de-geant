@@ -15,7 +15,7 @@ import {
 import { earthTextureUv } from "../apps/pas-de-geant/src/earth-texture-projection.js";
 import {
   beginObserverTwoGrip,
-  observerProjectedToEarthRadius,
+  observerProjectedToBodyRadius,
   observerTranslatedForHeadPosition,
   updateObserverEarthOrbit,
   updateObserverTwoGrip,
@@ -25,13 +25,14 @@ import {
 import {
   apparentAngularRadius,
   createGeodeticEllipsoidGeometry,
-  ecefKmToDisplay,
+  ecefKmToPhysicalMetres,
 } from "../apps/pas-de-geant/src/eclipse-rendering.js";
 import {
   eclipseCameraDepthRange,
+  ECLIPSE_DEFAULT_SCALE_DENOMINATOR,
   eclipseRadialDistanceAfterInput,
   eclipseScaleAfterInput,
-  headsetPointAfterSimulationScaleChange,
+  headsetPointAfterScaleDenominatorChange,
   type GripPose,
 } from "../apps/pas-de-geant/src/eclipse-stage.js";
 
@@ -71,7 +72,7 @@ describe("Eclipse observatory system and observer transforms", () => {
     geometry.dispose();
   });
 
-  it("derives the nearest WGS84 point and room-space head distance", () => {
+  it("derives the nearest WGS84 point and physical head distance", () => {
     const latitudeDegrees = 52.37;
     const longitudeDegrees = 4.9;
     const surface = geodeticToEcef({
@@ -88,25 +89,18 @@ describe("Eclipse observatory system and observer transforms", () => {
     const heightKm = 500;
     const headEcef = new THREE.Vector3(surface.x, surface.y, surface.z)
       .addScaledVector(normal, heightKm);
-    const headDisplay = new THREE.Vector3(
-      headEcef.x / EARTH_MEAN_RADIUS_KM,
-      headEcef.z / EARTH_MEAN_RADIUS_KM,
-      -headEcef.y / EARTH_MEAN_RADIUS_KM,
+    const headPhysicalM = new THREE.Vector3(
+      headEcef.x * 1_000,
+      headEcef.z * 1_000,
+      -headEcef.y * 1_000,
     );
-    const metresPerEarthRadius = 0.75;
-    const observation = eclipseEarthSurfaceObservation(
-      headDisplay,
-      metresPerEarthRadius,
-    );
+    const observation = eclipseEarthSurfaceObservation(headPhysicalM);
 
     expect(observation.latitudeDegrees).toBeCloseTo(latitudeDegrees, 9);
     expect(observation.longitudeDegrees).toBeCloseTo(longitudeDegrees, 9);
-    expect(observation.headDistanceWorldM).toBeCloseTo(
-      heightKm / EARTH_MEAN_RADIUS_KM * metresPerEarthRadius,
-      12,
-    );
-    expect(observation.nearestPointResidualWorldM).toBeLessThan(1e-12);
-    expect(observation.headPoint.distanceTo(headDisplay)).toBeLessThan(1e-12);
+    expect(observation.headDistancePhysicalM).toBeCloseTo(heightKm * 1_000, 6);
+    expect(observation.nearestPointResidualPhysicalM).toBeLessThan(1e-6);
+    expect(observation.headPoint.distanceTo(headPhysicalM)).toBeLessThan(1e-9);
   });
 
   it("retains a far-away southern sub-head latitude", () => {
@@ -127,17 +121,16 @@ describe("Eclipse observatory system and observer transforms", () => {
       .addScaledVector(normal, 40_000);
     const observation = eclipseEarthSurfaceObservation(
       new THREE.Vector3(
-        headEcef.x / EARTH_MEAN_RADIUS_KM,
-        headEcef.z / EARTH_MEAN_RADIUS_KM,
-        -headEcef.y / EARTH_MEAN_RADIUS_KM,
+        headEcef.x * 1_000,
+        headEcef.z * 1_000,
+        -headEcef.y * 1_000,
       ),
-      0.75,
     );
 
     expect(observation.latitudeDegrees).toBeCloseTo(latitudeDegrees, 8);
     expect(observation.longitudeDegrees).toBeCloseTo(longitudeDegrees, 8);
-    expect(observation.signedHeadHeightWorldM).toBeGreaterThan(0);
-    expect(observation.nearestPointResidualWorldM).toBeLessThan(1e-10);
+    expect(observation.signedHeadHeightPhysicalM).toBeGreaterThan(0);
+    expect(observation.nearestPointResidualPhysicalM).toBeLessThan(1e-4);
   });
 
   it("composes the current stereo head midpoint through the navigation rig", () => {
@@ -183,24 +176,24 @@ describe("Eclipse observatory system and observer transforms", () => {
     expect(worldForward.distanceTo(expectedForward)).toBeLessThan(1e-12);
   });
 
-  it("keeps one Earth-radius coordinate system", () => {
+  it("converts Shadowline kilometre coordinates to physical metres", () => {
     expect(
-      ecefKmToDisplay({ x: EARTH_MEAN_RADIUS_KM, y: 0, z: 0 }).length(),
-    ).toBeCloseTo(1, 12);
+      ecefKmToPhysicalMetres({ x: EARTH_MEAN_RADIUS_KM, y: 0, z: 0 }).length(),
+    ).toBeCloseTo(EARTH_MEAN_RADIUS_KM * 1_000, 6);
   });
 
   it("uses rendered topography for radial altitude and the inward floor", () => {
     const surface = geodeticToEcef({ latitudeDeg: 0, longitudeDeg: 0 });
     const head = new THREE.Vector3(
-      (surface.x + 5) / EARTH_MEAN_RADIUS_KM,
+      (surface.x + 5) * 1_000,
       0,
       0,
     );
-    const observation = eclipseEarthSurfaceObservation(head, 0.75);
+    const observation = eclipseEarthSurfaceObservation(head);
     const ellipsoidRadius = observation.surfacePoint.length();
 
     expect(eclipseTopographicSurfaceRadius(observation, 1_500))
-      .toBeCloseTo(ellipsoidRadius + 1.5 / EARTH_MEAN_RADIUS_KM, 12);
+      .toBeCloseTo(ellipsoidRadius + 1_500, 6);
     expect(eclipseTopographicAltitudeMetres(observation, 1_500))
       .toBeCloseTo(3_500, 6);
     expect(eclipseTopographicAltitudeMetres(observation, -400))
@@ -243,7 +236,7 @@ describe("Eclipse observatory system and observer transforms", () => {
       .applyQuaternion(observerCurrent.quaternion)
       .add(observerCurrent.position);
     const earthCentre = new THREE.Vector3(0.3, -0.8, -2);
-    const projected = observerProjectedToEarthRadius(
+    const projected = observerProjectedToBodyRadius(
       observerCurrent,
       candidateHead,
       earthCentre,
@@ -328,7 +321,7 @@ describe("Eclipse observatory system and observer transforms", () => {
       ),
     };
     const desiredRadius = eclipseRadialDistanceAfterInput(4, 1, 1 / 1.2);
-    const projected = observerProjectedToEarthRadius(
+    const projected = observerProjectedToBodyRadius(
       observer,
       headPosition,
       earthCentre,
@@ -343,9 +336,9 @@ describe("Eclipse observatory system and observer transforms", () => {
     expect(projected.quaternion.angleTo(observer.quaternion)).toBe(0);
   });
 
-  it("changes the headset conversion while preserving observer distance in Earth units", () => {
+  it("changes scale while preserving the observer's physical distance", () => {
     const earthCentre = new THREE.Vector3(1, -2, 0.5);
-    const oldScale = 0.1;
+    const oldScaleDenominator = 1_000_000;
     const trackedHead = new THREE.Vector3(0.2, 1.65, -0.3);
     const observer: EclipseObserverTransform = {
       position: new THREE.Vector3(0.7, -3.4, 0.9),
@@ -357,16 +350,16 @@ describe("Eclipse observatory system and observer transforms", () => {
     const oldHeadPosition = trackedHead.clone()
       .applyQuaternion(observer.quaternion)
       .add(observer.position);
-    const nextScale = eclipseScaleAfterInput(
-      oldScale,
+    const nextScaleDenominator = eclipseScaleAfterInput(
+      oldScaleDenominator,
       1,
       2,
     );
-    const desiredHeadPosition = headsetPointAfterSimulationScaleChange(
+    const desiredHeadPosition = headsetPointAfterScaleDenominatorChange(
       oldHeadPosition,
       earthCentre,
-      oldScale,
-      nextScale,
+      oldScaleDenominator,
+      nextScaleDenominator,
     );
     const scaledObserver = observerTranslatedForHeadPosition(
       observer,
@@ -376,46 +369,57 @@ describe("Eclipse observatory system and observer transforms", () => {
     const scaledHeadPosition = trackedHead.clone()
       .applyQuaternion(scaledObserver.quaternion)
       .add(scaledObserver.position);
-    const moonRadius = MOON_RADIUS_KM / EARTH_MEAN_RADIUS_KM;
-    const moonDistance = 60.3;
+    const moonRadiusM = MOON_RADIUS_KM * 1_000;
+    const moonDistanceM = 384_400_000;
 
-    expect(scaledHeadPosition.distanceTo(earthCentre) / nextScale)
-      .toBeCloseTo(oldHeadPosition.distanceTo(earthCentre) / oldScale, 12);
+    expect(
+      scaledHeadPosition.distanceTo(earthCentre) * nextScaleDenominator,
+    ).toBeCloseTo(
+      oldHeadPosition.distanceTo(earthCentre) * oldScaleDenominator,
+      6,
+    );
     expect(earthCentre.toArray()).toEqual([1, -2, 0.5]);
     expect(apparentAngularRadius(
-      moonRadius * oldScale,
-      moonDistance * oldScale,
+      moonRadiusM / oldScaleDenominator,
+      moonDistanceM / oldScaleDenominator,
     )).toBeCloseTo(apparentAngularRadius(
-      moonRadius * nextScale,
-      moonDistance * nextScale,
+      moonRadiusM / nextScaleDenominator,
+      moonDistanceM / nextScaleDenominator,
     ), 12);
   });
 
-  it("keeps the Earth–Moon scene inside the camera depth range at tiny and large display conversions", () => {
-    const systemExtentSimulationUnits = 64;
-    const tinyScale = 0.001;
-    const tinyObserverDistance = tinyScale * 4;
+  it("keeps the Earth–Moon scene inside the camera depth range at tiny and large scales", () => {
+    const earthRadiusM = EARTH_MEAN_RADIUS_KM * 1_000;
+    const systemExtentPhysicalM = 64 * earthRadiusM;
+    const tinyDenominator = earthRadiusM / 0.001;
+    const tinyObserverDistance = 0.004;
     const tiny = eclipseCameraDepthRange(
-      tinyScale,
+      tinyDenominator,
       tinyObserverDistance,
-      systemExtentSimulationUnits,
+      systemExtentPhysicalM,
     );
-    const earthSurfaceClearance = tinyObserverDistance - tinyScale;
+    const earthSurfaceClearance = tinyObserverDistance - 0.001;
 
     expect(tiny.nearM).toBeLessThan(earthSurfaceClearance);
     expect(tiny.farM).toBeGreaterThanOrEqual(1_200);
 
-    const largeScale = 100;
-    const largeObserverDistance = largeScale * 4;
+    const largeDenominator = earthRadiusM / 100;
+    const largeObserverDistance = 400;
     const large = eclipseCameraDepthRange(
-      largeScale,
+      largeDenominator,
       largeObserverDistance,
-      systemExtentSimulationUnits,
+      systemExtentPhysicalM,
     );
 
     expect(large.nearM).toBe(0.02);
     expect(large.farM).toBeGreaterThan(
-      largeObserverDistance + systemExtentSimulationUnits * largeScale,
+      largeObserverDistance + systemExtentPhysicalM / largeDenominator,
     );
+  });
+
+  it("keeps the observatory reset scale exact", () => {
+    expect(ECLIPSE_DEFAULT_SCALE_DENOMINATOR).toBe(8_494_678.4);
+    expect(EARTH_MEAN_RADIUS_KM * 1_000 / ECLIPSE_DEFAULT_SCALE_DENOMINATOR)
+      .toBeCloseTo(0.75, 12);
   });
 });

@@ -1,5 +1,4 @@
 import { greatCircleDistanceKm } from "./location-pin.js";
-import { EARTH_MEAN_RADIUS_KM } from "./planet-state.js";
 
 export const UI_LONG_TRANSITION_THRESHOLD_M = 5;
 export const UI_SHORT_TRANSITION_SECONDS = 1;
@@ -13,7 +12,7 @@ interface Coordinates {
 }
 
 interface NavigationState extends Coordinates {
-  readonly displayRadiusM: number;
+  readonly scaleDenominator: number;
 }
 
 export function uiTransitionTimeForHeadsetDistance(
@@ -35,6 +34,6 @@ export function uiWarpTransitionTime(
     target.longitudeDegrees,
   );
   const headsetDistanceM =
-    worldDistanceKm / EARTH_MEAN_RADIUS_KM * current.displayRadiusM;
+    worldDistanceKm * 1_000 / current.scaleDenominator;
   return uiTransitionTimeForHeadsetDistance(headsetDistanceM);
 }

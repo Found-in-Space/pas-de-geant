@@ -33,6 +33,7 @@ import type {
   SupervisionCommand,
   SupervisionSession,
 } from "./supervision-protocol.js";
+import { formatScaleRatio } from "./world-scale.js";
 
 const INITIAL_MAP_CENTER: L.LatLngExpression = [20, 0];
 const INITIAL_MAP_ZOOM = 2;
@@ -63,7 +64,7 @@ const useCurrentButton = element<HTMLButtonElement>("use-current-button");
 const warpButton = element<HTMLButtonElement>("warp-button");
 const addPinButton = element<HTMLButtonElement>("add-pin-button");
 const scaleForm = element<HTMLFormElement>("scale-form");
-const displayRadius = element<HTMLInputElement>("display-radius");
+const scaleDenominatorInput = element<HTMLInputElement>("scale-denominator");
 const scaleButton = element<HTMLButtonElement>("scale-button");
 const radialForm = element<HTMLFormElement>("radial-form");
 const radialMultiplier = element<HTMLInputElement>("radial-multiplier");
@@ -177,10 +178,6 @@ function shortSessionId(sessionId: string): string {
 
 function sessionName(session: Pick<SupervisionSession, "sessionId" | "label">): string {
   return session.label || shortSessionId(session.sessionId);
-}
-
-function formatRadius(value: number): string {
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 }).format(value)} m`;
 }
 
 function formatInputValue(value: number, fractionDigits: number): string {
@@ -346,7 +343,10 @@ function initializeDrafts(session: SupervisionSession): void {
     destinationInitialized = true;
   }
   if (!scaleDraftInitialized) {
-    displayRadius.value = formatInputValue(session.state.displayRadiusM, 3);
+    scaleDenominatorInput.value = formatInputValue(
+      session.state.scaleDenominator,
+      3,
+    );
     scaleDraftInitialized = true;
   }
   if (!radialDraftInitialized) {
@@ -422,7 +422,7 @@ function renderSessionList(): void {
         eclipse.playing ? "running" : "paused"
       }`
       : session.state
-      ? `${session.state.latitudeDegrees.toFixed(3)}°, ${session.state.longitudeDegrees.toFixed(3)}° · ${formatRadius(session.state.displayRadiusM)} · ${
+      ? `${session.state.latitudeDegrees.toFixed(3)}°, ${session.state.longitudeDegrees.toFixed(3)}° · ${formatScaleRatio(session.state.scaleDenominator)} · ${
         session.state.headingDegrees === null
           ? "—"
           : `${Math.round(session.state.headingDegrees) % 360}°`
@@ -440,7 +440,8 @@ function renderControls(supported: boolean, connected: boolean): void {
     (pending) => pending.sessionId === selectedSessionId && pending.kind === "warp",
   );
   const scalePending = [...pendingCommands.values()].some(
-    (pending) => pending.sessionId === selectedSessionId && pending.kind === "setDisplayRadius",
+    (pending) => pending.sessionId === selectedSessionId &&
+      pending.kind === "setScaleDenominator",
   );
   const radialPending = [...pendingCommands.values()].some(
     (pending) => pending.sessionId === selectedSessionId && pending.kind === "setRadialMultiplier",
@@ -454,7 +455,7 @@ function renderControls(supported: boolean, connected: boolean): void {
   centerMapButton.disabled = !supported || !connected;
   warpButton.disabled = !supported || !connected || warpPending;
   addPinButton.disabled = !supported || !connected;
-  displayRadius.disabled = !supported || !connected || scalePending;
+  scaleDenominatorInput.disabled = !supported || !connected || scalePending;
   scaleButton.disabled = !supported || !connected || scalePending;
   radialMultiplier.disabled = !supported || !connected || radialPending;
   radialButton.disabled = !supported || !connected || radialPending;
@@ -955,7 +956,10 @@ function render(): void {
       state.headingDegrees,
     );
     if (!scaleDraftDirty && !scaleDraftInitialized) {
-      displayRadius.value = formatInputValue(state.displayRadiusM, 3);
+      scaleDenominatorInput.value = formatInputValue(
+        state.scaleDenominator,
+        3,
+      );
     }
     if (!radialDraftDirty && !radialDraftInitialized) {
       radialMultiplier.value = formatInputValue(state.radialMultiplier, 1);
@@ -1045,7 +1049,7 @@ const pasteCoordinatePair = (event: ClipboardEvent): void => {
 };
 destinationLatitude.addEventListener("paste", pasteCoordinatePair);
 destinationLongitude.addEventListener("paste", pasteCoordinatePair);
-displayRadius.addEventListener("input", () => {
+scaleDenominatorInput.addEventListener("input", () => {
   scaleDraftDirty = true;
   scaleDraftInitialized = true;
 });
@@ -1196,18 +1200,20 @@ addPinButton.addEventListener("click", () => {
 
 scaleForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const displayRadiusM = displayRadius.valueAsNumber;
-  if (!Number.isFinite(displayRadiusM) || displayRadiusM <= 0) {
-    displayRadius.setCustomValidity("Enter a positive finite radius.");
-    displayRadius.reportValidity();
-    displayRadius.setCustomValidity("");
+  const scaleDenominator = scaleDenominatorInput.valueAsNumber;
+  if (!Number.isFinite(scaleDenominator) || scaleDenominator <= 0) {
+    scaleDenominatorInput.setCustomValidity(
+      "Enter a positive finite scale denominator.",
+    );
+    scaleDenominatorInput.reportValidity();
+    scaleDenominatorInput.setCustomValidity("");
     return;
   }
   if (!scaleForm.reportValidity()) return;
   if (!selectedLiveSession()?.state) return;
   sendCommand({
-    kind: "setDisplayRadius",
-    displayRadiusM,
+    kind: "setScaleDenominator",
+    scaleDenominator,
     time: UI_SCALE_TRANSITION_SECONDS,
   }, "Scale change");
 });
@@ -1269,8 +1275,11 @@ function handleCommandResult(result: CommandResultMessage): void {
       sessions.set(pending.sessionId, updated);
       if (pending.sessionId === selectedSessionId) selectedSessionCache = updated;
     }
-    if (pending.command.kind === "setDisplayRadius") {
-      displayRadius.value = formatInputValue(pending.command.displayRadiusM, 3);
+    if (pending.command.kind === "setScaleDenominator") {
+      scaleDenominatorInput.value = formatInputValue(
+        pending.command.scaleDenominator,
+        3,
+      );
       scaleDraftDirty = false;
       scaleDraftInitialized = true;
     }

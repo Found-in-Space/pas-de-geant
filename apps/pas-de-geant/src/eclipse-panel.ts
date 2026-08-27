@@ -9,6 +9,7 @@ import {
   type RuntimeOutput,
 } from "@found-in-space/touch-os";
 import type { RealtimeAgentState } from "./realtime-agent.js";
+import { formatScaleRatio } from "./world-scale.js";
 import {
   HAND_PANEL_SURFACE,
   HAND_PANEL_THEME,
@@ -33,7 +34,7 @@ export interface EclipsePanelState {
   timeFraction: number;
   playing: boolean;
   altitudeAboveTerrainMetres: number;
-  kilometresPerHeadsetMetre: number;
+  scaleDenominator: number;
   voiceState: RealtimeAgentState;
 }
 
@@ -129,10 +130,8 @@ export function createEclipsePanelRoot(
             value: formatPhysicalDistance(state.altitudeAboveTerrainMetres),
           }),
           createValueReadout("eclipse-panel-scale", {
-            label: "Display conversion",
-            value: `1 m = ${formatSimulationDistance(
-              state.kilometresPerHeadsetMetre,
-            )}`,
+            label: "Scale",
+            value: formatScaleRatio(state.scaleDenominator),
           }),
         ],
       }),
@@ -144,12 +143,6 @@ function formatPanelUtc(value: string): string {
   const at = new Date(value);
   if (!Number.isFinite(at.getTime())) return "—";
   return at.toISOString().slice(11, 19);
-}
-
-function formatSimulationDistance(kilometres: number): string {
-  return `${kilometres.toLocaleString("en-GB", {
-    maximumFractionDigits: kilometres < 1_000 ? 1 : 0,
-  })} km`;
 }
 
 function formatPhysicalDistance(metres: number): string {

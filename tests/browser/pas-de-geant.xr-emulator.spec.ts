@@ -5,7 +5,7 @@ const PISA = {
   latitudeDegrees: 43.722952,
   longitudeDegrees: 10.396597,
 } as const;
-const TARGET_SCALE = 15_000;
+const TARGET_SCALE_DENOMINATOR = 424.73392;
 const PLANNER_SETTLE_TIMEOUT_MS = 180_000;
 
 interface PlannerPipelineSnapshot {
@@ -34,7 +34,7 @@ interface RuntimeSnapshot {
       readonly latitudeDegrees: number;
       readonly longitudeDegrees: number;
     };
-    readonly displayRadiusM: number;
+    readonly scaleDenominator: number;
   };
   readonly frame: Record<string, unknown>;
   readonly renderer: {
@@ -144,7 +144,7 @@ async function captureStage(
   }), { stageName: name, screenshotName: screenshot });
 }
 
-test("runs the Pisa scale-15000 Quest 3 WebXR look-around diagnostic", async ({
+test("runs the Pisa scale-denominator Quest 3 WebXR look-around diagnostic", async ({
   page,
 }, testInfo) => {
   await page.addInitScript(() => {
@@ -183,42 +183,42 @@ test("runs the Pisa scale-15000 Quest 3 WebXR look-around diagnostic", async ({
     await captureStage(page, testInfo, "01-pisa-default"),
   ];
 
-  await page.evaluate((displayRadiusM) => {
-    window.pasDeGeantDebug!.setScale(displayRadiusM);
-  }, TARGET_SCALE);
-  const zoomSettle = await waitForPlannerSettle(page, "Pisa scale 15,000");
-  expect(zoomSettle.snapshot.controls.displayRadiusM).toBe(
-    TARGET_SCALE,
+  await page.evaluate((scaleDenominator) => {
+    window.pasDeGeantDebug!.setScaleDenominator(scaleDenominator);
+  }, TARGET_SCALE_DENOMINATOR);
+  const zoomSettle = await waitForPlannerSettle(page, "Pisa scale 1:424.73392");
+  expect(zoomSettle.snapshot.controls.scaleDenominator).toBe(
+    TARGET_SCALE_DENOMINATOR,
   );
   await page.evaluate(() => {
     window.pasDeGeantDebug!.setTileRecalculation("both", false);
   });
-  stages.push(await captureStage(page, testInfo, "02-pisa-scale-15000-forward"));
+  stages.push(await captureStage(page, testInfo, "02-pisa-scale-denominator-forward"));
 
   await page.evaluate(() => {
     window.pasDeGeantDebug!.clearMetrics();
   });
   const views = [
     {
-      name: "03-pisa-scale-15000-down",
+      name: "03-pisa-scale-denominator-down",
       pitchDegrees: -55,
       yawDegrees: 0,
       screenshot: true,
     },
     {
-      name: "04-pisa-scale-15000-left",
+      name: "04-pisa-scale-denominator-left",
       pitchDegrees: -25,
       yawDegrees: -90,
       screenshot: false,
     },
     {
-      name: "05-pisa-scale-15000-back",
+      name: "05-pisa-scale-denominator-back",
       pitchDegrees: -25,
       yawDegrees: 180,
       screenshot: false,
     },
     {
-      name: "06-pisa-scale-15000-right",
+      name: "06-pisa-scale-denominator-right",
       pitchDegrees: -25,
       yawDegrees: 90,
       screenshot: false,
@@ -238,15 +238,15 @@ test("runs the Pisa scale-15000 Quest 3 WebXR look-around diagnostic", async ({
   }
 
   const result = {
-    scenario: "Pisa default scale to scale 15,000, then emulated-headset look-around",
+    scenario: "Pisa default scale to 1:424.73392, then emulated-headset look-around",
     completedAt: new Date().toISOString(),
     route: {
       start: PISA,
-      targetScale: TARGET_SCALE,
+      targetScaleDenominator: TARGET_SCALE_DENOMINATOR,
     },
     settle: {
       defaultMs: defaultSettle.elapsedMs,
-      scale15000Ms: zoomSettle.elapsedMs,
+      targetScaleMs: zoomSettle.elapsedMs,
     },
     stages,
   };

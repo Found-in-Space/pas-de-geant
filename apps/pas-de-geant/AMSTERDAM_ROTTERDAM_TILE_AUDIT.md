@@ -311,7 +311,7 @@ npm run typecheck
 |---|---:|
 | Amsterdam | `52.3676, 4.9041` |
 | Rotterdam | `51.9244, 4.4777` |
-| Display radius | `1500 m` |
+| Scale denominator | `1:4247.3392` (same rendered size as the former 1,500 m radius fixture) |
 | Radial multiplier | `1` (the benchmark default) |
 | Travel duration | `20,000 ms` |
 | Amsterdam warm-up timeout | `240 s` |
@@ -441,7 +441,7 @@ Start the controlled state:
 pasDeGeantDebug.beginBenchmark({
   latitudeDegrees: 52.3676,
   longitudeDegrees: 4.9041,
-  displayRadiusM: 1500,
+  scaleDenominator: 4247.3392,
 })
 pasDeGeantDebug.setTileRecalculation("both", true)
 ```

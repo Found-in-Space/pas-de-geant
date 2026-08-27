@@ -3,9 +3,10 @@ import {
   EARTH_MEAN_RADIUS_KM,
   contactFrame,
   geodeticSurfaceEcefKm,
-  normalizedRadialOffsetForKilometres,
-  radialWorldMetresForKilometres,
+  normalizedBodyLocalRadialOffset,
+  radialHeadsetMetresForPhysicalMetres,
 } from "./planet-state.js";
+import { EARTH_SURFACE_MODEL } from "./surface-model.js";
 
 export const ATMOSPHERE_TOP_KM = 100;
 
@@ -21,10 +22,11 @@ export interface AtmosphereView {
 export function observerIsOutsideAtmosphere(
   view: AtmosphereView,
 ): boolean {
-  const atmosphereHeightWorldM = radialWorldMetresForKilometres(
-    ATMOSPHERE_TOP_KM,
+  const atmosphereHeightWorldM = radialHeadsetMetresForPhysicalMetres(
+    ATMOSPHERE_TOP_KM * 1_000,
     view.displayRadiusM,
     view.radialMultiplier,
+    EARTH_SURFACE_MODEL.referenceRadiusM,
   );
   return view.radialMultiplier > 0 &&
     view.observerHeightWorldM > atmosphereHeightWorldM;
@@ -43,9 +45,10 @@ export function atmosphereSurfacePoint(
     .multiplyScalar(1 / EARTH_MEAN_RADIUS_KM)
     .addScaledVector(
       normal,
-      normalizedRadialOffsetForKilometres(
-        ATMOSPHERE_TOP_KM,
+      normalizedBodyLocalRadialOffset(
+        ATMOSPHERE_TOP_KM * 1_000,
         radialMultiplier,
+        EARTH_SURFACE_MODEL.referenceRadiusM,
       ),
     );
 }
@@ -105,19 +108,19 @@ export class AtmosphereLayer {
       atmosphereGeometry(),
       new THREE.ShaderMaterial({
         uniforms: {
-          normalizedAtmosphereOffset: { value: 0 },
+          bodyLocalAtmosphereOffset: { value: 0 },
         },
         transparent: true,
         side: THREE.BackSide,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
         vertexShader: `
-          uniform float normalizedAtmosphereOffset;
+          uniform float bodyLocalAtmosphereOffset;
           varying vec3 vNormal;
           varying vec3 vView;
           void main() {
             vec3 displaced =
-              position + normal * normalizedAtmosphereOffset;
+              position + normal * bodyLocalAtmosphereOffset;
             vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
             vNormal = normalize(mat3(modelMatrix) * normal);
             vView = normalize(cameraPosition - worldPosition.xyz);
@@ -143,10 +146,11 @@ export class AtmosphereLayer {
 
   update(view: AtmosphereView): void {
     this.mesh.visible = observerIsOutsideAtmosphere(view);
-    this.mesh.material.uniforms.normalizedAtmosphereOffset!.value =
-      normalizedRadialOffsetForKilometres(
-        ATMOSPHERE_TOP_KM,
+    this.mesh.material.uniforms.bodyLocalAtmosphereOffset!.value =
+      normalizedBodyLocalRadialOffset(
+        ATMOSPHERE_TOP_KM * 1_000,
         view.radialMultiplier,
+        EARTH_SURFACE_MODEL.referenceRadiusM,
       );
   }
 }

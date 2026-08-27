@@ -1,5 +1,4 @@
 import {
-  EARTH_MEAN_RADIUS_KM,
   ecefToGeodetic,
   geodeticToEcef,
 } from "@found-in-space/shadowline";
@@ -8,41 +7,41 @@ import * as THREE from "three";
 export interface EclipseEarthSurfaceObservation {
   readonly latitudeDegrees: number;
   readonly longitudeDegrees: number;
-  /** Headset position in Earth-fixed display coordinates. */
+  /** Observer head position in Earth-fixed physical metres. */
   readonly headPoint: THREE.Vector3;
-  /** Nearest point on the WGS84 ellipsoid in Earth-fixed display coordinates. */
+  /** Nearest point on the WGS84 ellipsoid in Earth-fixed physical metres. */
   readonly surfacePoint: THREE.Vector3;
   /** Outward WGS84 normal at the nearest point, in Earth-fixed display axes. */
   readonly surfaceNormal: THREE.Vector3;
-  /** Room-space distance from the headset to that ellipsoid point. */
-  readonly headDistanceWorldM: number;
+  /** Physical distance from the headset to that ellipsoid point. */
+  readonly headDistancePhysicalM: number;
   /** Signed distance along the surface normal; negative only below WGS84. */
-  readonly signedHeadHeightWorldM: number;
+  readonly signedHeadHeightPhysicalM: number;
   /** Non-normal residual of the head-to-surface vector. */
-  readonly nearestPointResidualWorldM: number;
+  readonly nearestPointResidualPhysicalM: number;
 }
 
-function displayPointToEcefKm(point: THREE.Vector3): {
+function physicalPointToEcefKm(point: THREE.Vector3): {
   x: number;
   y: number;
   z: number;
 } {
   return {
-    x: point.x * EARTH_MEAN_RADIUS_KM,
-    y: -point.z * EARTH_MEAN_RADIUS_KM,
-    z: point.y * EARTH_MEAN_RADIUS_KM,
+    x: point.x / 1_000,
+    y: -point.z / 1_000,
+    z: point.y / 1_000,
   };
 }
 
-function ecefKmToDisplayPoint(point: {
+function ecefKmToPhysicalPoint(point: {
   x: number;
   y: number;
   z: number;
 }): THREE.Vector3 {
   return new THREE.Vector3(
-    point.x / EARTH_MEAN_RADIUS_KM,
-    point.z / EARTH_MEAN_RADIUS_KM,
-    -point.y / EARTH_MEAN_RADIUS_KM,
+    point.x * 1_000,
+    point.z * 1_000,
+    -point.y * 1_000,
   );
 }
 
@@ -77,15 +76,13 @@ export function trackedHeadWorldQuaternion(
 }
 
 /**
- * Projects an Earth-fixed headset position onto WGS84. The returned distance
- * uses the observatory's uniform room-metres-per-Earth-radius scale.
+ * Projects an Earth-fixed physical-metre headset position onto WGS84.
  */
 export function eclipseEarthSurfaceObservation(
   headEarthFixed: THREE.Vector3,
-  metresPerEarthRadius: number,
 ): EclipseEarthSurfaceObservation {
-  const geodetic = ecefToGeodetic(displayPointToEcefKm(headEarthFixed));
-  const surfacePoint = ecefKmToDisplayPoint(geodeticToEcef(geodetic));
+  const geodetic = ecefToGeodetic(physicalPointToEcefKm(headEarthFixed));
+  const surfacePoint = ecefKmToPhysicalPoint(geodeticToEcef(geodetic));
   const latitude = THREE.MathUtils.degToRad(geodetic.latitudeDeg);
   const longitude = THREE.MathUtils.degToRad(geodetic.longitudeDeg);
   const surfaceNormal = new THREE.Vector3(
@@ -94,9 +91,9 @@ export function eclipseEarthSurfaceObservation(
     -Math.cos(latitude) * Math.sin(longitude),
   ).normalize();
   const headFromSurface = headEarthFixed.clone().sub(surfacePoint);
-  const signedHeadHeightEarthRadii = headFromSurface.dot(surfaceNormal);
-  const nearestPointResidualEarthRadii = headFromSurface
-    .addScaledVector(surfaceNormal, -signedHeadHeightEarthRadii)
+  const signedHeadHeightPhysicalM = headFromSurface.dot(surfaceNormal);
+  const nearestPointResidualPhysicalM = headFromSurface
+    .addScaledVector(surfaceNormal, -signedHeadHeightPhysicalM)
     .length();
   return {
     latitudeDegrees: geodetic.latitudeDeg,
@@ -104,16 +101,13 @@ export function eclipseEarthSurfaceObservation(
     headPoint: headEarthFixed.clone(),
     surfacePoint,
     surfaceNormal,
-    headDistanceWorldM: headEarthFixed.distanceTo(surfacePoint) *
-      metresPerEarthRadius,
-    signedHeadHeightWorldM:
-      signedHeadHeightEarthRadii * metresPerEarthRadius,
-    nearestPointResidualWorldM:
-      nearestPointResidualEarthRadii * metresPerEarthRadius,
+    headDistancePhysicalM: headEarthFixed.distanceTo(surfacePoint),
+    signedHeadHeightPhysicalM,
+    nearestPointResidualPhysicalM,
   };
 }
 
-/** The currently rendered topographic surface point in Earth-radius units. */
+/** The currently rendered topographic surface point in physical metres. */
 export function eclipseTopographicSurfacePoint(
   observation: EclipseEarthSurfaceObservation,
   elevationMetres: number,
@@ -121,11 +115,11 @@ export function eclipseTopographicSurfacePoint(
 ): THREE.Vector3 {
   return target.copy(observation.surfacePoint).addScaledVector(
     observation.surfaceNormal,
-    elevationMetres / (EARTH_MEAN_RADIUS_KM * 1_000),
+    elevationMetres,
   );
 }
 
-/** Earth-centred radius of the local rendered WGS84-plus-terrain surface. */
+/** Earth-centred physical-metre radius of the WGS84-plus-terrain surface. */
 export function eclipseTopographicSurfaceRadius(
   observation: EclipseEarthSurfaceObservation,
   elevationMetres: number,
@@ -138,8 +132,6 @@ export function eclipseTopographicAltitudeMetres(
   observation: EclipseEarthSurfaceObservation,
   elevationMetres: number,
 ): number {
-  return (
-    observation.headPoint.length() -
-    eclipseTopographicSurfaceRadius(observation, elevationMetres)
-  ) * EARTH_MEAN_RADIUS_KM * 1_000;
+  return observation.headPoint.length() -
+    eclipseTopographicSurfaceRadius(observation, elevationMetres);
 }

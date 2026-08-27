@@ -71,7 +71,7 @@ export function worldRotationForViewDirection(
   return normalizeRotationRadians(next);
 }
 
-/** Maps a room-space direction back into the unrotated east/north frame. */
+/** Maps a headset-space direction back into the unrotated east/north frame. */
 export function geographicTravelFromWorld(
   worldTravel: Vector2,
   worldRotationRadians: number,

@@ -73,7 +73,7 @@ export function realtimeSessionConfiguration(
         "needs. The position shown by the app is the place under " +
         "the user’s feet. Use get_navigation_state before reporting the current " +
         "world, mode, or scale. Use set_navigation to change world, placement " +
-        "mode, or displayed body radius. Surface mode is available on Earth and " +
+        "mode, or universal 1:N scale denominator. Surface mode is available on Earth and " +
         "the Moon; other bodies automatically use orbit. Use get_user_location before answering questions that " +
         "depend on the current position. Its latitude_degrees and " +
         "longitude_degrees are the authoritative high-precision live app " +
@@ -90,7 +90,7 @@ export function realtimeSessionConfiguration(
         "degrees, where 0 is north, 90 east, 180 south, and 270 west. When " +
         "the user asks to go, move, " +
         "travel, or teleport to a place and you know reasonable coordinates, use " +
-        "set_user_location. Both location and display-radius changes accept an " +
+        "set_user_location. Both location and scale changes accept an " +
         "optional time in seconds for an eased transition; use it when the user " +
         "asks for a smooth or gradual move, and omit it for an instant change. " +
         "Be clear when coordinates are approximate. " +
@@ -154,13 +154,13 @@ export function realtimeSessionConfiguration(
         {
           type: "function",
           name: "get_navigation_state",
-          description: "Read the current placement mode, focus body, displayed radius, and terrain exaggeration.",
+          description: "Read the current placement mode, focus body, universal 1:N scale denominator, and terrain exaggeration.",
           parameters: { type: "object", properties: {}, additionalProperties: false },
         },
         {
           type: "function",
           name: "set_navigation",
-          description: "Move to a Solar System body, change between surface/orbit/free placement, or set the body's displayed radius in room metres.",
+          description: "Move to a Solar System body, change between surface/orbit/free placement, or set the universal 1:N physical-metres-per-headset-metre scale denominator.",
           parameters: {
             type: "object",
             properties: {
@@ -169,10 +169,10 @@ export function realtimeSessionConfiguration(
                 type: "string",
                 enum: ["sun", "mercury", "venus", "earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"],
               },
-              display_radius_metres: {
+              scale_denominator: {
                 type: "number",
                 exclusiveMinimum: 0,
-                description: "Desired displayed radius in room metres, such as 1 or 100.",
+                description: "The N in 1:N; physical metres represented by one headset metre.",
               },
               time: {
                 type: "number",
@@ -583,7 +583,7 @@ function eclipseRealtimeSessionConfiguration(): Record<string, unknown> {
         "returned event_id to select_solar_eclipse. Never invent an eclipse " +
         "or scientific geometry. Use set_eclipse_time for an exact instant, " +
         "set_eclipse_playback to play or pause, set_eclipse_scale only for " +
-        "an explicitly requested simulation-to-headset display conversion, " +
+        "an explicitly requested universal 1:N scale denominator, " +
         "and reset_eclipse_stage " +
         "to restore the default Earth-orbital scale and distance. Earth, " +
         "Moon, shadow cones, and Sun remain one coherent system; movement " +
@@ -665,13 +665,13 @@ function eclipseRealtimeSessionConfiguration(): Record<string, unknown> {
           type: "function",
           name: "set_eclipse_scale",
           description:
-            "Set positive headset metres per simulation Earth radius. This changes only the uniform simulation-to-headset conversion, preserving all Earth–Moon simulation dimensions and observer distance in Earth units.",
+            "Set the positive universal 1:N scale denominator while preserving all physical Earth–Moon geometry and the observer’s physical position.",
           parameters: {
             type: "object",
             properties: {
-              metres_per_earth_radius: { type: "number", exclusiveMinimum: 0 },
+              scale_denominator: { type: "number", exclusiveMinimum: 0 },
             },
-            required: ["metres_per_earth_radius"],
+            required: ["scale_denominator"],
             additionalProperties: false,
           },
         },

@@ -13,9 +13,11 @@ import {
   shapedOrbitalAxis,
 } from "../apps/pas-de-geant/src/world-navigation.js";
 import {
-  applyLogarithmicScale,
   applyRadialMultiplierRate,
 } from "../apps/pas-de-geant/src/planet-state.js";
+import {
+  scaleDenominatorAfterInput,
+} from "../apps/pas-de-geant/src/world-scale.js";
 
 describe("Pas de Géant controller regressions", () => {
   it("distinguishes controller input from articulated hand tracking", () => {
@@ -196,7 +198,7 @@ describe("Pas de Géant controller regressions", () => {
   });
 
   it("keeps global scale unbounded and radial amplification non-negative", () => {
-    expect(applyLogarithmicScale(1, -1, 10)).toBeLessThan(1);
+    expect(scaleDenominatorAfterInput(60_000, 1, 10)).toBeLessThan(60_000);
     expect(applyRadialMultiplierRate(20, 1, 1)).toBeGreaterThan(20);
     expect(applyRadialMultiplierRate(0, -1, 1)).toBe(0);
   });

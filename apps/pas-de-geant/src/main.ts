@@ -36,7 +36,8 @@ import {
 import { bodyFixedToRenderQuaternion } from "./body-attitude.js";
 import { CelestialSphere } from "./celestial-sphere.js";
 import {
-  observerProjectedToEarthRadius,
+  observerProjectedToBodyRadius,
+  observerTranslatedForHeadPosition,
   updateTargetLockedOrbitFrame,
   type EclipseObserverTransform,
 } from "./eclipse-observer.js";
@@ -75,14 +76,12 @@ import {
 } from "./imagery-variants.js";
 import { proxiedTileConfiguration } from "./tile-proxy.js";
 import {
-  applyLogarithmicScale,
   applyRadialMultiplierRate,
   contactFrame,
   coordinatesForFrame,
   EARTH_MEAN_RADIUS_KM,
   geodeticSurfaceEcefKm,
   initialPlanetState,
-  INITIAL_DISPLAY_RADIUS_M,
   rollContactFrame,
   solvePlanetPose,
   type PlanetState,
@@ -110,7 +109,7 @@ import {
 import {
   applySupervisorLocationPinMutation,
   applySupervisorNavigationMutation,
-  applyVoiceDisplayRadiusMutation,
+  applyVoiceScaleDenominatorMutation,
   applyVoiceRenamePinMutation,
   applyVoiceRemovePinMutation,
   applyVoiceSetPinGuidanceMutation,
@@ -140,14 +139,21 @@ import {
   type Vector3d,
 } from "./solar-system.js";
 import {
+  displayRadiusForScale,
   orbitalAngularStepRadians,
   orbitalLogarithmicValue,
   relativeJ2000MetresToRender,
-  roomScaleForDisplayRadius,
-  spaceTravelSpeedRoomMPerSecond,
+  spaceTravelSpeedHeadsetMPerSecond,
   translatedObserverJ2000M,
   type NavigationMode,
 } from "./world-navigation.js";
+import {
+  DEFAULT_SCALE_DENOMINATOR,
+  headsetScaleFactorForDenominatorChange,
+  headsetMetresForPhysicalMetres,
+  scaleDenominatorAfterInput,
+  validScaleDenominator,
+} from "./world-scale.js";
 import {
   parseTileMaxZoomArguments,
   parseTilePixelRatioArguments,
@@ -197,13 +203,13 @@ interface PasDeGeantDebugApi {
   beginBenchmark(options?: {
     latitudeDegrees?: number;
     longitudeDegrees?: number;
-    displayRadiusM?: number;
+    scaleDenominator?: number;
     radialMultiplier?: number;
   }): Record<string, unknown>;
   endBenchmark(): Record<string, unknown>;
   reset(): Record<string, unknown>;
   setLocation(latitudeDegrees: number, longitudeDegrees: number): unknown;
-  setScale(displayRadiusM: number): Record<string, unknown>;
+  setScaleDenominator(scaleDenominator: number): Record<string, unknown>;
   setRadialMultiplier(multiplier: number): Record<string, unknown>;
   setView(view: {
     pitchRadians?: number;
@@ -229,7 +235,9 @@ declare global {
   interface Window {
     pasDeGeantDebug?: PasDeGeantDebugApi;
     __PAS_DE_GEANT_ENABLE_TEST_HOOKS__?: boolean;
-    __PAS_DE_GEANT_TEST_SET_SCALE__?: (displayRadiusM: number) => void;
+    __PAS_DE_GEANT_TEST_SET_SCALE_DENOMINATOR__?: (
+      scaleDenominator: number,
+    ) => void;
     __PAS_DE_GEANT_TEST_SET_TILE_OVERLAY__?: (visible: boolean) => void;
     __PAS_DE_GEANT_TEST_SET_TEXTURE_TILE_OVERLAY__?: (
       visible: boolean,
@@ -505,22 +513,30 @@ let scaleTransition: TimedTransition<number> | undefined;
 let headingTransition: TimedTransition<number> | undefined;
 let navigationMode: NavigationMode = "surface";
 let focusBodyId: SolarSystemBodyId = "earth";
+let scaleDenominator = DEFAULT_SCALE_DENOMINATOR;
 let freeObserverJ2000M: Vector3d | undefined;
 interface OrbitNavigationState {
   observer: EclipseObserverTransform;
+  /** Authoritative J2000 observer position in physical metres. */
+  observerSystemPositionM: Vector3d;
   focusWorldPosition: THREE.Vector3;
   systemFrameQuaternion: THREE.Quaternion;
 }
 let orbitNavigation: OrbitNavigationState | undefined;
-const EARTH_ORBIT_INITIAL_DISPLAY_RADIUS_M = 200;
 interface FreeNavigationFrame {
   anchorWorldPosition: THREE.Vector3;
   systemFrameQuaternion: THREE.Quaternion;
 }
 let freeNavigationFrame: FreeNavigationFrame | undefined;
-const benchmarkScale = Number(benchmarkParameters.get("benchmarkScale"));
-if (Number.isFinite(benchmarkScale) && benchmarkScale >= 1) {
-  state.displayRadiusM = benchmarkScale;
+const benchmarkScaleDenominator = Number(
+  benchmarkParameters.get("benchmarkScaleDenominator"),
+);
+if (Number.isFinite(benchmarkScaleDenominator) && benchmarkScaleDenominator > 0) {
+  scaleDenominator = benchmarkScaleDenominator;
+}
+
+function focusedDisplayRadiusM(): number {
+  return displayRadiusForScale(focusBodyId, scaleDenominator);
 }
 const terrain = new TerrainSurface({
   renderer,
@@ -529,7 +545,7 @@ const terrain = new TerrainSurface({
   initialView: {
     latitudeDegrees: initialLocation.latitudeDegrees,
     longitudeDegrees: initialLocation.longitudeDegrees,
-    displayRadiusM: state.displayRadiusM,
+    displayRadiusM: displayRadiusForScale("earth", scaleDenominator),
     radialMultiplier: state.radialMultiplier,
     observerHeightWorldM: 1.65,
     focalLengthPixels: 1_000,
@@ -560,7 +576,7 @@ const moonTerrain = new TerrainSurface({
   initialView: {
     latitudeDegrees: initialLocation.latitudeDegrees,
     longitudeDegrees: initialLocation.longitudeDegrees,
-    displayRadiusM: state.displayRadiusM,
+    displayRadiusM: displayRadiusForScale("moon", scaleDenominator),
     radialMultiplier: state.radialMultiplier,
     observerHeightWorldM: 1.65,
     focalLengthPixels: 1_000,
@@ -607,8 +623,10 @@ let realtimeAgentStatus: RealtimeAgentStatus = {
 };
 document.body.dataset.agentStatus = realtimeAgentStatus.state;
 if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
-  window.__PAS_DE_GEANT_TEST_SET_SCALE__ = (displayRadiusM): void => {
-    setDisplayRadius(displayRadiusM);
+  window.__PAS_DE_GEANT_TEST_SET_SCALE_DENOMINATOR__ = (
+    denominator,
+  ): void => {
+    setScaleDenominator(denominator);
   };
   window.__PAS_DE_GEANT_TEST_SET_LOCATION__ = (
     latitudeDegrees,
@@ -928,6 +946,29 @@ function currentViewCamera(): THREE.Camera {
   return camera;
 }
 
+function orbitObserverSystemPosition(
+  orbit: OrbitNavigationState,
+  denominator = scaleDenominator,
+): Vector3d {
+  const viewCamera = currentViewCamera();
+  viewCamera.updateWorldMatrix(true, false);
+  const headWorld = viewCamera.getWorldPosition(new THREE.Vector3());
+  const renderOffset = headWorld.clone().sub(orbit.focusWorldPosition)
+    .applyQuaternion(orbit.systemFrameQuaternion.clone().invert());
+  return translatedObserverJ2000M(
+    bodyPositionJ2000M(focusBodyId, new Date()),
+    renderOffset,
+    denominator,
+  );
+}
+
+function syncOrbitObserverSystemPosition(): void {
+  if (!orbitNavigation) return;
+  orbitNavigation.observerSystemPositionM = orbitObserverSystemPosition(
+    orbitNavigation,
+  );
+}
+
 function commitObserverTransform(transform: EclipseObserverTransform): void {
   const normalized = transform.quaternion.clone().normalize();
   observerRig.position.copy(transform.position);
@@ -939,6 +980,7 @@ function commitObserverTransform(transform: EclipseObserverTransform): void {
       position: transform.position.clone(),
       quaternion: normalized,
     };
+    syncOrbitObserverSystemPosition();
   }
 }
 
@@ -970,7 +1012,7 @@ function initializeOrbit(): void {
   const desiredRadial = forward.clone().negate();
   const focusWorldPosition = headPosition.clone().addScaledVector(
     forward,
-    state.displayRadiusM * 3,
+    focusedDisplayRadiusM() * 3,
   );
 
   const when = new Date();
@@ -1013,9 +1055,11 @@ function initializeOrbit(): void {
       position: observerRig.position.clone(),
       quaternion: observerRig.quaternion.clone(),
     },
+    observerSystemPositionM: { x: 0, y: 0, z: 0 },
     focusWorldPosition,
     systemFrameQuaternion: alignRadial.normalize(),
   };
+  syncOrbitObserverSystemPosition();
   freeObserverJ2000M = undefined;
 }
 
@@ -1027,9 +1071,7 @@ function resetPlanet(): void {
     initialLocation.latitudeDegrees,
     initialLocation.longitudeDegrees,
   );
-  if (navigationMode === "orbit" && focusBodyId === "earth") {
-    state.displayRadiusM = EARTH_ORBIT_INITIAL_DISPLAY_RADIUS_M;
-  }
+  scaleDenominator = DEFAULT_SCALE_DENOMINATOR;
   previousXrHead = null;
   freeObserverJ2000M = undefined;
   if (navigationMode === "free") {
@@ -1057,9 +1099,6 @@ function setNavigationMode(mode: NavigationMode): void {
     : undefined;
   navigationMode = mode;
   if (mode === "orbit") {
-    if (focusBodyId === "earth") {
-      state.displayRadiusM = EARTH_ORBIT_INITIAL_DISPLAY_RADIUS_M;
-    }
     freeNavigationFrame = undefined;
     initializeOrbit();
   } else if (mode === "free" && orbitToFree) {
@@ -1084,15 +1123,8 @@ function freeStateFromOrbit(orbit: OrbitNavigationState): {
   const viewCamera = currentViewCamera();
   viewCamera.updateWorldMatrix(true, false);
   const headWorld = viewCamera.getWorldPosition(new THREE.Vector3());
-  const renderOffset = headWorld.clone().sub(orbit.focusWorldPosition)
-    .applyQuaternion(orbit.systemFrameQuaternion.clone().invert());
-  const focusPosition = bodyPositionJ2000M(focusBodyId, new Date());
   return {
-    observerJ2000M: translatedObserverJ2000M(
-      focusPosition,
-      renderOffset,
-      roomScaleForDisplayRadius(focusBodyId, state.displayRadiusM),
-    ),
+    observerJ2000M: { ...orbit.observerSystemPositionM },
     frame: {
       anchorWorldPosition: headWorld,
       systemFrameQuaternion: orbit.systemFrameQuaternion.clone(),
@@ -1116,14 +1148,35 @@ function setFocusBody(bodyId: SolarSystemBodyId): void {
   updatePresentation();
 }
 
-function setDisplayRadius(displayRadiusM: number): number {
-  if (!Number.isFinite(displayRadiusM) || displayRadiusM <= 0) {
-    throw new Error("Display radius must be positive and finite.");
-  }
+function commitScaleDenominator(nextScaleDenominator: number): number {
+  nextScaleDenominator = validScaleDenominator(nextScaleDenominator);
+  if (navigationMode === "orbit" && orbitNavigation) {
+    const previousScaleDenominator = scaleDenominator;
+    const viewCamera = currentViewCamera();
+    viewCamera.updateWorldMatrix(true, false);
+    const headPosition = viewCamera.getWorldPosition(new THREE.Vector3());
+    const desiredHeadPosition = headPosition.clone()
+      .sub(orbitNavigation.focusWorldPosition)
+      .multiplyScalar(headsetScaleFactorForDenominatorChange(
+        previousScaleDenominator,
+        nextScaleDenominator,
+      ))
+      .add(orbitNavigation.focusWorldPosition);
+    scaleDenominator = nextScaleDenominator;
+    commitObserverTransform(observerTranslatedForHeadPosition(
+      orbitNavigation.observer,
+      headPosition,
+      desiredHeadPosition,
+    ));
+  } else scaleDenominator = nextScaleDenominator;
+  return scaleDenominator;
+}
+
+function setScaleDenominator(nextScaleDenominator: number): number {
   scaleTransition = undefined;
-  state.displayRadiusM = displayRadiusM;
+  commitScaleDenominator(nextScaleDenominator);
   updatePresentation();
-  return state.displayRadiusM;
+  return scaleDenominator;
 }
 
 function setRadialMultiplier(radialMultiplier: number): number {
@@ -1178,22 +1231,20 @@ function warpUserLocation(
   return target;
 }
 
-function transitionDisplayRadius(
-  displayRadiusM: number,
+function transitionScaleDenominator(
+  nextScaleDenominator: number,
   time?: number,
 ): number {
-  if (!Number.isFinite(displayRadiusM) || displayRadiusM <= 0) {
-    throw new Error("Display radius must be positive and finite.");
-  }
+  validScaleDenominator(nextScaleDenominator);
   const durationSeconds = transitionDuration(time);
-  if (durationSeconds === 0) return setDisplayRadius(displayRadiusM);
+  if (durationSeconds === 0) return setScaleDenominator(nextScaleDenominator);
   scaleTransition = {
-    from: state.displayRadiusM,
-    to: displayRadiusM,
+    from: scaleDenominator,
+    to: nextScaleDenominator,
     startedAtMs: performance.now(),
     durationSeconds,
   };
-  return displayRadiusM;
+  return nextScaleDenominator;
 }
 
 function updateNavigationTransitions(nowMs: number): void {
@@ -1208,7 +1259,7 @@ function updateNavigationTransitions(nowMs: number): void {
   }
   if (scaleTransition) {
     const sample = sampleScaleTransition(scaleTransition, nowMs);
-    state.displayRadiusM = sample.value;
+    commitScaleDenominator(sample.value);
     if (sample.complete) scaleTransition = undefined;
   }
   if (headingTransition) {
@@ -1288,7 +1339,7 @@ function supervisionNavigationState(): SupervisionNavigationSnapshot {
     focusBody: focusBodyId,
     latitudeDegrees: coordinates.latitudeDegrees,
     longitudeDegrees: coordinates.longitudeDegrees,
-    displayRadiusM: state.displayRadiusM,
+    scaleDenominator,
     radialMultiplier: state.radialMultiplier,
     headingDegrees,
   };
@@ -1321,7 +1372,7 @@ function supervisionControlState(): SupervisionControlState {
 
 const canonicalNavigationMutations: CanonicalNavigationMutations = {
   warp: warpUserLocation,
-  setDisplayRadius: transitionDisplayRadius,
+  setScaleDenominator: transitionScaleDenominator,
   setRadialMultiplier,
   setHeading: transitionHeading,
   readState: supervisionNavigationState,
@@ -1533,7 +1584,6 @@ function moveSpaceObserver(renderTravel: THREE.Vector3): void {
     focusPosition,
     focus.referenceRadiusM,
   );
-  const roomScale = roomScaleForDisplayRadius(focusBodyId, state.displayRadiusM);
   inverseWorldRotationQuaternion.copy(
     freeNavigationFrame?.systemFrameQuaternion ?? worldRotationQuaternion,
   ).invert();
@@ -1542,25 +1592,24 @@ function moveSpaceObserver(renderTravel: THREE.Vector3): void {
   freeObserverJ2000M = translatedObserverJ2000M(
     freeObserverJ2000M,
     unrotatedSpaceTravel,
-    roomScale,
+    scaleDenominator,
   );
 }
 
-function focusDistanceRoomM(): number {
+function focusDistanceHeadsetM(): number {
   if (navigationMode === "orbit" && orbitNavigation) {
     const viewCamera = currentViewCamera();
     viewCamera.updateWorldMatrix(true, false);
     return viewCamera.getWorldPosition(new THREE.Vector3())
       .distanceTo(orbitNavigation.focusWorldPosition);
   }
-  if (!freeObserverJ2000M) return state.displayRadiusM * 3;
+  if (!freeObserverJ2000M) return focusedDisplayRadiusM() * 3;
   const focusPosition = bodyPositionJ2000M(focusBodyId, new Date());
-  const roomScale = roomScaleForDisplayRadius(focusBodyId, state.displayRadiusM);
-  return Math.hypot(
+  return headsetMetresForPhysicalMetres(Math.hypot(
     freeObserverJ2000M.x - focusPosition.x,
     freeObserverJ2000M.y - focusPosition.y,
     freeObserverJ2000M.z - focusPosition.z,
-  ) * roomScale;
+  ), scaleDenominator);
 }
 
 const terrainEyeWorldPosition = new THREE.Vector3();
@@ -1627,14 +1676,20 @@ function bodySurfaceView(
   root.worldToLocal(headLocal);
   const displayRadiusM = root.getWorldScale(new THREE.Vector3()).x;
   if (bodyId === "earth") {
+    const earthReferenceRadiusM = celestialBody("earth").referenceRadiusM;
     const observation = eclipseEarthSurfaceObservation(
-      headLocal,
-      displayRadiusM,
+      headLocal.multiplyScalar(earthReferenceRadiusM),
     );
     return {
       latitudeDegrees: observation.latitudeDegrees,
       longitudeDegrees: observation.longitudeDegrees,
-      observerHeightWorldM: Math.max(0.001, observation.headDistanceWorldM),
+      observerHeightWorldM: Math.max(
+        0.001,
+        headsetMetresForPhysicalMetres(
+          observation.headDistancePhysicalM,
+          scaleDenominator,
+        ),
+      ),
       displayRadiusM,
     };
   }
@@ -1666,14 +1721,17 @@ function enforceOrbitSurfaceFloor(): void {
   let normalizedFloorRadius = 1;
   if (focusBodyId === "earth") {
     const headLocal = root.worldToLocal(headWorld.clone());
-    const observation = eclipseEarthSurfaceObservation(headLocal, displayRadiusM);
+    const earthReferenceRadiusM = celestialBody("earth").referenceRadiusM;
+    const observation = eclipseEarthSurfaceObservation(
+      headLocal.multiplyScalar(earthReferenceRadiusM),
+    );
     normalizedFloorRadius = eclipseTopographicSurfaceRadius(
       observation,
       terrain.sampleElevationMetres(
         observation.latitudeDegrees,
         observation.longitudeDegrees,
       ) * state.radialMultiplier,
-    );
+    ) / earthReferenceRadiusM;
   } else if (focusBodyId === "moon") {
     const surface = bodySurfaceView("moon", root);
     normalizedFloorRadius += moonTerrain.sampleElevationMetres(
@@ -1683,7 +1741,7 @@ function enforceOrbitSurfaceFloor(): void {
   }
   const floorDistance = normalizedFloorRadius * displayRadiusM;
   if (headWorld.distanceTo(centreWorld) >= floorDistance) return;
-  commitObserverTransform(observerProjectedToEarthRadius(
+  commitObserverTransform(observerProjectedToBodyRadius(
     orbitNavigation.observer,
     headWorld,
     centreWorld,
@@ -1731,10 +1789,6 @@ function updateSystemPresentation(): void {
   const when = new Date();
   const focusBody = celestialBody(focusBodyId);
   const focusPosition = bodyPositionJ2000M(focusBodyId, when);
-  const roomScale = roomScaleForDisplayRadius(
-    focusBodyId,
-    state.displayRadiusM,
-  );
   if (navigationMode === "orbit" && !orbitNavigation) initializeOrbit();
   if (navigationMode === "free" && !freeNavigationFrame) {
     const viewCamera = currentViewCamera();
@@ -1750,7 +1804,10 @@ function updateSystemPresentation(): void {
         focusBody.referenceRadiusM,
       ))
     : systemObserverForFocus(focusPosition, focusBody.referenceRadiusM);
-  camera.far = Math.max(1_200, roomScale * 10_000_000_000_000);
+  camera.far = Math.max(
+    1_200,
+    headsetMetresForPhysicalMetres(10_000_000_000_000, scaleDenominator),
+  );
   camera.updateProjectionMatrix();
   const place = (bodyId: SolarSystemBodyId, root: THREE.Object3D): void => {
     const body = celestialBody(bodyId);
@@ -1760,7 +1817,7 @@ function updateSystemPresentation(): void {
       x: bodyPosition.x - origin.x,
       y: bodyPosition.y - origin.y,
       z: bodyPosition.z - origin.z,
-    }, roomScale);
+    }, scaleDenominator);
     const attitude = bodyFixedToRenderQuaternion(
       bodyRotation(bodyId, when),
       systemBodyAttitudeQuaternion,
@@ -1784,13 +1841,13 @@ function updateSystemPresentation(): void {
         .add(worldRotationPivot);
       root.quaternion.copy(worldRotationQuaternion).multiply(attitude);
     }
-    root.scale.setScalar(body.referenceRadiusM * roomScale);
+    root.scale.setScalar(displayRadiusForScale(bodyId, scaleDenominator));
     root.visible = true;
   };
   place("earth", planetRoot);
   place("moon", moonRoot);
   for (const [bodyId, root] of placeholderRoots) place(bodyId, root);
-  document.body.dataset.roomScale = String(roomScale);
+  document.body.dataset.scaleDenominator = String(scaleDenominator);
 }
 
 function updatePresentation(): void {
@@ -1817,14 +1874,16 @@ function updatePresentation(): void {
         moonRoot,
         coordinates.latitudeDegrees,
         coordinates.longitudeDegrees,
-        state.displayRadiusM,
+        displayRadiusForScale("moon", scaleDenominator),
       );
     } else {
       planetRoot.visible = true;
       moonRoot.visible = false;
     }
   }
-  const pose = solvePlanetPose(state, headsetFloorPosition);
+  const earthDisplayRadiusM = displayRadiusForScale("earth", scaleDenominator);
+  const moonDisplayRadiusM = displayRadiusForScale("moon", scaleDenominator);
+  const pose = solvePlanetPose(state, headsetFloorPosition, earthDisplayRadiusM);
   if (navigationMode === "surface" && focusBodyId === "earth") {
     planetRoot.quaternion
       .copy(pose.earthToWorld)
@@ -1834,7 +1893,7 @@ function updatePresentation(): void {
       .sub(worldRotationPivot)
       .applyQuaternion(worldRotationQuaternion)
       .add(worldRotationPivot);
-    planetRoot.scale.setScalar(state.displayRadiusM);
+    planetRoot.scale.setScalar(earthDisplayRadiusM);
   } else if (navigationMode === "surface" && focusBodyId === "moon") {
     moonRoot.quaternion.premultiply(worldRotationQuaternion);
     moonRoot.position
@@ -1862,13 +1921,13 @@ function updatePresentation(): void {
       longitudeDegrees: focusedOrbitalView.longitudeDegrees,
     };
   }
-  document.body.dataset.displayScale = state.displayRadiusM.toFixed(2);
+  document.body.dataset.scaleDenominator = String(scaleDenominator);
   terrain.update({
     latitudeDegrees:
       earthOrbitalView?.latitudeDegrees ?? coordinates.latitudeDegrees,
     longitudeDegrees:
       earthOrbitalView?.longitudeDegrees ?? coordinates.longitudeDegrees,
-    displayRadiusM: earthOrbitalView?.displayRadiusM ?? state.displayRadiusM,
+    displayRadiusM: earthOrbitalView?.displayRadiusM ?? earthDisplayRadiusM,
     radialMultiplier: state.radialMultiplier,
     observerHeightWorldM:
       earthOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
@@ -1879,7 +1938,7 @@ function updatePresentation(): void {
       moonOrbitalView?.latitudeDegrees ?? coordinates.latitudeDegrees,
     longitudeDegrees:
       moonOrbitalView?.longitudeDegrees ?? coordinates.longitudeDegrees,
-    displayRadiusM: moonOrbitalView?.displayRadiusM ?? state.displayRadiusM,
+    displayRadiusM: moonOrbitalView?.displayRadiusM ?? moonDisplayRadiusM,
     radialMultiplier: state.radialMultiplier,
     observerHeightWorldM:
       moonOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
@@ -1887,7 +1946,7 @@ function updatePresentation(): void {
     projection: "geographic",
   });
   atmosphere.update({
-    displayRadiusM: earthOrbitalView?.displayRadiusM ?? state.displayRadiusM,
+    displayRadiusM: earthOrbitalView?.displayRadiusM ?? earthDisplayRadiusM,
     radialMultiplier: state.radialMultiplier,
     observerHeightWorldM:
       earthOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
@@ -1900,7 +1959,7 @@ function handPanelStatus(
 ): HandPanelStatus {
   const lod = terrain.getLodStatus();
   return {
-    globalScaleFactor: state.displayRadiusM,
+    scaleDenominator,
     radialMultiplier: state.radialMultiplier,
     minimumTerrainZoom: lod.minZoom,
     maximumTerrainZoom: lod.maxZoom,
@@ -1908,8 +1967,8 @@ function handPanelStatus(
     agentState: realtimeAgentStatus.state,
     navigationMode,
     focusBody: celestialBody(focusBodyId).name,
-    focusDistanceBodyRadii: navigationMode === "orbit"
-      ? focusDistanceRoomM() / state.displayRadiusM
+    focusDistanceHeadsetM: navigationMode === "orbit"
+      ? focusDistanceHeadsetM()
       : undefined,
   };
 }
@@ -1925,7 +1984,7 @@ function handPanelStateSignature(
     latitudeDegrees.toFixed(2),
     longitudeDegrees.toFixed(2),
     northAngle.toFixed(2),
-    status.globalScaleFactor.toFixed(2),
+    status.scaleDenominator.toFixed(3),
     status.radialMultiplier.toFixed(1),
     status.minimumTerrainZoom,
     status.maximumTerrainZoom,
@@ -1933,7 +1992,7 @@ function handPanelStateSignature(
     status.agentState,
     status.navigationMode,
     status.focusBody,
-    status.focusDistanceBodyRadii?.toFixed(2),
+    status.focusDistanceHeadsetM?.toFixed(2),
   ].join(":");
 }
 
@@ -1978,18 +2037,18 @@ const voiceAgent = new RealtimeVoiceAgent({
   onRemoteStream: setRealtimeAudioStream,
   tools: {
     get_navigation_state() {
-      const orbitDistanceRoomM = navigationMode === "orbit"
-        ? focusDistanceRoomM()
+      const orbitDistanceHeadsetM = navigationMode === "orbit"
+        ? focusDistanceHeadsetM()
         : null;
       return {
         mode: navigationMode,
         focus_body: focusBodyId,
-        display_radius_metres: state.displayRadiusM,
+        scale_denominator: scaleDenominator,
         radial_multiplier: state.radialMultiplier,
-        focus_distance_metres: orbitDistanceRoomM,
-        focus_distance_body_radii: orbitDistanceRoomM === null
+        focus_distance_headset_metres: orbitDistanceHeadsetM,
+        focus_distance_physical_metres: orbitDistanceHeadsetM === null
           ? null
-          : orbitDistanceRoomM / state.displayRadiusM,
+          : orbitDistanceHeadsetM * scaleDenominator,
       };
     },
     set_navigation(argumentsValue) {
@@ -1997,6 +2056,11 @@ const voiceAgent = new RealtimeVoiceAgent({
         throw new Error("Navigation arguments are required.");
       }
       const values = argumentsValue as Record<string, unknown>;
+      if ("display_radius_metres" in values) {
+        throw new Error(
+          "display_radius_metres is no longer supported; use scale_denominator.",
+        );
+      }
       if (values.focus_body !== undefined) {
         if (
           typeof values.focus_body !== "string" ||
@@ -2013,14 +2077,20 @@ const voiceAgent = new RealtimeVoiceAgent({
         setNavigationMode(values.mode);
       }
       const time = voiceTransitionTime(values.time);
-      if (time !== undefined && values.display_radius_metres === undefined) {
+      if (time !== undefined && values.scale_denominator === undefined) {
         throw new Error(
-          "Transition time requires a displayed radius in this tool.",
+          "Transition time requires a scale denominator in this tool.",
         );
       }
-      if (typeof values.display_radius_metres === "number") {
-        applyVoiceDisplayRadiusMutation(
-          values.display_radius_metres,
+      if (
+        values.scale_denominator !== undefined &&
+        typeof values.scale_denominator !== "number"
+      ) {
+        throw new Error("scale_denominator must be a number.");
+      }
+      if (typeof values.scale_denominator === "number") {
+        applyVoiceScaleDenominatorMutation(
+          values.scale_denominator,
           canonicalNavigationMutations,
           time,
         );
@@ -2029,11 +2099,11 @@ const voiceAgent = new RealtimeVoiceAgent({
         ok: true,
         mode: navigationMode,
         focus_body: focusBodyId,
-        display_radius_metres: state.displayRadiusM,
-        target_display_radius_metres:
-          typeof values.display_radius_metres === "number"
-            ? values.display_radius_metres
-            : state.displayRadiusM,
+        scale_denominator: scaleDenominator,
+        target_scale_denominator:
+          typeof values.scale_denominator === "number"
+            ? values.scale_denominator
+            : scaleDenominator,
         transition_time_seconds: time ?? 0,
       };
     },
@@ -2049,7 +2119,7 @@ const voiceAgent = new RealtimeVoiceAgent({
         longitude_degrees: coordinates.longitudeDegrees,
         coordinate_reference_system: "WGS 84",
         coordinate_source: "live app position under the user’s feet",
-        display_radius_metres: state.displayRadiusM,
+        scale_denominator: scaleDenominator,
         location_detail: AGENT_LOCATION_DETAIL,
         named_location_is_approximate: namedLocation !== undefined,
         named_location: namedLocation ?? null,
@@ -2322,7 +2392,7 @@ function updatePhysicalWalking(): void {
           worldRotationRadians,
           geographicTravel,
         ),
-        state.displayRadiusM,
+        focusedDisplayRadiusM(),
       );
     }
   }
@@ -2363,17 +2433,17 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
           worldRotationRadians,
           geographicTravel,
         ),
-        state.displayRadiusM,
+        focusedDisplayRadiusM(),
       );
     } else {
       spaceTravel.set(intent.travel.x, 0, intent.travel.y)
         .applyQuaternion(xrViewQuaternion);
       if (spaceTravel.lengthSq() > 1) spaceTravel.normalize();
       spaceTravel.multiplyScalar(
-        spaceTravelSpeedRoomMPerSecond(
+        spaceTravelSpeedHeadsetMPerSecond(
           "free",
-          state.displayRadiusM,
-          focusDistanceRoomM(),
+          focusedDisplayRadiusM(),
+          focusDistanceHeadsetM(),
           intent.boost,
         ) * deltaSeconds,
       );
@@ -2381,11 +2451,11 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
     }
   }
   if (navigationMode !== "orbit") {
-    state.displayRadiusM = applyLogarithmicScale(
-      state.displayRadiusM,
+    commitScaleDenominator(scaleDenominatorAfterInput(
+      scaleDenominator,
       intent.scaleAxis,
       deltaSeconds,
-    );
+    ));
     state.radialMultiplier = applyRadialMultiplierRate(
       state.radialMultiplier,
       intent.radialAxis,
@@ -2423,6 +2493,7 @@ function orbitSystemFrameByRadians(
     horizontalRadians,
     verticalRadians,
   ));
+  syncOrbitObserverSystemPosition();
 }
 
 function updateOrbitControls(
@@ -2454,7 +2525,7 @@ function updateOrbitControls(
       deltaSeconds,
       boosted,
     );
-    commitObserverTransform(observerProjectedToEarthRadius(
+    commitObserverTransform(observerProjectedToBodyRadius(
       orbitNavigation.observer,
       headPosition,
       orbitNavigation.focusWorldPosition,
@@ -2462,12 +2533,18 @@ function updateOrbitControls(
     ));
   }
   if (dominant.vertical !== 0) {
-    state.displayRadiusM = orbitalLogarithmicValue(
-      state.displayRadiusM,
-      dominant.vertical,
+    commitScaleDenominator(orbitalLogarithmicValue(
+      scaleDenominator,
+      -dominant.vertical,
       deltaSeconds,
       boosted,
-    );
+    ));
+  } else {
+    commitScaleDenominator(scaleDenominatorAfterInput(
+      scaleDenominator,
+      0,
+      deltaSeconds,
+    ));
   }
 }
 
@@ -2502,17 +2579,17 @@ function updateDesktopControls(deltaSeconds: number): void {
           worldRotationRadians,
           geographicTravel,
         ),
-        state.displayRadiusM,
+        focusedDisplayRadiusM(),
       );
     } else {
       spaceTravel.set(desktopTravel.x, 0, desktopTravel.y)
         .applyQuaternion(camera.quaternion);
       if (spaceTravel.lengthSq() > 1) spaceTravel.normalize();
       spaceTravel.multiplyScalar(
-        spaceTravelSpeedRoomMPerSecond(
+        spaceTravelSpeedHeadsetMPerSecond(
           "free",
-          state.displayRadiusM,
-          focusDistanceRoomM(),
+          focusedDisplayRadiusM(),
+          focusDistanceHeadsetM(),
           boosted,
         ) * deltaSeconds,
       );
@@ -2523,11 +2600,11 @@ function updateDesktopControls(deltaSeconds: number): void {
     Number(keys.has("KeyX")) - Number(keys.has("KeyZ"));
   const radialAxis =
     Number(keys.has("KeyV")) - Number(keys.has("KeyC"));
-  state.displayRadiusM = applyLogarithmicScale(
-    state.displayRadiusM,
+  commitScaleDenominator(scaleDenominatorAfterInput(
+    scaleDenominator,
     scaleAxis,
     deltaSeconds,
-  );
+  ));
   state.radialMultiplier = applyRadialMultiplierRate(
     state.radialMultiplier,
     radialAxis,
@@ -2955,7 +3032,7 @@ interface BenchmarkRestoreState {
     readonly latitudeDegrees: number;
     readonly longitudeDegrees: number;
   };
-  readonly displayRadiusM: number;
+  readonly scaleDenominator: number;
   readonly radialMultiplier: number;
   readonly pitchRadians: number;
   readonly yawRadians: number;
@@ -3003,18 +3080,21 @@ function debugControlState(): Record<string, unknown> {
     navigation: {
       mode: navigationMode,
       focusBody: focusBodyId,
-      focusDistanceRoomM: orbitDistanceM,
-      focusDistanceBodyRadii: orbitDistanceM === null
+      focusDistanceHeadsetM: orbitDistanceM,
+      focusDistancePhysicalM: orbitDistanceM === null
         ? null
-        : orbitDistanceM / state.displayRadiusM,
+        : orbitDistanceM * scaleDenominator,
       observerRig: {
         position: observerRig.position.toArray(),
         quaternion: observerRig.quaternion.toArray(),
         scale: observerRig.scale.toArray(),
       },
+      observerSystemPositionM: orbitNavigation?.observerSystemPositionM ??
+        freeObserverJ2000M ?? null,
       focusWorldPosition: orbitNavigation?.focusWorldPosition.toArray() ?? null,
     },
-    displayRadiusM: state.displayRadiusM,
+    scaleDenominator,
+    focusedBodyDisplayRadiusM: focusedDisplayRadiusM(),
     radialMultiplier: state.radialMultiplier,
     view: {
       pitchRadians: pitch,
@@ -3152,7 +3232,7 @@ function debugSnapshot(): Record<string, unknown> {
 function captureBenchmarkRestoreState(): BenchmarkRestoreState {
   return {
     coordinates: coordinatesForFrame(state.contact),
-    displayRadiusM: state.displayRadiusM,
+    scaleDenominator,
     radialMultiplier: state.radialMultiplier,
     pitchRadians: pitch,
     yawRadians: yaw,
@@ -3220,7 +3300,7 @@ const debugApi: PasDeGeantDebugApi = {
       snapshot: "snapshot() — controls, frames, renderer, tiles, network, browser",
       marks: "mark(name?), marks(), clearMetrics()",
       benchmark: "beginBenchmark(options?), then freeze with setTileRecalculation(\"both\", false) once planner work is zero; endBenchmark() restores the captured session",
-      position: "setLocation(lat, lon), setScale(radiusM), setRadialMultiplier(value), setView({pitchRadians?, yawRadians?}), reset()",
+      position: "setLocation(lat, lon), setScaleDenominator(value), setRadialMultiplier(value), setView({pitchRadians?, yawRadians?}), reset()",
       tiles: "setTilePixelRatio(target, ratio), setMaxZ(target, z|null), setTileRecalculation(target, enabled)",
       rendering: "setRendering(enabled), setInputEnabled(enabled), setFoveation(0..1), setFramebufferScale(value), setDesktopPixelRatio(value)",
       terrainRenderCulling: "setTerrainRenderCulling(enabled) — same-build render-only visibility A/B",
@@ -3252,17 +3332,15 @@ const debugApi: PasDeGeantDebugApi = {
       options.longitudeDegrees ?? 10.396597,
       "longitudeDegrees",
     );
-    const displayRadiusM = finiteDebugNumber(
-      options.displayRadiusM ?? INITIAL_DISPLAY_RADIUS_M,
-      "displayRadiusM",
+    const benchmarkScaleDenominator = finiteDebugNumber(
+      options.scaleDenominator ?? DEFAULT_SCALE_DENOMINATOR,
+      "scaleDenominator",
     );
     const radialMultiplier = finiteDebugNumber(
       options.radialMultiplier ?? 1,
       "radialMultiplier",
     );
-    if (displayRadiusM <= 0) {
-      throw new Error("displayRadiusM must be positive.");
-    }
+    validScaleDenominator(benchmarkScaleDenominator);
     if (radialMultiplier < 0) {
       throw new Error("radialMultiplier must be nonnegative.");
     }
@@ -3270,7 +3348,7 @@ const debugApi: PasDeGeantDebugApi = {
     setSimulationInputEnabled(false);
     terrain.setTileRecalculation({ target: "both", enabled: false });
     setUserLocation(latitudeDegrees, longitudeDegrees);
-    state.displayRadiusM = displayRadiusM;
+    commitScaleDenominator(benchmarkScaleDenominator);
     state.radialMultiplier = radialMultiplier;
     pitch = 0;
     yaw = 0;
@@ -3317,7 +3395,7 @@ const debugApi: PasDeGeantDebugApi = {
       restore.coordinates.latitudeDegrees,
       restore.coordinates.longitudeDegrees,
     );
-    state.displayRadiusM = restore.displayRadiusM;
+    commitScaleDenominator(restore.scaleDenominator);
     state.radialMultiplier = restore.radialMultiplier;
     pitch = restore.pitchRadians;
     yaw = restore.yawRadians;
@@ -3353,9 +3431,9 @@ const debugApi: PasDeGeantDebugApi = {
       finiteDebugNumber(longitudeDegrees, "longitudeDegrees"),
     );
   },
-  setScale(displayRadiusM) {
-    const value = finiteDebugNumber(displayRadiusM, "displayRadiusM");
-    setDisplayRadius(value);
+  setScaleDenominator(denominator) {
+    const value = finiteDebugNumber(denominator, "scaleDenominator");
+    setScaleDenominator(value);
     return debugControlState();
   },
   setRadialMultiplier(multiplier) {
@@ -3509,14 +3587,14 @@ function render(nowMs: number): void {
     earthRoot: planetRoot,
     userLatitudeDegrees: pinCoordinates.latitudeDegrees,
     userLongitudeDegrees: pinCoordinates.longitudeDegrees,
-    displayRadiusM: state.displayRadiusM,
+    displayRadiusM: displayRadiusForScale("earth", scaleDenominator),
     radialMultiplier: state.radialMultiplier,
     visible: renderer.xr.isPresenting &&
       navigationMode === "surface" && focusBodyId === "earth",
   });
   supervisionClient?.update(nowMs);
   const earthDisplayRadiusM = navigationMode === "surface"
-    ? state.displayRadiusM
+    ? displayRadiusForScale("earth", scaleDenominator)
     : planetRoot.getWorldScale(earthWorldScale).x;
   aircraftLayer.update(
     utcMilliseconds,

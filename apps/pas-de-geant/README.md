@@ -5,7 +5,7 @@ _Walk around worlds, one small step at a time._
 Pas de Géant is a room-scale WebXR Solar System explorer. Earth and Moon have
 ground surfaces; every registered major body can be viewed orbitally or from a
 camera-relative free-roam frame. Authoritative positions are physical J2000
-metres in Float64 data, with one conversion to room metres applied only at the
+metres in Float64 data, with one `1:N` conversion to headset metres applied only at the
 render boundary. This keeps the same architecture usable from a one-metre toy
 planet to a hundred-metre exploration globe and across interplanetary distance.
 
@@ -33,8 +33,8 @@ floor. In VR, either grip alone leaves navigation unchanged, two grips orbit
 and reorient the observer without changing Earth-centred distance or stereo
 separation, the left stick moves around an Earth-centred radial sphere while
 keeping Earth framed, and the right stick changes topographic altitude or
-the simulation-to-headset conversion while preserving every Earth–Moon–Sun
-dimension in simulation units and preserving observer distance in Earth units.
+the scale denominator while preserving every Earth–Moon–Sun dimension and the
+observer position in physical metres.
 A/B/X/Y toggle voice, reset the Earth-orbital viewpoint, play or pause, and
 show or hide the left-wrist panel.
 The right trigger operates the panel ray. Desktop drag orbits the observer and
@@ -45,8 +45,8 @@ the wheel moves closer or farther as a diagnostic fallback.
 The Vite development server exposes a supervisor dashboard at
 `http://127.0.0.1:4197/supervisor/`. An Earth ground-mode headset appears there
 only while its immersive XR session is active. The dashboard shows live
-position, ground-projected gaze, displayed radius, and ground scale, and can
-send explicit warp or displayed-radius commands. It can also independently
+position, ground-projected gaze, and `1:N` scale, and can send explicit warp or
+scale-denominator commands. It can also independently
 toggle live aircraft symbols, radar labels, and the same brightest, station, and
 science/education satellite groups exposed to the voice agent. Map destinations
 can be saved as a browser-local location library, then warped to, shown or hidden
@@ -60,12 +60,12 @@ supervisor workspace shows the selected event, peak and current UTC, and can
 play or pause the eclipse timeline or scrub across the complete first-to-last
 contact period.
 
-Warp and displayed-radius supervision commands accept an optional `time`
+Warp and scale-denominator supervision commands accept an optional `time`
 duration in seconds. Positive values animate from the live state to the target
 with ease-in/out; omitting `time` or setting it to zero preserves the instant
 behavior. The dashboard automatically uses 1 second for a warp of at most 5 metres in
 headset space and 2.5 seconds for a longer warp. Warp distance is the surface
-arc at the current displayed radius. Dashboard radius changes always use 2.5
+arc at the current `1:N` scale. Dashboard scale changes always use 2.5
 seconds.
 
 Add an optional label to the headset URL when several devices are in use:
@@ -111,7 +111,7 @@ change the simulation without leaving VR:
 pasDeGeantDebug.help()
 pasDeGeantDebug.snapshot()
 pasDeGeantDebug.setLocation(45.88, 6.89)
-pasDeGeantDebug.setScale(80)
+pasDeGeantDebug.setScaleDenominator(80000)
 pasDeGeantDebug.setRadialMultiplier(2)
 pasDeGeantDebug.setMaxZ("textures", 14)
 pasDeGeantDebug.setTilePixelRatio("textures", 1.5)
@@ -133,7 +133,7 @@ commands, metric definitions, cache caveats, and the before/after results.
 The unattended Meta Quest 3 WebXR emulator testbed is documented in
 [QUEST_3_WEBXR_EMULATOR_TESTBED.md](./QUEST_3_WEBXR_EMULATOR_TESTBED.md). It
 uses Meta IWER and Playwright to enter a stereo emulated session, run a fixed
-Pisa scale-15,000 look-around scenario, capture views and runtime state, and
+Pisa `1:424.73392` look-around scenario, capture views and runtime state, and
 exercise headset poses without a physical headset. Emulator frame timings are
 host-browser timings, not Quest hardware performance measurements.
 
@@ -144,13 +144,14 @@ reach zero, freeze topology-target recalculation with
 `setTileRecalculation("both", false)`, then clear the metrics before sampling.
 Geometric horizon culling remains live while topology is frozen. `endBenchmark()`
 restores the captured location, scale, inputs, layers, and tile controls. A
-useful high-load, near-sea-level case is Pisa at scale 2500:
+useful high-load, near-sea-level case is Pisa at `1:2548.40352` (the same
+rendered Earth size as the former 2,500-m-radius fixture):
 
 ```js
 pasDeGeantDebug.beginBenchmark({
   latitudeDegrees: 43.722952,
   longitudeDegrees: 10.396597,
-  displayRadiusM: 2500,
+  scaleDenominator: 2548.40352,
   radialMultiplier: 1,
 })
 ```

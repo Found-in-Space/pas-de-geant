@@ -3,6 +3,12 @@ import {
   type SolarSystemBodyId,
   type Vector3d,
 } from "./solar-system.js";
+import {
+  displayRadiusMetres,
+  headsetMetresForPhysicalMetres,
+  physicalMetresForHeadsetMetres,
+  validScaleDenominator,
+} from "./world-scale.js";
 
 export type NavigationMode = "surface" | "orbit" | "free";
 
@@ -16,48 +22,32 @@ export interface SurfaceLocation {
 export interface WorldNavigationState {
   readonly mode: NavigationMode;
   readonly focusBodyId: SolarSystemBodyId;
-  /** The single authoritative conversion applied to all physical geometry. */
-  readonly roomMetresPerPhysicalMetre: number;
+  /** The single authoritative 1:N conversion applied to all physical geometry. */
+  readonly scaleDenominator: number;
   readonly surfaceLocations: Readonly<Partial<Record<SolarSystemBodyId, SurfaceLocation>>>;
   readonly observerSystemPositionM: Vector3d;
 }
 
-export function roomScaleForDisplayRadius(
+export function displayRadiusForScale(
   bodyId: SolarSystemBodyId,
-  displayRadiusM: number,
+  scaleDenominator: number,
 ): number {
-  if (!Number.isFinite(displayRadiusM) || displayRadiusM <= 0) {
-    throw new RangeError("Display radius must be positive and finite.");
-  }
-  return displayRadiusM / celestialBody(bodyId).referenceRadiusM;
-}
-
-export function displayRadiusForRoomScale(
-  bodyId: SolarSystemBodyId,
-  roomMetresPerPhysicalMetre: number,
-): number {
-  if (
-    !Number.isFinite(roomMetresPerPhysicalMetre) ||
-    roomMetresPerPhysicalMetre <= 0
-  ) {
-    throw new RangeError("Room scale must be positive and finite.");
-  }
-  return celestialBody(bodyId).referenceRadiusM * roomMetresPerPhysicalMetre;
+  return displayRadiusMetres(
+    celestialBody(bodyId).referenceRadiusM,
+    scaleDenominator,
+  );
 }
 
 export function initialWorldNavigationState(
   latitudeDegrees: number,
   longitudeDegrees: number,
-  earthDisplayRadiusM: number,
+  scaleDenominator: number,
   earthSystemPositionM: Vector3d = { x: 0, y: 0, z: 0 },
 ): WorldNavigationState {
   return {
     mode: "surface",
     focusBodyId: "earth",
-    roomMetresPerPhysicalMetre: roomScaleForDisplayRadius(
-      "earth",
-      earthDisplayRadiusM,
-    ),
+    scaleDenominator: validScaleDenominator(scaleDenominator),
     surfaceLocations: {
       earth: {
         latitudeDegrees,
@@ -76,16 +66,13 @@ export function initialWorldNavigationState(
   };
 }
 
-export function withDisplayRadius(
+export function withScaleDenominator(
   state: WorldNavigationState,
-  displayRadiusM: number,
+  scaleDenominator: number,
 ): WorldNavigationState {
   return {
     ...state,
-    roomMetresPerPhysicalMetre: roomScaleForDisplayRadius(
-      state.focusBodyId,
-      displayRadiusM,
-    ),
+    scaleDenominator: validScaleDenominator(scaleDenominator),
   };
 }
 
@@ -103,12 +90,12 @@ export function withNavigationTarget(
 /** Converts an authoritative relative J2000 vector to Three's Y-up axes. */
 export function relativeJ2000MetresToRender(
   relativeM: Vector3d,
-  roomMetresPerPhysicalMetre: number,
+  scaleDenominator: number,
 ): Vector3d {
   return {
-    x: relativeM.x * roomMetresPerPhysicalMetre,
-    y: relativeM.z * roomMetresPerPhysicalMetre,
-    z: -relativeM.y * roomMetresPerPhysicalMetre,
+    x: headsetMetresForPhysicalMetres(relativeM.x, scaleDenominator),
+    y: headsetMetresForPhysicalMetres(relativeM.z, scaleDenominator),
+    z: -headsetMetresForPhysicalMetres(relativeM.y, scaleDenominator),
   };
 }
 
@@ -116,31 +103,37 @@ export function relativeJ2000MetresToRender(
 export function translatedObserverJ2000M(
   observerM: Vector3d,
   renderTravelM: Vector3d,
-  roomMetresPerPhysicalMetre: number,
+  scaleDenominator: number,
 ): Vector3d {
-  if (
-    !Number.isFinite(roomMetresPerPhysicalMetre) ||
-    roomMetresPerPhysicalMetre <= 0
-  ) throw new RangeError("Room scale must be positive and finite.");
+  validScaleDenominator(scaleDenominator);
   return {
-    x: observerM.x + renderTravelM.x / roomMetresPerPhysicalMetre,
-    y: observerM.y - renderTravelM.z / roomMetresPerPhysicalMetre,
-    z: observerM.z + renderTravelM.y / roomMetresPerPhysicalMetre,
+    x: observerM.x + physicalMetresForHeadsetMetres(
+      renderTravelM.x,
+      scaleDenominator,
+    ),
+    y: observerM.y - physicalMetresForHeadsetMetres(
+      renderTravelM.z,
+      scaleDenominator,
+    ),
+    z: observerM.z + physicalMetresForHeadsetMetres(
+      renderTravelM.y,
+      scaleDenominator,
+    ),
   };
 }
 
 /** Space travel stays useful at toy, room, and interplanetary display scales. */
-export function spaceTravelSpeedRoomMPerSecond(
+export function spaceTravelSpeedHeadsetMPerSecond(
   mode: Exclude<NavigationMode, "surface">,
   displayRadiusM: number,
-  focusDistanceRoomM: number,
+  focusDistanceHeadsetM: number,
   boosted: boolean,
 ): number {
   if (!Number.isFinite(displayRadiusM) || displayRadiusM <= 0) {
     throw new RangeError("Display radius must be positive and finite.");
   }
   const focusRelativeSpeed = mode === "free"
-    ? Math.max(displayRadiusM * 0.5, Math.max(0, focusDistanceRoomM) * 0.15)
+    ? Math.max(displayRadiusM * 0.5, Math.max(0, focusDistanceHeadsetM) * 0.15)
     : displayRadiusM * 0.5;
   return Math.max(1.35, focusRelativeSpeed) * (boosted ? 4 : 1);
 }

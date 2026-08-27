@@ -52,12 +52,16 @@ export function parseEclipsePlaybackArguments(value: unknown): boolean {
   return playing;
 }
 
-export function parseEclipseScaleArguments(value: unknown): number {
-  const scale = record(value, "Eclipse scale arguments")[
-    "metres_per_earth_radius"
-  ];
+export function parseEclipseScaleDenominatorArguments(value: unknown): number {
+  const candidate = record(value, "Eclipse scale arguments");
+  if ("metres_per_earth_radius" in candidate) {
+    throw new Error(
+      "metres_per_earth_radius is no longer supported; use scale_denominator.",
+    );
+  }
+  const scale = candidate["scale_denominator"];
   if (typeof scale !== "number" || !Number.isFinite(scale) || scale <= 0) {
-    throw new Error("metres_per_earth_radius must be positive and finite.");
+    throw new Error("scale_denominator must be positive and finite.");
   }
   return scale;
 }

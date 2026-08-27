@@ -523,6 +523,16 @@ h3 {
   gap: 5px;
 }
 
+.input-action.ratio-input {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.ratio-prefix {
+  color: #8ba2a6;
+  font-variant-numeric: tabular-nums;
+}
+
 .action-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -1,7 +1,6 @@
 import { Vector2 } from "three";
 import { describe, expect, it } from "vitest";
 import {
-  INITIAL_DISPLAY_RADIUS_M,
   applyRadialMultiplierRate,
   apexError,
   contactFrame,
@@ -11,6 +10,8 @@ import {
   rollContactFrame,
   solvePlanetPose,
 } from "../apps/pas-de-geant/src/planet-state.js";
+
+const DISPLAY_RADIUS_M = 3_000;
 
 describe("Pas de Géant rolling-planet regressions", () => {
   it("does not allow the radial multiplier to become negative", () => {
@@ -23,8 +24,8 @@ describe("Pas de Géant rolling-planet regressions", () => {
     let frame = contactFrame(0, 179.9);
     frame = rollContactFrame(
       frame,
-      new Vector2(INITIAL_DISPLAY_RADIUS_M * 0.01, 0),
-      INITIAL_DISPLAY_RADIUS_M,
+      new Vector2(DISPLAY_RADIUS_M * 0.01, 0),
+      DISPLAY_RADIUS_M,
     );
     expect(coordinatesForFrame(frame).longitudeDegrees).toBeLessThan(-179);
     expect(frameIsOrthonormal(frame)).toBe(true);
@@ -32,8 +33,8 @@ describe("Pas de Géant rolling-planet regressions", () => {
     frame = contactFrame(89.9, 0);
     frame = rollContactFrame(
       frame,
-      new Vector2(0, -INITIAL_DISPLAY_RADIUS_M * 0.01),
-      INITIAL_DISPLAY_RADIUS_M,
+      new Vector2(0, -DISPLAY_RADIUS_M * 0.01),
+      DISPLAY_RADIUS_M,
     );
     expect(Number.isFinite(coordinatesForFrame(frame).longitudeDegrees)).toBe(
       true,
@@ -46,7 +47,7 @@ describe("Pas de Géant rolling-planet regressions", () => {
     state.contact = rollContactFrame(
       state.contact,
       new Vector2(17.3, -8.8),
-      state.displayRadiusM,
+      DISPLAY_RADIUS_M,
     );
     const headset = new Vector2(2.4, -1.1);
 
@@ -54,15 +55,15 @@ describe("Pas de Géant rolling-planet regressions", () => {
       state.radialMultiplier = radialMultiplier;
       for (const radius of [
         1,
-        INITIAL_DISPLAY_RADIUS_M,
-        INITIAL_DISPLAY_RADIUS_M * 100,
+        DISPLAY_RADIUS_M,
+        DISPLAY_RADIUS_M * 100,
       ]) {
-        state.displayRadiusM = radius;
         expect(
           apexError(
             state,
-            solvePlanetPose(state, headset),
+            solvePlanetPose(state, headset, radius),
             headset,
+            radius,
           ).length(),
         ).toBeLessThan(1e-10);
       }

@@ -88,12 +88,12 @@ describe("Pas de Géant celestial-sphere regressions", () => {
     state.contact = rollContactFrame(
       state.contact,
       new THREE.Vector2(9.5, -4.2),
-      state.displayRadiusM,
+      3_000,
     );
     state.contact = rollContactFrame(
       state.contact,
       new THREE.Vector2(-3.1, -7.8),
-      state.displayRadiusM,
+      3_000,
     );
     const afterEarth = earthToWorldQuaternion(state.contact);
     const afterSky = celestialToWorldQuaternion(afterEarth, at);

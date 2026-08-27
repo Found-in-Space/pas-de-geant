@@ -230,7 +230,7 @@ function sampleEncodedElevationMetres(
 }
 
 /**
- * Converts room-space eye height to physical height for a uniformly scaled
+ * Converts headset-space eye height to physical height for a uniformly scaled
  * globe. Terrain displacement is deliberately absent from this calculation.
  */
 export function flatSurfaceObserverHeightMetres(
@@ -444,8 +444,8 @@ const VERTEX_SHADER = `
   in float skirt;
   uniform sampler2D elevationMap;
   uniform float elevationEnabled;
-  uniform float normalizedRadialMetres;
-  uniform float normalizedSkirtDepth;
+  uniform float bodyLocalUnitsPerElevationMetre;
+  uniform float bodyLocalSkirtDepth;
   uniform vec4 elevationUvTransform;
   uniform float heightEncodingKind;
   uniform float heightScaleM;
@@ -490,8 +490,8 @@ const VERTEX_SHADER = `
     vec2 elevationUv = tileUv * elevationUvTransform.xy + elevationUvTransform.zw;
     float heightM = elevationEnabled > 0.5 ? elevationAt(elevationUv) : 0.0;
     vec3 displaced =
-      position + normal * heightM * normalizedRadialMetres -
-      normal * normalizedSkirtDepth * skirt;
+      position + normal * heightM * bodyLocalUnitsPerElevationMetre -
+      normal * bodyLocalSkirtDepth * skirt;
     vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
     vBlueMarbleUv = baseUv;
     vTileUv = tileUv;
@@ -602,6 +602,7 @@ export class TerrainSurface {
     this.renderVisibility = new TerrainRenderVisibility(
       this.group,
       this.surfaceModel.elevationMetadata.elevationBoundsMetres,
+      this.surfaceModel.referenceRadiusM,
     );
     this.renderVisibility.updateDisplacement(
       initialView.radialMultiplier,
@@ -666,11 +667,11 @@ export class TerrainSurface {
     );
     this.emptyTexture.needsUpdate = true;
     this.sharedUniforms = {
-      normalizedRadialMetres: {
+      bodyLocalUnitsPerElevationMetre: {
         value:
           initialView.radialMultiplier / this.surfaceModel.referenceRadiusM,
       },
-      normalizedSkirtDepth: {
+      bodyLocalSkirtDepth: {
         value: SKIRT_DEPTH_WORLD_METRES / initialView.displayRadiusM,
       },
       tileOverlayVisible: { value: 0 },
@@ -719,9 +720,9 @@ export class TerrainSurface {
   update(view: TerrainSurfaceView): void {
     view = { ...view, projection: this.surfaceModel.projection };
     this.latestView = view;
-    this.sharedUniforms.normalizedRadialMetres!.value =
+    this.sharedUniforms.bodyLocalUnitsPerElevationMetre!.value =
       view.radialMultiplier / this.surfaceModel.referenceRadiusM;
-    this.sharedUniforms.normalizedSkirtDepth!.value =
+    this.sharedUniforms.bodyLocalSkirtDepth!.value =
       SKIRT_DEPTH_WORLD_METRES / view.displayRadiusM;
     this.renderVisibility.updateDisplacement(
       view.radialMultiplier,

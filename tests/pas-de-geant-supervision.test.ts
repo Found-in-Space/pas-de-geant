@@ -11,7 +11,7 @@ import {
 import {
   applySupervisorLocationPinMutation,
   applySupervisorNavigationMutation,
-  applyVoiceDisplayRadiusMutation,
+  applyVoiceScaleDenominatorMutation,
   applyVoiceRemovePinMutation,
   applyVoiceRenamePinMutation,
   applyVoiceSetPinGuidanceMutation,
@@ -47,7 +47,7 @@ const initialState: SupervisionNavigationState = {
   focusBody: "earth",
   latitudeDegrees: 51.5074,
   longitudeDegrees: -0.1278,
-  displayRadiusM: 10,
+  scaleDenominator: 60_000,
   radialMultiplier: 1,
   headingDegrees: 42.5,
 };
@@ -78,7 +78,7 @@ const initialControls: SupervisionControlState = {
 describe("supervision protocol", () => {
   it("rejects incompatible versions and unknown message types", () => {
     expect(() => parseSupervisionMessage({
-      protocolVersion: 2,
+      protocolVersion: 1,
       type: "supervisor.hello",
     })).toThrow(/version/i);
     expect(() => parseSupervisionMessage(protocolMessage({
@@ -110,20 +110,29 @@ describe("supervision protocol", () => {
     })).toThrow(/longitude/i);
 
     expect(parseSupervisionCommand({
-      kind: "setDisplayRadius",
-      displayRadiusM: Number.MAX_VALUE,
+      kind: "setScaleDenominator",
+      scaleDenominator: Number.MAX_VALUE,
       time: 0,
     })).toEqual({
-      kind: "setDisplayRadius",
-      displayRadiusM: Number.MAX_VALUE,
+      kind: "setScaleDenominator",
+      scaleDenominator: Number.MAX_VALUE,
       time: 0,
     });
-    for (const displayRadiusM of [0, -1, Number.POSITIVE_INFINITY, Number.NaN]) {
+    for (const scaleDenominator of [0, -1, Number.POSITIVE_INFINITY, Number.NaN]) {
       expect(() => parseSupervisionCommand({
-        kind: "setDisplayRadius",
-        displayRadiusM,
+        kind: "setScaleDenominator",
+        scaleDenominator,
       })).toThrow();
     }
+    expect(() => parseSupervisionCommand({
+      kind: "setDisplayRadius",
+      displayRadiusM: 10,
+    })).toThrow(/displayRadiusM/i);
+    expect(() => parseSupervisionCommand({
+      kind: "setScaleDenominator",
+      scaleDenominator: 60_000,
+      displayRadiusM: 10,
+    })).toThrow(/displayRadiusM/i);
     expect(parseSupervisionCommand({
       kind: "setRadialMultiplier",
       radialMultiplier: 12.5,
@@ -261,6 +270,10 @@ describe("supervision protocol", () => {
     });
     expect(() => parseSupervisionMessage(protocolMessage({
       type: "headset.state",
+      state: { ...initialState, displayRadiusM: 10 },
+    }))).toThrow(/displayRadiusM/i);
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
       state: { ...initialState, sequence: 1.5 },
     }))).toThrow(/sequence/i);
     expect(() => parseSupervisionMessage(protocolMessage({
@@ -395,9 +408,9 @@ describe("voice and supervisor navigation parity", () => {
         calls.push(["warp", time]);
         state = { ...state, latitudeDegrees, longitudeDegrees };
       },
-      setDisplayRadius(displayRadiusM, time) {
+      setScaleDenominator(scaleDenominator, time) {
         calls.push(["scale", time]);
-        state = { ...state, displayRadiusM };
+        state = { ...state, scaleDenominator };
       },
       setRadialMultiplier(radialMultiplier) {
         calls.push(["radial", undefined]);
@@ -426,13 +439,13 @@ describe("voice and supervisor navigation parity", () => {
       },
       mutations,
     );
-    const voiceScaleState = applyVoiceDisplayRadiusMutation(
+    const voiceScaleState = applyVoiceScaleDenominatorMutation(
       37.25,
       mutations,
       2.5,
     );
     const supervisorScaleState = applySupervisorNavigationMutation(
-      { kind: "setDisplayRadius", displayRadiusM: 1e12, time: 3 },
+      { kind: "setScaleDenominator", scaleDenominator: 1e12, time: 3 },
       mutations,
     );
     const supervisorRadialState = applySupervisorNavigationMutation(
@@ -460,8 +473,8 @@ describe("voice and supervisor navigation parity", () => {
       latitudeDegrees: -33.8688,
       longitudeDegrees: 151.2093,
     });
-    expect(voiceScaleState.displayRadiusM).toBe(37.25);
-    expect(supervisorScaleState.displayRadiusM).toBe(1e12);
+    expect(voiceScaleState.scaleDenominator).toBe(37.25);
+    expect(supervisorScaleState.scaleDenominator).toBe(1e12);
     expect(supervisorRadialState.radialMultiplier).toBe(15);
     expect(supervisorHeadingState.headingDegrees).toBe(270);
   });

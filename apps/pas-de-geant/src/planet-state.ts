@@ -3,11 +3,6 @@ import { Matrix4, Quaternion, Vector2, Vector3 } from "three";
 export const EARTH_MEAN_RADIUS_KM = 6371.0088;
 export const WGS84_A_KM = 6378.137;
 export const WGS84_B_KM = 6356.752314245;
-export const SCALE_REFERENCE_DISTANCE_KM = 1000;
-export const INITIAL_REFERENCE_DISTANCE_M = 10;
-export const INITIAL_DISPLAY_RADIUS_M =
-  (EARTH_MEAN_RADIUS_KM / SCALE_REFERENCE_DISTANCE_KM) *
-  INITIAL_REFERENCE_DISTANCE_M;
 
 const rotation = new Quaternion();
 const movementAxis = new Vector3();
@@ -24,7 +19,6 @@ export interface ContactFrame {
 
 export interface PlanetState {
   contact: ContactFrame;
-  displayRadiusM: number;
   radialMultiplier: number;
 }
 
@@ -64,7 +58,6 @@ export function initialPlanetState(
 ): PlanetState {
   return {
     contact: contactFrame(latitudeDegrees, longitudeDegrees),
-    displayRadiusM: INITIAL_DISPLAY_RADIUS_M,
     radialMultiplier: 1,
   };
 }
@@ -161,6 +154,7 @@ export function geodeticSurfaceEcefKm(
 export function solvePlanetPose(
   state: PlanetState,
   headsetFloorPosition: Vector2,
+  displayRadiusM: number,
 ): PlanetPose {
   const coordinates = coordinatesForFrame(state.contact);
   const earthToWorld = earthToWorldQuaternion(state.contact);
@@ -171,7 +165,7 @@ export function solvePlanetPose(
         coordinates.longitudeDegrees,
       ),
     )
-    .multiplyScalar(state.displayRadiusM / EARTH_MEAN_RADIUS_KM);
+    .multiplyScalar(displayRadiusM / EARTH_MEAN_RADIUS_KM);
   rotatedSurface.copy(surfacePoint).applyQuaternion(earthToWorld);
   return {
     earthToWorld,
@@ -183,74 +177,26 @@ export function solvePlanetPose(
   };
 }
 
-export function displayRadiusForReferenceDistance(
-  distanceM: number,
-): number {
-  return EARTH_MEAN_RADIUS_KM /
-    SCALE_REFERENCE_DISTANCE_KM *
-    distanceM;
-}
-
-export function referenceDistanceForDisplayRadius(radiusM: number): number {
-  return radiusM *
-    SCALE_REFERENCE_DISTANCE_KM /
-    EARTH_MEAN_RADIUS_KM;
-}
-
-/** Room metres occupied by one real kilometre along the sea-level ellipsoid. */
-export function horizontalWorldMetresForKilometres(
-  realKilometres: number,
-  displayRadiusM: number,
-): number {
-  return realKilometres * displayRadiusM / EARTH_MEAN_RADIUS_KM;
-}
-
-/** Room metres occupied by a real radial distance after exaggeration. */
-export function radialWorldMetresForKilometres(
-  realKilometres: number,
+/** Headset-space radial displacement for a body's physical surface model. */
+export function radialHeadsetMetresForPhysicalMetres(
+  physicalMetres: number,
   displayRadiusM: number,
   radialMultiplier: number,
+  referenceRadiusM: number,
 ): number {
-  return (
-    horizontalWorldMetresForKilometres(realKilometres, displayRadiusM) *
-    radialMultiplier
-  );
+  return physicalMetres * displayRadiusM / referenceRadiusM * radialMultiplier;
 }
 
 /**
- * Radial offset in normalized planet-root units. The root's uniform scale
+ * Radial offset in normalized body-local units. The root's uniform scale
  * applies the whole-planet scale exactly once.
  */
-export function normalizedRadialOffsetForKilometres(
-  realKilometres: number,
+export function normalizedBodyLocalRadialOffset(
+  physicalMetres: number,
   radialMultiplier: number,
+  referenceRadiusM: number,
 ): number {
-  return realKilometres * radialMultiplier / EARTH_MEAN_RADIUS_KM;
-}
-
-export function normalizedRadialOffsetForMetres(
-  realMetres: number,
-  radialMultiplier: number,
-): number {
-  return normalizedRadialOffsetForKilometres(
-    realMetres / 1_000,
-    radialMultiplier,
-  );
-}
-
-export function applyLogarithmicScale(
-  radiusM: number,
-  axis: number,
-  deltaSeconds: number,
-  octavesPerSecond = 0.72,
-): number {
-  const next = radiusM * 2 ** (axis * octavesPerSecond * deltaSeconds);
-  const detentDistance =
-    Math.abs(Math.log2(next / INITIAL_DISPLAY_RADIUS_M));
-  if (Math.abs(axis) < 0.12 && detentDistance < 0.035) {
-    return INITIAL_DISPLAY_RADIUS_M;
-  }
-  return next;
+  return physicalMetres * radialMultiplier / referenceRadiusM;
 }
 
 export function applyRadialMultiplierRate(
@@ -268,13 +214,14 @@ export function apexError(
   state: PlanetState,
   pose: PlanetPose,
   headsetFloorPosition: Vector2,
+  displayRadiusM: number,
 ): Vector3 {
   const coordinates = coordinatesForFrame(state.contact);
   return geodeticSurfaceEcefKm(
     coordinates.latitudeDegrees,
     coordinates.longitudeDegrees,
   )
-    .multiplyScalar(state.displayRadiusM / EARTH_MEAN_RADIUS_KM)
+    .multiplyScalar(displayRadiusM / EARTH_MEAN_RADIUS_KM)
     .applyQuaternion(pose.earthToWorld)
     .add(pose.centre)
     .sub(new Vector3(headsetFloorPosition.x, 0, headsetFloorPosition.y));

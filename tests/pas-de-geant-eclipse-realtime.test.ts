@@ -28,7 +28,11 @@ describe("Eclipse Realtime profile", () => {
           name: string;
           parameters: {
             required?: string[];
-            properties?: Record<string, { enum?: string[] }>;
+            properties?: Record<string, {
+              enum?: string[];
+              type?: string;
+              exclusiveMinimum?: number;
+            }>;
           };
         }>;
       };
@@ -56,6 +60,16 @@ describe("Eclipse Realtime profile", () => {
     )).toBe(false);
     expect(configuration.session.tools.find(({ name }) => name === "set_eclipse_time")
       ?.parameters.required).toEqual(["utc"]);
+    const scaleTool = configuration.session.tools.find(
+      ({ name }) => name === "set_eclipse_scale",
+    );
+    expect(scaleTool?.parameters.required).toEqual(["scale_denominator"]);
+    expect(scaleTool?.parameters.properties?.scale_denominator).toMatchObject({
+      type: "number",
+      exclusiveMinimum: 0,
+    });
+    expect(scaleTool?.parameters.properties?.metres_per_earth_radius)
+      .toBeUndefined();
   });
 
   it("lets the eclipse page supply its own one-turn greeting", () => {
