@@ -8,14 +8,16 @@ export interface CanonicalNavigationMutations {
   readonly warp: (
     latitudeDegrees: number,
     longitudeDegrees: number,
+    time?: number,
   ) => unknown;
-  readonly setDisplayRadius: (displayRadiusM: number) => unknown;
+  readonly setDisplayRadius: (displayRadiusM: number, time?: number) => unknown;
   readonly readState: () => SupervisionNavigationSnapshot;
 }
 
 export interface WarpCoordinates {
   readonly latitudeDegrees: number;
   readonly longitudeDegrees: number;
+  readonly time?: number;
 }
 
 type NavigationSupervisionCommand = Extract<
@@ -39,15 +41,20 @@ export function applyVoiceWarpMutation(
   coordinates: WarpCoordinates,
   mutations: CanonicalNavigationMutations,
 ): SupervisionNavigationSnapshot {
-  mutations.warp(coordinates.latitudeDegrees, coordinates.longitudeDegrees);
+  mutations.warp(
+    coordinates.latitudeDegrees,
+    coordinates.longitudeDegrees,
+    coordinates.time,
+  );
   return mutations.readState();
 }
 
 export function applyVoiceDisplayRadiusMutation(
   displayRadiusM: number,
   mutations: CanonicalNavigationMutations,
+  time?: number,
 ): SupervisionNavigationSnapshot {
-  mutations.setDisplayRadius(displayRadiusM);
+  mutations.setDisplayRadius(displayRadiusM, time);
   return mutations.readState();
 }
 
@@ -56,9 +63,13 @@ export function applySupervisorNavigationMutation(
   mutations: CanonicalNavigationMutations,
 ): SupervisionNavigationSnapshot {
   if (command.kind === "warp") {
-    mutations.warp(command.latitudeDegrees, command.longitudeDegrees);
+    mutations.warp(
+      command.latitudeDegrees,
+      command.longitudeDegrees,
+      command.time,
+    );
   } else {
-    mutations.setDisplayRadius(command.displayRadiusM);
+    mutations.setDisplayRadius(command.displayRadiusM, command.time);
   }
   return mutations.readState();
 }

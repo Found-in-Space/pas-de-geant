@@ -13,6 +13,10 @@ import {
   type SupervisorConnectionStatus,
 } from "./supervisor-client.js";
 import { SupervisorSavedLocationStore } from "./supervisor-saved-locations.js";
+import {
+  UI_SCALE_TRANSITION_SECONDS,
+  uiWarpTransitionTime,
+} from "./supervisor-transition-timing.js";
 import type {
   CommandResultMessage,
   SupervisionCommand,
@@ -531,12 +535,14 @@ function createSavedLocationListEntry(pinId: string): SavedLocationListEntry {
   warp.textContent = "Warp";
   warp.addEventListener("click", () => {
     const pin = selectedLocation(pinId);
-    if (!pin) return;
+    const state = selectedLiveSession()?.state;
+    if (!pin || !state) return;
     showPinDestination(pin);
     sendCommand({
       kind: "warp",
       latitudeDegrees: pin.latitudeDegrees,
       longitudeDegrees: pin.longitudeDegrees,
+      time: uiWarpTransitionTime(state, pin),
     }, `Warp to ${pin.label}`);
   });
 
@@ -870,7 +876,13 @@ warpForm.addEventListener("submit", (event) => {
   event.preventDefault();
   updateDestinationFromFields();
   if (!destinationDraft || !warpForm.reportValidity()) return;
-  sendCommand({ kind: "warp", ...destinationDraft }, "Warp");
+  const state = selectedLiveSession()?.state;
+  if (!state) return;
+  sendCommand({
+    kind: "warp",
+    ...destinationDraft,
+    time: uiWarpTransitionTime(state, destinationDraft),
+  }, "Warp");
 });
 
 addPinButton.addEventListener("click", () => {
@@ -893,7 +905,13 @@ scaleForm.addEventListener("submit", (event) => {
     displayRadius.setCustomValidity("");
     return;
   }
-  sendCommand({ kind: "setDisplayRadius", displayRadiusM }, "Scale change");
+  if (!scaleForm.reportValidity()) return;
+  if (!selectedLiveSession()?.state) return;
+  sendCommand({
+    kind: "setDisplayRadius",
+    displayRadiusM,
+    time: UI_SCALE_TRANSITION_SECONDS,
+  }, "Scale change");
 });
 
 function handleRelayStatus(status: SupervisorConnectionStatus): void {
@@ -925,8 +943,8 @@ function handleCommandResult(result: CommandResultMessage): void {
       sessions.set(pending.sessionId, updated);
       if (pending.sessionId === selectedSessionId) selectedSessionCache = updated;
     }
-    if (pending.kind === "setDisplayRadius") {
-      displayRadius.value = String(result.state.displayRadiusM);
+    if (pending.command.kind === "setDisplayRadius") {
+      displayRadius.value = String(pending.command.displayRadiusM);
       scaleDraftDirty = false;
       scaleDraftInitialized = true;
     }

@@ -133,14 +133,24 @@ describe("Pas de Géant Realtime voice agent", () => {
       parseLocationToolArguments({
         latitude_degrees: 48.8566,
         longitude_degrees: 2.3522,
+        time: 2.5,
       }),
-    ).toEqual({ latitudeDegrees: 48.8566, longitudeDegrees: 2.3522 });
+    ).toEqual({
+      latitudeDegrees: 48.8566,
+      longitudeDegrees: 2.3522,
+      time: 2.5,
+    });
     expect(() =>
       parseLocationToolArguments({
         latitude_degrees: 91,
         longitude_degrees: 2.3522,
       }),
     ).toThrow("Latitude");
+    expect(() => parseLocationToolArguments({
+      latitude_degrees: 48.8566,
+      longitude_degrees: 2.3522,
+      time: -1,
+    })).toThrow("Transition time");
   });
 
   it("maps absolute and relative voice turns onto geographic headings", () => {
@@ -305,6 +315,7 @@ describe("Pas de Géant Realtime voice agent", () => {
               target?: { enum?: string[] };
               mode?: { enum?: string[] };
               group?: { enum?: string[] };
+              time?: { type?: string; minimum?: number };
             };
           };
         }>;
@@ -349,6 +360,9 @@ describe("Pas de Géant Realtime voice agent", () => {
     );
     expect(configuration.session.instructions).toContain(
       "authoritative high-precision live app position",
+    );
+    expect(configuration.session.instructions).toContain(
+      "optional time in seconds for an eased transition",
     );
     expect(configuration.session.instructions).toContain(
       "positive degrees turn clockwise/right",
@@ -403,6 +417,13 @@ describe("Pas de Géant Realtime voice agent", () => {
       "absolute",
       "relative",
     ]);
+    for (const name of ["set_navigation", "set_user_location"]) {
+      expect(configuration.session.tools.find((tool) => tool.name === name)
+        ?.parameters.properties?.time).toMatchObject({
+          type: "number",
+          minimum: 0,
+        });
+    }
     expect(configuration.session.tools.find(
       ({ name }) => name === "add_location_pin",
     )?.parameters.required).toEqual([

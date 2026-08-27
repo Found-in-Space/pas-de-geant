@@ -506,6 +506,7 @@ function responseStatusReason(statusDetails: unknown): string | undefined {
 export function parseLocationToolArguments(value: unknown): {
   latitudeDegrees: number;
   longitudeDegrees: number;
+  time?: number;
 } {
   if (!value || typeof value !== "object") {
     throw new Error("Location arguments must be an object.");
@@ -529,5 +530,16 @@ export function parseLocationToolArguments(value: unknown): {
   ) {
     throw new Error("Longitude must be between -180 and 180 degrees.");
   }
-  return { latitudeDegrees, longitudeDegrees };
+  const time = candidate.time;
+  if (
+    time !== undefined &&
+    (typeof time !== "number" || !Number.isFinite(time) || time < 0)
+  ) {
+    throw new Error("Transition time must be a nonnegative finite number.");
+  }
+  return {
+    latitudeDegrees,
+    longitudeDegrees,
+    ...(time === undefined ? {} : { time }),
+  };
 }

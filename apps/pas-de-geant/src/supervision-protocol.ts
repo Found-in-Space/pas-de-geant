@@ -30,10 +30,14 @@ export type SupervisionCommand =
     readonly kind: "warp";
     readonly latitudeDegrees: number;
     readonly longitudeDegrees: number;
+    /** Eased transition duration in seconds. Omit or use zero for an instant warp. */
+    readonly time?: number;
   }
   | {
     readonly kind: "setDisplayRadius";
     readonly displayRadiusM: number;
+    /** Eased transition duration in seconds. Omit or use zero for an instant change. */
+    readonly time?: number;
   }
   | {
     readonly kind: "setPin";
@@ -192,6 +196,13 @@ function longitude(value: unknown): number {
   return result;
 }
 
+function optionalTransitionTime(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  const result = finiteNumber(value, "Transition time");
+  if (result < 0) throw new Error("Transition time must be nonnegative.");
+  return result;
+}
+
 function parsePins(value: unknown): readonly LocationPin[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error("Location pins must be an array.");
@@ -225,10 +236,12 @@ function parseGuidedPinIds(
 export function parseSupervisionCommand(value: unknown): SupervisionCommand {
   const candidate = record(value, "Supervision command");
   if (candidate.kind === "warp") {
+    const time = optionalTransitionTime(candidate.time);
     return {
       kind: "warp",
       latitudeDegrees: latitude(candidate.latitudeDegrees),
       longitudeDegrees: longitude(candidate.longitudeDegrees),
+      ...(time === undefined ? {} : { time }),
     };
   }
   if (candidate.kind === "setDisplayRadius") {
@@ -239,7 +252,12 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
     if (displayRadiusM <= 0) {
       throw new Error("Display radius must be positive.");
     }
-    return { kind: "setDisplayRadius", displayRadiusM };
+    const time = optionalTransitionTime(candidate.time);
+    return {
+      kind: "setDisplayRadius",
+      displayRadiusM,
+      ...(time === undefined ? {} : { time }),
+    };
   }
   if (candidate.kind === "setPin") {
     return { kind: "setPin", pin: parseLocationPin(candidate.pin) };

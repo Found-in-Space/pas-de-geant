@@ -90,7 +90,10 @@ export function realtimeSessionConfiguration(
         "degrees, where 0 is north, 90 east, 180 south, and 270 west. When " +
         "the user asks to go, move, " +
         "travel, or teleport to a place and you know reasonable coordinates, use " +
-        "set_user_location. Be clear when coordinates are approximate. " +
+        "set_user_location. Both location and display-radius changes accept an " +
+        "optional time in seconds for an eased transition; use it when the user " +
+        "asks for a smooth or gradual move, and omit it for an instant change. " +
+        "Be clear when coordinates are approximate. " +
         "Use get_location_pins before reporting or changing existing map pins. " +
         "Use add_location_pin to place a labeled Earth pin, remove_location_pin " +
         "to delete one, and set_location_pin_guidance to enable or disable " +
@@ -160,6 +163,12 @@ export function realtimeSessionConfiguration(
                 exclusiveMinimum: 0,
                 description: "Desired displayed radius in room metres, such as 1 or 100.",
               },
+              time: {
+                type: "number",
+                minimum: 0,
+                description:
+                  "Optional eased transition duration in seconds. Zero or omission is instant.",
+              },
             },
             additionalProperties: false,
           },
@@ -192,6 +201,12 @@ export function realtimeSessionConfiguration(
                 minimum: -180,
                 maximum: 180,
                 description: "Longitude in decimal degrees, east positive.",
+              },
+              time: {
+                type: "number",
+                minimum: 0,
+                description:
+                  "Optional eased transition duration in seconds. Zero or omission is instant.",
               },
             },
             required: ["latitude_degrees", "longitude_degrees"],

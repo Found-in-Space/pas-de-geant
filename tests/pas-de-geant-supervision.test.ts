@@ -64,10 +64,12 @@ describe("supervision protocol", () => {
       kind: "warp",
       latitudeDegrees: 90,
       longitudeDegrees: 180,
+      time: 2.5,
     })).toEqual({
       kind: "warp",
       latitudeDegrees: 90,
       longitudeDegrees: 180,
+      time: 2.5,
     });
     expect(() => parseSupervisionCommand({
       kind: "warp",
@@ -83,15 +85,25 @@ describe("supervision protocol", () => {
     expect(parseSupervisionCommand({
       kind: "setDisplayRadius",
       displayRadiusM: Number.MAX_VALUE,
+      time: 0,
     })).toEqual({
       kind: "setDisplayRadius",
       displayRadiusM: Number.MAX_VALUE,
+      time: 0,
     });
     for (const displayRadiusM of [0, -1, Number.POSITIVE_INFINITY, Number.NaN]) {
       expect(() => parseSupervisionCommand({
         kind: "setDisplayRadius",
         displayRadiusM,
       })).toThrow();
+    }
+    for (const time of [-1, Number.POSITIVE_INFINITY, Number.NaN]) {
+      expect(() => parseSupervisionCommand({
+        kind: "warp",
+        latitudeDegrees: 0,
+        longitudeDegrees: 0,
+        time,
+      })).toThrow(/time/i);
     }
 
     expect(parseSupervisionCommand({
@@ -202,14 +214,14 @@ describe("equirectangular supervisor map", () => {
 describe("voice and supervisor navigation parity", () => {
   it("routes warp and scale through the same canonical mutations and returns exact state", () => {
     let state = { ...initialState };
-    const calls: string[] = [];
+    const calls: Array<readonly [string, number | undefined]> = [];
     const mutations: CanonicalNavigationMutations = {
-      warp(latitudeDegrees, longitudeDegrees) {
-        calls.push("warp");
+      warp(latitudeDegrees, longitudeDegrees, time) {
+        calls.push(["warp", time]);
         state = { ...state, latitudeDegrees, longitudeDegrees };
       },
-      setDisplayRadius(displayRadiusM) {
-        calls.push("scale");
+      setDisplayRadius(displayRadiusM, time) {
+        calls.push(["scale", time]);
         state = { ...state, displayRadiusM };
       },
       readState() {
@@ -219,20 +231,34 @@ describe("voice and supervisor navigation parity", () => {
     };
 
     const voiceWarpState = applyVoiceWarpMutation(
-      { latitudeDegrees: 35.6762, longitudeDegrees: 139.6503 },
+      { latitudeDegrees: 35.6762, longitudeDegrees: 139.6503, time: 1.5 },
       mutations,
     );
     const supervisorWarpState = applySupervisorNavigationMutation(
-      { kind: "warp", latitudeDegrees: -33.8688, longitudeDegrees: 151.2093 },
+      {
+        kind: "warp",
+        latitudeDegrees: -33.8688,
+        longitudeDegrees: 151.2093,
+        time: 2,
+      },
       mutations,
     );
-    const voiceScaleState = applyVoiceDisplayRadiusMutation(37.25, mutations);
+    const voiceScaleState = applyVoiceDisplayRadiusMutation(
+      37.25,
+      mutations,
+      2.5,
+    );
     const supervisorScaleState = applySupervisorNavigationMutation(
-      { kind: "setDisplayRadius", displayRadiusM: 1e12 },
+      { kind: "setDisplayRadius", displayRadiusM: 1e12, time: 3 },
       mutations,
     );
 
-    expect(calls).toEqual(["warp", "warp", "scale", "scale"]);
+    expect(calls).toEqual([
+      ["warp", 1.5],
+      ["warp", 2],
+      ["scale", 2.5],
+      ["scale", 3],
+    ]);
     expect(voiceWarpState).toMatchObject({
       latitudeDegrees: 35.6762,
       longitudeDegrees: 139.6503,

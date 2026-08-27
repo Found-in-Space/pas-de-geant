@@ -116,6 +116,12 @@ import {
   type CanonicalLocationPinMutations,
   type CanonicalNavigationMutations,
 } from "./navigation-mutation-adapters.js";
+import {
+  sampleScaleTransition,
+  sampleWarpTransition,
+  type NavigationCoordinates,
+  type TimedTransition,
+} from "./navigation-transition.js";
 import { TerrainSurface } from "./terrain-surface.js";
 import { lunarElevationProvider, lunarImageryProvider } from "./lunar-configuration.js";
 import { MOON_SURFACE_MODEL } from "./surface-model.js";
@@ -447,6 +453,8 @@ let state = initialPlanetState(
   initialLocation.latitudeDegrees,
   initialLocation.longitudeDegrees,
 );
+let warpTransition: TimedTransition<NavigationCoordinates> | undefined;
+let scaleTransition: TimedTransition<number> | undefined;
 let navigationMode: NavigationMode = "surface";
 let focusBodyId: SolarSystemBodyId = "earth";
 let freeObserverJ2000M: Vector3d | undefined;
@@ -870,6 +878,8 @@ function initializeOrbit(): void {
 }
 
 function resetPlanet(): void {
+  warpTransition = undefined;
+  scaleTransition = undefined;
   state = initialPlanetState(
     initialLocation.latitudeDegrees,
     initialLocation.longitudeDegrees,
@@ -889,6 +899,8 @@ function resetPlanet(): void {
 }
 
 function setNavigationMode(mode: NavigationMode): void {
+  warpTransition = undefined;
+  scaleTransition = undefined;
   if (
     mode === "surface" &&
     celestialBody(focusBodyId).surface === null
@@ -945,6 +957,8 @@ function freeStateFromOrbit(orbit: OrbitNavigationState): {
 }
 
 function setFocusBody(bodyId: SolarSystemBodyId): void {
+  warpTransition = undefined;
+  scaleTransition = undefined;
   focusBodyId = bodyId;
   if (
     navigationMode === "surface" &&
@@ -961,6 +975,7 @@ function setDisplayRadius(displayRadiusM: number): number {
   if (!Number.isFinite(displayRadiusM) || displayRadiusM <= 0) {
     throw new Error("Display radius must be positive and finite.");
   }
+  scaleTransition = undefined;
   state.displayRadiusM = displayRadiusM;
   updatePresentation();
   return state.displayRadiusM;
@@ -970,6 +985,7 @@ function setUserLocation(
   latitudeDegrees: number,
   longitudeDegrees: number,
 ): { latitudeDegrees: number; longitudeDegrees: number } {
+  warpTransition = undefined;
   state.contact = initialPlanetState(
     latitudeDegrees,
     longitudeDegrees,
@@ -978,6 +994,69 @@ function setUserLocation(
   previousXrHead = null;
   updatePresentation();
   return coordinatesForFrame(state.contact);
+}
+
+function transitionDuration(time: number | undefined): number {
+  if (time === undefined) return 0;
+  if (!Number.isFinite(time) || time < 0) {
+    throw new Error("Transition time must be a nonnegative finite number.");
+  }
+  return time;
+}
+
+function warpUserLocation(
+  latitudeDegrees: number,
+  longitudeDegrees: number,
+  time?: number,
+): { latitudeDegrees: number; longitudeDegrees: number } {
+  const durationSeconds = transitionDuration(time);
+  if (durationSeconds === 0) {
+    return setUserLocation(latitudeDegrees, longitudeDegrees);
+  }
+  const target = { latitudeDegrees, longitudeDegrees };
+  warpTransition = {
+    from: coordinatesForFrame(state.contact),
+    to: target,
+    startedAtMs: performance.now(),
+    durationSeconds,
+  };
+  previousXrHead = null;
+  return target;
+}
+
+function transitionDisplayRadius(
+  displayRadiusM: number,
+  time?: number,
+): number {
+  if (!Number.isFinite(displayRadiusM) || displayRadiusM <= 0) {
+    throw new Error("Display radius must be positive and finite.");
+  }
+  const durationSeconds = transitionDuration(time);
+  if (durationSeconds === 0) return setDisplayRadius(displayRadiusM);
+  scaleTransition = {
+    from: state.displayRadiusM,
+    to: displayRadiusM,
+    startedAtMs: performance.now(),
+    durationSeconds,
+  };
+  return displayRadiusM;
+}
+
+function updateNavigationTransitions(nowMs: number): void {
+  if (warpTransition) {
+    const sample = sampleWarpTransition(warpTransition, nowMs);
+    state.contact = contactFrame(
+      sample.value.latitudeDegrees,
+      sample.value.longitudeDegrees,
+    );
+    previousXrHead = null;
+    if (sample.complete) warpTransition = undefined;
+  }
+  if (scaleTransition) {
+    const sample = sampleScaleTransition(scaleTransition, nowMs);
+    state.displayRadiusM = sample.value;
+    if (sample.complete) scaleTransition = undefined;
+  }
 }
 
 const viewDirectionQuaternion = new THREE.Quaternion();
@@ -1025,8 +1104,8 @@ function supervisionNavigationState(): SupervisionNavigationSnapshot {
 }
 
 const canonicalNavigationMutations: CanonicalNavigationMutations = {
-  warp: setUserLocation,
-  setDisplayRadius,
+  warp: warpUserLocation,
+  setDisplayRadius: transitionDisplayRadius,
   readState: supervisionNavigationState,
 };
 
@@ -1113,6 +1192,14 @@ function pinIdFromVoiceArguments(argumentsValue: unknown): string {
     throw new Error("Pin ID must be a non-empty string.");
   }
   return pinId.trim();
+}
+
+function voiceTransitionTime(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error("Transition time must be a nonnegative finite number.");
+  }
+  return value;
 }
 
 function pinGuidanceFromVoiceArguments(
@@ -1694,10 +1781,17 @@ const voiceAgent = new RealtimeVoiceAgent({
         ) throw new Error("Mode must be surface, orbit, or free.");
         setNavigationMode(values.mode);
       }
+      const time = voiceTransitionTime(values.time);
+      if (time !== undefined && values.display_radius_metres === undefined) {
+        throw new Error(
+          "Transition time requires a displayed radius in this tool.",
+        );
+      }
       if (typeof values.display_radius_metres === "number") {
         applyVoiceDisplayRadiusMutation(
           values.display_radius_metres,
           canonicalNavigationMutations,
+          time,
         );
       }
       return {
@@ -1705,6 +1799,11 @@ const voiceAgent = new RealtimeVoiceAgent({
         mode: navigationMode,
         focus_body: focusBodyId,
         display_radius_metres: state.displayRadiusM,
+        target_display_radius_metres:
+          typeof values.display_radius_metres === "number"
+            ? values.display_radius_metres
+            : state.displayRadiusM,
+        transition_time_seconds: time ?? 0,
       };
     },
     async get_user_location() {
@@ -1735,6 +1834,9 @@ const voiceAgent = new RealtimeVoiceAgent({
         ok: true,
         latitude_degrees: resultingState.latitudeDegrees,
         longitude_degrees: resultingState.longitudeDegrees,
+        target_latitude_degrees: location.latitudeDegrees,
+        target_longitude_degrees: location.longitudeDegrees,
+        transition_time_seconds: location.time ?? 0,
       };
     },
     get_location_pins() {
@@ -3208,6 +3310,7 @@ function render(nowMs: number): void {
   const intervalMs = nowMs - previousFrameMs;
   const deltaSeconds = Math.min(0.05, intervalMs / 1000);
   previousFrameMs = nowMs;
+  updateNavigationTransitions(nowMs);
   if (simulationInputEnabled) {
     if (renderer.xr.isPresenting) {
       updatePhysicalWalking();

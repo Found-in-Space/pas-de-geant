@@ -53,6 +53,14 @@ guides can be active together. Headset visibility survives supervision socket
 reconnects but clears when the immersive XR session ends; saved locations remain
 on the dashboard's development origin until removed there.
 
+Warp and displayed-radius supervision commands accept an optional `time`
+duration in seconds. Positive values animate from the live state to the target
+with ease-in/out; omitting `time` or setting it to zero preserves the instant
+behavior. The dashboard automatically uses 1 second for a warp of at most 5 metres in
+headset space and 2.5 seconds for a longer warp. Warp distance is the surface
+arc at the current displayed radius. Dashboard radius changes always use 2.5
+seconds.
+
 Add an optional label to the headset URL when several devices are in use:
 
 ```text
