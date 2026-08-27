@@ -1219,6 +1219,8 @@ function supervisionControlState(): SupervisionControlState {
       eventId: null,
       eventKind: null,
       peakUtc: null,
+      contactStartUtc: null,
+      contactEndUtc: null,
       atUtc: null,
       playbackRate: null,
     },

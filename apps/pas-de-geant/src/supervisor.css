@@ -469,9 +469,27 @@ h3 {
 
 .eclipse-playback-control { padding: 10px 11px; }
 
-.eclipse-time-form {
+.eclipse-timeline-control {
   display: grid;
-  gap: 7px;
+  gap: 5px;
+}
+
+.eclipse-timeline-slider {
+  height: 22px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  accent-color: #65d7d6;
+  cursor: ew-resize;
+}
+
+.eclipse-timeline-slider:disabled { cursor: not-allowed; }
+
+.eclipse-timeline-markers {
+  display: flex;
+  justify-content: space-between;
+  color: #718a8f;
+  font-size: 0.58rem;
 }
 
 .command-title {

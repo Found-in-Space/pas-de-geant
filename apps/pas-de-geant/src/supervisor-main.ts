@@ -19,6 +19,10 @@ import {
 } from "./supervisor-client.js";
 import { SupervisorSavedLocationStore } from "./supervisor-saved-locations.js";
 import {
+  supervisorEclipseTimelineFraction,
+  supervisorEclipseTimelineUtc,
+} from "./supervisor-eclipse-timeline.js";
+import {
   UI_HEADING_TRANSITION_SECONDS,
   UI_SCALE_TRANSITION_SECONDS,
   uiWarpTransitionTime,
@@ -83,9 +87,8 @@ const eclipsePlaybackHint = element<HTMLElement>("eclipse-playback-hint");
 const eclipsePlaybackControl = element<HTMLInputElement>(
   "eclipse-playback-control",
 );
-const eclipseTimeForm = element<HTMLFormElement>("eclipse-time-form");
 const eclipseTimeControl = element<HTMLInputElement>("eclipse-time-control");
-const eclipseTimeButton = element<HTMLButtonElement>("eclipse-time-button");
+const eclipseTimeTarget = element<HTMLOutputElement>("eclipse-time-target");
 const commandStatus = element<HTMLParagraphElement>("command-status");
 const savedLocationCount = element<HTMLSpanElement>("saved-location-count");
 const savedLocationList = element<HTMLDivElement>("saved-location-list");
@@ -179,16 +182,6 @@ function formatUtc(utc: string | null): string {
   return new Date(utc).toISOString()
     .replace("T", " ")
     .replace(".000Z", "Z");
-}
-
-function utcInputValue(utc: string): string {
-  return new Date(utc).toISOString().slice(0, 19);
-}
-
-function utcFromInput(value: string): string | undefined {
-  if (!value) return undefined;
-  const timeMs = Date.parse(`${value}Z`);
-  return Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : undefined;
 }
 
 function eclipseKindLabel(kind: string | null): string {
@@ -519,24 +512,18 @@ function renderEclipseControls(
     ? "Advance the selected eclipse timeline"
     : `Advance the selected eclipse timeline at ${eclipse.playbackRate}×`;
 
-  eclipseTimeControl.disabled = !connected || timePending !== undefined;
-  eclipseTimeButton.disabled = !connected || timePending !== undefined;
+  const timelineAvailable = eclipse.contactStartUtc !== null &&
+    eclipse.contactEndUtc !== null;
+  eclipseTimeControl.disabled = !connected || !timelineAvailable ||
+    timePending !== undefined;
   if (!eclipseTimeDraftDirty && timePending === undefined && eclipse.atUtc) {
-    eclipseTimeControl.value = utcInputValue(eclipse.atUtc);
+    const fraction = supervisorEclipseTimelineFraction(eclipse, eclipse.atUtc);
+    if (fraction !== undefined) eclipseTimeControl.value = String(fraction);
   }
-  if (eclipse.peakUtc) {
-    const peakMs = Date.parse(eclipse.peakUtc);
-    const dayMs = 24 * 60 * 60 * 1_000;
-    eclipseTimeControl.min = utcInputValue(
-      new Date(peakMs - dayMs).toISOString(),
-    );
-    eclipseTimeControl.max = utcInputValue(
-      new Date(peakMs + dayMs).toISOString(),
-    );
-  } else {
-    eclipseTimeControl.removeAttribute("min");
-    eclipseTimeControl.removeAttribute("max");
-  }
+  const targetUtc = timePending?.command.kind === "setEclipseTime"
+    ? timePending.command.utc
+    : supervisorEclipseTimelineUtc(eclipse, eclipseTimeControl.valueAsNumber);
+  eclipseTimeTarget.value = formatUtc(targetUtc ?? null);
 }
 
 function showPinDestination(pin: LocationPin): void {
@@ -1131,22 +1118,22 @@ eclipsePlaybackControl.addEventListener("change", () => {
 
 eclipseTimeControl.addEventListener("input", () => {
   eclipseTimeDraftDirty = true;
+  const eclipse = selectedLiveSession()?.controls.eclipse;
+  const utc = eclipse
+    ? supervisorEclipseTimelineUtc(eclipse, eclipseTimeControl.valueAsNumber)
+    : undefined;
+  eclipseTimeTarget.value = formatUtc(utc ?? null);
 });
 
-eclipseTimeForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  if (
-    !selectedLiveSession()?.controls.eclipse.active ||
-    !eclipseTimeForm.reportValidity()
-  ) return;
-  const utc = utcFromInput(eclipseTimeControl.value);
-  if (!utc) {
-    eclipseTimeControl.setCustomValidity("Enter a valid UTC date and time.");
-    eclipseTimeControl.reportValidity();
-    eclipseTimeControl.setCustomValidity("");
-    return;
-  }
-  sendCommand({ kind: "setEclipseTime", utc }, "Eclipse date and time");
+eclipseTimeControl.addEventListener("change", () => {
+  const eclipse = selectedLiveSession()?.controls.eclipse;
+  if (!eclipse?.active) return;
+  const utc = supervisorEclipseTimelineUtc(
+    eclipse,
+    eclipseTimeControl.valueAsNumber,
+  );
+  if (!utc) return;
+  sendCommand({ kind: "setEclipseTime", utc }, "Eclipse timeline");
 });
 
 function sendCommand(command: SupervisionCommand, description: string): void {
@@ -1279,10 +1266,6 @@ function handleCommandResult(result: CommandResultMessage): void {
       headingDraftDirty = false;
     }
     if (pending.command.kind === "setEclipseTime") {
-      const acknowledgedUtc = result.controls.eclipse.atUtc;
-      if (acknowledgedUtc) {
-        eclipseTimeControl.value = utcInputValue(acknowledgedUtc);
-      }
       eclipseTimeDraftDirty = false;
     }
     setCommandStatus(
@@ -1290,6 +1273,9 @@ function handleCommandResult(result: CommandResultMessage): void {
       "acknowledged",
     );
   } else {
+    if (pending.command.kind === "setEclipseTime") {
+      eclipseTimeDraftDirty = false;
+    }
     setCommandStatus(`${pending.description} failed: ${result.error}`, "failed");
   }
   render();

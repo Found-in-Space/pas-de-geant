@@ -68,6 +68,8 @@ const initialControls: SupervisionControlState = {
     eventId: null,
     eventKind: null,
     peakUtc: null,
+    contactStartUtc: null,
+    contactEndUtc: null,
     atUtc: null,
     playbackRate: null,
   },
@@ -288,6 +290,8 @@ describe("supervision protocol", () => {
       eventId: "solar-2026-08-12-total",
       eventKind: "total",
       peakUtc: "2026-08-12T17:47:00Z",
+      contactStartUtc: "2026-08-12T15:34:00Z",
+      contactEndUtc: "2026-08-12T19:58:00Z",
       atUtc: "2026-08-12T17:45:30Z",
       playbackRate: 180,
     };
@@ -300,6 +304,8 @@ describe("supervision protocol", () => {
         eclipse: {
           ...eclipse,
           peakUtc: "2026-08-12T17:47:00.000Z",
+          contactStartUtc: "2026-08-12T15:34:00.000Z",
+          contactEndUtc: "2026-08-12T19:58:00.000Z",
           atUtc: "2026-08-12T17:45:30.000Z",
         },
       },
@@ -312,6 +318,18 @@ describe("supervision protocol", () => {
         eclipse: { ...eclipse, atUtc: null },
       },
     }))).toThrow(/active eclipse/i);
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: initialState,
+      controls: {
+        ...initialControls,
+        eclipse: {
+          ...eclipse,
+          contactStartUtc: eclipse.contactEndUtc,
+          contactEndUtc: eclipse.contactStartUtc,
+        },
+      },
+    }))).toThrow(/contact end/i);
   });
 });
 

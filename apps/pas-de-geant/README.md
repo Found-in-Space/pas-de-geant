@@ -57,8 +57,8 @@ remain on the dashboard's development origin until removed there.
 
 An immersive Eclipse Observatory session also appears in the dashboard. Its
 supervisor workspace shows the selected event, peak and current UTC, and can
-play or pause the eclipse timeline or set an exact UTC within 24 hours of the
-selected eclipse peak.
+play or pause the eclipse timeline or scrub across the complete first-to-last
+contact period.
 
 Warp and displayed-radius supervision commands accept an optional `time`
 duration in seconds. Positive values animate from the live state to the target
