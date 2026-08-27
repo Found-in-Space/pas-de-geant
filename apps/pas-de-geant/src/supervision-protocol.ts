@@ -1,5 +1,9 @@
 import type { SolarSystemBodyId } from "./solar-system.js";
 import type { NavigationMode } from "./world-navigation.js";
+import {
+  parseLocationPin,
+  type LocationPin,
+} from "./location-pin.js";
 
 export const SUPERVISION_PATH = "/api/supervision";
 export const SUPERVISION_SUBPROTOCOL = "pas-de-geant.supervision.v1";
@@ -30,6 +34,19 @@ export type SupervisionCommand =
   | {
     readonly kind: "setDisplayRadius";
     readonly displayRadiusM: number;
+  }
+  | {
+    readonly kind: "setPin";
+    readonly pin: LocationPin;
+  }
+  | {
+    readonly kind: "removePin";
+    readonly pinId: string;
+  }
+  | {
+    readonly kind: "setPinGuidance";
+    readonly pin: LocationPin;
+    readonly enabled: boolean;
   };
 
 export interface SupervisionSession {
@@ -37,6 +54,8 @@ export interface SupervisionSession {
   readonly label: string | null;
   readonly connectedAtMs: number;
   readonly state: SupervisionNavigationState | null;
+  readonly pins: readonly LocationPin[];
+  readonly guidedPinIds: readonly string[];
 }
 
 interface ProtocolMessage {
@@ -54,6 +73,8 @@ export interface HeadsetHelloMessage extends ProtocolMessage {
 export interface HeadsetStateMessage extends ProtocolMessage {
   readonly type: "headset.state";
   readonly state: SupervisionNavigationState;
+  readonly pins: readonly LocationPin[];
+  readonly guidedPinIds: readonly string[];
 }
 
 export interface SupervisorHelloMessage extends ProtocolMessage {
@@ -100,6 +121,8 @@ export type CommandResultMessage = ProtocolMessage & {
   | {
     readonly ok: true;
     readonly state: SupervisionNavigationState;
+    readonly pins: readonly LocationPin[];
+    readonly guidedPinIds: readonly string[];
   }
   | {
     readonly ok: false;
@@ -169,6 +192,36 @@ function longitude(value: unknown): number {
   return result;
 }
 
+function parsePins(value: unknown): readonly LocationPin[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("Location pins must be an array.");
+  const pins = value.map(parseLocationPin);
+  if (new Set(pins.map(({ pinId }) => pinId)).size !== pins.length) {
+    throw new Error("Location pin IDs must be unique.");
+  }
+  return pins;
+}
+
+function parseGuidedPinIds(
+  value: unknown,
+  pins: readonly LocationPin[],
+): readonly string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error("Guided pin IDs must be an array.");
+  }
+  const pinIds = value.map((pinId) =>
+    requiredString(pinId, "Guided pin ID").trim()
+  );
+  if (new Set(pinIds).size !== pinIds.length) {
+    throw new Error("Guided pin IDs must be unique.");
+  }
+  if (pinIds.some((pinId) => !pins.some((pin) => pin.pinId === pinId))) {
+    throw new Error("Each guided pin ID must identify an existing pin.");
+  }
+  return pinIds;
+}
+
 export function parseSupervisionCommand(value: unknown): SupervisionCommand {
   const candidate = record(value, "Supervision command");
   if (candidate.kind === "warp") {
@@ -187,6 +240,25 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
       throw new Error("Display radius must be positive.");
     }
     return { kind: "setDisplayRadius", displayRadiusM };
+  }
+  if (candidate.kind === "setPin") {
+    return { kind: "setPin", pin: parseLocationPin(candidate.pin) };
+  }
+  if (candidate.kind === "removePin") {
+    return {
+      kind: "removePin",
+      pinId: requiredString(candidate.pinId, "Pin ID").trim(),
+    };
+  }
+  if (candidate.kind === "setPinGuidance") {
+    if (typeof candidate.enabled !== "boolean") {
+      throw new Error("Pin guidance enabled must be boolean.");
+    }
+    return {
+      kind: "setPinGuidance",
+      pin: parseLocationPin(candidate.pin),
+      enabled: candidate.enabled,
+    };
   }
   throw new Error("Unknown supervision command.");
 }
@@ -248,6 +320,7 @@ function parseSession(value: unknown): SupervisionSession {
   }
   const connectedAtMs = finiteNumber(candidate.connectedAtMs, "Connection time");
   if (connectedAtMs < 0) throw new Error("Connection time must be nonnegative.");
+  const pins = parsePins(candidate.pins);
   return {
     sessionId: requiredString(candidate.sessionId, "Session ID"),
     label: rawLabel,
@@ -255,6 +328,8 @@ function parseSession(value: unknown): SupervisionSession {
     state: candidate.state === null
       ? null
       : parseSupervisionNavigationState(candidate.state),
+    pins,
+    guidedPinIds: parseGuidedPinIds(candidate.guidedPinIds, pins),
   };
 }
 
@@ -280,12 +355,16 @@ export function parseSupervisionMessage(value: unknown): SupervisionMessage {
         startedAtMs,
       };
     }
-    case "headset.state":
+    case "headset.state": {
+      const pins = parsePins(candidate.pins);
       return {
         protocolVersion: SUPERVISION_PROTOCOL_VERSION,
         type: "headset.state",
         state: parseSupervisionNavigationState(candidate.state),
+        pins,
+        guidedPinIds: parseGuidedPinIds(candidate.guidedPinIds, pins),
       };
+    }
     case "supervisor.hello":
       return {
         protocolVersion: SUPERVISION_PROTOCOL_VERSION,
@@ -336,12 +415,15 @@ export function parseSupervisionMessage(value: unknown): SupervisionMessage {
     case "command.result": {
       const commandId = requiredString(candidate.commandId, "Command ID");
       if (candidate.ok === true) {
+        const pins = parsePins(candidate.pins);
         return {
           protocolVersion: SUPERVISION_PROTOCOL_VERSION,
           type: "command.result",
           commandId,
           ok: true,
           state: parseSupervisionNavigationState(candidate.state),
+          pins,
+          guidedPinIds: parseGuidedPinIds(candidate.guidedPinIds, pins),
         };
       }
       if (candidate.ok === false) {

@@ -89,6 +89,14 @@ import {
 } from "./planet-state.js";
 import { resolveInitialLocation } from "./initial-location.js";
 import {
+  greatCircleDistanceKm,
+  LocationPinStore,
+  parseLocationPin,
+  type LocationPin,
+  type LocationPinState,
+} from "./location-pin.js";
+import { LocationPinLayer } from "./location-pin-layer.js";
+import {
   AGENT_LOCATION_DETAIL,
   fetchNamedLocationContext,
 } from "./location-context.js";
@@ -98,9 +106,14 @@ import {
   type RealtimeAgentStatus,
 } from "./realtime-agent.js";
 import {
+  applySupervisorLocationPinMutation,
   applySupervisorNavigationMutation,
   applyVoiceDisplayRadiusMutation,
+  applyVoiceRemovePinMutation,
+  applyVoiceSetPinGuidanceMutation,
+  applyVoiceSetPinMutation,
   applyVoiceWarpMutation,
+  type CanonicalLocationPinMutations,
   type CanonicalNavigationMutations,
 } from "./navigation-mutation-adapters.js";
 import { TerrainSurface } from "./terrain-surface.js";
@@ -464,6 +477,12 @@ const terrain = new TerrainSurface({
   },
 });
 planetRoot.add(terrain.group);
+const locationPinStore = new LocationPinStore();
+const locationPinLayer = new LocationPinLayer((latitudeDegrees, longitudeDegrees) =>
+  terrain.sampleElevationMetres(latitudeDegrees, longitudeDegrees)
+);
+planetRoot.add(locationPinLayer.worldGroup);
+scene.add(locationPinLayer.hudGroup);
 const moonBaseTexture = (await moonBaseTexturePromise).clone();
 moonBaseTexture.colorSpace = THREE.SRGBColorSpace;
 moonBaseTexture.flipY = false;
@@ -1008,11 +1027,100 @@ const canonicalNavigationMutations: CanonicalNavigationMutations = {
   readState: supervisionNavigationState,
 };
 
+function requireEarthSurfacePinSession(): void {
+  if (
+    !renderer.xr.isPresenting ||
+    navigationMode !== "surface" ||
+    focusBodyId !== "earth"
+  ) {
+    throw new Error("Location pins require an immersive Earth surface session.");
+  }
+}
+
+function setLocationPin(pin: LocationPin): LocationPinState {
+  requireEarthSurfacePinSession();
+  return locationPinStore.set(pin);
+}
+
+function removeLocationPin(pinId: string): LocationPinState {
+  requireEarthSurfacePinSession();
+  return locationPinStore.remove(pinId);
+}
+
+function setLocationPinGuidance(
+  pinId: string,
+  enabled: boolean,
+): LocationPinState {
+  requireEarthSurfacePinSession();
+  return locationPinStore.setGuidance(pinId, enabled);
+}
+
+const canonicalLocationPinMutations: CanonicalLocationPinMutations = {
+  setPin: setLocationPin,
+  removePin: removeLocationPin,
+  setPinGuidance: setLocationPinGuidance,
+  readPinState: () => locationPinStore.snapshot(),
+};
+
 function applySupervisionCommand(command: SupervisionCommand): void {
   if (navigationMode !== "surface" || focusBodyId !== "earth") {
     throw new Error("Supervision controls currently require Earth surface mode.");
   }
-  applySupervisorNavigationMutation(command, canonicalNavigationMutations);
+  if (
+    command.kind === "setPin" ||
+    command.kind === "removePin" ||
+    command.kind === "setPinGuidance"
+  ) {
+    applySupervisorLocationPinMutation(
+      command,
+      canonicalLocationPinMutations,
+    );
+  } else {
+    applySupervisorNavigationMutation(command, canonicalNavigationMutations);
+  }
+}
+
+function locationPinVoiceState(): Record<string, unknown> {
+  const coordinates = coordinatesForFrame(state.contact);
+  const pinState = locationPinStore.snapshot();
+  return {
+    guided_pin_ids: pinState.guidedPinIds,
+    pins: pinState.pins.map((pin) => ({
+      pin_id: pin.pinId,
+      label: pin.label,
+      latitude_degrees: pin.latitudeDegrees,
+      longitude_degrees: pin.longitudeDegrees,
+      distance_kilometres: greatCircleDistanceKm(
+        coordinates.latitudeDegrees,
+        coordinates.longitudeDegrees,
+        pin.latitudeDegrees,
+        pin.longitudeDegrees,
+      ),
+      guided: pinState.guidedPinIds.includes(pin.pinId),
+    })),
+  };
+}
+
+function pinIdFromVoiceArguments(argumentsValue: unknown): string {
+  if (!argumentsValue || typeof argumentsValue !== "object") {
+    throw new Error("Location pin arguments are required.");
+  }
+  const pinId = (argumentsValue as Record<string, unknown>).pin_id;
+  if (typeof pinId !== "string" || !pinId.trim()) {
+    throw new Error("Pin ID must be a non-empty string.");
+  }
+  return pinId.trim();
+}
+
+function pinGuidanceFromVoiceArguments(
+  argumentsValue: unknown,
+): { pinId: string; enabled: boolean } {
+  const pinId = pinIdFromVoiceArguments(argumentsValue);
+  const enabled = (argumentsValue as Record<string, unknown>).enabled;
+  if (typeof enabled !== "boolean") {
+    throw new Error("Pin guidance enabled must be boolean.");
+  }
+  return { pinId, enabled };
 }
 
 function setViewDirection(argumentsValue: unknown): Record<string, unknown> {
@@ -1625,6 +1733,39 @@ const voiceAgent = new RealtimeVoiceAgent({
         latitude_degrees: resultingState.latitudeDegrees,
         longitude_degrees: resultingState.longitudeDegrees,
       };
+    },
+    get_location_pins() {
+      return locationPinVoiceState();
+    },
+    add_location_pin(argumentsValue) {
+      if (!argumentsValue || typeof argumentsValue !== "object") {
+        throw new Error("Location pin arguments are required.");
+      }
+      const values = argumentsValue as Record<string, unknown>;
+      const pin = parseLocationPin({
+        pinId: crypto.randomUUID(),
+        label: values.label,
+        latitudeDegrees: values.latitude_degrees,
+        longitudeDegrees: values.longitude_degrees,
+      });
+      applyVoiceSetPinMutation(pin, canonicalLocationPinMutations);
+      return { ok: true, pin_id: pin.pinId, ...locationPinVoiceState() };
+    },
+    remove_location_pin(argumentsValue) {
+      applyVoiceRemovePinMutation(
+        pinIdFromVoiceArguments(argumentsValue),
+        canonicalLocationPinMutations,
+      );
+      return { ok: true, ...locationPinVoiceState() };
+    },
+    set_location_pin_guidance(argumentsValue) {
+      const { pinId, enabled } = pinGuidanceFromVoiceArguments(argumentsValue);
+      applyVoiceSetPinGuidanceMutation(
+        pinId,
+        enabled,
+        canonicalLocationPinMutations,
+      );
+      return { ok: true, ...locationPinVoiceState() };
     },
     get_view_direction() {
       return viewDirectionState();
@@ -2449,6 +2590,7 @@ async function startSupervisionSession(): Promise<void> {
     }
     supervisionClient ??= new Client({
       readState: supervisionNavigationState,
+      readPinState: () => locationPinStore.snapshot(),
       applyCommand: applySupervisionCommand,
       onStatus: setSupervisionStatus,
     });
@@ -2470,6 +2612,7 @@ function stopSupervisionSession(): void {
 const vrButton = VRButton.createButton(renderer);
 vrSlot.append(vrButton);
 renderer.xr.addEventListener("sessionstart", () => {
+  locationPinStore.clear();
   vrSessionActive = true;
   syncAircraftDisplay();
   for (const { id } of SATELLITE_GROUPS) {
@@ -2491,6 +2634,7 @@ renderer.xr.addEventListener("sessionstart", () => {
 });
 renderer.xr.addEventListener("sessionend", () => {
   stopSupervisionSession();
+  locationPinStore.clear();
   vrSessionActive = false;
   voiceAgent.disable();
   handPanel.enabled = false;
@@ -3070,6 +3214,18 @@ function render(nowMs: number): void {
     }
   }
   updatePresentation();
+  const pinCoordinates = coordinatesForFrame(state.contact);
+  locationPinLayer.update({
+    pinState: locationPinStore.snapshot(),
+    camera: currentViewCamera(),
+    earthRoot: planetRoot,
+    userLatitudeDegrees: pinCoordinates.latitudeDegrees,
+    userLongitudeDegrees: pinCoordinates.longitudeDegrees,
+    displayRadiusM: state.displayRadiusM,
+    radialMultiplier: state.radialMultiplier,
+    visible: renderer.xr.isPresenting &&
+      navigationMode === "surface" && focusBodyId === "earth",
+  });
   supervisionClient?.update(nowMs);
   const earthDisplayRadiusM = navigationMode === "surface"
     ? state.displayRadiusM
@@ -3127,6 +3283,7 @@ window.addEventListener("beforeunload", () => {
   stopAircraftStream();
   for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
   terrain.dispose();
+  locationPinLayer.dispose();
   celestialSphere.dispose();
   handPanel.dispose();
   handPanelRuntime.dispose();

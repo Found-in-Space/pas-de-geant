@@ -46,7 +46,12 @@ The Vite development server exposes a supervisor dashboard at
 `http://127.0.0.1:4197/supervisor/`. An Earth ground-mode headset appears there
 only while its immersive XR session is active. The dashboard shows live
 position, ground-projected gaze, displayed radius, and ground scale, and can
-send explicit warp or displayed-radius commands.
+send explicit warp or displayed-radius commands. Map destinations can be saved
+as a browser-local location library, then warped to, shown or hidden as Earth
+surface markers, and independently enabled for off-screen guidance. Multiple
+guides can be active together. Headset visibility survives supervision socket
+reconnects but clears when the immersive XR session ends; saved locations remain
+on the dashboard's development origin until removed there.
 
 Add an optional label to the headset URL when several devices are in use:
 
@@ -186,6 +191,11 @@ The Realtime voice guide also exposes `get_navigation_state` and
 “make the Moon 100 metres in radius” use the same state transition functions as
 the visible controls. Bodies without a detailed surface automatically enter
 orbit instead of pretending to provide ground terrain.
+
+In an immersive Earth surface session, the guide can also list, add, remove,
+and independently enable or disable guidance for labeled location pins. For
+example, while standing over Pisa it can place a Florence pin and report the
+exact current great-circle distance.
 
 ## Lunar surface data
 

@@ -38,60 +38,74 @@
         <div id="session-workspace" class="session-workspace" hidden>
           <p id="unsupported-notice" class="notice" hidden></p>
 
-          <section class="map-card" aria-label="Headset position and gaze">
-            <div id="earth-map" class="earth-map">
-              <img id="earth-map-image" alt="Equirectangular map of Earth">
-              <span id="current-marker" class="map-marker current-marker" aria-label="Current position"></span>
-              <span id="gaze-arrow" class="gaze-arrow" aria-label="Ground-projected gaze direction"></span>
-              <span id="destination-marker" class="map-marker destination-marker" aria-label="Warp destination"></span>
+          <div class="supervision-grid">
+            <div class="map-column">
+              <section class="map-card" aria-label="Headset position and gaze">
+                <div class="map-toolbar">
+                  <div>
+                    <p class="eyebrow">Position and gaze</p>
+                    <strong>OpenStreetMap</strong>
+                  </div>
+                  <button id="center-map-button" class="text-button" type="button">Center user</button>
+                </div>
+                <div id="earth-map" class="earth-map" aria-label="Interactive supervision map"></div>
+                <p class="map-caption">Pan or zoom, then click to draft a destination. Warp and Save remain explicit.</p>
+              </section>
+
             </div>
-            <p class="map-caption">Click the map to draft a destination. Warp is sent only from the button below.</p>
-          </section>
 
-          <section class="telemetry-grid" aria-label="Current navigation telemetry">
-            <div><span>Latitude</span><strong id="current-latitude">—</strong></div>
-            <div><span>Longitude</span><strong id="current-longitude">—</strong></div>
-            <div><span>Heading</span><strong id="current-heading">—</strong></div>
-            <div><span>Earth radius</span><strong id="current-radius">—</strong></div>
-            <div><span>Ground scale</span><strong id="ground-scale">—</strong></div>
-            <div><span>Relief</span><strong id="current-radial">—</strong></div>
-          </section>
+            <aside class="control-column" aria-label="Headset controls">
+              <div class="command-grid">
+                <form id="warp-form" class="command-card">
+                  <div class="command-title">
+                    <div>
+                      <p class="eyebrow">Location</p>
+                      <h3>Warp or save</h3>
+                    </div>
+                    <button id="use-current-button" class="text-button" type="button">Use current</button>
+                  </div>
+                  <div class="field-grid">
+                    <label>Latitude
+                      <input id="destination-latitude" type="number" min="-90" max="90" step="any" required>
+                    </label>
+                    <label>Longitude
+                      <input id="destination-longitude" type="number" min="-180" max="180" step="any" required>
+                    </label>
+                  </div>
+                  <div class="action-row">
+                    <button id="warp-button" class="primary-button" type="submit">Warp headset</button>
+                    <button id="add-pin-button" class="secondary-button" type="button">Save location</button>
+                  </div>
+                </form>
 
-          <div class="command-grid">
-            <form id="warp-form" class="command-card">
-              <div class="command-title">
-                <div>
-                  <p class="eyebrow">Location</p>
-                  <h3>Warp destination</h3>
-                </div>
-                <button id="use-current-button" class="text-button" type="button">Use current</button>
+                <form id="scale-form" class="command-card">
+                  <div class="command-title">
+                    <div>
+                      <p class="eyebrow">Scale</p>
+                      <h3>Displayed Earth radius</h3>
+                    </div>
+                  </div>
+                  <label>Radius in room metres
+                    <input id="display-radius" type="number" min="0" step="any" required>
+                  </label>
+                  <button id="scale-button" class="primary-button" type="submit">Apply radius</button>
+                </form>
               </div>
-              <div class="field-grid">
-                <label>Latitude
-                  <input id="destination-latitude" type="number" min="-90" max="90" step="any" required>
-                </label>
-                <label>Longitude
-                  <input id="destination-longitude" type="number" min="-180" max="180" step="any" required>
-                </label>
-              </div>
-              <button id="warp-button" class="primary-button" type="submit">Warp headset</button>
-            </form>
 
-            <form id="scale-form" class="command-card">
-              <div class="command-title">
-                <div>
-                  <p class="eyebrow">Scale</p>
-                  <h3>Displayed Earth radius</h3>
-                </div>
-              </div>
-              <label>Radius in room metres
-                <input id="display-radius" type="number" min="0" step="any" required>
-              </label>
-              <button id="scale-button" class="primary-button" type="submit">Apply radius</button>
-            </form>
+              <p id="command-status" class="command-status" data-state="idle" aria-live="polite">Ready.</p>
+            </aside>
           </div>
 
-          <p id="command-status" class="command-status" data-state="idle" aria-live="polite">Ready.</p>
+          <section class="locations-card" aria-labelledby="locations-heading">
+            <div class="command-title">
+              <div>
+                <p class="eyebrow">This browser + selected headset</p>
+                <h3 id="locations-heading">Locations</h3>
+              </div>
+              <span id="saved-location-count">0 locations</span>
+            </div>
+            <div id="saved-location-list" class="saved-location-list"></div>
+          </section>
         </div>
       </section>
     </main>

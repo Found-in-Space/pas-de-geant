@@ -196,6 +196,8 @@ export class SupervisionRelay {
         label: hello.label?.trim() || null,
         connectedAtMs: hello.startedAtMs,
         state: existing?.session.state ?? null,
+        pins: existing?.session.pins ?? [],
+        guidedPinIds: existing?.session.guidedPinIds ?? [],
       },
     };
     this.headsets.set(hello.sessionId, peer);
@@ -225,7 +227,12 @@ export class SupervisionRelay {
     const peer = this.headsets.get(sessionId);
     if (!peer || peer.socket !== socket) return;
     if (message.type === "headset.state") {
-      peer.session = { ...peer.session, state: message.state };
+      peer.session = {
+        ...peer.session,
+        state: message.state,
+        pins: message.pins,
+        guidedPinIds: message.guidedPinIds,
+      };
       this.broadcastSession(peer.session);
       return;
     }
@@ -234,7 +241,12 @@ export class SupervisionRelay {
       if (!pending || pending.sessionId !== sessionId) return;
       this.pendingCommands.delete(message.commandId);
       if (message.ok) {
-        peer.session = { ...peer.session, state: message.state };
+        peer.session = {
+          ...peer.session,
+          state: message.state,
+          pins: message.pins,
+          guidedPinIds: message.guidedPinIds,
+        };
         this.broadcastSession(peer.session);
       }
       send(pending.supervisor, message);

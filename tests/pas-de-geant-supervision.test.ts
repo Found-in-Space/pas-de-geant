@@ -8,11 +8,17 @@ import {
   earthMapPoint,
 } from "../apps/pas-de-geant/src/earth-map.js";
 import {
+  applySupervisorLocationPinMutation,
   applySupervisorNavigationMutation,
   applyVoiceDisplayRadiusMutation,
+  applyVoiceRemovePinMutation,
+  applyVoiceSetPinGuidanceMutation,
+  applyVoiceSetPinMutation,
   applyVoiceWarpMutation,
+  type CanonicalLocationPinMutations,
   type CanonicalNavigationMutations,
 } from "../apps/pas-de-geant/src/navigation-mutation-adapters.js";
+import { LocationPinStore } from "../apps/pas-de-geant/src/location-pin.js";
 import {
   parseSupervisionCommand,
   parseSupervisionMessage,
@@ -87,6 +93,49 @@ describe("supervision protocol", () => {
         displayRadiusM,
       })).toThrow();
     }
+
+    expect(parseSupervisionCommand({
+      kind: "setPin",
+      pin: {
+        pinId: "florence",
+        label: "Florence",
+        latitudeDegrees: 43.7696,
+        longitudeDegrees: 11.2558,
+      },
+    })).toMatchObject({ kind: "setPin", pin: { label: "Florence" } });
+    expect(() => parseSupervisionCommand({
+      kind: "setPin",
+      pin: {
+        pinId: "florence",
+        label: "",
+        latitudeDegrees: 43.7696,
+        longitudeDegrees: 11.2558,
+      },
+    })).toThrow(/label/i);
+    expect(parseSupervisionCommand({
+      kind: "setPinGuidance",
+      enabled: true,
+      pin: {
+        pinId: "florence",
+        label: "Florence",
+        latitudeDegrees: 43.7696,
+        longitudeDegrees: 11.2558,
+      },
+    })).toMatchObject({
+      kind: "setPinGuidance",
+      enabled: true,
+      pin: { pinId: "florence" },
+    });
+    expect(() => parseSupervisionCommand({
+      kind: "setPinGuidance",
+      enabled: "yes",
+      pin: {
+        pinId: "florence",
+        label: "Florence",
+        latitudeDegrees: 43.7696,
+        longitudeDegrees: 11.2558,
+      },
+    })).toThrow(/boolean/i);
   });
 
   it("validates full navigation state sequences and nullable heading", () => {
@@ -105,6 +154,12 @@ describe("supervision protocol", () => {
       type: "headset.state",
       state: { ...initialState, headingDegrees: 360 },
     }))).toThrow(/heading/i);
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: initialState,
+      pins: [],
+      guidedPinIds: ["missing"],
+    }))).toThrow(/guided pin/i);
   });
 });
 
@@ -188,6 +243,42 @@ describe("voice and supervisor navigation parity", () => {
     });
     expect(voiceScaleState.displayRadiusM).toBe(37.25);
     expect(supervisorScaleState.displayRadiusM).toBe(1e12);
+  });
+
+  it("routes voice and supervisor pin operations through one canonical store", () => {
+    const store = new LocationPinStore();
+    const mutations: CanonicalLocationPinMutations = {
+      setPin: (pin) => store.set(pin),
+      removePin: (pinId) => store.remove(pinId),
+      setPinGuidance: (pinId, enabled) => store.setGuidance(pinId, enabled),
+      readPinState: () => store.snapshot(),
+    };
+    const florence = {
+      pinId: "florence",
+      label: "Florence",
+      latitudeDegrees: 43.7696,
+      longitudeDegrees: 11.2558,
+    };
+    const pisa = {
+      pinId: "pisa",
+      label: "Pisa",
+      latitudeDegrees: 43.7228,
+      longitudeDegrees: 10.4017,
+    };
+    expect(applyVoiceSetPinMutation(florence, mutations)).toMatchObject({
+      pins: [florence],
+      guidedPinIds: [],
+    });
+    expect(applySupervisorLocationPinMutation(
+      { kind: "setPinGuidance", pin: pisa, enabled: true },
+      mutations,
+    ).guidedPinIds).toEqual(["pisa"]);
+    expect(applyVoiceSetPinGuidanceMutation("florence", true, mutations).guidedPinIds)
+      .toEqual(["pisa", "florence"]);
+    expect(applyVoiceRemovePinMutation("florence", mutations)).toEqual({
+      pins: [pisa],
+      guidedPinIds: ["pisa"],
+    });
   });
 });
 
@@ -410,6 +501,46 @@ describe("development supervision relay", () => {
         ),
       ).toHaveLength(0);
 
+      const florencePin = {
+        pinId: "florence",
+        label: "Florence",
+        latitudeDegrees: 43.7696,
+        longitudeDegrees: 11.2558,
+      };
+      const routedPinCommand = waitForMessage(
+        headset,
+        "command",
+        (message) => message.commandId === "pin-command",
+      );
+      supervisor.send(JSON.stringify(protocolMessage({
+        type: "session.command",
+        sessionId: "xr-session-1",
+        commandId: "pin-command",
+        command: { kind: "setPin", pin: florencePin },
+      })));
+      await expect(routedPinCommand).resolves.toMatchObject({
+        command: { kind: "setPin", pin: florencePin },
+      });
+      const pinnedState = { ...resultingState, sequence: 3 };
+      const pinResult = waitForMessage(
+        supervisor,
+        "command.result",
+        (message) => message.commandId === "pin-command",
+      );
+      headset.send(JSON.stringify(protocolMessage({
+        type: "command.result",
+        commandId: "pin-command",
+        ok: true,
+        state: pinnedState,
+        pins: [florencePin],
+        guidedPinIds: [florencePin.pinId],
+      })));
+      await expect(pinResult).resolves.toMatchObject({
+        ok: true,
+        pins: [florencePin],
+        guidedPinIds: ["florence"],
+      });
+
       const replacement = await connectClient(port);
       clients.push(replacement);
       const replacementReady = waitForMessage(replacement, "session.ready");
@@ -417,7 +548,8 @@ describe("development supervision relay", () => {
         supervisor,
         "session.updated",
         (message) => message.session.sessionId === "xr-session-1" &&
-          message.session.state?.sequence === 2,
+          message.session.state?.sequence === 3 &&
+          message.session.guidedPinIds.includes("florence"),
       );
       const originalClosed = once(headset, "close");
       replacement.send(JSON.stringify(protocolMessage({
@@ -427,7 +559,13 @@ describe("development supervision relay", () => {
         startedAtMs: 1_000,
       })));
       await replacementReady;
-      await replacementUpdate;
+      await expect(replacementUpdate).resolves.toMatchObject({
+        session: {
+          state: pinnedState,
+          pins: [florencePin],
+          guidedPinIds: ["florence"],
+        },
+      });
       await originalClosed;
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(

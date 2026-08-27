@@ -319,6 +319,10 @@ describe("Pas de Géant Realtime voice agent", () => {
       "set_navigation",
       "get_user_location",
       "set_user_location",
+      "get_location_pins",
+      "add_location_pin",
+      "remove_location_pin",
+      "set_location_pin_guidance",
       "get_view_direction",
       "set_view_direction",
       "set_satellite_group_visibility",
@@ -334,6 +338,9 @@ describe("Pas de Géant Realtime voice agent", () => {
       "set_tile_max_zoom",
       "set_tile_recalculation",
     ]);
+    expect(configuration.session.tools.find(
+      ({ name }) => name === "set_location_pin_guidance",
+    )?.parameters.required).toEqual(["pin_id", "enabled"]);
     expect(configuration.session.instructions).toContain(
       "call get_tile_debug_controls before reporting current values",
     );
@@ -345,6 +352,9 @@ describe("Pas de Géant Realtime voice agent", () => {
     );
     expect(configuration.session.instructions).toContain(
       "positive degrees turn clockwise/right",
+    );
+    expect(configuration.session.instructions).toContain(
+      "Use get_location_pins before reporting or changing existing map pins",
     );
     expect(configuration.session.instructions).toContain(
       "set_aircraft_display to turn either one on or off",
@@ -392,6 +402,13 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(viewDirectionTool?.parameters.properties?.mode?.enum).toEqual([
       "absolute",
       "relative",
+    ]);
+    expect(configuration.session.tools.find(
+      ({ name }) => name === "add_location_pin",
+    )?.parameters.required).toEqual([
+      "label",
+      "latitude_degrees",
+      "longitude_degrees",
     ]);
     for (const name of ["search_wikipedia", "search_web"]) {
       const tool = configuration.session.tools.find((candidate) =>

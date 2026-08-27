@@ -8,6 +8,7 @@ import {
   type SupervisionNavigationSnapshot,
   type SupervisionNavigationState,
 } from "./supervision-protocol.js";
+import type { LocationPinState } from "./location-pin.js";
 
 export type SupervisionConnectionStatus =
   | "inactive"
@@ -27,6 +28,7 @@ interface SupervisionSocket {
 
 export interface SupervisionClientOptions {
   readonly readState: () => SupervisionNavigationSnapshot;
+  readonly readPinState: () => LocationPinState;
   readonly applyCommand: (command: SupervisionCommand) => void;
   readonly onStatus?: (status: SupervisionConnectionStatus) => void;
   readonly createSocket?: (url: string, protocol: string) => SupervisionSocket;
@@ -46,6 +48,7 @@ function supervisionUrl(): string {
 
 export class SupervisionClient {
   private readonly readState: () => SupervisionNavigationSnapshot;
+  private readonly readPinState: () => LocationPinState;
   private readonly applyCommand: (command: SupervisionCommand) => void;
   private readonly onStatus?: (status: SupervisionConnectionStatus) => void;
   private readonly createSocket: (url: string, protocol: string) => SupervisionSocket;
@@ -65,6 +68,7 @@ export class SupervisionClient {
 
   constructor(options: SupervisionClientOptions) {
     this.readState = options.readState;
+    this.readPinState = options.readPinState;
     this.applyCommand = options.applyCommand;
     this.onStatus = options.onStatus;
     this.createSocket = options.createSocket ??
@@ -170,12 +174,14 @@ export class SupervisionClient {
     let result: CommandResultMessage;
     try {
       this.applyCommand(command);
+      const pinState = this.readPinState();
       result = {
         protocolVersion: SUPERVISION_PROTOCOL_VERSION,
         type: "command.result",
         commandId,
         ok: true,
         state: this.nextState(),
+        ...pinState,
       };
       this.lastStateSentAtMs = this.now();
     } catch (error) {
@@ -191,10 +197,12 @@ export class SupervisionClient {
   }
 
   private publishState(nowMs: number): void {
+    const pinState = this.readPinState();
     this.send({
       protocolVersion: SUPERVISION_PROTOCOL_VERSION,
       type: "headset.state",
       state: this.nextState(),
+      ...pinState,
     });
     this.lastStateSentAtMs = nowMs;
   }
@@ -208,6 +216,8 @@ export class SupervisionClient {
     readonly protocolVersion: typeof SUPERVISION_PROTOCOL_VERSION;
     readonly type: "headset.state";
     readonly state: SupervisionNavigationState;
+    readonly pins: LocationPinState["pins"];
+    readonly guidedPinIds: LocationPinState["guidedPinIds"];
   }): void {
     if (this.socket?.readyState === SOCKET_OPEN) {
       this.socket.send(JSON.stringify(message));

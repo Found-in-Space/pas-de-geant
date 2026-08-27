@@ -63,6 +63,11 @@ export function realtimeSessionConfiguration(
         "the user asks to go, move, " +
         "travel, or teleport to a place and you know reasonable coordinates, use " +
         "set_user_location. Be clear when coordinates are approximate. " +
+        "Use get_location_pins before reporting or changing existing map pins. " +
+        "Use add_location_pin to place a labeled Earth pin, remove_location_pin " +
+        "to delete one, and set_location_pin_guidance to enable or disable " +
+        "off-screen guidance independently for one or more pins. Pins require " +
+        "an immersive Earth surface session. " +
         "Use set_satellite_group_visibility when the user asks to show, hide, " +
         "turn on, or turn off the brightest satellites, space stations, or " +
         "science and education satellites. These are three independent groups, " +
@@ -162,6 +167,64 @@ export function realtimeSessionConfiguration(
               },
             },
             required: ["latitude_degrees", "longitude_degrees"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "get_location_pins",
+          description:
+            "List the current XR session’s labeled Earth pins, exact coordinates, distances, and active guidance pin.",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+        {
+          type: "function",
+          name: "add_location_pin",
+          description:
+            "Add a labeled Earth pin at exact coordinates and make it the active guidance pin.",
+          parameters: {
+            type: "object",
+            properties: {
+              label: { type: "string", minLength: 1 },
+              latitude_degrees: {
+                type: "number",
+                minimum: -90,
+                maximum: 90,
+              },
+              longitude_degrees: {
+                type: "number",
+                minimum: -180,
+                maximum: 180,
+              },
+            },
+            required: ["label", "latitude_degrees", "longitude_degrees"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "remove_location_pin",
+          description:
+            "Remove one location pin by the pin ID returned by get_location_pins.",
+          parameters: {
+            type: "object",
+            properties: { pin_id: { type: "string", minLength: 1 } },
+            required: ["pin_id"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "set_location_pin_guidance",
+          description:
+            "Enable or disable off-screen guidance for one existing location pin without changing guidance for other pins.",
+          parameters: {
+            type: "object",
+            properties: {
+              pin_id: { type: "string", minLength: 1 },
+              enabled: { type: "boolean" },
+            },
+            required: ["pin_id", "enabled"],
             additionalProperties: false,
           },
         },
