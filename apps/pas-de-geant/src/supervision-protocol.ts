@@ -40,6 +40,8 @@ export interface SupervisionEclipseControlState {
   readonly eventId: string | null;
   readonly eventKind: string | null;
   readonly peakUtc: string | null;
+  readonly contactStartUtc: string | null;
+  readonly contactEndUtc: string | null;
   readonly atUtc: string | null;
   readonly playbackRate: number | null;
 }
@@ -60,6 +62,8 @@ export const DEFAULT_SUPERVISION_CONTROL_STATE: SupervisionControlState = {
     eventId: null,
     eventKind: null,
     peakUtc: null,
+    contactStartUtc: null,
+    contactEndUtc: null,
     atUtc: null,
     playbackRate: null,
   },
@@ -310,16 +314,31 @@ export function parseSupervisionControlState(
   const eventId = nullableString(eclipse.eventId, "Eclipse event ID");
   const eventKind = nullableString(eclipse.eventKind, "Eclipse event kind");
   const peakUtc = nullableUtc(eclipse.peakUtc, "Eclipse peak UTC");
+  const contactStartUtc = nullableUtc(
+    eclipse.contactStartUtc,
+    "Eclipse contact start UTC",
+  );
+  const contactEndUtc = nullableUtc(
+    eclipse.contactEndUtc,
+    "Eclipse contact end UTC",
+  );
   const atUtc = nullableUtc(eclipse.atUtc, "Eclipse current UTC");
   const playbackRate = eclipse.playbackRate === null
     ? null
     : finiteNumber(eclipse.playbackRate, "Eclipse playback rate");
   if (
     eclipseActive &&
-    (!eventId || !eventKind || !peakUtc || !atUtc ||
+    (!eventId || !eventKind || !peakUtc || !contactStartUtc ||
+      !contactEndUtc || !atUtc ||
       playbackRate === null || playbackRate <= 0)
   ) {
     throw new Error("An active eclipse requires event, UTC, and playback details.");
+  }
+  if (
+    contactStartUtc && contactEndUtc &&
+    Date.parse(contactEndUtc) <= Date.parse(contactStartUtc)
+  ) {
+    throw new Error("Eclipse contact end UTC must follow contact start UTC.");
   }
   return {
     aircraft: {
@@ -349,6 +368,8 @@ export function parseSupervisionControlState(
       eventId,
       eventKind,
       peakUtc,
+      contactStartUtc,
+      contactEndUtc,
       atUtc,
       playbackRate,
     },

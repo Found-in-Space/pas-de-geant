@@ -813,6 +813,8 @@ function eclipseSupervisionControlState(): SupervisionControlState {
       eventId: state.event.id,
       eventKind: state.event.kind,
       peakUtc: state.event.peakUtc,
+      contactStartUtc: state.contacts.startUtc,
+      contactEndUtc: state.contacts.endUtc,
       atUtc: new Date(state.atMs).toISOString(),
       playbackRate: PLAYBACK_RATE,
     },

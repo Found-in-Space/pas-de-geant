@@ -227,15 +227,20 @@
                 <input id="eclipse-playback-control" type="checkbox">
               </label>
 
-              <form id="eclipse-time-form" class="eclipse-time-form">
-                <label for="eclipse-time-control">Date and time
-                  <span class="field-hint">UTC, within 24 hours of the selected eclipse peak</span>
-                </label>
-                <div class="input-action">
-                  <input id="eclipse-time-control" type="datetime-local" step="1" required>
-                  <button id="eclipse-time-button" class="compact-button" type="submit">Set UTC</button>
+              <div class="eclipse-timeline-control">
+                <div class="heading-control-label">
+                  <label for="eclipse-time-control">Eclipse timeline
+                    <span class="field-hint">Drag across the complete first-to-last contact period</span>
+                  </label>
+                  <output id="eclipse-time-target" for="eclipse-time-control">—</output>
                 </div>
-              </form>
+                <input id="eclipse-time-control" class="eclipse-timeline-slider" type="range" min="0" max="1" step="0.0001" value="0.5">
+                <div class="eclipse-timeline-markers" aria-hidden="true">
+                  <span>First contact</span>
+                  <span>Peak</span>
+                  <span>Last contact</span>
+                </div>
+              </div>
             </section>
           </div>
 
