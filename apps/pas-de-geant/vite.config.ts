@@ -8,6 +8,7 @@ import { createSatelliteFeedMiddleware } from "./src/satellite-feed-server.js";
 import { attachSupervisionRelay } from "./src/supervision-server.js";
 import {
   createTileProxyMiddleware,
+  defaultTileProxyCacheDirectory,
   type TileProxyProviderOptions,
   type TileProxyScheme,
 } from "./src/tile-proxy-server.js";
@@ -284,11 +285,12 @@ export default defineConfig(({ mode }) => {
     forwardRequestHeaders: optionalCommaSeparated(
       serverEnvironment.PAS_DE_GEANT_TILE_PROXY_FORWARD_REQUEST_HEADERS,
     ),
-    cacheDirectory: resolve(
-      appDirectory,
-      serverEnvironment.PAS_DE_GEANT_TILE_PROXY_CACHE_DIRECTORY ||
-        "../../.cache/tiles",
-    ),
+    cacheDirectory: serverEnvironment.PAS_DE_GEANT_TILE_PROXY_CACHE_DIRECTORY
+      ? resolve(
+        appDirectory,
+        serverEnvironment.PAS_DE_GEANT_TILE_PROXY_CACHE_DIRECTORY,
+      )
+      : defaultTileProxyCacheDirectory(),
     cacheKeyIgnoredSearchParameters: commaSeparated(
       serverEnvironment
         .PAS_DE_GEANT_TILE_PROXY_CACHE_KEY_IGNORED_QUERY_PARAMETERS ??

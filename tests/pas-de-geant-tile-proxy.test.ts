@@ -12,6 +12,7 @@ import {
 } from "../apps/pas-de-geant/src/tile-proxy.js";
 import {
   createTileProxyMiddleware,
+  defaultTileProxyCacheDirectory,
   TileProxyService,
 } from "../apps/pas-de-geant/src/tile-proxy-server.js";
 
@@ -75,6 +76,23 @@ function responseRecorder() {
 }
 
 describe("development tile proxy", () => {
+  it("selects a user-level cache independently of the checkout", () => {
+    expect(
+      defaultTileProxyCacheDirectory({
+        environment: {},
+        homeDirectory: "/Users/example",
+        platform: "darwin",
+      }),
+    ).toBe("/Users/example/Library/Caches/pas-de-geant/tiles");
+    expect(
+      defaultTileProxyCacheDirectory({
+        environment: { XDG_CACHE_HOME: "/shared/cache" },
+        homeDirectory: "/home/example",
+        platform: "linux",
+      }),
+    ).toBe("/shared/cache/pas-de-geant/tiles");
+  });
+
   it("rewrites configured imagery to a canonical provider route", () => {
     const configuration = {
       id: "generic-satellite",
