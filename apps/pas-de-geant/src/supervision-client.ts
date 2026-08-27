@@ -5,6 +5,7 @@ import {
   SUPERVISION_SUBPROTOCOL,
   type CommandResultMessage,
   type SupervisionCommand,
+  type SupervisionControlState,
   type SupervisionNavigationSnapshot,
   type SupervisionNavigationState,
 } from "./supervision-protocol.js";
@@ -28,6 +29,7 @@ interface SupervisionSocket {
 
 export interface SupervisionClientOptions {
   readonly readState: () => SupervisionNavigationSnapshot;
+  readonly readControlState: () => SupervisionControlState;
   readonly readPinState: () => LocationPinState;
   readonly applyCommand: (command: SupervisionCommand) => void;
   readonly onStatus?: (status: SupervisionConnectionStatus) => void;
@@ -48,6 +50,7 @@ function supervisionUrl(): string {
 
 export class SupervisionClient {
   private readonly readState: () => SupervisionNavigationSnapshot;
+  private readonly readControlState: () => SupervisionControlState;
   private readonly readPinState: () => LocationPinState;
   private readonly applyCommand: (command: SupervisionCommand) => void;
   private readonly onStatus?: (status: SupervisionConnectionStatus) => void;
@@ -68,6 +71,7 @@ export class SupervisionClient {
 
   constructor(options: SupervisionClientOptions) {
     this.readState = options.readState;
+    this.readControlState = options.readControlState;
     this.readPinState = options.readPinState;
     this.applyCommand = options.applyCommand;
     this.onStatus = options.onStatus;
@@ -181,6 +185,7 @@ export class SupervisionClient {
         commandId,
         ok: true,
         state: this.nextState(),
+        controls: this.readControlState(),
         ...pinState,
       };
       this.lastStateSentAtMs = this.now();
@@ -202,6 +207,7 @@ export class SupervisionClient {
       protocolVersion: SUPERVISION_PROTOCOL_VERSION,
       type: "headset.state",
       state: this.nextState(),
+      controls: this.readControlState(),
       ...pinState,
     });
     this.lastStateSentAtMs = nowMs;
@@ -216,6 +222,7 @@ export class SupervisionClient {
     readonly protocolVersion: typeof SUPERVISION_PROTOCOL_VERSION;
     readonly type: "headset.state";
     readonly state: SupervisionNavigationState;
+    readonly controls: SupervisionControlState;
     readonly pins: LocationPinState["pins"];
     readonly guidedPinIds: LocationPinState["guidedPinIds"];
   }): void {

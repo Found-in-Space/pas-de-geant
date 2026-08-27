@@ -46,12 +46,14 @@ The Vite development server exposes a supervisor dashboard at
 `http://127.0.0.1:4197/supervisor/`. An Earth ground-mode headset appears there
 only while its immersive XR session is active. The dashboard shows live
 position, ground-projected gaze, displayed radius, and ground scale, and can
-send explicit warp or displayed-radius commands. Map destinations can be saved
-as a browser-local location library, then warped to, shown or hidden as Earth
-surface markers, and independently enabled for off-screen guidance. Multiple
-guides can be active together. Headset visibility survives supervision socket
-reconnects but clears when the immersive XR session ends; saved locations remain
-on the dashboard's development origin until removed there.
+send explicit warp or displayed-radius commands. It can also independently
+toggle live aircraft symbols, radar labels, and the same brightest, station, and
+science/education satellite groups exposed to the voice agent. Map destinations
+can be saved as a browser-local location library, then warped to, shown or hidden
+as Earth surface markers, and independently enabled for off-screen guidance.
+Multiple guides can be active together. Headset visibility survives supervision
+socket reconnects but clears when the immersive XR session ends; saved locations
+remain on the dashboard's development origin until removed there.
 
 Warp and displayed-radius supervision commands accept an optional `time`
 duration in seconds. Positive values animate from the live state to the target

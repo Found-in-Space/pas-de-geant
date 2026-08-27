@@ -130,6 +130,52 @@
                     <span>N</span>
                   </div>
                 </section>
+
+                <section class="command-card" aria-labelledby="tracking-heading">
+                  <div class="command-title">
+                    <div>
+                      <p class="eyebrow">Live layers</p>
+                      <h3 id="tracking-heading">Planes and satellites</h3>
+                    </div>
+                  </div>
+                  <div class="tracking-control-list">
+                    <label class="tracking-control">
+                      <span>
+                        <strong>Aircraft</strong>
+                        <small>Live plane symbols</small>
+                      </span>
+                      <input id="aircraft-control" type="checkbox">
+                    </label>
+                    <label class="tracking-control">
+                      <span>
+                        <strong>Radar labels</strong>
+                        <small>Aircraft information labels</small>
+                      </span>
+                      <input id="aircraft-labels-control" type="checkbox">
+                    </label>
+                    <label class="tracking-control">
+                      <span>
+                        <strong>Brightest satellites</strong>
+                        <small>CelesTrak visual group</small>
+                      </span>
+                      <input id="satellite-brightest-control" type="checkbox">
+                    </label>
+                    <label class="tracking-control">
+                      <span>
+                        <strong>Space stations</strong>
+                        <small>Crewed orbital stations</small>
+                      </span>
+                      <input id="satellite-stations-control" type="checkbox">
+                    </label>
+                    <label class="tracking-control">
+                      <span>
+                        <strong>Science / education</strong>
+                        <small>Research and education satellites</small>
+                      </span>
+                      <input id="satellite-science-control" type="checkbox">
+                    </label>
+                  </div>
+                </section>
               </div>
 
               <p id="command-status" class="command-status" data-state="idle" aria-live="polite">Ready.</p>

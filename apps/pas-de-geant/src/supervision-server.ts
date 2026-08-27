@@ -3,6 +3,7 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import { isAllowedRequestOrigin } from "./realtime-token-server.js";
 import {
+  DEFAULT_SUPERVISION_CONTROL_STATE,
   parseSupervisionMessage,
   SUPERVISION_PATH,
   SUPERVISION_PROTOCOL_VERSION,
@@ -179,6 +180,7 @@ export class SupervisionRelay {
         label: hello.label?.trim() || null,
         connectedAtMs: hello.startedAtMs,
         state: existing?.session.state ?? null,
+        controls: existing?.session.controls ?? DEFAULT_SUPERVISION_CONTROL_STATE,
         pins: existing?.session.pins ?? [],
         guidedPinIds: existing?.session.guidedPinIds ?? [],
       },
@@ -213,6 +215,7 @@ export class SupervisionRelay {
       peer.session = {
         ...peer.session,
         state: message.state,
+        controls: message.controls,
         pins: message.pins,
         guidedPinIds: message.guidedPinIds,
       };
@@ -227,6 +230,7 @@ export class SupervisionRelay {
         peer.session = {
           ...peer.session,
           state: message.state,
+          controls: message.controls,
           pins: message.pins,
           guidedPinIds: message.guidedPinIds,
         };

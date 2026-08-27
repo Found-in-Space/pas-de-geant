@@ -26,6 +26,7 @@ import {
   SUPERVISION_PROTOCOL_VERSION,
   SUPERVISION_SUBPROTOCOL,
   type SupervisionMessage,
+  type SupervisionControlState,
   type SupervisionNavigationState,
 } from "../apps/pas-de-geant/src/supervision-protocol.js";
 import {
@@ -47,6 +48,18 @@ const initialState: SupervisionNavigationState = {
   displayRadiusM: 10,
   radialMultiplier: 1,
   headingDegrees: 42.5,
+};
+
+const initialControls: SupervisionControlState = {
+  aircraft: {
+    aircraft: true,
+    labels: false,
+  },
+  satellites: {
+    brightest: true,
+    space_stations: false,
+    science_education: true,
+  },
 };
 
 describe("supervision protocol", () => {
@@ -177,15 +190,46 @@ describe("supervision protocol", () => {
         longitudeDegrees: 11.2558,
       },
     })).toThrow(/boolean/i);
+
+    expect(parseSupervisionCommand({
+      kind: "setAircraftDisplay",
+      target: "labels",
+      enabled: true,
+    })).toEqual({
+      kind: "setAircraftDisplay",
+      target: "labels",
+      enabled: true,
+    });
+    expect(() => parseSupervisionCommand({
+      kind: "setAircraftDisplay",
+      target: "contrails",
+      enabled: true,
+    })).toThrow(/aircraft display target/i);
+    expect(parseSupervisionCommand({
+      kind: "setSatelliteGroupVisibility",
+      group: "space_stations",
+      enabled: false,
+    })).toEqual({
+      kind: "setSatelliteGroupVisibility",
+      group: "space_stations",
+      enabled: false,
+    });
+    expect(() => parseSupervisionCommand({
+      kind: "setSatelliteGroupVisibility",
+      group: "weather",
+      enabled: true,
+    })).toThrow(/satellite group/i);
   });
 
   it("validates full navigation state sequences and nullable heading", () => {
     expect(parseSupervisionMessage(protocolMessage({
       type: "headset.state",
       state: { ...initialState, headingDegrees: null },
+      controls: initialControls,
     }))).toMatchObject({
       type: "headset.state",
       state: { sequence: 0, headingDegrees: null },
+      controls: initialControls,
     });
     expect(() => parseSupervisionMessage(protocolMessage({
       type: "headset.state",
@@ -201,6 +245,14 @@ describe("supervision protocol", () => {
       pins: [],
       guidedPinIds: ["missing"],
     }))).toThrow(/guided pin/i);
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: initialState,
+      controls: {
+        ...initialControls,
+        aircraft: { aircraft: "yes", labels: false },
+      },
+    }))).toThrow(/aircraft symbols/i);
   });
 });
 
@@ -516,9 +568,10 @@ describe("development supervision relay", () => {
       headset.send(JSON.stringify(protocolMessage({
         type: "headset.state",
         state: initialState,
+        controls: initialControls,
       })));
       await expect(stateBroadcast).resolves.toMatchObject({
-        session: { state: initialState },
+        session: { state: initialState, controls: initialControls },
       });
 
       const invalidResult = waitForMessage(
@@ -563,6 +616,7 @@ describe("development supervision relay", () => {
         commandId: "not-the-pending-command",
         ok: true,
         state: { ...initialState, sequence: 1 },
+        controls: initialControls,
       })));
       const resultingState = {
         ...initialState,
@@ -580,11 +634,13 @@ describe("development supervision relay", () => {
         commandId: "command-1",
         ok: true,
         state: resultingState,
+        controls: initialControls,
       })));
       await expect(result).resolves.toMatchObject({
         commandId: "command-1",
         ok: true,
         state: resultingState,
+        controls: initialControls,
       });
       expect(
         receivedBySupervisor.filter(
@@ -624,6 +680,7 @@ describe("development supervision relay", () => {
         commandId: "pin-command",
         ok: true,
         state: pinnedState,
+        controls: initialControls,
         pins: [florencePin],
         guidedPinIds: [florencePin.pinId],
       })));
@@ -654,6 +711,7 @@ describe("development supervision relay", () => {
       await expect(replacementUpdate).resolves.toMatchObject({
         session: {
           state: pinnedState,
+          controls: initialControls,
           pins: [florencePin],
           guidedPinIds: ["florence"],
         },

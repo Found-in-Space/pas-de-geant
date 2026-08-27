@@ -220,8 +220,8 @@ function createLabelAtlas(): {
   if (!context) throw new Error("Canvas labels are unavailable.");
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = false;
-  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
   return { canvas, context, texture };
 }

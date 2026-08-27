@@ -11,6 +11,8 @@ import {
   greatCircleDistanceKm,
   type LocationPin,
 } from "./location-pin.js";
+import type { AircraftDisplayTarget } from "./aircraft-lifecycle.js";
+import type { SatelliteToolGroup } from "./satellite-groups.js";
 import {
   SupervisorClient,
   type SupervisorConnectionStatus,
@@ -62,6 +64,15 @@ const radialButton = element<HTMLButtonElement>("radial-button");
 const headingDegrees = element<HTMLInputElement>("heading-degrees");
 const headingCurrent = element<HTMLSpanElement>("heading-current");
 const headingTarget = element<HTMLOutputElement>("heading-target");
+const aircraftControls: Record<AircraftDisplayTarget, HTMLInputElement> = {
+  aircraft: element<HTMLInputElement>("aircraft-control"),
+  labels: element<HTMLInputElement>("aircraft-labels-control"),
+};
+const satelliteControls: Record<SatelliteToolGroup, HTMLInputElement> = {
+  brightest: element<HTMLInputElement>("satellite-brightest-control"),
+  space_stations: element<HTMLInputElement>("satellite-stations-control"),
+  science_education: element<HTMLInputElement>("satellite-science-control"),
+};
 const commandStatus = element<HTMLParagraphElement>("command-status");
 const savedLocationCount = element<HTMLSpanElement>("saved-location-count");
 const savedLocationList = element<HTMLDivElement>("saved-location-list");
@@ -401,6 +412,38 @@ function renderControls(supported: boolean, connected: boolean): void {
   radialMultiplier.disabled = !supported || !connected || radialPending;
   radialButton.disabled = !supported || !connected || radialPending;
   headingDegrees.disabled = !supported || !connected || headingPending;
+
+  const session = selectedLiveSession() ?? selectedSessionCache;
+  if (!session) return;
+  for (const target of Object.keys(aircraftControls) as AircraftDisplayTarget[]) {
+    const pending = [...pendingCommands.values()].find(
+      (entry) => entry.sessionId === selectedSessionId &&
+        entry.command.kind === "setAircraftDisplay" &&
+        entry.command.target === target,
+    );
+    const pendingEnabled = pending?.command.kind === "setAircraftDisplay"
+      ? pending.command.enabled
+      : undefined;
+    aircraftControls[target].checked = pendingEnabled ??
+      session.controls.aircraft[target];
+    aircraftControls[target].disabled = !supported || !connected ||
+      pending !== undefined;
+  }
+  for (const group of Object.keys(satelliteControls) as SatelliteToolGroup[]) {
+    const pending = [...pendingCommands.values()].find(
+      (entry) => entry.sessionId === selectedSessionId &&
+        entry.command.kind === "setSatelliteGroupVisibility" &&
+        entry.command.group === group,
+    );
+    const pendingEnabled = pending?.command.kind ===
+        "setSatelliteGroupVisibility"
+      ? pending.command.enabled
+      : undefined;
+    satelliteControls[group].checked = pendingEnabled ??
+      session.controls.satellites[group];
+    satelliteControls[group].disabled = !supported || !connected ||
+      pending !== undefined;
+  }
 }
 
 function showPinDestination(pin: LocationPin): void {
@@ -938,6 +981,34 @@ centerMapButton.addEventListener("click", () => {
   centerMapOnSession(session, false);
 });
 
+for (const target of Object.keys(aircraftControls) as AircraftDisplayTarget[]) {
+  const control = aircraftControls[target];
+  control.addEventListener("change", () => {
+    const label = target === "aircraft" ? "Aircraft" : "Radar labels";
+    sendCommand({
+      kind: "setAircraftDisplay",
+      target,
+      enabled: control.checked,
+    }, `${label} ${control.checked ? "on" : "off"}`);
+  });
+}
+
+for (const group of Object.keys(satelliteControls) as SatelliteToolGroup[]) {
+  const control = satelliteControls[group];
+  control.addEventListener("change", () => {
+    const label = group === "brightest"
+      ? "Brightest satellites"
+      : group === "space_stations"
+        ? "Space stations"
+        : "Science / education satellites";
+    sendCommand({
+      kind: "setSatelliteGroupVisibility",
+      group,
+      enabled: control.checked,
+    }, `${label} ${control.checked ? "on" : "off"}`);
+  });
+}
+
 function sendCommand(command: SupervisionCommand, description: string): void {
   if (!selectedSessionId) return;
   try {
@@ -1040,6 +1111,7 @@ function handleCommandResult(result: CommandResultMessage): void {
       const updated = {
         ...session,
         state: result.state,
+        controls: result.controls,
         pins: result.pins,
         guidedPinIds: result.guidedPinIds,
       };
