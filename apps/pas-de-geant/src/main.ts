@@ -23,6 +23,7 @@ import { AircraftLayer } from "./aircraft-layer.js";
 import {
   parseAircraftDisplayArguments,
   shouldStreamAircraft,
+  type AircraftDisplayTarget,
 } from "./aircraft-lifecycle.js";
 import { AtmosphereLayer } from "./atmosphere.js";
 import {
@@ -174,6 +175,7 @@ import {
 } from "./view-direction.js";
 import type {
   SupervisionCommand,
+  SupervisionControlState,
   SupervisionNavigationSnapshot,
 } from "./supervision-protocol.js";
 import type {
@@ -1103,6 +1105,20 @@ function supervisionNavigationState(): SupervisionNavigationSnapshot {
   };
 }
 
+function supervisionControlState(): SupervisionControlState {
+  return {
+    aircraft: {
+      aircraft: aircraftEnabled,
+      labels: aircraftLabelsEnabled,
+    },
+    satellites: {
+      brightest: satelliteGroups.visual.enabled,
+      space_stations: satelliteGroups.stations.enabled,
+      science_education: satelliteGroups["science-education"].enabled,
+    },
+  };
+}
+
 const canonicalNavigationMutations: CanonicalNavigationMutations = {
   warp: warpUserLocation,
   setDisplayRadius: transitionDisplayRadius,
@@ -1157,6 +1173,11 @@ function applySupervisionCommand(command: SupervisionCommand): void {
       command,
       canonicalLocationPinMutations,
     );
+  } else if (command.kind === "setAircraftDisplay") {
+    setAircraftDisplay(command.target, command.enabled);
+  } else if (command.kind === "setSatelliteGroupVisibility") {
+    const { group, enabled } = parseSatelliteVisibilityArguments(command);
+    void setSatelliteGroupEnabled(group, enabled);
   } else {
     applySupervisorNavigationMutation(command, canonicalNavigationMutations);
   }
@@ -1917,12 +1938,7 @@ const voiceAgent = new RealtimeVoiceAgent({
     },
     set_aircraft_display(argumentsValue) {
       const display = parseAircraftDisplayArguments(argumentsValue);
-      if (display.target === "aircraft") {
-        setAircraftEnabled(display.enabled);
-      } else {
-        setAircraftLabelsEnabled(display.enabled);
-      }
-      return { ok: true, ...aircraftDisplayState() };
+      return setAircraftDisplay(display.target, display.enabled);
     },
     get_tile_debug_controls() {
       return terrain.getTileDebugControls();
@@ -2476,6 +2492,15 @@ function setAircraftLabelsEnabled(enabled: boolean): void {
   syncAircraftDisplay();
 }
 
+function setAircraftDisplay(
+  target: AircraftDisplayTarget,
+  enabled: boolean,
+): Record<string, unknown> {
+  if (target === "aircraft") setAircraftEnabled(enabled);
+  else setAircraftLabelsEnabled(enabled);
+  return { ok: true, ...aircraftDisplayState() };
+}
+
 aircraftToggle.addEventListener("change", () => {
   setAircraftEnabled(aircraftToggle.checked);
 });
@@ -2695,6 +2720,7 @@ async function startSupervisionSession(): Promise<void> {
     }
     supervisionClient ??= new Client({
       readState: supervisionNavigationState,
+      readControlState: supervisionControlState,
       readPinState: () => locationPinStore.snapshot(),
       applyCommand: applySupervisionCommand,
       onStatus: setSupervisionStatus,

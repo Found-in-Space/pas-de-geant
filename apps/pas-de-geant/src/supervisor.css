@@ -455,6 +455,63 @@ input:focus {
   box-shadow: 0 0 0 3px rgb(102 213 217 / 12%);
 }
 
+.tracking-control-list {
+  display: grid;
+  gap: 5px;
+}
+
+.tracking-control {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgb(156 211 215 / 12%);
+  border-radius: 7px;
+  padding: 7px 8px;
+  background: #081318;
+  cursor: pointer;
+}
+
+.tracking-control > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.tracking-control strong {
+  color: #dce9e9;
+  font-size: 0.72rem;
+  font-weight: 680;
+}
+
+.tracking-control small {
+  overflow: hidden;
+  color: #789095;
+  font-size: 0.61rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracking-control input {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  accent-color: #65d7d6;
+}
+
+.tracking-control:has(input:checked) {
+  border-color: rgb(102 236 224 / 42%);
+  background: rgb(102 213 217 / 8%);
+}
+
+.tracking-control:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .primary-button,
 .secondary-button,
 .text-button {

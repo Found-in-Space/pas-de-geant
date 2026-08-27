@@ -1,5 +1,7 @@
 import type { SolarSystemBodyId } from "./solar-system.js";
 import type { NavigationMode } from "./world-navigation.js";
+import type { AircraftDisplayTarget } from "./aircraft-lifecycle.js";
+import type { SatelliteToolGroup } from "./satellite-groups.js";
 import {
   parseLocationPin,
   type LocationPin,
@@ -24,6 +26,23 @@ export type SupervisionNavigationSnapshot = Omit<
   SupervisionNavigationState,
   "sequence"
 >;
+
+export interface SupervisionControlState {
+  readonly aircraft: Readonly<Record<AircraftDisplayTarget, boolean>>;
+  readonly satellites: Readonly<Record<SatelliteToolGroup, boolean>>;
+}
+
+export const DEFAULT_SUPERVISION_CONTROL_STATE: SupervisionControlState = {
+  aircraft: {
+    aircraft: false,
+    labels: false,
+  },
+  satellites: {
+    brightest: false,
+    space_stations: false,
+    science_education: false,
+  },
+};
 
 export type SupervisionCommand =
   | {
@@ -51,6 +70,16 @@ export type SupervisionCommand =
     readonly kind: "setPinGuidance";
     readonly pin: LocationPin;
     readonly enabled: boolean;
+  }
+  | {
+    readonly kind: "setAircraftDisplay";
+    readonly target: AircraftDisplayTarget;
+    readonly enabled: boolean;
+  }
+  | {
+    readonly kind: "setSatelliteGroupVisibility";
+    readonly group: SatelliteToolGroup;
+    readonly enabled: boolean;
   };
 
 export interface SupervisionSession {
@@ -58,6 +87,7 @@ export interface SupervisionSession {
   readonly label: string | null;
   readonly connectedAtMs: number;
   readonly state: SupervisionNavigationState | null;
+  readonly controls: SupervisionControlState;
   readonly pins: readonly LocationPin[];
   readonly guidedPinIds: readonly string[];
 }
@@ -77,6 +107,7 @@ export interface HeadsetHelloMessage extends ProtocolMessage {
 export interface HeadsetStateMessage extends ProtocolMessage {
   readonly type: "headset.state";
   readonly state: SupervisionNavigationState;
+  readonly controls: SupervisionControlState;
   readonly pins: readonly LocationPin[];
   readonly guidedPinIds: readonly string[];
 }
@@ -125,6 +156,7 @@ export type CommandResultMessage = ProtocolMessage & {
   | {
     readonly ok: true;
     readonly state: SupervisionNavigationState;
+    readonly controls: SupervisionControlState;
     readonly pins: readonly LocationPin[];
     readonly guidedPinIds: readonly string[];
   }
@@ -203,6 +235,45 @@ function optionalTransitionTime(value: unknown): number | undefined {
   return result;
 }
 
+function requiredBoolean(value: unknown, description: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`${description} must be boolean.`);
+  }
+  return value;
+}
+
+export function parseSupervisionControlState(
+  value: unknown,
+): SupervisionControlState {
+  if (value === undefined) return DEFAULT_SUPERVISION_CONTROL_STATE;
+  const candidate = record(value, "Control state");
+  const aircraft = record(candidate.aircraft, "Aircraft control state");
+  const satellites = record(candidate.satellites, "Satellite control state");
+  return {
+    aircraft: {
+      aircraft: requiredBoolean(
+        aircraft.aircraft,
+        "Aircraft symbols enabled",
+      ),
+      labels: requiredBoolean(aircraft.labels, "Aircraft labels enabled"),
+    },
+    satellites: {
+      brightest: requiredBoolean(
+        satellites.brightest,
+        "Brightest satellites enabled",
+      ),
+      space_stations: requiredBoolean(
+        satellites.space_stations,
+        "Space stations enabled",
+      ),
+      science_education: requiredBoolean(
+        satellites.science_education,
+        "Science and education satellites enabled",
+      ),
+    },
+  };
+}
+
 function parsePins(value: unknown): readonly LocationPin[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error("Location pins must be an array.");
@@ -278,6 +349,38 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
       enabled: candidate.enabled,
     };
   }
+  if (candidate.kind === "setAircraftDisplay") {
+    if (candidate.target !== "aircraft" && candidate.target !== "labels") {
+      throw new Error("Aircraft display target must be aircraft or labels.");
+    }
+    return {
+      kind: "setAircraftDisplay",
+      target: candidate.target,
+      enabled: requiredBoolean(
+        candidate.enabled,
+        "Aircraft display enabled",
+      ),
+    };
+  }
+  if (candidate.kind === "setSatelliteGroupVisibility") {
+    if (
+      candidate.group !== "brightest" &&
+      candidate.group !== "space_stations" &&
+      candidate.group !== "science_education"
+    ) {
+      throw new Error(
+        "Satellite group must be brightest, space_stations, or science_education.",
+      );
+    }
+    return {
+      kind: "setSatelliteGroupVisibility",
+      group: candidate.group,
+      enabled: requiredBoolean(
+        candidate.enabled,
+        "Satellite visibility enabled",
+      ),
+    };
+  }
   throw new Error("Unknown supervision command.");
 }
 
@@ -346,6 +449,7 @@ function parseSession(value: unknown): SupervisionSession {
     state: candidate.state === null
       ? null
       : parseSupervisionNavigationState(candidate.state),
+    controls: parseSupervisionControlState(candidate.controls),
     pins,
     guidedPinIds: parseGuidedPinIds(candidate.guidedPinIds, pins),
   };
@@ -379,6 +483,7 @@ export function parseSupervisionMessage(value: unknown): SupervisionMessage {
         protocolVersion: SUPERVISION_PROTOCOL_VERSION,
         type: "headset.state",
         state: parseSupervisionNavigationState(candidate.state),
+        controls: parseSupervisionControlState(candidate.controls),
         pins,
         guidedPinIds: parseGuidedPinIds(candidate.guidedPinIds, pins),
       };
@@ -440,6 +545,7 @@ export function parseSupervisionMessage(value: unknown): SupervisionMessage {
           commandId,
           ok: true,
           state: parseSupervisionNavigationState(candidate.state),
+          controls: parseSupervisionControlState(candidate.controls),
           pins,
           guidedPinIds: parseGuidedPinIds(candidate.guidedPinIds, pins),
         };
