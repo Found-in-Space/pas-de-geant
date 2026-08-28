@@ -594,8 +594,8 @@ planetRoot.add(terrain.group);
 const amazonForestOutlines = new AmazonForestOutlineLayer(
   import.meta.env.VITE_AMAZON_FOREST_MANIFEST_URL?.trim() ||
     "https://data.foundin.space/3592e66d-2b29-4e4b-97d0-7fc1d3e9e4f8/manifest.json",
+  terrain,
 );
-planetRoot.add(amazonForestOutlines.group);
 const amazonForestOutlineStore = new AmazonForestOutlineStore(
   amazonForestOutlines,
 );
@@ -3992,6 +3992,7 @@ window.addEventListener("beforeunload", () => {
   }
   stopAircraftStream();
   for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
+  amazonForestOutlines.dispose();
   terrain.dispose();
   locationPinLayer.dispose();
   celestialSphere.dispose();

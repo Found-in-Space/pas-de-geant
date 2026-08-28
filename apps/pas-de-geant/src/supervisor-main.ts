@@ -575,7 +575,7 @@ function createAmazonForestYearControl(year: number): AmazonForestYearControl {
   text.textContent = String(year);
   heading.append(swatch, text);
   const detail = document.createElement("small");
-  detail.textContent = "Natural-forest extent";
+  detail.textContent = "Shaded natural-forest extent";
   copy.append(heading, detail);
   const input = document.createElement("input");
   input.type = "checkbox";

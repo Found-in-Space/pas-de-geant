@@ -572,6 +572,13 @@ licence applies independently of the application code. Set
 `VITE_AMAZON_FOREST_MANIFEST_URL` to test another locally served or hosted
 manifest.
 
+On first display, the client rasterizes each year's closed contours with the
+even-odd fill rule, so enclosed clearings remain holes, then composites the
+selected translucent fills and their brighter boundaries into one geographic
+texture. The terrain shader samples that texture on the same elevation-displaced
+tiles as the base imagery. The historical layer therefore follows topography
+without a separate line mesh hovering above it.
+
 The internal forest-outline store is the single state and mutation boundary
 used by the renderer, supervision, and voice integrations, and is available for
 a future TouchOS control. The POC exposes its independent year checkboxes only

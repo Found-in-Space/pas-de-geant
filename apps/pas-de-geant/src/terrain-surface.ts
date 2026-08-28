@@ -505,6 +505,9 @@ const FRAGMENT_SHADER = `
   uniform float photographicImageryAllowed;
   uniform float tileOverlayVisible;
   uniform float textureOverlayVisible;
+  uniform sampler2D surfaceOverlayMap;
+  uniform float surfaceOverlayVisible;
+  uniform vec4 surfaceOverlayUvTransform;
   uniform vec3 tileTint;
   uniform vec3 sunlight;
   in vec2 vTileUv;
@@ -561,6 +564,18 @@ const FRAGMENT_SHADER = `
     vec3 albedo = photographicImageryAllowed > 0.5
       ? resolvedImageryAlbedo()
       : texture(blueMarbleMap, vBlueMarbleUv).rgb;
+    if (surfaceOverlayVisible > 0.5 && vSkirt < 0.5) {
+      vec2 overlayUv =
+        vBlueMarbleUv * surfaceOverlayUvTransform.xy +
+        surfaceOverlayUvTransform.zw;
+      if (
+        all(greaterThanEqual(overlayUv, vec2(0.0))) &&
+        all(lessThanEqual(overlayUv, vec2(1.0)))
+      ) {
+        vec4 surfaceOverlay = texture(surfaceOverlayMap, overlayUv);
+        albedo = mix(albedo, surfaceOverlay.rgb, surfaceOverlay.a);
+      }
+    }
     vec3 baseNormal = normalize(vBaseNormal);
     vec3 smoothNormal = smoothDisplacedNormal(baseNormal);
     vec3 lightingNormal = vSkirt > 0.0
@@ -713,6 +728,11 @@ export class TerrainSurface {
       },
       tileOverlayVisible: { value: 0 },
       textureOverlayVisible: { value: 0 },
+      surfaceOverlayMap: { value: this.emptyTexture },
+      surfaceOverlayVisible: { value: 0 },
+      surfaceOverlayUvTransform: {
+        value: new THREE.Vector4(1, 1, 0, 0),
+      },
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
       heightEncodingKind: {
         value: this.surfaceModel.heightEncoding.kind === "terrarium" ? 0 : 1,
@@ -874,6 +894,16 @@ export class TerrainSurface {
 
   setTextureTileOverlayVisible(visible: boolean): void {
     this.sharedUniforms.textureOverlayVisible!.value = visible ? 1 : 0;
+  }
+
+  /** Composites a geographic RGBA texture directly onto the displaced terrain. */
+  setSurfaceOverlay(
+    texture: THREE.Texture | null,
+    uvTransform = new THREE.Vector4(1, 1, 0, 0),
+  ): void {
+    this.sharedUniforms.surfaceOverlayMap!.value = texture ?? this.emptyTexture;
+    this.sharedUniforms.surfaceOverlayUvTransform!.value.copy(uvTransform);
+    this.sharedUniforms.surfaceOverlayVisible!.value = texture ? 1 : 0;
   }
 
   setSunlightDirection(directionWorld: THREE.Vector3): void {
