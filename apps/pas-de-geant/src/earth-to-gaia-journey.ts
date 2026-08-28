@@ -6,7 +6,8 @@ export const STELLAR_SUN_DISTANCE_PC = 1;
 export const STELLAR_SCALE_DENOMINATOR =
   PARSEC_METRES / STELLAR_METRES_PER_PARSEC;
 export const WHOLE_EARTH_SCALE_DENOMINATOR = 6_371_008.8 / 0.4;
-export const SOLAR_OVERVIEW_SUN_DISTANCE_M = 1.8;
+export const BODY_FADE_START_DIAMETER_M = 0.006;
+export const BODY_FADE_END_DIAMETER_M = 0.002;
 
 export type EarthToGaiaJourneyStatus =
   | "idle"
@@ -35,6 +36,9 @@ export interface JourneyVector3 {
 }
 
 export interface EarthToGaiaTimelineContext {
+  readonly startScaleDenominator: number;
+  /** Exact surface-view head position after rebasing into J2000 space. */
+  readonly startObserverJ2000Pc: JourneyVector3;
   readonly solarOverviewScaleDenominator: number;
   /** The fixed catalogue viewpoint used to preserve the starting sky. */
   readonly catalogObserverJ2000Pc: JourneyVector3;
@@ -50,11 +54,8 @@ export interface EarthToGaiaTimelineSample {
   readonly realm: "solar_system" | "stellar";
   readonly scaleDenominator: number;
   readonly catalogObserverJ2000Pc: JourneyVector3;
-  readonly observerJ2000Pc: JourneyVector3 | null;
-  readonly earthHandoffProgress: number;
-  readonly solarFocusProgress: number;
+  readonly observerJ2000Pc: JourneyVector3;
   readonly roomTranslationBlend: number;
-  readonly planetOpacity: number;
   readonly physicalSunOpacity: number;
   readonly syntheticSunOpacity: number;
 }
@@ -87,8 +88,6 @@ export interface JourneyRunnerOptions<Snapshot, Preparation> {
   readonly context: (preparation: Preparation) => EarthToGaiaTimelineContext;
   readonly now?: () => number;
 }
-
-const EARTH_SCALE_DENOMINATOR = 60_000;
 
 export class JourneyRunner<Snapshot, Preparation> {
   private readonly hooks: JourneyRunnerHooks<Snapshot, Preparation>;
@@ -281,77 +280,57 @@ export function sampleEarthToGaiaTimeline(
   context: EarthToGaiaTimelineContext,
 ): EarthToGaiaTimelineSample {
   const elapsed = clamp(elapsedMs, 0, EARTH_TO_GAIA_DURATION_MS);
-  const seconds = elapsed / 1_000;
   const progress = elapsed / EARTH_TO_GAIA_DURATION_MS;
+  const transformProgress = easedRange(
+    elapsed,
+    0,
+    EARTH_TO_GAIA_DURATION_MS,
+  );
+  const locationProgress = transformProgress * transformProgress;
   const solarOverviewScaleDenominator = Math.min(
     context.solarOverviewScaleDenominator,
     STELLAR_SCALE_DENOMINATOR,
   );
-  let phase: EarthToGaiaJourneyPhase;
-  let navigationMode: EarthToGaiaTimelineSample["navigationMode"];
-  let scaleDenominator: number;
-  let observerJ2000Pc: JourneyVector3 | null = null;
-
-  if (seconds < 5) {
-    phase = "earth";
-    navigationMode = "surface";
-    scaleDenominator = EARTH_SCALE_DENOMINATOR;
-  } else if (seconds < 11) {
-    phase = "earth_scale";
-    navigationMode = "orbit";
-    scaleDenominator = logarithmicMix(
-      EARTH_SCALE_DENOMINATOR,
-      WHOLE_EARTH_SCALE_DENOMINATOR,
-      easedRange(seconds, 5, 11),
-    );
-  } else if (seconds < 15) {
-    phase = "whole_earth";
-    navigationMode = "orbit";
-    scaleDenominator = WHOLE_EARTH_SCALE_DENOMINATOR;
-  } else if (seconds < 27) {
-    phase = "solar_scale";
-    navigationMode = "free";
-    scaleDenominator = logarithmicMix(
-      WHOLE_EARTH_SCALE_DENOMINATOR,
-      solarOverviewScaleDenominator,
-      easedRange(seconds, 15, 27),
-    );
-  } else if (seconds < 32) {
-    phase = "solar_overview";
-    navigationMode = "free";
-    scaleDenominator = solarOverviewScaleDenominator;
-  } else {
-    phase = seconds < 43 ? "interstellar" : "stellar_reveal";
-    navigationMode = "free";
-    const travel = easedRange(seconds, 32, 43);
-    observerJ2000Pc = interstellarObserver(context, travel);
-    const radiusPc = vectorLength(observerJ2000Pc);
-    const sunDisplayM = mix(SOLAR_OVERVIEW_SUN_DISTANCE_M, 1, travel);
-    scaleDenominator = travel === 0
-      ? solarOverviewScaleDenominator
-      : Math.min(
-          STELLAR_SCALE_DENOMINATOR,
-          radiusPc * PARSEC_METRES / sunDisplayM,
-        );
-    if (seconds >= 43) scaleDenominator = STELLAR_SCALE_DENOMINATOR;
-  }
+  const scaleDenominator = logarithmicMix(
+    context.startScaleDenominator,
+    STELLAR_SCALE_DENOMINATOR,
+    transformProgress,
+  );
+  const observerJ2000Pc = interstellarObserver(context, locationProgress);
+  const phase: EarthToGaiaJourneyPhase = elapsed === 0
+    ? "earth"
+    : scaleDenominator < WHOLE_EARTH_SCALE_DENOMINATOR
+    ? "earth_scale"
+    : scaleDenominator < solarOverviewScaleDenominator
+    ? "solar_scale"
+    : elapsed < EARTH_TO_GAIA_DURATION_MS
+    ? "interstellar"
+    : "stellar_reveal";
+  const stellarBlend = easedRange(transformProgress, 0.82, 1);
 
   return {
     elapsedMs: elapsed,
     progress,
     phase,
-    navigationMode,
-    realm: seconds >= 43 ? "stellar" : "solar_system",
+    navigationMode: "free",
+    realm: elapsed >= EARTH_TO_GAIA_DURATION_MS ? "stellar" : "solar_system",
     scaleDenominator,
     catalogObserverJ2000Pc: { ...context.catalogObserverJ2000Pc },
     observerJ2000Pc,
-    earthHandoffProgress: easedRange(seconds, 5, 11),
-    solarFocusProgress: easedRange(seconds, 15, 27),
-    roomTranslationBlend: easedRange(seconds, 39, 43),
-    planetOpacity: 1 - easedRange(seconds, 36, 40),
-    physicalSunOpacity: 1 - easedRange(seconds, 39, 43),
-    syntheticSunOpacity: easedRange(seconds, 39, 43),
+    roomTranslationBlend: stellarBlend,
+    physicalSunOpacity: 1 - stellarBlend,
+    syntheticSunOpacity: stellarBlend,
   };
+}
+
+export function renderedBodyOpacity(renderedDiameterM: number): number {
+  if (renderedDiameterM <= BODY_FADE_END_DIAMETER_M) return 0;
+  if (renderedDiameterM >= BODY_FADE_START_DIAMETER_M) return 1;
+  return easedRange(
+    renderedDiameterM,
+    BODY_FADE_END_DIAMETER_M,
+    BODY_FADE_START_DIAMETER_M,
+  );
 }
 
 export function apparentMagnitude(
@@ -384,60 +363,23 @@ function interstellarObserver(
   context: EarthToGaiaTimelineContext,
   progress: number,
 ): JourneyVector3 {
+  const startObserver = context.startObserverJ2000Pc;
+  const startRadius = vectorLength(startObserver);
+  const direction = sphericalDirectionMix(
+    startObserver,
+    context.destinationDirectionJ2000,
+    progress,
+  );
   const destinationDirection = normalizeVector(
     context.destinationDirectionJ2000,
   );
-  const startRadius = Math.min(
-    context.solarOverviewScaleDenominator,
-    STELLAR_SCALE_DENOMINATOR,
-  ) *
-    SOLAR_OVERVIEW_SUN_DISTANCE_M / PARSEC_METRES;
   const radius = logarithmicMix(
     startRadius,
     STELLAR_SUN_DISTANCE_PC,
     progress,
   );
-  return scaleVector(destinationDirection, radius);
-}
-
-export function safeEarthHandoffCenter(
-  headWorld: JourneyVector3,
-  initialCenterWorld: JourneyVector3,
-  targetDirectionWorld: JourneyVector3,
-  initialDisplayRadiusM: number,
-  displayRadiusM: number,
-  progress: number,
-  finalClearanceM = 1.4,
-): JourneyVector3 {
-  const initialOffset = {
-    x: initialCenterWorld.x - headWorld.x,
-    y: initialCenterWorld.y - headWorld.y,
-    z: initialCenterWorld.z - headWorld.z,
-  };
-  const initialDistance = vectorLength(initialOffset);
-  if (!(initialDisplayRadiusM > 0 && displayRadiusM > 0)) {
-    throw new Error("Earth handoff radii must be positive.");
-  }
-  const initialClearance = Math.max(
-    0,
-    initialDistance - initialDisplayRadiusM,
-  );
-  const direction = sphericalDirectionMix(
-    initialOffset,
-    targetDirectionWorld,
-    progress,
-  );
-  const clearance = mix(
-    initialClearance,
-    Math.max(0, finalClearanceM),
-    clamp(progress, 0, 1),
-  );
-  const distance = displayRadiusM + clearance;
-  return {
-    x: headWorld.x + direction.x * distance,
-    y: headWorld.y + direction.y * distance,
-    z: headWorld.z + direction.z * distance,
-  };
+  if (progress === 1) return scaleVector(destinationDirection, radius);
+  return scaleVector(direction, radius);
 }
 
 export function sphericalDirectionMix(

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import {
+  j2000ObserverAtWorldPoint,
   j2000ToWorldQuaternion,
   j2000VectorToRenderAxes,
   trackingRoomOffsetWorld,
 } from "../apps/pas-de-geant/src/stellar-coordinate-frame.js";
+import { relativeJ2000MetresToRender } from "../apps/pas-de-geant/src/world-navigation.js";
 
 describe("stellar J2000 coordinate frame", () => {
   it("uses the same x,z,-y mapping as Solar System body placement", () => {
@@ -47,6 +49,34 @@ describe("stellar J2000 coordinate frame", () => {
     const expected = new THREE.Vector3(0.2, 0, -0.3)
       .applyQuaternion(rigRotation);
     expect(offset.distanceTo(expected)).toBeLessThan(1e-12);
+  });
+
+  it("rebases a surface head into free J2000 space without moving it", () => {
+    const originJ2000M = { x: 12e9, y: -8e9, z: 3e9 };
+    const originWorld = new THREE.Vector3(-4, 2, 7);
+    const pointWorld = new THREE.Vector3(3, 5, -2);
+    const frame = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(0.3, -0.8, 0.2),
+    );
+    const denominator = 60_000;
+    const observerJ2000M = j2000ObserverAtWorldPoint(
+      originJ2000M,
+      originWorld,
+      pointWorld,
+      frame,
+      denominator,
+    );
+    const renderedOffset = relativeJ2000MetresToRender({
+      x: originJ2000M.x - observerJ2000M.x,
+      y: originJ2000M.y - observerJ2000M.y,
+      z: originJ2000M.z - observerJ2000M.z,
+    }, denominator);
+    const reconstructedOrigin = new THREE.Vector3(
+      renderedOffset.x,
+      renderedOffset.y,
+      renderedOffset.z,
+    ).applyQuaternion(frame).add(pointWorld);
+    expect(reconstructedOrigin.distanceTo(originWorld)).toBeLessThan(1e-9);
   });
 
   it("places the heliocentric Sun on the captured world gaze at the endpoint", () => {

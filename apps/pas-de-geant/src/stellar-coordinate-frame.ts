@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import type { Vector3d } from "./solar-system.js";
+import { translatedObserverJ2000M } from "./world-navigation.js";
 
 /** Raw equatorial J2000 axes (x,y,z) to Pas de Géant's Three.js Y-up axes. */
 const J2000_TO_RENDER_AXES = new THREE.Quaternion().setFromAxisAngle(
@@ -37,4 +39,22 @@ export function trackingRoomOffsetWorld(
   return target.copy(currentTrackingLocal)
     .sub(trackingOriginLocal)
     .applyQuaternion(observerRigToWorld);
+}
+
+/** Rebase a rendered world point without changing its physical J2000 pose. */
+export function j2000ObserverAtWorldPoint(
+  originJ2000M: Vector3d,
+  originWorld: THREE.Vector3,
+  pointWorld: THREE.Vector3,
+  renderedSystemToWorld: THREE.Quaternion,
+  scaleDenominator: number,
+): Vector3d {
+  const renderOffset = pointWorld.clone()
+    .sub(originWorld)
+    .applyQuaternion(renderedSystemToWorld.clone().invert());
+  return translatedObserverJ2000M(
+    originJ2000M,
+    renderOffset,
+    scaleDenominator,
+  );
 }

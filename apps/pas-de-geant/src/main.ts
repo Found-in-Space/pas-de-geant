@@ -50,8 +50,7 @@ import {
   EARTH_TO_GAIA_JOURNEY_ID,
   JourneyRunner,
   PARSEC_METRES,
-  safeEarthHandoffCenter,
-  SOLAR_OVERVIEW_SUN_DISTANCE_M,
+  renderedBodyOpacity,
   STELLAR_METRES_PER_PARSEC,
   sampleEarthToGaiaTimeline,
   type EarthToGaiaTimelineContext,
@@ -210,6 +209,7 @@ import {
 import { SatelliteLayer } from "./satellite-layer.js";
 import { SpatialStarPass } from "./spatial-star-pass.js";
 import {
+  j2000ObserverAtWorldPoint,
   j2000ToWorldQuaternion,
   trackingRoomOffsetWorld,
 } from "./stellar-coordinate-frame.js";
@@ -1625,7 +1625,6 @@ interface EarthToGaiaSnapshot {
   readonly gazeWorld: THREE.Vector3;
   readonly headWorld: THREE.Vector3;
   readonly earthCenterWorld: THREE.Vector3;
-  readonly earthDisplayRadiusM: number;
   readonly systemFrameQuaternion: THREE.Quaternion;
   readonly j2000ToWorld: THREE.Quaternion;
   readonly trackingOriginLocal: THREE.Vector3;
@@ -1646,11 +1645,8 @@ interface EarthToGaiaSnapshot {
 
 interface EarthToGaiaPreparation {
   readonly context: EarthToGaiaTimelineContext;
-  readonly gazeWorld: THREE.Vector3;
   readonly headWorld: THREE.Vector3;
-  readonly earthCenterWorld: THREE.Vector3;
-  readonly earthDisplayRadiusM: number;
-  readonly systemTargetWorld: THREE.Vector3;
+  readonly startObserverJ2000M: Vector3d;
   readonly systemFrameQuaternion: THREE.Quaternion;
   readonly j2000ToWorld: THREE.Quaternion;
   readonly trackingOriginLocal: THREE.Vector3;
@@ -1663,6 +1659,7 @@ interface JourneyMaterialState {
 }
 
 const journeyMaterialStates = new Map<THREE.Material, JourneyMaterialState>();
+const JOURNEY_EARTH_GLOBE_HANDOFF_RADIUS_M = 2;
 
 function cloneContactFrame(frame: ContactFrame): ContactFrame {
   return {
@@ -1702,7 +1699,6 @@ function captureEarthToGaiaSnapshot(): EarthToGaiaSnapshot {
     gazeWorld,
     headWorld,
     earthCenterWorld: planetRoot.getWorldPosition(new THREE.Vector3()),
-    earthDisplayRadiusM: planetRoot.getWorldScale(new THREE.Vector3()).x,
     systemFrameQuaternion: frame.systemFrameQuaternion.clone(),
     j2000ToWorld,
     trackingOriginLocal: viewCamera.position.clone(),
@@ -1734,7 +1730,13 @@ async function prepareEarthToGaiaJourney(
   scaleTransition = undefined;
   headingTransition = undefined;
   const when = new Date(snapshot.frozenTimeMs);
-  const startObserverM = bodyPositionJ2000M("earth", when);
+  const startObserverM = j2000ObserverAtWorldPoint(
+    bodyPositionJ2000M("earth", when),
+    snapshot.earthCenterWorld,
+    snapshot.headWorld,
+    snapshot.systemFrameQuaternion,
+    snapshot.scaleDenominator,
+  );
   const startObserverPc = vectorMetresToParsecs(startObserverM);
   const inverseFrame = snapshot.j2000ToWorld.clone().invert();
   const gazeJ2000 = snapshot.gazeWorld.clone()
@@ -1753,6 +1755,8 @@ async function prepareEarthToGaiaJourney(
     }),
   ) / 4;
   const context: EarthToGaiaTimelineContext = {
+    startScaleDenominator: snapshot.scaleDenominator,
+    startObserverJ2000Pc: startObserverPc,
     solarOverviewScaleDenominator,
     catalogObserverJ2000Pc: startObserverPc,
     destinationDirectionJ2000,
@@ -1760,14 +1764,8 @@ async function prepareEarthToGaiaJourney(
   await spatialStarPass.load(startObserverPc, signal);
   return {
     context,
-    gazeWorld: snapshot.gazeWorld.clone(),
     headWorld: snapshot.headWorld.clone(),
-    earthCenterWorld: snapshot.earthCenterWorld.clone(),
-    earthDisplayRadiusM: snapshot.earthDisplayRadiusM,
-    systemTargetWorld: snapshot.headWorld.clone().addScaledVector(
-      snapshot.gazeWorld,
-      SOLAR_OVERVIEW_SUN_DISTANCE_M,
-    ),
+    startObserverJ2000M: { ...startObserverM },
     systemFrameQuaternion: snapshot.systemFrameQuaternion.clone(),
     j2000ToWorld: snapshot.j2000ToWorld.clone(),
     trackingOriginLocal: snapshot.trackingOriginLocal.clone(),
@@ -1788,108 +1786,38 @@ function beginEarthToGaiaJourney(
   journeyEarthGlobe.visible = false;
   navigationRealm = "solar_system";
   activeJourneySample = null;
-}
-
-function enterJourneyOrbit(preparation: EarthToGaiaPreparation): void {
-  resetObserverRig();
-  navigationMode = "orbit";
+  navigationMode = "free";
   focusBodyId = "earth";
-  orbitNavigation = {
-    observer: {
-      position: observerRig.position.clone(),
-      quaternion: observerRig.quaternion.clone(),
-    },
-    observerSystemPositionM: { x: 0, y: 0, z: 0 },
-    focusWorldPosition: preparation.earthCenterWorld.clone(),
+  orbitNavigation = undefined;
+  freeObserverJ2000M = { ...preparation.startObserverJ2000M };
+  freeNavigationFrame = {
+    anchorWorldPosition: preparation.headWorld.clone(),
     systemFrameQuaternion: preparation.systemFrameQuaternion.clone(),
   };
-  freeObserverJ2000M = undefined;
-  freeNavigationFrame = undefined;
   previousXrHead = null;
-  syncOrbitObserverSystemPosition();
 }
 
-function updateJourneyEarthHandoff(
+function updateJourneyUniversalFrame(
   sample: EarthToGaiaTimelineSample,
   preparation: EarthToGaiaPreparation,
 ): void {
-  if (!orbitNavigation) return;
-  const centre = safeEarthHandoffCenter(
-    preparation.headWorld,
-    preparation.earthCenterWorld,
-    preparation.gazeWorld,
-    preparation.earthDisplayRadiusM,
-    displayRadiusForScale("earth", sample.scaleDenominator),
-    sample.earthHandoffProgress,
-  );
-  orbitNavigation.focusWorldPosition.set(centre.x, centre.y, centre.z);
-  orbitNavigation.systemFrameQuaternion.copy(
-    preparation.systemFrameQuaternion,
-  );
-  syncOrbitObserverSystemPosition();
-}
-
-function updateJourneySolarFocus(
-  sample: EarthToGaiaTimelineSample,
-  snapshot: EarthToGaiaSnapshot,
-  preparation: EarthToGaiaPreparation,
-): void {
-  if (!freeNavigationFrame || !freeObserverJ2000M) return;
+  if (!freeNavigationFrame) return;
+  freeObserverJ2000M = vectorParsecsToMetres(sample.observerJ2000Pc);
   freeNavigationFrame.systemFrameQuaternion.copy(
     preparation.systemFrameQuaternion,
   );
-  if (sample.observerJ2000Pc) {
-    freeNavigationFrame.anchorWorldPosition.copy(preparation.headWorld);
-    return;
-  }
-  const when = new Date(snapshot.frozenTimeMs);
-  const earth = bodyPositionJ2000M("earth", when);
-  const sun = bodyPositionJ2000M("sun", when);
-  const focusProgress = sample.solarFocusProgress;
-  const physicalFocus = {
-    x: THREE.MathUtils.lerp(earth.x, sun.x, focusProgress),
-    y: THREE.MathUtils.lerp(earth.y, sun.y, focusProgress),
-    z: THREE.MathUtils.lerp(earth.z, sun.z, focusProgress),
-  };
-  const renderedFocus = relativeJ2000MetresToRender({
-    x: physicalFocus.x - freeObserverJ2000M.x,
-    y: physicalFocus.y - freeObserverJ2000M.y,
-    z: physicalFocus.z - freeObserverJ2000M.z,
-  }, scaleDenominator);
-  const focusOffsetWorld = new THREE.Vector3(
-    renderedFocus.x,
-    renderedFocus.y,
-    renderedFocus.z,
-  ).applyQuaternion(preparation.systemFrameQuaternion);
-  freeNavigationFrame.anchorWorldPosition
-    .copy(preparation.systemTargetWorld)
-    .sub(focusOffsetWorld);
+  freeNavigationFrame.anchorWorldPosition.copy(preparation.headWorld);
 }
 
 function applyEarthToGaiaSample(
   sample: EarthToGaiaTimelineSample,
-  snapshot: EarthToGaiaSnapshot,
+  _snapshot: EarthToGaiaSnapshot,
   preparation: EarthToGaiaPreparation,
 ): void {
   activeJourneySample = sample;
   navigationRealm = sample.realm;
-  if (sample.navigationMode === "orbit" && navigationMode === "surface") {
-    enterJourneyOrbit(preparation);
-  } else if (sample.navigationMode === "free" && navigationMode === "orbit") {
-    setNavigationMode("free");
-  }
-  if (navigationMode === "orbit") {
-    scaleDenominator = validScaleDenominator(sample.scaleDenominator);
-    updateJourneyEarthHandoff(sample, preparation);
-  } else {
-    commitScaleDenominator(sample.scaleDenominator);
-  }
-  if (sample.observerJ2000Pc) {
-    freeObserverJ2000M = vectorParsecsToMetres(sample.observerJ2000Pc);
-  }
-  if (navigationMode === "free") {
-    updateJourneySolarFocus(sample, snapshot, preparation);
-  }
+  commitScaleDenominator(sample.scaleDenominator);
+  updateJourneyUniversalFrame(sample, preparation);
   document.body.dataset.journeyPhase = sample.phase;
   document.body.dataset.journeyProgress = String(sample.progress);
 }
@@ -1935,26 +1863,35 @@ function setObjectOpacity(root: THREE.Object3D, opacity: number): void {
 function applyJourneyVisualOpacity(): void {
   const sample = activeJourneySample;
   if (!sample) return;
-  if (sample.navigationMode === "surface") {
-    journeyEarthGlobe.visible = false;
-  } else {
-    planetRoot.visible = false;
-    journeyEarthGlobe.position.copy(planetRoot.position);
-    journeyEarthGlobe.quaternion.copy(planetRoot.quaternion);
-    journeyEarthGlobe.scale.copy(planetRoot.scale);
-    journeyEarthGlobeMaterial.opacity = sample.planetOpacity;
-    journeyEarthGlobeMaterial.depthWrite = sample.planetOpacity >= 0.999;
-    journeyEarthGlobe.visible = sample.planetOpacity > 0.001;
-  }
-  setObjectOpacity(moonRoot, sample.planetOpacity);
+  const earthRadiusM = displayRadiusForScale("earth", scaleDenominator);
+  const earthOpacity = renderedBodyOpacity(earthRadiusM * 2);
+  const useEarthGlobe = earthRadiusM < JOURNEY_EARTH_GLOBE_HANDOFF_RADIUS_M;
+  planetRoot.visible = !useEarthGlobe && earthOpacity > 0.001;
+  journeyEarthGlobe.position.copy(planetRoot.position);
+  journeyEarthGlobe.quaternion.copy(planetRoot.quaternion);
+  journeyEarthGlobe.scale.copy(planetRoot.scale);
+  journeyEarthGlobeMaterial.opacity = earthOpacity;
+  journeyEarthGlobeMaterial.depthWrite =
+    journeyEarthGlobeMaterial.opacity >= 0.999;
+  journeyEarthGlobe.visible = useEarthGlobe && earthOpacity > 0.001;
+  setObjectOpacity(
+    moonRoot,
+    renderedBodyOpacity(
+      displayRadiusForScale("moon", scaleDenominator) * 2,
+    ),
+  );
   for (const [bodyId, root] of placeholderRoots) {
     setObjectOpacity(
       root,
-      bodyId === "sun" ? sample.physicalSunOpacity : sample.planetOpacity,
+      bodyId === "sun"
+        ? sample.physicalSunOpacity
+        : renderedBodyOpacity(
+          displayRadiusForScale(bodyId, scaleDenominator) * 2,
+        ),
     );
   }
-  setObjectOpacity(celestialSphere.object3d, sample.planetOpacity);
-  setObjectOpacity(shadowCones.group, sample.planetOpacity);
+  setObjectOpacity(celestialSphere.object3d, 0);
+  setObjectOpacity(shadowCones.group, earthOpacity);
 }
 
 function restoreEarthToGaiaSnapshot(snapshot: EarthToGaiaSnapshot): void {

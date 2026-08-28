@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  BODY_FADE_END_DIAMETER_M,
+  BODY_FADE_START_DIAMETER_M,
   EARTH_TO_GAIA_DURATION_MS,
   JourneyRunner,
   STELLAR_METRES_PER_PARSEC,
   STELLAR_SCALE_DENOMINATOR,
   STELLAR_SUN_DISTANCE_PC,
-  WHOLE_EARTH_SCALE_DENOMINATOR,
   apparentMagnitude,
   observerWithRoomTranslation,
-  safeEarthHandoffCenter,
+  renderedBodyOpacity,
   sampleEarthToGaiaTimeline,
   sphericalDirectionMix,
   type EarthToGaiaTimelineContext,
@@ -16,27 +17,20 @@ import {
 } from "../apps/pas-de-geant/src/earth-to-gaia-journey.js";
 
 const CONTEXT: EarthToGaiaTimelineContext = {
+  startScaleDenominator: 60_000,
+  startObserverJ2000Pc: { x: 0.000004848, y: 0, z: 0 },
   solarOverviewScaleDenominator: 1.2e13,
   catalogObserverJ2000Pc: { x: 0.000004848, y: 0, z: 0 },
   destinationDirectionJ2000: { x: 0, y: 0, z: -1 },
 };
 
 describe("Earth-to-Gaia timeline", () => {
-  it("moves through the fixed phases and reaches the exact stellar endpoint", () => {
+  it("rebases immediately into free space and reaches the exact stellar endpoint", () => {
     expect(sampleEarthToGaiaTimeline(0, CONTEXT)).toMatchObject({
       phase: "earth",
-      navigationMode: "surface",
-      scaleDenominator: 60_000,
-    });
-    expect(sampleEarthToGaiaTimeline(11_000, CONTEXT)).toMatchObject({
-      phase: "whole_earth",
-      navigationMode: "orbit",
-      scaleDenominator: WHOLE_EARTH_SCALE_DENOMINATOR,
-    });
-    expect(sampleEarthToGaiaTimeline(27_000, CONTEXT)).toMatchObject({
-      phase: "solar_overview",
       navigationMode: "free",
-      scaleDenominator: CONTEXT.solarOverviewScaleDenominator,
+      scaleDenominator: 60_000,
+      observerJ2000Pc: CONTEXT.startObserverJ2000Pc,
     });
 
     const reveal = sampleEarthToGaiaTimeline(EARTH_TO_GAIA_DURATION_MS, CONTEXT);
@@ -45,7 +39,6 @@ describe("Earth-to-Gaia timeline", () => {
       realm: "stellar",
       scaleDenominator: STELLAR_SCALE_DENOMINATOR,
       roomTranslationBlend: 1,
-      planetOpacity: 0,
       physicalSunOpacity: 0,
       syntheticSunOpacity: 1,
       progress: 1,
@@ -65,44 +58,49 @@ describe("Earth-to-Gaia timeline", () => {
       .toBeCloseTo(-0.17, 12);
   });
 
-  it("moves the Earth around the viewer with positive clearance", () => {
-    const head = { x: 0, y: 1.65, z: 0 };
-    const initialRadius = 106;
-    const initialCenter = { x: 0, y: -initialRadius, z: 0 };
-    const targetDirection = { x: 0, y: 0, z: -1 };
-    expect(safeEarthHandoffCenter(
-      head,
-      initialCenter,
-      targetDirection,
-      initialRadius,
-      initialRadius,
-      0,
-    )).toEqual(initialCenter);
-    const midpointRadius = 6;
-    const midpoint = safeEarthHandoffCenter(
-      head,
-      initialCenter,
-      targetDirection,
-      initialRadius,
-      midpointRadius,
-      0.5,
+  it("uses continuous logarithmic scale and location curves without dwell periods", () => {
+    let previousScale = 0;
+    let previousRadius = 0;
+    for (let elapsedMs = 0; elapsedMs <= EARTH_TO_GAIA_DURATION_MS;
+      elapsedMs += 500) {
+      const sample = sampleEarthToGaiaTimeline(elapsedMs, CONTEXT);
+      const radius = Math.hypot(
+        sample.observerJ2000Pc!.x,
+        sample.observerJ2000Pc!.y,
+        sample.observerJ2000Pc!.z,
+      );
+      if (elapsedMs > 0) {
+        expect(sample.scaleDenominator).toBeGreaterThan(previousScale);
+        expect(radius).toBeGreaterThan(previousRadius);
+        expect(sample.phase).not.toBe("whole_earth");
+        expect(sample.phase).not.toBe("solar_overview");
+      }
+      previousScale = sample.scaleDenominator;
+      previousRadius = radius;
+    }
+    const midpoint = sampleEarthToGaiaTimeline(
+      EARTH_TO_GAIA_DURATION_MS / 2,
+      CONTEXT,
+    );
+    expect(midpoint.scaleDenominator).toBeCloseTo(
+      Math.sqrt(
+        CONTEXT.startScaleDenominator * STELLAR_SCALE_DENOMINATOR,
+      ),
+      6,
+    );
+    const startRadius = Math.hypot(
+      CONTEXT.startObserverJ2000Pc.x,
+      CONTEXT.startObserverJ2000Pc.y,
+      CONTEXT.startObserverJ2000Pc.z,
     );
     expect(Math.hypot(
-      midpoint.x - head.x,
-      midpoint.y - head.y,
-      midpoint.z - head.z,
-    )).toBeGreaterThan(midpointRadius);
-    const final = safeEarthHandoffCenter(
-      head,
-      initialCenter,
-      targetDirection,
-      initialRadius,
-      0.4,
-      1,
+      midpoint.observerJ2000Pc!.x,
+      midpoint.observerJ2000Pc!.y,
+      midpoint.observerJ2000Pc!.z,
+    )).toBeCloseTo(
+      startRadius * (STELLAR_SUN_DISTANCE_PC / startRadius) ** 0.25,
+      12,
     );
-    expect(final.x).toBeCloseTo(0, 12);
-    expect(final.y).toBeCloseTo(1.65, 12);
-    expect(final.z).toBeCloseTo(-1.8, 12);
   });
 
   it("never scales beyond one rendered metre per parsec", () => {
@@ -119,20 +117,24 @@ describe("Earth-to-Gaia timeline", () => {
     }
   });
 
-  it("crossfades bodies and enables room parallax only in their authored windows", () => {
-    expect(sampleEarthToGaiaTimeline(38_000, CONTEXT)).toMatchObject({
-      planetOpacity: 0.5,
+  it("removes millimetre-scale bodies and crossfades only the Sun at the end", () => {
+    expect(renderedBodyOpacity(BODY_FADE_START_DIAMETER_M)).toBe(1);
+    expect(renderedBodyOpacity(BODY_FADE_END_DIAMETER_M)).toBe(0);
+    expect(renderedBodyOpacity(0.004)).toBeCloseTo(0.5, 12);
+    expect(sampleEarthToGaiaTimeline(0, CONTEXT)).toMatchObject({
       physicalSunOpacity: 1,
       syntheticSunOpacity: 0,
       roomTranslationBlend: 0,
     });
-    const midpoint = sampleEarthToGaiaTimeline(41_000, CONTEXT);
-    expect(midpoint.planetOpacity).toBe(0);
-    expect(midpoint.physicalSunOpacity).toBeCloseTo(0.5, 12);
-    expect(midpoint.syntheticSunOpacity).toBeCloseTo(0.5, 12);
-    expect(midpoint.physicalSunOpacity + midpoint.syntheticSunOpacity)
+    const transition = sampleEarthToGaiaTimeline(40_000, CONTEXT);
+    expect(transition.physicalSunOpacity).toBeGreaterThan(0);
+    expect(transition.physicalSunOpacity).toBeLessThan(1);
+    expect(transition.syntheticSunOpacity).toBeGreaterThan(0);
+    expect(transition.syntheticSunOpacity).toBeLessThan(1);
+    expect(transition.physicalSunOpacity + transition.syntheticSunOpacity)
       .toBeCloseTo(1, 12);
-    expect(midpoint.roomTranslationBlend).toBeCloseTo(0.5, 12);
+    expect(transition.roomTranslationBlend)
+      .toBeCloseTo(transition.syntheticSunOpacity, 12);
   });
 
   it("rotates direction spherically and applies room translation exactly once", () => {
