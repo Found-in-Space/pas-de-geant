@@ -7,6 +7,7 @@ import {
   WHOLE_EARTH_SCALE_DENOMINATOR,
   apparentMagnitude,
   observerWithRoomTranslation,
+  safeEarthHandoffCenter,
   sampleEarthToGaiaTimeline,
   sphericalDirectionMix,
   type EarthToGaiaTimelineContext,
@@ -15,7 +16,7 @@ import {
 
 const CONTEXT: EarthToGaiaTimelineContext = {
   solarOverviewScaleDenominator: 1.2e13,
-  interstellarStartObserverPc: { x: 0.000004848, y: 0, z: 0 },
+  catalogObserverJ2000Pc: { x: 0.000004848, y: 0, z: 0 },
   destinationDirectionJ2000: { x: 0, y: 0, z: -1 },
 };
 
@@ -54,9 +55,66 @@ describe("Earth-to-Gaia timeline", () => {
       reveal.observerJ2000Pc!.z,
     )).toBeCloseTo(10, 12);
     expect(reveal.observerJ2000Pc).toMatchObject({ x: 0, y: 0, z: -10 });
+    expect(reveal.catalogObserverJ2000Pc).toEqual(
+      CONTEXT.catalogObserverJ2000Pc,
+    );
     expect(reveal.scaleDenominator).toBe(3.085677581491367e17);
     expect(10 * STELLAR_METRES_PER_PARSEC).toBe(1);
     expect(apparentMagnitude(4.83, 10)).toBeCloseTo(4.83, 12);
+  });
+
+  it("moves the Earth around the viewer with positive clearance", () => {
+    const head = { x: 0, y: 1.65, z: 0 };
+    const initialRadius = 106;
+    const initialCenter = { x: 0, y: -initialRadius, z: 0 };
+    const targetDirection = { x: 0, y: 0, z: -1 };
+    expect(safeEarthHandoffCenter(
+      head,
+      initialCenter,
+      targetDirection,
+      initialRadius,
+      initialRadius,
+      0,
+    )).toEqual(initialCenter);
+    const midpointRadius = 6;
+    const midpoint = safeEarthHandoffCenter(
+      head,
+      initialCenter,
+      targetDirection,
+      initialRadius,
+      midpointRadius,
+      0.5,
+    );
+    expect(Math.hypot(
+      midpoint.x - head.x,
+      midpoint.y - head.y,
+      midpoint.z - head.z,
+    )).toBeGreaterThan(midpointRadius);
+    const final = safeEarthHandoffCenter(
+      head,
+      initialCenter,
+      targetDirection,
+      initialRadius,
+      0.4,
+      1,
+    );
+    expect(final.x).toBeCloseTo(0, 12);
+    expect(final.y).toBeCloseTo(1.65, 12);
+    expect(final.z).toBeCloseTo(-1.8, 12);
+  });
+
+  it("never scales beyond one rendered metre per ten parsecs", () => {
+    const oversizedContext = {
+      ...CONTEXT,
+      solarOverviewScaleDenominator: STELLAR_SCALE_DENOMINATOR * 2,
+    };
+    for (let elapsedMs = 0; elapsedMs <= EARTH_TO_GAIA_DURATION_MS;
+      elapsedMs += 250) {
+      expect(
+        sampleEarthToGaiaTimeline(elapsedMs, oversizedContext)
+          .scaleDenominator,
+      ).toBeLessThanOrEqual(STELLAR_SCALE_DENOMINATOR);
+    }
   });
 
   it("crossfades bodies and enables room parallax only in their authored windows", () => {

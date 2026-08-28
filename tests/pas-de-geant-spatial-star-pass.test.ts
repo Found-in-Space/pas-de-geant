@@ -96,6 +96,7 @@ describe("SpatialStarPass", () => {
     await pass.load({ x: 0, y: 0, z: 0 });
     pass.setView({
       observerJ2000Pc: { x: 0, y: 0, z: 0 },
+      sunObserverJ2000Pc: { x: 0, y: 0, z: 10 },
       j2000ToWorld: new THREE.Quaternion(),
       trackingAnchorWorld: new THREE.Vector3(),
       parallaxBlend: 0,
@@ -112,6 +113,15 @@ describe("SpatialStarPass", () => {
     expect(material.depthWrite).toBe(false);
     expect(material.vertexShader).toContain("clip.z = clip.w * 0.999999");
     expect(material.vertexShader).not.toContain("520");
+    expect((material.uniforms.uObserverPc!.value as THREE.Vector3).toArray())
+      .toEqual([0, 0, 0]);
+    const sun = pass.scene.getObjectByName("pas-de-geant-stellar-sun");
+    const sunPoints = sun?.getObjectByName(
+      "pas-de-geant-stellar-sun:points",
+    ) as THREE.Points | undefined;
+    const sunMaterial = sunPoints?.material as THREE.ShaderMaterial;
+    expect((sunMaterial.uniforms.uObserverPc!.value as THREE.Vector3).toArray())
+      .toEqual([0, 0, 10]);
     expect(fake.views.at(-1)).toMatchObject({
       limitingMagnitude: SPATIAL_STAR_LIMITING_MAGNITUDE,
       mDesired: SPATIAL_STAR_LIMITING_MAGNITUDE,

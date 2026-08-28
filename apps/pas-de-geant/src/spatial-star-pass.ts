@@ -29,7 +29,10 @@ export const SYNTHETIC_SUN_ABSOLUTE_MAGNITUDE = 4.83;
 export const SYNTHETIC_SUN_TEMPERATURE_K = 5_772;
 
 export interface SpatialStarView {
+  /** Fixed catalogue viewpoint; the journey keeps this stable for sky continuity. */
   readonly observerJ2000Pc: JourneyVector3;
+  /** Independently authored viewpoint used only to place and photometer the Sun. */
+  readonly sunObserverJ2000Pc: JourneyVector3;
   readonly j2000ToWorld: THREE.Quaternion;
   /** World-space tracking origin used to derive per-eye and room offsets. */
   readonly trackingAnchorWorld: THREE.Vector3;
@@ -222,7 +225,10 @@ export class SpatialStarPass {
   setView(view: SpatialStarView): void {
     if (this.disposed) return;
     this.catalogMaterial.setView(view, 1);
-    this.sunMaterial.setView(view, view.sunOpacity);
+    this.sunMaterial.setView({
+      ...view,
+      observerJ2000Pc: view.sunObserverJ2000Pc,
+    }, view.sunOpacity);
     this.session.updateView({
       observerPc: view.observerJ2000Pc,
       limitingMagnitude: SPATIAL_STAR_LIMITING_MAGNITUDE,
