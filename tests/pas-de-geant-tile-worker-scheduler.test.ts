@@ -259,6 +259,44 @@ describe("Tile worker scheduler planner bridge", () => {
     scheduler.dispose();
   });
 
+  it("suspends provider work and resumes retained planner requests", () => {
+    const worker = new FakeWorker();
+    const harness = providerHarness<string>();
+    const scheduler = new TileWorkerScheduler(layoutTarget(1), {
+      provider: harness.provider,
+      createWorker: () => worker,
+    });
+    const first = { z: 1, x: 0, y: 0 };
+    const second = { z: 1, x: 1, y: 0 };
+    worker.emit({
+      kind: "resource-request",
+      tile: first,
+      key: "1/0/0",
+      requestId: 4,
+    });
+
+    expect(scheduler.setSuspended(true)).toBe(true);
+    expect(harness.cancelled).toEqual([1]);
+    worker.emit({
+      kind: "resource-request",
+      tile: second,
+      key: "1/1/0",
+      requestId: 5,
+    });
+    expect(harness.requested).toEqual([first]);
+    expect(scheduler.debugState.planner_requests.total_outstanding).toBe(2);
+
+    expect(scheduler.setSuspended(false)).toBe(false);
+    expect(harness.requested).toEqual([first, first, second]);
+    harness.observers[0]!({ phase: "response", resource: "stale" });
+    expect(scheduler.committedResource(first)).toBeUndefined();
+    harness.observers[1]!({ phase: "response", resource: "first" });
+    harness.observers[2]!({ phase: "response", resource: "second" });
+    expect(scheduler.committedResource(first)).toBe("first");
+    expect(scheduler.committedResource(second)).toBe("second");
+    scheduler.dispose();
+  });
+
   it("allows planner-requested cache-first work during Retry-After backoff", () => {
     vi.useFakeTimers();
     try {

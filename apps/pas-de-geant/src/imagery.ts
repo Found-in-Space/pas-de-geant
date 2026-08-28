@@ -973,6 +973,7 @@ export class ImageryVirtualTexture {
   private lastObservedTargetLatitudeDegrees: number;
   private lastObservedTargetLongitudeDegrees: number;
   private candidateDirty = true;
+  private loadingSuspended = false;
   private migrationSupersededTotal = 0;
   private migrationReusedUploadTotal = 0;
   private migrationObsoleteUploadAvoidedTotal = 0;
@@ -1120,6 +1121,7 @@ export class ImageryVirtualTexture {
     options: ImageryVirtualTextureUpdateOptions = {},
   ): void {
     if (!this.scheduler || !this.provider) return;
+    if (this.loadingSuspended) return;
     this.horizonView = horizonView ?? {
       ...view,
       observerHeightWorldM: this.horizonView?.observerHeightWorldM ?? 0,
@@ -1168,6 +1170,13 @@ export class ImageryVirtualTexture {
       this.desiredZoom = undefined;
     }
     this.debugControls = { ...controls };
+  }
+
+  setLoadingSuspended(suspended: boolean): boolean {
+    if (this.loadingSuspended === suspended) return this.loadingSuspended;
+    this.loadingSuspended = suspended;
+    this.scheduler?.setSuspended(suspended);
+    return this.loadingSuspended;
   }
 
   getTargetZoom(): number {

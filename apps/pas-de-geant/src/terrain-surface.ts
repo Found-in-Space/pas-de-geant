@@ -612,6 +612,7 @@ const FRAGMENT_SHADER = `
 /** Atomic terrain topology renderer with late-bound photographic imagery. */
 export class TerrainSurface {
   readonly group = new THREE.Group();
+  private loadingSuspended = false;
   private readonly provider: TerrainElevationProvider;
   private readonly surfaceModel: SurfaceModel;
   private readonly imagery: ImageryVirtualTexture;
@@ -791,6 +792,7 @@ export class TerrainSurface {
       minimumNormalizedSurfaceRadius:
         this.surfaceModel.minimumNormalizedSurfaceRadius,
     };
+    if (this.loadingSuspended) return;
     this.imagery.update(view, this.horizonView, {
       recalculateTopology: this.debugControls.textures.recalculationEnabled,
     });
@@ -917,6 +919,20 @@ export class TerrainSurface {
 
   get renderCullingEnabled(): boolean {
     return this.renderVisibility.enabled;
+  }
+
+  get isLoadingSuspended(): boolean {
+    return this.loadingSuspended;
+  }
+
+  /** Retains the current surface while preventing new terrain or imagery demand. */
+  setLoadingSuspended(suspended: boolean): boolean {
+    if (this.loadingSuspended === suspended) return this.loadingSuspended;
+    this.loadingSuspended = suspended;
+    this.scheduler.setSuspended(suspended);
+    this.imagery.setLoadingSuspended(suspended);
+    if (!suspended) this.update(this.latestView);
+    return this.loadingSuspended;
   }
 
   updateRenderVisibility(camera: THREE.Camera): void {

@@ -1628,6 +1628,10 @@ interface EarthToGaiaSnapshot {
   readonly systemFrameQuaternion: THREE.Quaternion;
   readonly j2000ToWorld: THREE.Quaternion;
   readonly trackingOriginLocal: THREE.Vector3;
+  readonly tileLoadingSuspended: {
+    readonly earth: boolean;
+    readonly moon: boolean;
+  };
   readonly transitions: {
     readonly warp: TimedTransition<NavigationCoordinates> | undefined;
     readonly scale: TimedTransition<number> | undefined;
@@ -1702,6 +1706,10 @@ function captureEarthToGaiaSnapshot(): EarthToGaiaSnapshot {
     systemFrameQuaternion: frame.systemFrameQuaternion.clone(),
     j2000ToWorld,
     trackingOriginLocal: viewCamera.position.clone(),
+    tileLoadingSuspended: {
+      earth: terrain.isLoadingSuspended,
+      moon: moonTerrain.isLoadingSuspended,
+    },
     transitions: {
       warp: warpTransition ? { ...warpTransition } : undefined,
       scale: scaleTransition ? { ...scaleTransition } : undefined,
@@ -1726,12 +1734,15 @@ async function prepareEarthToGaiaJourney(
 ): Promise<EarthToGaiaPreparation> {
   // Preflight is visually stationary even when the journey was requested
   // during an authored transition. Restoration resumes it from this instant.
+  terrain.setLoadingSuspended(true);
+  moonTerrain.setLoadingSuspended(true);
   warpTransition = undefined;
   scaleTransition = undefined;
   headingTransition = undefined;
   const when = new Date(snapshot.frozenTimeMs);
+  const earthCenterJ2000M = bodyPositionJ2000M("earth", when);
   const startObserverM = j2000ObserverAtWorldPoint(
-    bodyPositionJ2000M("earth", when),
+    earthCenterJ2000M,
     snapshot.earthCenterWorld,
     snapshot.headWorld,
     snapshot.systemFrameQuaternion,
@@ -1757,6 +1768,7 @@ async function prepareEarthToGaiaJourney(
   const context: EarthToGaiaTimelineContext = {
     startScaleDenominator: snapshot.scaleDenominator,
     startObserverJ2000Pc: startObserverPc,
+    earthCenterJ2000Pc: vectorMetresToParsecs(earthCenterJ2000M),
     solarOverviewScaleDenominator,
     catalogObserverJ2000Pc: startObserverPc,
     destinationDirectionJ2000,
@@ -1947,6 +1959,8 @@ function restoreEarthToGaiaSnapshot(snapshot: EarthToGaiaSnapshot): void {
   document.body.dataset.journeyPhase = "idle";
   document.body.dataset.journeyProgress = "0";
   updatePresentation();
+  terrain.setLoadingSuspended(snapshot.tileLoadingSuspended.earth);
+  moonTerrain.setLoadingSuspended(snapshot.tileLoadingSuspended.moon);
 }
 
 const journeyRunner = new JourneyRunner<
@@ -1993,7 +2007,7 @@ function requireJourneyUnlocked(): void {
 
 function resetExperience(): void {
   if (journeyRunner.isLocked() || journeyRunner.getState().status === "failed") {
-    journeyRunner.cancel(false);
+    journeyRunner.cancel(true);
     restoreJourneyMaterials();
     activeJourneySample = null;
     journeyEarthGlobe.visible = false;

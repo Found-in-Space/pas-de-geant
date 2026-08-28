@@ -118,6 +118,7 @@ export class TileWorkerScheduler<Resource> {
   private pendingTarget: TileLayoutTarget | undefined;
   private targetInFlight = false;
   private targetFlushQueued = false;
+  private suspended = false;
   private disposed = false;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private retryAttempt = 0;
@@ -267,6 +268,24 @@ export class TileWorkerScheduler<Resource> {
     return true;
   }
 
+  /** Cancels active provider work while retaining planner and resident state. */
+  setSuspended(suspended: boolean): boolean {
+    if (this.disposed || this.suspended === suspended) return this.suspended;
+    this.suspended = suspended;
+    if (suspended) {
+      for (const request of this.requests.values()) {
+        this.cancelProviderAttempt(request);
+        request.phase = "requested";
+      }
+    } else {
+      for (const [key, request] of this.requests) {
+        this.startProviderRequest(key, request);
+      }
+      if (this.plannerFailureKeys.size > 0) this.performRetry();
+    }
+    return this.suspended;
+  }
+
   retryFailed(): void {
     if (this.disposed) return;
     if (
@@ -281,6 +300,7 @@ export class TileWorkerScheduler<Resource> {
     this.retryTimer = undefined;
     this.retryScheduledDelayMs = undefined;
     this.retryScheduledAtMs = undefined;
+    if (this.suspended) return;
     this.options.provider.resumeDeferred?.();
     if (!this.automaticRetryEnabled) return;
     this.worker.postMessage({ kind: "retry" });
@@ -407,14 +427,16 @@ export class TileWorkerScheduler<Resource> {
       providerAttempt: 0,
     };
     this.requests.set(message.key, provisional);
-    this.startProviderRequest(message.key, provisional);
+    if (!this.suspended) this.startProviderRequest(message.key, provisional);
   }
 
   private startProviderRequest(
     key: string,
     request: ActiveBridgeRequest,
   ): void {
-    if (this.disposed || this.requests.get(key) !== request) return;
+    if (this.disposed || this.suspended || this.requests.get(key) !== request) {
+      return;
+    }
     request.phase = "requested";
     const primaryRequestId = request.requestId;
     const providerAttempt = ++request.providerAttempt;

@@ -39,6 +39,8 @@ export interface EarthToGaiaTimelineContext {
   readonly startScaleDenominator: number;
   /** Exact surface-view head position after rebasing into J2000 space. */
   readonly startObserverJ2000Pc: JourneyVector3;
+  /** Earth centre used to keep the departure curve outside the planet. */
+  readonly earthCenterJ2000Pc: JourneyVector3;
   readonly solarOverviewScaleDenominator: number;
   /** The fixed catalogue viewpoint used to preserve the starting sky. */
   readonly catalogObserverJ2000Pc: JourneyVector3;
@@ -286,7 +288,6 @@ export function sampleEarthToGaiaTimeline(
     0,
     EARTH_TO_GAIA_DURATION_MS,
   );
-  const locationProgress = transformProgress * transformProgress;
   const solarOverviewScaleDenominator = Math.min(
     context.solarOverviewScaleDenominator,
     STELLAR_SCALE_DENOMINATOR,
@@ -296,7 +297,7 @@ export function sampleEarthToGaiaTimeline(
     STELLAR_SCALE_DENOMINATOR,
     transformProgress,
   );
-  const observerJ2000Pc = interstellarObserver(context, locationProgress);
+  const observerJ2000Pc = interstellarObserver(context, transformProgress);
   const phase: EarthToGaiaJourneyPhase = elapsed === 0
     ? "earth"
     : scaleDenominator < WHOLE_EARTH_SCALE_DENOMINATOR
@@ -363,23 +364,45 @@ function interstellarObserver(
   context: EarthToGaiaTimelineContext,
   progress: number,
 ): JourneyVector3 {
-  const startObserver = context.startObserverJ2000Pc;
-  const startRadius = vectorLength(startObserver);
-  const direction = sphericalDirectionMix(
-    startObserver,
-    context.destinationDirectionJ2000,
-    progress,
+  const earth = context.earthCenterJ2000Pc;
+  const startRelativeEarth = subtractVectors(
+    context.startObserverJ2000Pc,
+    earth,
   );
   const destinationDirection = normalizeVector(
     context.destinationDirectionJ2000,
   );
-  const radius = logarithmicMix(
-    startRadius,
+  const finalObserver = scaleVector(
+    destinationDirection,
     STELLAR_SUN_DISTANCE_PC,
+  );
+  const finalRelativeEarth = subtractVectors(finalObserver, earth);
+  const direction = sphericalDirectionMix(
+    startRelativeEarth,
+    finalRelativeEarth,
     progress,
   );
-  if (progress === 1) return scaleVector(destinationDirection, radius);
-  return scaleVector(direction, radius);
+  const radius = logarithmicMix(
+    vectorLength(startRelativeEarth),
+    vectorLength(finalRelativeEarth),
+    progress,
+  );
+  if (progress === 1) return finalObserver;
+  return addVectors(earth, scaleVector(direction, radius));
+}
+
+function addVectors(
+  left: JourneyVector3,
+  right: JourneyVector3,
+): JourneyVector3 {
+  return { x: left.x + right.x, y: left.y + right.y, z: left.z + right.z };
+}
+
+function subtractVectors(
+  left: JourneyVector3,
+  right: JourneyVector3,
+): JourneyVector3 {
+  return { x: left.x - right.x, y: left.y - right.y, z: left.z - right.z };
 }
 
 export function sphericalDirectionMix(

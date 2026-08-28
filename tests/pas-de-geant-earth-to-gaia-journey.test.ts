@@ -4,6 +4,7 @@ import {
   BODY_FADE_START_DIAMETER_M,
   EARTH_TO_GAIA_DURATION_MS,
   JourneyRunner,
+  PARSEC_METRES,
   STELLAR_METRES_PER_PARSEC,
   STELLAR_SCALE_DENOMINATOR,
   STELLAR_SUN_DISTANCE_PC,
@@ -16,11 +17,18 @@ import {
   type EarthToGaiaTimelineSample,
 } from "../apps/pas-de-geant/src/earth-to-gaia-journey.js";
 
+const EARTH_CENTER_J2000_PC = { x: 0.000004848, y: 0, z: 0 };
+const SURFACE_OBSERVER_J2000_PC = {
+  x: EARTH_CENTER_J2000_PC.x,
+  y: 6_371_010.45 / PARSEC_METRES,
+  z: 0,
+};
 const CONTEXT: EarthToGaiaTimelineContext = {
   startScaleDenominator: 60_000,
-  startObserverJ2000Pc: { x: 0.000004848, y: 0, z: 0 },
+  startObserverJ2000Pc: SURFACE_OBSERVER_J2000_PC,
+  earthCenterJ2000Pc: EARTH_CENTER_J2000_PC,
   solarOverviewScaleDenominator: 1.2e13,
-  catalogObserverJ2000Pc: { x: 0.000004848, y: 0, z: 0 },
+  catalogObserverJ2000Pc: SURFACE_OBSERVER_J2000_PC,
   destinationDirectionJ2000: { x: 0, y: 0, z: -1 },
 };
 
@@ -60,23 +68,23 @@ describe("Earth-to-Gaia timeline", () => {
 
   it("uses continuous logarithmic scale and location curves without dwell periods", () => {
     let previousScale = 0;
-    let previousRadius = 0;
+    let previousEarthDistance = 0;
     for (let elapsedMs = 0; elapsedMs <= EARTH_TO_GAIA_DURATION_MS;
       elapsedMs += 500) {
       const sample = sampleEarthToGaiaTimeline(elapsedMs, CONTEXT);
-      const radius = Math.hypot(
-        sample.observerJ2000Pc!.x,
-        sample.observerJ2000Pc!.y,
-        sample.observerJ2000Pc!.z,
+      const earthDistance = Math.hypot(
+        sample.observerJ2000Pc.x - CONTEXT.earthCenterJ2000Pc.x,
+        sample.observerJ2000Pc.y - CONTEXT.earthCenterJ2000Pc.y,
+        sample.observerJ2000Pc.z - CONTEXT.earthCenterJ2000Pc.z,
       );
       if (elapsedMs > 0) {
         expect(sample.scaleDenominator).toBeGreaterThan(previousScale);
-        expect(radius).toBeGreaterThan(previousRadius);
+        expect(earthDistance).toBeGreaterThan(previousEarthDistance);
         expect(sample.phase).not.toBe("whole_earth");
         expect(sample.phase).not.toBe("solar_overview");
       }
       previousScale = sample.scaleDenominator;
-      previousRadius = radius;
+      previousEarthDistance = earthDistance;
     }
     const midpoint = sampleEarthToGaiaTimeline(
       EARTH_TO_GAIA_DURATION_MS / 2,
@@ -88,17 +96,22 @@ describe("Earth-to-Gaia timeline", () => {
       ),
       6,
     );
-    const startRadius = Math.hypot(
-      CONTEXT.startObserverJ2000Pc.x,
-      CONTEXT.startObserverJ2000Pc.y,
-      CONTEXT.startObserverJ2000Pc.z,
+    const startEarthDistance = Math.hypot(
+      CONTEXT.startObserverJ2000Pc.x - CONTEXT.earthCenterJ2000Pc.x,
+      CONTEXT.startObserverJ2000Pc.y - CONTEXT.earthCenterJ2000Pc.y,
+      CONTEXT.startObserverJ2000Pc.z - CONTEXT.earthCenterJ2000Pc.z,
+    );
+    const finalEarthDistance = Math.hypot(
+      CONTEXT.earthCenterJ2000Pc.x,
+      CONTEXT.earthCenterJ2000Pc.y,
+      -STELLAR_SUN_DISTANCE_PC - CONTEXT.earthCenterJ2000Pc.z,
     );
     expect(Math.hypot(
-      midpoint.observerJ2000Pc!.x,
-      midpoint.observerJ2000Pc!.y,
-      midpoint.observerJ2000Pc!.z,
+      midpoint.observerJ2000Pc.x - CONTEXT.earthCenterJ2000Pc.x,
+      midpoint.observerJ2000Pc.y - CONTEXT.earthCenterJ2000Pc.y,
+      midpoint.observerJ2000Pc.z - CONTEXT.earthCenterJ2000Pc.z,
     )).toBeCloseTo(
-      startRadius * (STELLAR_SUN_DISTANCE_PC / startRadius) ** 0.25,
+      Math.sqrt(startEarthDistance * finalEarthDistance),
       12,
     );
   });
