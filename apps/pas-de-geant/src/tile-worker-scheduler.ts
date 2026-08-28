@@ -244,7 +244,8 @@ export class TileWorkerScheduler<Resource> {
       revision: this.horizonRevision,
       tiles,
     });
-    if (this.retainWorkingSetResources()) this.notifyResourceChange();
+    // The worker can request off-horizon batch dependencies before its next
+    // snapshot arrives. Reconcile only when that authoritative snapshot does.
   }
 
   updateTarget(target: TileLayoutTarget): boolean {
