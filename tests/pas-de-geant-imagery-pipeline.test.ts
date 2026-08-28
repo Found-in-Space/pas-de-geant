@@ -944,6 +944,43 @@ describe("independent photographic imagery pipeline", () => {
     expect(halfMetre).toBe(oneMetre + 1);
   });
 
+  it("retains refined imagery for twenty centimetres of upward head movement", () => {
+    const boundaryHeightWorldM = 1;
+    const lowerZoom = 8;
+    const common = {
+      displayRadiusM:
+        boundaryHeightWorldM * 2 ** (lowerZoom + 0.5) / (2 * Math.PI),
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+      focalLengthPixels: 512,
+      minZoom: 0,
+      maxZoom: 22,
+      tilePixels: 512,
+    };
+    const coarse = selectImageryZoom({
+      ...common,
+      observerHeightWorldM: boundaryHeightWorldM + 0.01,
+    });
+    const refined = selectImageryZoom({
+      ...common,
+      observerHeightWorldM: boundaryHeightWorldM - 0.01,
+      previousZoom: coarse,
+    });
+
+    expect(coarse).toBe(lowerZoom);
+    expect(refined).toBe(lowerZoom + 1);
+    expect(selectImageryZoom({
+      ...common,
+      observerHeightWorldM: boundaryHeightWorldM + 0.199,
+      previousZoom: refined,
+    })).toBe(refined);
+    expect(selectImageryZoom({
+      ...common,
+      observerHeightWorldM: boundaryHeightWorldM + 0.201,
+      previousZoom: refined,
+    })).toBe(lowerZoom);
+  });
+
   it("coarsens one topology zoom when the requested screen-pixel ratio doubles", () => {
     const common = {
       displayRadiusM: 1_000,
@@ -1482,7 +1519,63 @@ describe("independent photographic imagery pipeline", () => {
     scheduled.dispose();
   });
 
-  it("drops zero-consumer queued jobs and aborts active shared work only after its last consumer", async () => {
+  it("starts all imagery acquisitions while limiting decode concurrency", async () => {
+    const acquired: string[] = [];
+    const releaseDecode: Array<() => void> = [];
+    const responses: string[] = [];
+    let activeDecodes = 0;
+    let maximumActiveDecodes = 0;
+    const provider: ImageryProvider = {
+      id: "staged-concurrency-fixture",
+      attribution: "fixture",
+      tileSize: 256,
+      minZoom: 3,
+      maxZoom: 3,
+      async load(tile) {
+        acquired.push(tileKey(tile));
+        return new Blob([tileKey(tile)], { type: "image/png" });
+      },
+    };
+    const scheduled = new ScheduledImageryProvider(
+      provider,
+      async () => {
+        activeDecodes += 1;
+        maximumActiveDecodes = Math.max(
+          maximumActiveDecodes,
+          activeDecodes,
+        );
+        await new Promise<void>((resolve) => releaseDecode.push(resolve));
+        activeDecodes -= 1;
+        return new Uint8Array([1, 2, 3, 4]);
+      },
+    );
+    for (let x = 0; x < 8; x += 1) {
+      scheduled.request({ z: 3, x, y: 0 }, (result) => {
+        if (result.phase === "response") responses.push(tileKey(result.resource.tile));
+      });
+    }
+
+    await vi.waitFor(() => {
+      expect(acquired).toHaveLength(8);
+      expect(releaseDecode).toHaveLength(6);
+    });
+    expect(scheduled.metrics).toMatchObject({
+      acquisitionActive: 0,
+      processingActive: 6,
+      processingQueued: 2,
+    });
+
+    releaseDecode[0]!();
+    await vi.waitFor(() => expect(releaseDecode).toHaveLength(7));
+    releaseDecode[1]!();
+    await vi.waitFor(() => expect(releaseDecode).toHaveLength(8));
+    for (const release of releaseDecode.slice(2)) release();
+    await vi.waitFor(() => expect(responses).toHaveLength(8));
+    expect(maximumActiveDecodes).toBe(6);
+    scheduled.dispose();
+  });
+
+  it("starts every acquisition and aborts shared work only after its last consumer", async () => {
     const started: AbortSignal[] = [];
     const provider: ImageryProvider = {
       id: "cancellation-fixture",
@@ -1513,21 +1606,20 @@ describe("independent photographic imagery pipeline", () => {
     );
     const nextQueued = scheduled.request({ z: 3, x: 7, y: 7 }, () => {});
 
-    await vi.waitFor(() => expect(started).toHaveLength(6));
+    await vi.waitFor(() => expect(started).toHaveLength(8));
     cancelledQueued.cancel();
+    expect(started[6]!.aborted).toBe(true);
     first.cancel();
     expect(started[0]!.aborted).toBe(false);
     shared.cancel();
     expect(started[0]!.aborted).toBe(true);
-    expect(scheduled.metrics.sourceCancellationTotal).toBe(1);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(started).toHaveLength(7);
+    expect(scheduled.metrics.sourceCancellationTotal).toBe(2);
     nextQueued.cancel();
     for (const handle of fillers) handle.cancel();
     scheduled.dispose();
   });
 
-  it("defers unattempted imagery jobs after a systemic failure", async () => {
+  it("defers imagery jobs admitted after a systemic failure", async () => {
     const pending: Array<{
       resolve(blob: Blob): void;
       reject(error: unknown): void;
@@ -1554,23 +1646,24 @@ describe("independent photographic imagery pipeline", () => {
       });
     }
 
-    await vi.waitFor(() => expect(pending).toHaveLength(6));
+    await vi.waitFor(() => expect(pending).toHaveLength(8));
     pending[0]!.reject(new TypeError("Failed to fetch"));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(pending).toHaveLength(6);
-    expect(scheduled.metrics).toMatchObject({ queued: 2, sourceLoadTotal: 6 });
+    expect(pending).toHaveLength(8);
+    const deferred = scheduled.request({ z: 4, x: 0, y: 0 }, () => {});
+    await vi.waitFor(() => expect(scheduled.metrics.networkDeferred).toBe(1));
+    expect(scheduled.metrics).toMatchObject({ queued: 1, sourceLoadTotal: 8 });
     expect(failures).toEqual([0]);
     for (const load of pending.slice(1)) load.resolve(
       new Blob(["image"], { type: "image/png" }),
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
     scheduled.resumeDeferred();
-    await vi.waitFor(() => expect(pending).toHaveLength(7));
-    pending[6]!.resolve(new Blob(["probe"], { type: "image/png" }));
-    await vi.waitFor(() => expect(pending).toHaveLength(8));
-    pending[7]!.resolve(new Blob(["image"], { type: "image/png" }));
+    await vi.waitFor(() => expect(pending).toHaveLength(9));
+    pending[8]!.resolve(new Blob(["probe"], { type: "image/png" }));
     await vi.waitFor(() => expect(scheduled.metrics.queued).toBe(0));
+    deferred.cancel();
     scheduled.dispose();
   });
 

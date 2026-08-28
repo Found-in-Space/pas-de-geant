@@ -3,6 +3,10 @@ import type {
   EclipseSummary,
 } from "@found-in-space/shadowline";
 
+export const ECLIPSE_PLAYBACK_SCALE = 180;
+export const MAIN_WORLD_FEATURED_ECLIPSE_EVENT_ID =
+  "solar-2026-08-12-total";
+
 export interface CartesianBasis {
   x: CartesianVector;
   y: CartesianVector;

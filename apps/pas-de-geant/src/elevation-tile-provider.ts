@@ -40,12 +40,14 @@ interface ActiveRequest {
  * Scheduler resource provider. Only elevation controls terrain topology;
  * imagery is intentionally requested and bound by TerrainSurface afterwards.
  */
-export class ElevationTileProvider implements TerrainElevationProvider {
+export class ElevationTileProvider<TPayload = unknown>
+  implements TerrainElevationProvider
+{
   readonly tilePixels: number;
   private nextRequestId = 1;
   private readonly active = new Map<number, ActiveRequest>();
 
-  constructor(private readonly elevationProvider: ImageTileProvider) {
+  constructor(private readonly elevationProvider: ImageTileProvider<TPayload>) {
     this.tilePixels = elevationProvider.tilePixels;
   }
 
@@ -152,7 +154,10 @@ const EMPTY_METRICS: ImageTileProviderMetrics = Object.freeze({
   byteTotal: 0,
   queued: 0,
   networkDeferred: 0,
+  processingQueued: 0,
   inFlight: 0,
+  acquisitionActive: 0,
+  processingActive: 0,
   decodedSourceCount: 0,
   estimatedDecodedBytes: 0,
 });

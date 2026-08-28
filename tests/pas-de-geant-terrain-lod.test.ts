@@ -132,7 +132,7 @@ describe("Terrain LOD configuration", () => {
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: MAPTERHORN_ELEVATION_PROVIDER_METADATA.tilePixels,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource: (tile) =>
         elevationSourceMapping(tile, options.maxElevationSourceZoom),
       loadSource,

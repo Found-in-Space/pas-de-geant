@@ -66,22 +66,27 @@ const initialControls: SupervisionControlState = {
     availableYears: [1986, 2023],
     visibleYears: [1986],
   },
+  clock: {
+    atUtc: "2026-08-27T20:00:00.000Z",
+    anchorWallUtc: "2026-08-27T20:00:00.000Z",
+    offsetMs: 0,
+    scale: 1,
+  },
   eclipse: {
-    active: false,
-    playing: false,
+    experience: "none",
+    simulationActive: false,
+    conesVisible: false,
     eventId: null,
     eventKind: null,
     peakUtc: null,
     contactStartUtc: null,
     contactEndUtc: null,
-    atUtc: null,
-    playbackRate: null,
   },
 };
 
 describe("supervision protocol", () => {
   it("rejects incompatible versions and unknown message types", () => {
-    for (const protocolVersion of [1, 2]) {
+    for (const protocolVersion of [1, 2, 3]) {
       expect(() => parseSupervisionMessage({
         protocolVersion,
         type: "headset.hello",
@@ -268,20 +273,49 @@ describe("supervision protocol", () => {
       visible: true,
     })).toThrow(/integer/i);
     expect(parseSupervisionCommand({
-      kind: "setEclipsePlayback",
-      playing: true,
-    })).toEqual({ kind: "setEclipsePlayback", playing: true });
+      kind: "setSimulationClock",
+      mode: "realtime",
+    })).toEqual({ kind: "setSimulationClock", mode: "realtime" });
     expect(parseSupervisionCommand({
-      kind: "setEclipseTime",
-      utc: "2026-08-12T17:47:00Z",
+      kind: "setSimulationClock",
+      mode: "anchored",
+      atUtc: "2026-08-12T17:47:00Z",
+      scale: 180,
     })).toEqual({
-      kind: "setEclipseTime",
-      utc: "2026-08-12T17:47:00.000Z",
+      kind: "setSimulationClock",
+      mode: "anchored",
+      atUtc: "2026-08-12T17:47:00.000Z",
+      scale: 180,
+    });
+    expect(parseSupervisionCommand({
+      kind: "setSimulationClock",
+      mode: "anchored",
+      scale: 0,
+    })).toEqual({
+      kind: "setSimulationClock",
+      mode: "anchored",
+      scale: 0,
     });
     expect(() => parseSupervisionCommand({
-      kind: "setEclipseTime",
-      utc: "not-a-date",
+      kind: "setSimulationClock",
+      mode: "anchored",
+      atUtc: "not-a-date",
+      scale: 0,
     })).toThrow(/UTC/i);
+    expect(parseSupervisionCommand({
+      kind: "selectEclipseEvent",
+      eventId: "solar-2026-08-12-total",
+    })).toEqual({
+      kind: "selectEclipseEvent",
+      eventId: "solar-2026-08-12-total",
+    });
+    expect(parseSupervisionCommand({ kind: "returnToLiveTime" })).toEqual({
+      kind: "returnToLiveTime",
+    });
+    expect(parseSupervisionCommand({
+      kind: "setEclipseConeVisibility",
+      visible: true,
+    })).toEqual({ kind: "setEclipseConeVisibility", visible: true });
   });
 
   it("validates full navigation state sequences and nullable heading", () => {
@@ -337,17 +371,34 @@ describe("supervision protocol", () => {
     }))).toThrow(/must be available/i);
   });
 
-  it("validates active eclipse telemetry", () => {
+  it("validates live world and active observatory eclipse telemetry", () => {
+    const liveWorld = {
+      ...initialControls.eclipse,
+      experience: "world" as const,
+    };
+    expect(parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: initialState,
+      controls: { ...initialControls, eclipse: liveWorld },
+    }))).toMatchObject({
+      controls: {
+        eclipse: {
+          experience: "world",
+          simulationActive: false,
+        },
+        clock: initialControls.clock,
+      },
+    });
+
     const eclipse = {
-      active: true,
-      playing: true,
+      experience: "observatory" as const,
+      simulationActive: true,
+      conesVisible: true,
       eventId: "solar-2026-08-12-total",
       eventKind: "total",
       peakUtc: "2026-08-12T17:47:00Z",
       contactStartUtc: "2026-08-12T15:34:00Z",
       contactEndUtc: "2026-08-12T19:58:00Z",
-      atUtc: "2026-08-12T17:45:30Z",
-      playbackRate: 180,
     };
     expect(parseSupervisionMessage(protocolMessage({
       type: "headset.state",
@@ -360,8 +411,19 @@ describe("supervision protocol", () => {
           peakUtc: "2026-08-12T17:47:00.000Z",
           contactStartUtc: "2026-08-12T15:34:00.000Z",
           contactEndUtc: "2026-08-12T19:58:00.000Z",
-          atUtc: "2026-08-12T17:45:30.000Z",
         },
+      },
+    });
+    expect(parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: initialState,
+      controls: {
+        ...initialControls,
+        eclipse: { ...eclipse, experience: "world" },
+      },
+    }))).toMatchObject({
+      controls: {
+        eclipse: { experience: "world", simulationActive: true },
       },
     });
     expect(() => parseSupervisionMessage(protocolMessage({
@@ -369,7 +431,8 @@ describe("supervision protocol", () => {
       state: initialState,
       controls: {
         ...initialControls,
-        eclipse: { ...eclipse, atUtc: null },
+        clock: null,
+        eclipse,
       },
     }))).toThrow(/active eclipse/i);
     expect(() => parseSupervisionMessage(protocolMessage({

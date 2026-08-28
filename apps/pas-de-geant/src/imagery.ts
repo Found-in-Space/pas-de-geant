@@ -71,7 +71,7 @@ export {
 } from "./imagery-provider.js";
 export { normalizedMercatorYForLatitude } from "./imagery-core.js";
 const IMAGERY_GUTTER_PIXELS = 8;
-const MAX_CONCURRENT_REQUESTS = 6;
+const MAX_CONCURRENT_DECODES = 6;
 const MAX_UPLOAD_TIME_PER_FRAME_MS = 2;
 const TRANSIENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
 
@@ -350,7 +350,11 @@ export class ScheduledImageryProvider
   implements TileProvider<ImageryTileResource>
 {
   private decodeTotal = 0;
-  private readonly queue: TileSourceLoadQueue<TileIdentity, SourceResult>;
+  private readonly queue: TileSourceLoadQueue<
+    TileIdentity,
+    SourceResult,
+    Blob
+  >;
 
   constructor(
     readonly source: ImageryProvider,
@@ -364,20 +368,18 @@ export class ScheduledImageryProvider
   ) {
     const loadFromCache = source.loadFromCache
       ? async (tile: TileIdentity, signal: AbortSignal) => {
-          const blob = await source.loadFromCache!.call(source, tile, signal);
-          return blob === undefined
-            ? undefined
-            : await this.decodeSource(tile, blob, signal);
+          return await source.loadFromCache!.call(source, tile, signal);
         }
       : undefined;
     this.queue = new TileSourceLoadQueue({
-      concurrency: MAX_CONCURRENT_REQUESTS,
+      processingConcurrency: MAX_CONCURRENT_DECODES,
       ...(loadFromCache ? { loadFromCache } : {}),
       loadFromNetwork: async (tile, signal) => {
         const load = source.loadFromNetwork ?? source.load;
-        const blob = await load.call(source, tile, signal);
-        return await this.decodeSource(tile, blob, signal);
+        return await load.call(source, tile, signal);
       },
+      process: async (tile, blob, signal) =>
+        await this.decodeSource(tile, blob, signal),
       classifyNetworkFailure: imageryFailureMetadata,
       now,
     });
@@ -392,7 +394,10 @@ export class ScheduledImageryProvider
     decodeTotal: number;
     sourceCancellationTotal: number;
     queued: number;
+    processingQueued: number;
     inFlight: number;
+    acquisitionActive: number;
+    processingActive: number;
   } {
     const metrics = this.queue.metrics;
     return {
@@ -404,7 +409,10 @@ export class ScheduledImageryProvider
       decodeTotal: this.decodeTotal,
       sourceCancellationTotal: metrics.sourceCancellationTotal,
       queued: metrics.queued,
+      processingQueued: metrics.processingQueued,
       inFlight: metrics.inFlight,
+      acquisitionActive: metrics.acquisitionActive,
+      processingActive: metrics.processingActive,
     };
   }
 
@@ -1199,6 +1207,9 @@ export class ImageryVirtualTexture {
       source_jobs: {
         queued: provider?.queued ?? 0,
         in_flight: provider?.inFlight ?? 0,
+        acquisition_active: provider?.acquisitionActive ?? 0,
+        processing_queued: provider?.processingQueued ?? 0,
+        processing_active: provider?.processingActive ?? 0,
         cache_lookup_total: provider?.cacheLookupTotal ?? 0,
         cache_hit_total: provider?.cacheHitTotal ?? 0,
         network_deferred: provider?.networkDeferred ?? 0,

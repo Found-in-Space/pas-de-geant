@@ -87,7 +87,10 @@ export interface ImageTileProviderMetrics {
   readonly byteTotal: number;
   readonly queued: number;
   readonly networkDeferred: number;
+  readonly processingQueued: number;
   readonly inFlight: number;
+  readonly acquisitionActive: number;
+  readonly processingActive: number;
   readonly decodedSourceCount: number;
   readonly estimatedDecodedBytes: number;
 }
@@ -112,20 +115,26 @@ export interface SourceImageLoad {
   readonly cacheStatus: LoadedSource["cacheStatus"];
 }
 
-export interface ImageTileProviderOptions {
+export interface ImageTileProviderOptions<TPayload = SourceImageLoad> {
   readonly mode: ImageTileKind;
   readonly tilePixels: number;
   readonly attribution?: string;
-  readonly concurrency: number;
+  readonly processingConcurrency: number;
   resolveSource(tile: TileIdentity): SourceMapping;
   /** Optional persistent-cache phase; undefined is a cache miss. */
   loadFromCache?(
     sourceTile: TileIdentity,
     signal: AbortSignal,
-  ): Promise<SourceImageLoad | undefined>;
+  ): Promise<TPayload | undefined>;
   /** Provider/network phase. It is called only after cache lookup and admission. */
   loadSource(
     sourceTile: TileIdentity,
+    signal: AbortSignal,
+  ): Promise<TPayload>;
+  /** Converts an acquired payload into a decoded source under bounded admission. */
+  processSource?(
+    sourceTile: TileIdentity,
+    payload: TPayload,
     signal: AbortSignal,
   ): Promise<SourceImageLoad>;
 }
@@ -302,14 +311,17 @@ async function decodeBlobImage(
  * identical overzoomed source requests while retaining decoded sources only
  * for the renderer's current working set.
  */
-export class ImageTileProvider implements TileProvider<ImageTileResource> {
+export class ImageTileProvider<TPayload = SourceImageLoad>
+  implements TileProvider<ImageTileResource>
+{
   readonly mode: ImageTileKind;
   readonly tilePixels: number;
   readonly attribution: string;
   private readonly sourceCache = new Map<string, LoadedSource>();
   private readonly sourceQueue: TileSourceLoadQueue<
     TileIdentity,
-    SourceImageLoad
+    SourceImageLoad,
+    TPayload
   >;
   private readonly listeners = new Set<
     (metrics: ImageTileProviderMetrics) => void
@@ -322,12 +334,20 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
   private mappingFailureTotal = 0;
   private byteTotal = 0;
 
-  constructor(private readonly options: ImageTileProviderOptions) {
+  constructor(private readonly options: ImageTileProviderOptions<TPayload>) {
     this.mode = options.mode;
     this.tilePixels = options.tilePixels;
     this.attribution = options.attribution ?? "";
     this.sourceQueue = new TileSourceLoadQueue({
-      concurrency: options.concurrency,
+      // Legacy/custom loaders that already return decoded values still need
+      // their combined work bounded. Staged production loaders leave encoded
+      // acquisition uncapped and bound only processSource.
+      ...(options.processSource
+        ? {
+            processingConcurrency: options.processingConcurrency,
+            process: options.processSource,
+          }
+        : { loadConcurrency: options.processingConcurrency }),
       ...(options.loadFromCache
         ? { loadFromCache: options.loadFromCache }
         : {}),
@@ -352,7 +372,10 @@ export class ImageTileProvider implements TileProvider<ImageTileResource> {
       byteTotal: this.byteTotal,
       queued: queue.queued,
       networkDeferred: queue.networkDeferred,
+      processingQueued: queue.processingQueued,
       inFlight: queue.inFlight,
+      acquisitionActive: queue.acquisitionActive,
+      processingActive: queue.processingActive,
       decodedSourceCount: this.sourceCache.size,
       estimatedDecodedBytes:
         this.sourceCache.size * this.tilePixels * this.tilePixels * 4,
@@ -550,23 +573,16 @@ async function decodeElevationSource(
 export function createElevationTileProvider(
   metadata: ElevationProviderMetadata,
   maxElevationSourceZoom: number,
-): ImageTileProvider {
+): ImageTileProvider<ElevationPayload> {
   return new ImageTileProvider({
     mode: "terrain",
     tilePixels: metadata.tilePixels,
     attribution: metadata.attribution,
-    concurrency: 4,
+    processingConcurrency: 4,
     resolveSource: (tile) =>
       elevationSourceMapping(tile, maxElevationSourceZoom),
     loadFromCache: async (source, signal) => {
-      const payload = await lookupCachedElevation(source, signal);
-      if (!payload) return undefined;
-      return decodeElevationSource(
-        source,
-        payload,
-        signal,
-        metadata.tilePixels,
-      );
+      return await lookupCachedElevation(source, signal);
     },
     loadSource: async (source, signal) => {
       const payload = await loadElevationFromNetwork(source, signal);
@@ -577,14 +593,22 @@ export function createElevationTileProvider(
           payload.retryAfterMs,
         );
       }
-      return decodeElevationSource(
+      return payload;
+    },
+    processSource: async (source, payload, signal) =>
+      await decodeElevationSource(
         source,
         payload,
         signal,
         metadata.tilePixels,
-      );
-    },
+      ),
   });
+}
+
+interface XyzElevationPayload {
+  readonly blob: Blob;
+  readonly byteLength: number;
+  readonly cacheStatus: "provider";
 }
 
 /** Provider-neutral XYZ height source used by preprocessed planetary datasets. */
@@ -592,12 +616,12 @@ export function createXyzElevationTileProvider(
   metadata: ElevationProviderMetadata,
   maxElevationSourceZoom: number,
   configuration: XyzElevationConfiguration,
-): ImageTileProvider {
-  return new ImageTileProvider({
+): ImageTileProvider<XyzElevationPayload> {
+  return new ImageTileProvider<XyzElevationPayload>({
     mode: "terrain",
     tilePixels: metadata.tilePixels,
     attribution: metadata.attribution,
-    concurrency: 4,
+    processingConcurrency: 4,
     resolveSource: (tile) =>
       elevationSourceMapping(tile, maxElevationSourceZoom),
     loadSource: async (source, signal) => {
@@ -617,10 +641,15 @@ export function createXyzElevationTileProvider(
       }
       const blob = await response.blob();
       return {
-        image: await decodeBlobImage(blob, metadata.tilePixels, signal),
+        blob,
         byteLength: blob.size,
         cacheStatus: "provider",
       };
     },
+    processSource: async (_source, payload, signal) => ({
+      image: await decodeBlobImage(payload.blob, metadata.tilePixels, signal),
+      byteLength: payload.byteLength,
+      cacheStatus: payload.cacheStatus,
+    }),
   });
 }

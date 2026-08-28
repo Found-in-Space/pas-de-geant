@@ -29,10 +29,155 @@ function eventsFor<T>(): TileSourceLoadEvent<T>[] {
 }
 
 describe("TileSourceLoadQueue", () => {
+  it("starts every acquisition while processing by priority within its own limit", async () => {
+    const acquisitions: string[] = [];
+    const processingStarts: string[] = [];
+    const processingReleases = new Map<string, () => void>();
+    const responses: string[] = [];
+    let activeProcessing = 0;
+    let maximumActiveProcessing = 0;
+    const queue = new TileSourceLoadQueue<string, string, string>({
+      processingConcurrency: 2,
+      loadFromNetwork: async (source) => {
+        acquisitions.push(source);
+        return `payload-${source}`;
+      },
+      process: async (source) => {
+        processingStarts.push(source);
+        activeProcessing += 1;
+        maximumActiveProcessing = Math.max(
+          maximumActiveProcessing,
+          activeProcessing,
+        );
+        await new Promise<void>((resolve) => {
+          processingReleases.set(source, resolve);
+        });
+        activeProcessing -= 1;
+        return `ready-${source}`;
+      },
+    });
+    for (let priority = 0; priority < 8; priority += 1) {
+      const source = String(priority);
+      queue.request({ key: source, source, priority }, (event) => {
+        if (event.phase === "response") responses.push(event.value);
+      });
+    }
+
+    await vi.waitFor(() => {
+      expect(acquisitions).toHaveLength(8);
+      expect(processingStarts).toEqual(["7", "6"]);
+    });
+    expect(queue.metrics).toMatchObject({
+      acquisitionActive: 0,
+      processingActive: 2,
+      processingQueued: 6,
+    });
+
+    for (const expected of [["5", "4"], ["3", "2"], ["1", "0"]]) {
+      for (const source of processingStarts.slice(-2)) {
+        processingReleases.get(source)!();
+      }
+      await vi.waitFor(() => {
+        expect(processingStarts.slice(-2)).toEqual(expected);
+      });
+    }
+    for (const source of processingStarts.slice(-2)) {
+      processingReleases.get(source)!();
+    }
+    await vi.waitFor(() => expect(responses).toHaveLength(8));
+    expect(maximumActiveProcessing).toBe(2);
+    expect(queue.metrics.inFlight).toBe(0);
+  });
+
+  it("treats a cached processing failure as a miss", async () => {
+    const networkLoads: string[] = [];
+    const events = eventsFor<string>();
+    const queue = new TileSourceLoadQueue<string, string, string>({
+      processingConcurrency: 1,
+      loadFromCache: async () => "corrupt",
+      loadFromNetwork: async (source) => {
+        networkLoads.push(source);
+        return "valid";
+      },
+      process: async (_source, payload) => {
+        if (payload === "corrupt") throw new Error("invalid cache payload");
+        return "decoded";
+      },
+      classifyNetworkFailure: () => ({ systemic: false }),
+    });
+    queue.request({ key: "tile", source: "tile" }, (event) => events.push(event));
+
+    await vi.waitFor(() => expect(events.at(-1)).toMatchObject({
+      phase: "response",
+      value: "decoded",
+      source: "network",
+    }));
+    expect(networkLoads).toEqual(["tile"]);
+    expect(queue.metrics).toMatchObject({
+      cacheLookupTotal: 1,
+      cacheHitTotal: 0,
+      sourceLoadTotal: 1,
+      failureTotal: 0,
+    });
+  });
+
+  it("coalesces processing and cancels queued or active work after the last consumer", async () => {
+    const acquisitions: string[] = [];
+    const processingStarts: string[] = [];
+    let activeSignal: AbortSignal | undefined;
+    const queue = new TileSourceLoadQueue<string, string, string>({
+      processingConcurrency: 1,
+      loadFromNetwork: async (source) => {
+        acquisitions.push(source);
+        return source;
+      },
+      process: async (source, _payload, signal) => {
+        processingStarts.push(source);
+        if (source !== "shared") return source;
+        activeSignal = signal;
+        return await new Promise((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+    });
+    const first = queue.request(
+      { key: "shared", source: "shared", priority: 2 },
+      () => {},
+    );
+    const joined = queue.request(
+      { key: "shared", source: "shared", priority: 2 },
+      () => {},
+    );
+    const queued = queue.request(
+      { key: "queued", source: "queued", priority: 1 },
+      () => {},
+    );
+
+    await vi.waitFor(() => {
+      expect(acquisitions).toEqual(["shared", "queued"]);
+      expect(processingStarts).toEqual(["shared"]);
+      expect(queue.metrics.processingQueued).toBe(1);
+    });
+    queued.cancel();
+    expect(queue.metrics.processingQueued).toBe(0);
+    first.cancel();
+    expect(activeSignal?.aborted).toBe(false);
+    joined.cancel();
+    expect(activeSignal?.aborted).toBe(true);
+    await vi.waitFor(() => expect(queue.metrics.inFlight).toBe(0));
+    expect(processingStarts).toEqual(["shared"]);
+    expect(queue.metrics.sharedRequestTotal).toBe(1);
+    expect(queue.metrics.sourceCancellationTotal).toBe(1);
+  });
+
   it("serves a cache hit while the provider circuit is open", async () => {
     const networkLoads: string[] = [];
     const queue = new TileSourceLoadQueue<string, string>({
-      concurrency: 2,
+      loadConcurrency: 2,
       wallNow: () => 0,
       loadFromCache: async (source) =>
         source === "cached" ? "from-cache" : undefined,
@@ -75,7 +220,7 @@ describe("TileSourceLoadQueue", () => {
   it("closes a half-open probe on a tile-local failure while failing that tile", async () => {
     const attempts: string[] = [];
     const queue = new TileSourceLoadQueue<string, string>({
-      concurrency: 2,
+      loadConcurrency: 2,
       wallNow: () => 0,
       loadFromNetwork: async (source) => {
         attempts.push(source);
@@ -132,7 +277,7 @@ describe("TileSourceLoadQueue", () => {
     let maximumActive = 0;
     let firstSignal: AbortSignal | undefined;
     const queue = new TileSourceLoadQueue<string, string>({
-      concurrency: 1,
+      loadConcurrency: 1,
       loadFromNetwork: async (source, signal) => {
         started.push(source);
         active += 1;
@@ -178,7 +323,7 @@ describe("TileSourceLoadQueue", () => {
     const firstEvents = eventsFor<string>();
     const deferredEvents = eventsFor<string>();
     const queue = new TileSourceLoadQueue<string, string>({
-      concurrency: 1,
+      loadConcurrency: 1,
       wallNow: () => 0,
       loadFromNetwork: async (source) => {
         attempts.push(source);

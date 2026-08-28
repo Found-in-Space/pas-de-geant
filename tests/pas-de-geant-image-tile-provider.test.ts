@@ -12,11 +12,71 @@ import type {
 } from "../apps/pas-de-geant/src/tile-provider.js";
 
 describe("Image tile provider", () => {
+  it("starts every acquisition while limiting source processing", async () => {
+    const acquisitions: number[] = [];
+    const processingStarts: number[] = [];
+    const releases = new Map<number, () => void>();
+    const responses: ImageTileResource[] = [];
+    let activeProcessing = 0;
+    let maximumActiveProcessing = 0;
+    const provider = new ImageTileProvider<{ source: number }>({
+      mode: "terrain",
+      tilePixels: 512,
+      processingConcurrency: 4,
+      resolveSource: (tile) => ({
+        sourceTile: tile,
+        sourceScale: 1,
+        sourceOffsetX: 0,
+        sourceOffsetY: 0,
+      }),
+      loadSource: async (tile) => {
+        acquisitions.push(tile.x);
+        return { source: tile.x };
+      },
+      processSource: async (_tile, payload) => {
+        processingStarts.push(payload.source);
+        activeProcessing += 1;
+        maximumActiveProcessing = Math.max(
+          maximumActiveProcessing,
+          activeProcessing,
+        );
+        await new Promise<void>((resolve) => releases.set(payload.source, resolve));
+        activeProcessing -= 1;
+        return {
+          image: {} as HTMLImageElement,
+          byteLength: 1,
+          cacheStatus: "provider",
+        };
+      },
+    });
+    for (let x = 0; x < 8; x += 1) {
+      provider.request({ z: 3, x, y: 0 }, (result) => {
+        if (result.phase === "response") responses.push(result.resource);
+      });
+    }
+
+    await vi.waitFor(() => {
+      expect(acquisitions).toHaveLength(8);
+      expect(processingStarts).toHaveLength(4);
+    });
+    expect(provider.metrics).toMatchObject({
+      acquisitionActive: 0,
+      processingActive: 4,
+      processingQueued: 4,
+    });
+    for (const source of processingStarts) releases.get(source)!();
+    await vi.waitFor(() => expect(processingStarts).toHaveLength(8));
+    for (const source of processingStarts.slice(4)) releases.get(source)!();
+    await vi.waitFor(() => expect(responses).toHaveLength(8));
+    expect(maximumActiveProcessing).toBe(4);
+    provider.dispose();
+  });
+
   it("keeps deterministic source-mapping failures local and terminal", async () => {
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource: () => {
         throw new Error("outside provider coverage");
       },
@@ -56,7 +116,7 @@ describe("Image tile provider", () => {
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource: (tile) => ({
         sourceTile: tile,
         sourceScale: 1,
@@ -110,7 +170,7 @@ describe("Image tile provider", () => {
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
-      concurrency: 4,
+      processingConcurrency: 4,
       resolveSource: (tile) => ({
         sourceTile: tile,
         sourceScale: 1,
@@ -154,7 +214,7 @@ describe("Image tile provider", () => {
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource: (tile) => ({
         sourceTile: tile,
         sourceScale: 1,
@@ -209,7 +269,7 @@ describe("Image tile provider", () => {
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource: (tile) => ({
         sourceTile: tile,
         sourceScale: 1,
@@ -267,7 +327,7 @@ describe("Image tile provider", () => {
     const failing = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource,
       loadSource: async (tile) => {
         failedAttempts.push(tile.x);
@@ -277,7 +337,7 @@ describe("Image tile provider", () => {
     const healthy = new ImageTileProvider({
       mode: "imagery",
       tilePixels: 512,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource,
       loadSource: async () => ({
         image: {} as HTMLImageElement,
@@ -331,7 +391,7 @@ describe("Image tile provider", () => {
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
-      concurrency: 4,
+      processingConcurrency: 4,
       resolveSource: (tile) => ({
         sourceTile: tile,
         sourceScale: 1,
@@ -383,7 +443,7 @@ describe("Image tile provider", () => {
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
-      concurrency: 4,
+      processingConcurrency: 4,
       resolveSource: (tile) => ({
         sourceTile: tile,
         sourceScale: 1,
@@ -428,7 +488,7 @@ describe("Image tile provider", () => {
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource: (tile) => ({
         sourceTile: tile,
         sourceScale: 1,
@@ -467,7 +527,7 @@ describe("Image tile provider", () => {
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource: (tile) => ({
         sourceTile: tile,
         sourceScale: 1,
@@ -496,7 +556,7 @@ describe("Image tile provider", () => {
     const provider = new ImageTileProvider({
       mode: "imagery",
       tilePixels: 512,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource: (tile) => ({
         sourceTile: tile,
         sourceScale: 1,
@@ -530,7 +590,7 @@ describe("Image tile provider", () => {
     const provider = new ImageTileProvider({
       mode: "imagery",
       tilePixels: 512,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource: (tile) => ({
         sourceTile: { z: 1, x: Math.floor(tile.x / 2), y: Math.floor(tile.y / 2) },
         sourceScale: 2,
@@ -566,7 +626,7 @@ describe("Image tile provider", () => {
     const provider = new ImageTileProvider({
       mode: "terrain",
       tilePixels: 512,
-      concurrency: 1,
+      processingConcurrency: 1,
       resolveSource: (tile) => ({
         sourceTile: { z: 0, x: 0, y: 0 },
         sourceScale: 2 ** tile.z,
