@@ -1317,7 +1317,15 @@ const client = new SupervisorClient({
   onSessions(nextSessions) {
     sessions = new Map(nextSessions.map((session) => [session.sessionId, session]));
     const selected = selectedLiveSession();
-    if (selected) selectedSessionCache = selected;
+    if (selected) {
+      selectedSessionCache = selected;
+    } else {
+      const firstSession = sessions.values().next().value;
+      if (firstSession) {
+        selectSession(firstSession);
+        return;
+      }
+    }
     render();
   },
   onCommandResult: handleCommandResult,
