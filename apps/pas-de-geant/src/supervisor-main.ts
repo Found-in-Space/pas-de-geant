@@ -34,7 +34,10 @@ import type {
   SupervisionCommand,
   SupervisionSession,
 } from "./supervision-protocol.js";
-import { formatScaleRatio } from "./world-scale.js";
+import {
+  formatScaleRatio,
+  scaleDenominatorForDisplay,
+} from "./world-scale.js";
 import {
   ECLIPSE_PLAYBACK_SCALE,
   MAIN_WORLD_FEATURED_ECLIPSE_EVENT_ID,
@@ -408,8 +411,8 @@ function initializeDrafts(session: SupervisionSession): void {
   }
   if (!scaleDraftInitialized) {
     scaleDenominatorInput.value = formatInputValue(
-      session.state.scaleDenominator,
-      3,
+      scaleDenominatorForDisplay(session.state.scaleDenominator),
+      0,
     );
     scaleDraftInitialized = true;
   }
@@ -1181,8 +1184,8 @@ function render(): void {
     );
     if (!scaleDraftDirty && !scaleDraftInitialized) {
       scaleDenominatorInput.value = formatInputValue(
-        state.scaleDenominator,
-        3,
+        scaleDenominatorForDisplay(state.scaleDenominator),
+        0,
       );
     }
     if (!terrainDraftDirty && !terrainDraftInitialized) {
@@ -1566,8 +1569,8 @@ function handleCommandResult(result: CommandResultMessage): void {
     }
     if (pending.command.kind === "setScaleDenominator") {
       scaleDenominatorInput.value = formatInputValue(
-        pending.command.scaleDenominator,
-        3,
+        scaleDenominatorForDisplay(pending.command.scaleDenominator),
+        0,
       );
       scaleDraftDirty = false;
       scaleDraftInitialized = true;

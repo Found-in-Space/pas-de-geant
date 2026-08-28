@@ -95,9 +95,12 @@ describe("universal 1:N world scale", () => {
   });
 
   it("formats the only user-facing scale representation consistently", () => {
+    expect(formatScaleRatio(150)).toBe("1 : 150");
+    expect(formatScaleRatio(9_200)).toBe("1 : 9,000");
+    expect(formatScaleRatio(42_473)).toBe("1 : 40,000");
     expect(formatScaleRatio(60_000)).toBe("1 : 60,000");
-    expect(formatScaleRatio(8_494_678.4)).toBe("1 : 8,494,678.4");
-    expect(formatScaleRatio(12.34567)).toBe("1 : 12.346");
+    expect(formatScaleRatio(8_494_678.4)).toBe("1 : 8,000,000");
+    expect(formatScaleRatio(12.567)).toBe("1 : 13");
   });
 
   it("reverses controller direction and detents at the main default", () => {

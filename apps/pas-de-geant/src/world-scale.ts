@@ -55,11 +55,19 @@ export function scaleDenominatorAfterInput(
 }
 
 const SCALE_NUMBER_FORMAT = new Intl.NumberFormat("en-GB", {
-  maximumFractionDigits: 3,
+  maximumFractionDigits: 0,
 });
+
+/** Keeps human-scale ratios exact while simplifying large planetary ratios. */
+export function scaleDenominatorForDisplay(scaleDenominator: number): number {
+  const denominator = validScaleDenominator(scaleDenominator);
+  return denominator < 1_000
+    ? Math.round(denominator)
+    : Number(denominator.toPrecision(1));
+}
 
 export function formatScaleRatio(scaleDenominator: number): string {
   return `1 : ${SCALE_NUMBER_FORMAT.format(
-    validScaleDenominator(scaleDenominator),
+    scaleDenominatorForDisplay(scaleDenominator),
   )}`;
 }
