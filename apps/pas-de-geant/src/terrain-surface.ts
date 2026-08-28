@@ -438,6 +438,9 @@ function tileTint(zoom: number): THREE.Color {
 }
 
 const VERTEX_SHADER = `
+  #include <common>
+  #include <logdepthbuf_pars_vertex>
+
   in vec2 baseUv;
   in vec2 tileUv;
   in vec2 imageryUv;
@@ -508,10 +511,13 @@ const VERTEX_SHADER = `
     vElevationHeightWorld = dot(elevationOffsetWorld, baseNormalWorld);
     vSkirt = skirt;
     gl_Position = projectionMatrix * viewMatrix * worldPosition;
+    #include <logdepthbuf_vertex>
   }
 `;
 
 const FRAGMENT_SHADER = `
+  #include <logdepthbuf_pars_fragment>
+
   ${IMAGERY_FRAGMENT_DECLARATIONS}
   uniform float photographicImageryAllowed;
   uniform float tileOverlayVisible;
@@ -567,6 +573,8 @@ const FRAGMENT_SHADER = `
   }
 
   void main() {
+    #include <logdepthbuf_fragment>
+
     vec3 albedo = photographicImageryAllowed > 0.5
       ? resolvedImageryAlbedo()
       : texture(blueMarbleMap, vBlueMarbleUv).rgb;
