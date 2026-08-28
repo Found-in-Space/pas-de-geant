@@ -24,7 +24,6 @@ export const DEFAULT_TERRAIN_SEGMENT_TIERS: readonly TerrainSegmentTier[] =
   Object.freeze([
     Object.freeze({ minZoom: 0, segments: 16 }),
     Object.freeze({ minZoom: 7, segments: 32 }),
-    Object.freeze({ minZoom: 10, segments: 64 }),
   ]);
 
 function nonnegativeInteger(value: number, name: string): number {

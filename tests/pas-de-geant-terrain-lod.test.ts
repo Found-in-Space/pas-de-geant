@@ -14,7 +14,7 @@ import type { TileProviderResult } from "../apps/pas-de-geant/src/tile-provider.
 import type { TileIdentity } from "../apps/pas-de-geant/src/tile-transition-planner.js";
 
 describe("Terrain LOD configuration", () => {
-  it("preserves the existing geometry tiers and provider-limited elevation mapping", () => {
+  it("uses the default geometry tiers and provider-limited elevation mapping", () => {
     const options = normalizeTerrainLodOptions(
       MAPTERHORN_ELEVATION_PROVIDER_METADATA,
     );
@@ -35,7 +35,7 @@ describe("Terrain LOD configuration", () => {
       terrainSegmentsForZoom(9, options.segmentTiers),
       terrainSegmentsForZoom(10, options.segmentTiers),
       terrainSegmentsForZoom(20, options.segmentTiers),
-    ]).toEqual([16, 16, 32, 32, 64, 64]);
+    ]).toEqual([16, 16, 32, 32, 32, 32]);
     expect(elevationSourceZoomForTile(
       { z: 4 },
       options.maxElevationSourceZoom,
