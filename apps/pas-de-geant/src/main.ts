@@ -21,6 +21,12 @@ import {
 } from "./aircraft-feed.js";
 import { AircraftLayer } from "./aircraft-layer.js";
 import {
+  parseAmazonForestOutlineVisibilityArguments,
+  type AmazonForestOutlineControlState,
+} from "./amazon-forest-outline-control.js";
+import { AmazonForestOutlineLayer } from "./amazon-forest-outline-layer.js";
+import { AmazonForestOutlineStore } from "./amazon-forest-outline-state.js";
+import {
   parseAircraftDisplayArguments,
   shouldStreamAircraft,
   type AircraftDisplayTarget,
@@ -644,6 +650,41 @@ const terrain = new TerrainSurface({
   },
 });
 planetRoot.add(terrain.group);
+const amazonForestOutlines = new AmazonForestOutlineLayer(
+  import.meta.env.VITE_AMAZON_FOREST_MANIFEST_URL?.trim() ||
+    "https://data.foundin.space/3592e66d-2b29-4e4b-97d0-7fc1d3e9e4f8/manifest.json",
+  terrain,
+);
+const amazonForestOutlineStore = new AmazonForestOutlineStore(
+  amazonForestOutlines,
+);
+
+function amazonForestOutlineControlState(): AmazonForestOutlineControlState {
+  return amazonForestOutlineStore.snapshot();
+}
+
+function amazonForestOutlineVoiceState(): Record<string, unknown> {
+  const controlState = amazonForestOutlineControlState();
+  return {
+    available_years: controlState.availableYears,
+    visible_years: controlState.visibleYears,
+  };
+}
+
+amazonForestOutlineStore.subscribe(({ visibleYears }) => {
+  document.body.dataset.amazonForestOutline = visibleYears.join(",") || "off";
+});
+void amazonForestOutlineStore.load().catch((error) => {
+  document.body.dataset.amazonForestOutline = "unavailable";
+  console.warn("Amazon forest outline manifest is unavailable:", error);
+});
+
+function setAmazonForestYearVisibility(
+  year: number,
+  visible: boolean,
+): Promise<AmazonForestOutlineControlState> {
+  return amazonForestOutlineStore.setYearVisibility(year, visible);
+}
 const locationPinStore = new LocationPinStore();
 const locationPinLayer = new LocationPinLayer((latitudeDegrees, longitudeDegrees) =>
   terrain.sampleElevationMetres(latitudeDegrees, longitudeDegrees)
@@ -1475,6 +1516,7 @@ function supervisionControlState(): SupervisionControlState {
       space_stations: satelliteGroups.stations.enabled,
       science_education: satelliteGroups["science-education"].enabled,
     },
+    amazonForestOutlines: amazonForestOutlineControlState(),
     clock: {
       atUtc: new Date(clock.atMs).toISOString(),
       anchorWallUtc: new Date(clock.anchorWallTimeMs).toISOString(),
@@ -1980,6 +2022,13 @@ async function applySupervisionCommand(command: SupervisionCommand): Promise<voi
     return;
   }
   requireJourneyUnlocked();
+  if (command.kind === "setAmazonForestYearVisibility") {
+    if (focusBodyId !== "earth") {
+      throw new Error("Amazon forest outlines require Earth to be selected.");
+    }
+    await setAmazonForestYearVisibility(command.year, command.visible);
+    return;
+  }
   if (command.kind === "selectEclipseEvent") {
     await selectSupervisedEclipse(command.eventId);
     return;
@@ -2005,7 +2054,7 @@ async function applySupervisionCommand(command: SupervisionCommand): Promise<voi
             : Date.parse(command.atUtc),
           command.scale,
           wallTimeMs,
-        );
+    );
     updateSupervisedEclipseTime();
     return;
   }
@@ -2983,6 +3032,19 @@ const voiceAgent = new RealtimeVoiceAgent({
       const { group, enabled } =
         parseSatelliteVisibilityArguments(argumentsValue);
       return await setSatelliteGroupEnabled(group, enabled);
+    },
+    async get_amazon_forest_outlines() {
+      await amazonForestOutlineStore.load();
+      return amazonForestOutlineVoiceState();
+    },
+    async set_amazon_forest_outline_visibility(argumentsValue) {
+      if (focusBodyId !== "earth") {
+        throw new Error("Amazon forest outlines require Earth to be selected.");
+      }
+      const { year, visible } =
+        parseAmazonForestOutlineVisibilityArguments(argumentsValue);
+      await setAmazonForestYearVisibility(year, visible);
+      return { ok: true, year, visible, ...amazonForestOutlineVoiceState() };
     },
     get_celestial_visibility() {
       return celestialSphere.getVisibility();
@@ -4504,6 +4566,7 @@ window.addEventListener("beforeunload", () => {
   }
   stopAircraftStream();
   for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
+  amazonForestOutlines.dispose();
   terrain.dispose();
   locationPinLayer.dispose();
   celestialSphere.dispose();

@@ -849,6 +849,10 @@ function eclipseSupervisionControlState(): SupervisionControlState {
       space_stations: false,
       science_education: false,
     },
+    amazonForestOutlines: {
+      availableYears: [],
+      visibleYears: [],
+    },
     clock: {
       atUtc: new Date(clock.atMs).toISOString(),
       anchorWallUtc: new Date(clock.anchorWallTimeMs).toISOString(),

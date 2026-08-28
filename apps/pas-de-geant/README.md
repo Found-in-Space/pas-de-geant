@@ -494,6 +494,102 @@ loading?” to read planner and scheduler state. The report separates topology
 requirements, tile-payload bridge requests, and provider source fetch jobs;
 source fetches may be fewer because several tile requests can share one source.
 
+## Amazon forest outlines
+
+[MapBiomas Amazonia Collection 6](https://amazonia.mapbiomas.org/en/en/mapbiomas-amazonia-collection/)
+contains one 30 m land-cover band per year from 1985 through 2023. Its download
+tool can export spatial GeoTIFF tiles whose bands retain that year order. The
+repository pipeline mosaics any number of those tiles, extracts natural-forest
+classes, resamples the binary forest mask, traces its 50% boundary, simplifies
+the result in metres, and packages it as surface polylines:
+
+```sh
+npm run amazon:outlines -- \
+  --input-dir /data/mapbiomas-amazonia-collection-6 \
+  --output apps/pas-de-geant/public/data/amazon-forest \
+  --years 1985,1995,2005,2015,2023 \
+  --lod globe:4000:8000 \
+  --lod regional:500:1000 \
+  --source-label "MapBiomas Amazonia Collection 6"
+```
+
+The command requires the GDAL command-line tools but does not download or
+publish anything. Pass individual tiles with repeated `--input` options instead
+of `--input-dir` when useful. Official whole-Amazon, single-year files can be
+passed explicitly instead:
+
+```sh
+npm run amazon:outlines -- \
+  --year-input 1986=/data/mapbiomas-amazon-1986.tif \
+  --year-input 2023=/data/mapbiomas-amazon-2023.tif \
+  --output /data/pas-de-geant/amazon-forest \
+  --lod globe:4000:8000 \
+  --lod regional:500:1000
+```
+
+By default, pixel value 1 (aggregated natural
+forest) and its subclasses 3 (forest formation), 4 (savanna/open forest), 5
+(mangrove), and 6 (flooded forest) count as natural forest, following the
+Collection 6
+[legend](https://amazonia.mapbiomas.org/en/legend-codes/). Use
+`--forest-classes` to choose another definition or collection. `--years` also
+accepts ranges such as `1985-2023`; omitting it converts every input band.
+
+Every `--lod` is `name:raster-cell-metres:line-simplification-metres`. These
+values are explicit because a continent-scale outline and a close surface view
+need materially different fidelity. The working mask is averaged before its
+50% contour is traced, so the output is a generalized boundary rather than an
+assertion that the source itself has coarser pixels. Simplified segments are
+geodesically subdivided at 25 km by default so they remain on the globe instead
+of cutting visibly through it; change that with `--max-segment-metres`.
+
+The output `manifest.json` lists each year and LOD, its bounds, line/point
+counts, byte size, and relative `.pdg-lines` URL. The binary representation is
+little-endian and contains a 40-byte header followed by line records:
+
+```text
+0   char[8]    "PDGLINE\0"
+8   uint32     format version (1)
+12  int32      year
+16  uint32     line count
+20  uint32     total point count
+24  float32[4] west, south, east, north
+40  repeated: uint32 point count, then float32 longitude/latitude pairs
+```
+
+Add `--keep-geojson` to retain newline-delimited GeoJSON for QGIS inspection.
+For Pas de Géant, `.pdg-lines` avoids GeoJSON's parsing and object-allocation
+cost while remaining simple to turn into a Three.js `LineSegments` geometry.
+At globe and regional scales this is usually cheaper than a 30 m raster overlay.
+If the experience needs filled forest, fine local clearings, or continuous zoom
+all the way to source resolution, raster tiles remain the better representation.
+
+The POC loads its 1986 and 2023 globe LODs (about 240 KB and 365 KB
+respectively) from the temporary Found in Space dataset at
+`https://data.foundin.space/3592e66d-2b29-4e4b-97d0-7fc1d3e9e4f8/manifest.json`.
+Generated and source data remain outside the repository because their upstream
+licence applies independently of the application code. Set
+`VITE_AMAZON_FOREST_MANIFEST_URL` to test another locally served or hosted
+manifest.
+
+On first display, the client rasterizes each year's closed contours with the
+even-odd fill rule, so enclosed clearings remain holes, then composites the
+selected translucent fills and their brighter boundaries into one geographic
+texture. The terrain shader samples that texture on the same elevation-displaced
+tiles as the base imagery. The historical layer therefore follows topography
+without a separate line mesh hovering above it.
+
+The internal forest-outline store is the single state and mutation boundary
+used by the renderer, supervision, and voice integrations, and is available for
+a future TouchOS control. The POC exposes its independent year checkboxes only
+in the development supervisor for now; there are no controls on the preflight
+page. The voice agent uses the same store through `get_amazon_forest_outlines` and
+`set_amazon_forest_outline_visibility`. Available controls come from the
+manifest, so adding another generated year does not require another display
+mode. The larger regional outputs are deliberately not part of the normal app
+assets; generate or host them separately if close-up inspection becomes part of
+the experience.
+
 ## Other layers
 
 The celestial sphere loads the default Found in Space SkyKit catalogue and

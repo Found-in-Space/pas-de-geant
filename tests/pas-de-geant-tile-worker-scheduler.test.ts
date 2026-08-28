@@ -410,7 +410,7 @@ describe("Tile worker scheduler planner bridge", () => {
     scheduler.dispose();
   });
 
-  it("evicts completed payloads and cancels completing work beyond the horizon", () => {
+  it("waits for the worker snapshot before pruning work beyond the horizon", () => {
     const worker = new FakeWorker();
     const harness = providerHarness<string>();
     const scheduler = new TileWorkerScheduler(layoutTarget(1), {
@@ -425,6 +425,12 @@ describe("Tile worker scheduler planner bridge", () => {
     worker.emit({ kind: "resource-request", tile: completing, key: "1/1/0", requestId: 2 });
     harness.observers[1]!({ phase: "in-flight" });
     scheduler.updateHorizonCulling([]);
+
+    expect(harness.cancelled).toEqual([]);
+    expect(scheduler.committedResource(loaded)).toBe("loaded");
+    expect(scheduler.debugState.planner_requests.total_outstanding).toBe(1);
+
+    worker.emit({ kind: "snapshot", snapshot: snapshot(1) });
     harness.observers[1]!({ phase: "response", resource: "completed" });
 
     expect(harness.cancelled).toEqual([2]);
@@ -440,6 +446,63 @@ describe("Tile worker scheduler planner bridge", () => {
     expect(harness.requested).toEqual([loaded, completing, loaded]);
     harness.observers[2]!({ phase: "response", resource: "reloaded" });
     expect(scheduler.committedResource(loaded)).toBe("reloaded");
+    scheduler.dispose();
+  });
+
+  it("retains a delayed off-horizon dependency until worker snapshots release it", () => {
+    const worker = new FakeWorker();
+    const harness = providerHarness<string>();
+    const scheduler = new TileWorkerScheduler(layoutTarget(2), {
+      provider: harness.provider,
+      createWorker: () => worker,
+    });
+    const firstHorizon = { z: 2, x: 1, y: 1 };
+    const secondHorizon = { z: 2, x: 2, y: 1 };
+    const dependency = { z: 1, x: 0, y: 1 };
+
+    scheduler.updateHorizonCulling([firstHorizon]);
+    worker.emit({
+      kind: "resource-request",
+      tile: dependency,
+      key: "1/0/1",
+      requestId: 7,
+    });
+    harness.observers[0]!({ phase: "in-flight" });
+
+    // The next observation can arrive before the worker snapshot that declares
+    // this atomic-batch dependency. It must not revoke worker-owned work.
+    scheduler.updateHorizonCulling([secondHorizon]);
+    expect(harness.cancelled).toEqual([]);
+    expect(scheduler.debugState.planner_requests.total_outstanding).toBe(1);
+
+    worker.emit({
+      kind: "snapshot",
+      snapshot: {
+        ...snapshot(1),
+        requirements: [{
+          tile: dependency,
+          state: "in-flight",
+          requestId: 7,
+        }],
+      },
+    });
+    harness.observers[0]!({ phase: "response", resource: "dependency" });
+
+    expect(worker.commands).toContainEqual({
+      kind: "resource-result",
+      key: "1/0/1",
+      requestId: 7,
+      result: { phase: "response", resource: undefined },
+    });
+    expect(scheduler.committedResource(dependency)).toBe("dependency");
+
+    worker.emit({ kind: "snapshot", snapshot: snapshot(2) });
+
+    expect(scheduler.committedResource(dependency)).toBeUndefined();
+    expect(scheduler.debugState.resource_releases).toMatchObject({
+      total: 1,
+      eviction: 1,
+    });
     scheduler.dispose();
   });
 
@@ -477,6 +540,8 @@ describe("Tile worker scheduler planner bridge", () => {
       expect(scheduler.committedResource(loaded)).toBeDefined()
     );
     scheduler.updateHorizonCulling([]);
+    expect(scheduler.committedResource(loaded)).toBeDefined();
+    worker.emit({ kind: "snapshot", snapshot: snapshot(1) });
     expect(scheduler.committedResource(loaded)).toBeUndefined();
     scheduler.updateHorizonCulling([outage]);
     worker.emit({
@@ -526,10 +591,11 @@ describe("Tile worker scheduler planner bridge", () => {
     harness.observers[1]!({ phase: "response", resource: "second" });
     scheduler.updateHorizonCulling([]);
 
-    expect(scheduler.committedResource(first)).toBeUndefined();
+    expect(scheduler.committedResource(first)).toBe("first");
     expect(scheduler.committedResource(second)).toBe("second");
     worker.emit({ kind: "snapshot", snapshot: snapshot(2, [second]) });
 
+    expect(scheduler.committedResource(first)).toBeUndefined();
     expect(scheduler.committedResource(second)).toBeUndefined();
     expect(scheduler.debugState.resource_releases).toMatchObject({
       total: 2,

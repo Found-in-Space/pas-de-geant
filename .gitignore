@@ -18,3 +18,4 @@ npm-debug.log*
 *.tsbuildinfo
 .DS_Store
 Thumbs.db
+apps/pas-de-geant/public/data/amazon-forest-poc/

@@ -368,6 +368,8 @@ describe("Pas de Géant Realtime voice agent", () => {
               group?: { enum?: string[] };
               action?: { enum?: string[] };
               journey?: { enum?: string[] };
+              year?: { type?: string };
+              visible?: { type?: string };
               time?: { type?: string; minimum?: number };
               scale_denominator?: { type?: string; exclusiveMinimum?: number };
               display_radius_metres?: unknown;
@@ -398,6 +400,8 @@ describe("Pas de Géant Realtime voice agent", () => {
       "get_view_direction",
       "set_view_direction",
       "set_satellite_group_visibility",
+      "get_amazon_forest_outlines",
+      "set_amazon_forest_outline_visibility",
       "get_celestial_visibility",
       "set_celestial_visibility",
       "search_wikipedia",
@@ -480,6 +484,9 @@ describe("Pas de Géant Realtime voice agent", () => {
     );
     expect(configuration.session.instructions).toContain(
       "These are three independent groups",
+    );
+    expect(configuration.session.instructions).toContain(
+      "Multiple years may be visible together",
     );
     expect(configuration.session.instructions).toContain(
       "set_celestial_visibility to show or hide the Sun, Moon",
@@ -569,6 +576,11 @@ describe("Pas de Géant Realtime voice agent", () => {
       "space_stations",
       "science_education",
     ]);
+    const forestOutlineTool = configuration.session.tools.find(
+      ({ name }) => name === "set_amazon_forest_outline_visibility",
+    );
+    expect(forestOutlineTool?.parameters.required).toEqual(["year", "visible"]);
+    expect(forestOutlineTool?.parameters.properties?.year?.type).toBe("integer");
     const celestialTool = configuration.session.tools.find(
       ({ name }) => name === "set_celestial_visibility",
     );

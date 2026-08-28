@@ -65,6 +65,10 @@ const initialControls: SupervisionControlState = {
     space_stations: false,
     science_education: true,
   },
+  amazonForestOutlines: {
+    availableYears: [1986, 2023],
+    visibleYears: [1986],
+  },
   clock: {
     atUtc: "2026-08-27T20:00:00.000Z",
     anchorWallUtc: "2026-08-27T20:00:00.000Z",
@@ -259,6 +263,20 @@ describe("supervision protocol", () => {
       enabled: true,
     })).toThrow(/satellite group/i);
     expect(parseSupervisionCommand({
+      kind: "setAmazonForestYearVisibility",
+      year: 2023,
+      visible: true,
+    })).toEqual({
+      kind: "setAmazonForestYearVisibility",
+      year: 2023,
+      visible: true,
+    });
+    expect(() => parseSupervisionCommand({
+      kind: "setAmazonForestYearVisibility",
+      year: 2023.5,
+      visible: true,
+    })).toThrow(/integer/i);
+    expect(parseSupervisionCommand({
       kind: "setSimulationClock",
       mode: "realtime",
     })).toEqual({ kind: "setSimulationClock", mode: "realtime" });
@@ -383,6 +401,17 @@ describe("supervision protocol", () => {
       state: { ...stellarState, stellar: null },
       controls: initialControls,
     }))).toThrow(/stellar telemetry/i);
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: initialState,
+      controls: {
+        ...initialControls,
+        amazonForestOutlines: {
+          availableYears: [1986],
+          visibleYears: [2023],
+        },
+      },
+    }))).toThrow(/must be available/i);
   });
 
   it("validates live world and active observatory eclipse telemetry", () => {

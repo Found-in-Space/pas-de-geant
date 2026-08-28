@@ -18,6 +18,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspace @found-in-space/pas-de-geant",
+    "amazon:outlines": "node scripts/build-amazon-forest-outlines.mjs",
     "check": "npm run typecheck",
     "dev": "npm run dev --workspace @found-in-space/pas-de-geant --",
     "quest:debug": "node scripts/quest-debug.mjs",

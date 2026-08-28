@@ -125,7 +125,7 @@
                       </label>
                       <div class="input-action ratio-input">
                         <span class="ratio-prefix">1 :</span>
-                        <input id="scale-denominator" type="number" min="0" step="any" required>
+                        <input id="scale-denominator" type="number" min="1" step="1" required>
                         <button id="scale-button" class="compact-button" type="submit" aria-label="Apply scale">Go</button>
                       </div>
                     </form>
@@ -209,7 +209,19 @@
                       <input id="satellite-science-control" type="checkbox">
                     </label>
                   </div>
-                  </section>
+                </section>
+
+                <section class="command-card" aria-labelledby="forest-outline-heading">
+                  <div class="command-title">
+                    <div>
+                      <p class="eyebrow">Historical layers</p>
+                      <h3 id="forest-outline-heading">Amazon forest outlines</h3>
+                    </div>
+                  </div>
+                  <div id="amazon-forest-controls" class="tracking-control-list">
+                    <p class="tracking-control-empty">Waiting for available years</p>
+                  </div>
+                </section>
 
                   <section id="world-eclipse-card" class="command-card world-eclipse-card" aria-labelledby="world-eclipse-heading" hidden>
                   <div class="command-title">
@@ -272,9 +284,9 @@
                     </div>
 
                     <button id="world-eclipse-return-live-button" class="secondary-button" type="button">Return to live time</button>
-                  </div>
-                  </section>
-                </div>
+                   </div>
+                   </section>
+                 </div>
               </aside>
             </div>
           </div>

@@ -55,11 +55,19 @@ export function scaleDenominatorAfterInput(
 }
 
 const SCALE_NUMBER_FORMAT = new Intl.NumberFormat("en-GB", {
-  maximumFractionDigits: 3,
+  maximumFractionDigits: 0,
 });
+
+/** Displays scale in decade-sensitive steps, with a minimum step of one. */
+export function scaleDenominatorForDisplay(scaleDenominator: number): number {
+  const denominator = validScaleDenominator(scaleDenominator);
+  return denominator < 100
+    ? Math.round(denominator)
+    : Number(denominator.toPrecision(2));
+}
 
 export function formatScaleRatio(scaleDenominator: number): string {
   return `1 : ${SCALE_NUMBER_FORMAT.format(
-    validScaleDenominator(scaleDenominator),
+    scaleDenominatorForDisplay(scaleDenominator),
   )}`;
 }
