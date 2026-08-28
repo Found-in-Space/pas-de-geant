@@ -36,6 +36,7 @@ import {
   createTileDebugControls,
   DEFAULT_TERRAIN_SCREEN_PIXELS_PER_SOURCE_PIXEL,
   tileDebugControlsReadback,
+  tileTopologySelectionChanged,
   withTileMaxZoom,
   withTilePixelRatio,
   withTileRecalculation,
@@ -49,9 +50,6 @@ import {
   TileHorizonCulling,
   type TileHorizonView,
 } from "./tile-horizon-culling.js";
-import {
-  EARTH_MEAN_RADIUS_KM,
-} from "./planet-state.js";
 import {
   normalizeTerrainLodOptions,
   terrainSegmentsForZoom,
@@ -229,47 +227,32 @@ function sampleEncodedElevationMetres(
   return THREE.MathUtils.lerp(northElevation, southElevation, amountY);
 }
 
-/**
- * Converts headset-space eye height to physical height for a uniformly scaled
- * globe. Terrain displacement is deliberately absent from this calculation.
- */
-export function flatSurfaceObserverHeightMetres(
-  observerHeightWorldM: number,
-  displayRadiusM: number,
-  referenceRadiusM = EARTH_MEAN_RADIUS_KM * 1_000,
-): number {
-  return (observerHeightWorldM * referenceRadiusM) / displayRadiusM;
-}
-
 export function terrainTargetForView(
   view: TerrainSurfaceView,
   tilePixels: number,
   options: {
     readonly targetScreenPixelsPerSourcePixel?: number;
     readonly maxTopologyZoom?: number | null;
-    readonly referenceRadiusM?: number;
     readonly projection?: "web-mercator" | "geographic";
+    readonly previousZoom?: number;
+    readonly coarsenHysteresisWorldM?: number;
   } = {},
 ): TileLayoutTarget {
   const selectedZoom = observerTileZoom({
-    observerHeightMeters: flatSurfaceObserverHeightMetres(
-      view.observerHeightWorldM,
-      view.displayRadiusM,
-      options.referenceRadiusM,
-    ),
+    observerHeightWorldM: view.observerHeightWorldM,
+    displayRadiusM: view.displayRadiusM,
     latitudeDegrees: view.latitudeDegrees,
     projectedFocalLengthPixels: view.focalLengthPixels,
     tilePixels,
     targetScreenPixelsPerSourcePixel:
       options.targetScreenPixelsPerSourcePixel ??
       TERRAIN_TARGET_SCREEN_PIXELS_PER_ELEVATION_PIXEL,
+    previousZoom: options.previousZoom,
+    maximumZoom: options.maxTopologyZoom,
+    coarsenHysteresisWorldM: options.coarsenHysteresisWorldM,
   }).zoom;
-  const zoom = options.maxTopologyZoom === undefined ||
-      options.maxTopologyZoom === null
-    ? selectedZoom
-    : Math.min(selectedZoom, Math.max(0, Math.floor(options.maxTopologyZoom)));
   return normalizeTileLayoutTarget({
-    maxZoom: zoom,
+    maxZoom: selectedZoom,
     latitudeDegrees: view.latitudeDegrees,
     longitudeDegrees: view.longitudeDegrees,
     projection: options.projection,
@@ -636,6 +619,7 @@ export class TerrainSurface {
   private readonly unsubscribe: () => void;
   private snapshot: SchedulerSnapshot<TileLayoutTarget>;
   private currentTarget: TileLayoutTarget;
+  private desiredZoom: number | undefined;
   private readonly horizonCulling = new TileHorizonCulling();
   private horizonView: TileHorizonView;
   private debugControls: TileDebugControls = createTileDebugControls();
@@ -696,10 +680,10 @@ export class TerrainSurface {
         targetScreenPixelsPerSourcePixel:
           this.debugControls.terrain.screenPixelsPerSourcePixel,
         maxTopologyZoom: this.debugControls.terrain.maxZoom,
-        referenceRadiusM: this.surfaceModel.referenceRadiusM,
         projection: this.surfaceModel.projection,
       },
     );
+    this.desiredZoom = this.currentTarget.maxZoom;
     this.horizonView = {
       ...initialView,
       projection: this.surfaceModel.projection,
@@ -796,9 +780,10 @@ export class TerrainSurface {
       targetScreenPixelsPerSourcePixel:
         this.debugControls.terrain.screenPixelsPerSourcePixel,
       maxTopologyZoom: this.debugControls.terrain.maxZoom,
-      referenceRadiusM: this.surfaceModel.referenceRadiusM,
       projection: this.surfaceModel.projection,
+      previousZoom: this.desiredZoom,
     });
+    this.desiredZoom = target.maxZoom;
     if (this.scheduler.updateTarget(target)) {
       this.currentTarget = target;
     }
@@ -1056,6 +1041,12 @@ export class TerrainSurface {
   private setDebugControls(
     controls: TileDebugControls,
   ): TileDebugControlsReadback {
+    if (
+      tileTopologySelectionChanged(
+        this.debugControls.terrain,
+        controls.terrain,
+      )
+    ) this.desiredZoom = undefined;
     this.debugControls = controls;
     this.imagery.setDebugControls(controls.textures);
     this.update(this.latestView);

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  flatSurfaceObserverHeightMetres,
   imageryUvForGeographicPoint,
   sampleTerrariumElevationMetres,
   sourceUvForTilePoint,
@@ -42,15 +41,6 @@ describe("Terrain surface composition", () => {
     );
   });
 
-  it("derives physical observer height only from flat-surface scale", () => {
-    const first = flatSurfaceObserverHeightMetres(1.65, 64);
-    const sameScaleRatio = flatSurfaceObserverHeightMetres(3.3, 128);
-    const higherObserver = flatSurfaceObserverHeightMetres(3.3, 64);
-
-    expect(sameScaleRatio).toBeCloseTo(first, 12);
-    expect(higherObserver).toBeCloseTo(first * 2, 12);
-  });
-
   it("keeps orbit topology scale-invariant while refining beyond source zoom", () => {
     const referenceRadiusM = EARTH_SURFACE_MODEL.referenceRadiusM;
     const targetAt = (physicalAltitudeM: number, scaleDenominator: number) =>
@@ -61,9 +51,7 @@ describe("Terrain surface composition", () => {
         terrainMultiplier: 1,
         observerHeightWorldM: physicalAltitudeM / scaleDenominator,
         focalLengthPixels: 1_000,
-      }, EARTH_SURFACE_MODEL.elevationMetadata.tilePixels, {
-        referenceRadiusM,
-      });
+      }, EARTH_SURFACE_MODEL.elevationMetadata.tilePixels);
 
     const tenKilometres = targetAt(10_000, 60_000);
     expect(targetAt(10_000, 120_000).maxZoom).toBe(
@@ -84,6 +72,32 @@ describe("Terrain surface composition", () => {
       { z: closeOrbitZoom },
       maximumElevationSourceZoom,
     )).toBe(maximumElevationSourceZoom);
+  });
+
+  it("selects terrain from displayed body size rather than an Earth radius", () => {
+    const scaleDenominator = 60_000;
+    const shared = {
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+      terrainMultiplier: 1,
+      observerHeightWorldM: 1.65,
+      focalLengthPixels: 1_000,
+    };
+    const earth = terrainTargetForView({
+      ...shared,
+      displayRadiusM:
+        EARTH_SURFACE_MODEL.referenceRadiusM / scaleDenominator,
+    }, EARTH_SURFACE_MODEL.elevationMetadata.tilePixels);
+    const moon = terrainTargetForView({
+      ...shared,
+      displayRadiusM:
+        MOON_SURFACE_MODEL.referenceRadiusM / scaleDenominator,
+      projection: "geographic",
+    }, MOON_SURFACE_MODEL.elevationMetadata.tilePixels, {
+      projection: "geographic",
+    });
+
+    expect(moon.maxZoom).toBeLessThan(earth.maxZoom);
   });
 
   it("maps photographic pages in Web Mercator rather than equirectangular latitude", () => {

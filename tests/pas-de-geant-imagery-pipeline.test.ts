@@ -944,6 +944,43 @@ describe("independent photographic imagery pipeline", () => {
     expect(halfMetre).toBe(oneMetre + 1);
   });
 
+  it("retains refined imagery for twenty centimetres of upward head movement", () => {
+    const boundaryHeightWorldM = 1;
+    const lowerZoom = 8;
+    const common = {
+      displayRadiusM:
+        boundaryHeightWorldM * 2 ** (lowerZoom + 0.5) / (2 * Math.PI),
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+      focalLengthPixels: 512,
+      minZoom: 0,
+      maxZoom: 22,
+      tilePixels: 512,
+    };
+    const coarse = selectImageryZoom({
+      ...common,
+      observerHeightWorldM: boundaryHeightWorldM + 0.01,
+    });
+    const refined = selectImageryZoom({
+      ...common,
+      observerHeightWorldM: boundaryHeightWorldM - 0.01,
+      previousZoom: coarse,
+    });
+
+    expect(coarse).toBe(lowerZoom);
+    expect(refined).toBe(lowerZoom + 1);
+    expect(selectImageryZoom({
+      ...common,
+      observerHeightWorldM: boundaryHeightWorldM + 0.199,
+      previousZoom: refined,
+    })).toBe(refined);
+    expect(selectImageryZoom({
+      ...common,
+      observerHeightWorldM: boundaryHeightWorldM + 0.201,
+      previousZoom: refined,
+    })).toBe(lowerZoom);
+  });
+
   it("coarsens one topology zoom when the requested screen-pixel ratio doubles", () => {
     const common = {
       displayRadiusM: 1_000,

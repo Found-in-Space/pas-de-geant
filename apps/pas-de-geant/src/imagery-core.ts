@@ -1,5 +1,8 @@
 import type { TileIdentity } from "./tile-transition-planner.js";
 import type { TileProjection } from "./tile-onion-core.js";
+import {
+  selectZoomWithVerticalHysteresis,
+} from "./observer-tile-zoom.js";
 
 export const IMAGERY_TARGET_METRES_PER_TEXEL = 0.0025;
 export const IMAGERY_REFERENCE_TILE_PIXELS = 512;
@@ -91,32 +94,44 @@ export function selectImageryZoom(options: ImageryZoomOptions): number {
   const minZoom = Math.max(0, Math.floor(options.minZoom));
   const targetScreenPixelsPerSourcePixel =
     options.targetScreenPixelsPerSourcePixel ?? 1;
+  const renderedWidthAtZoomZero = renderedImageryTileWidthM(
+    options.latitudeDegrees,
+    options.displayRadiusM,
+    0,
+  );
   const nativeDensityTargetWidth =
     Math.max(1, options.tilePixels) * IMAGERY_TARGET_METRES_PER_TEXEL *
     targetScreenPixelsPerSourcePixel;
-  const projectedTargetWidth =
+  if (
     options.observerHeightWorldM !== undefined &&
-      options.focalLengthPixels !== undefined
-      ? Math.max(1, options.tilePixels) * options.observerHeightWorldM *
-        targetScreenPixelsPerSourcePixel / options.focalLengthPixels
-      : Number.POSITIVE_INFINITY;
-  // Preserve the native-detail floor used at global scale, but let perspective
-  // demand finer source pixels as the eye approaches its sub-point.
-  const targetWidth = Math.min(
-    nativeDensityTargetWidth,
-    projectedTargetWidth,
-  );
+    options.focalLengthPixels !== undefined
+  ) {
+    const projectedTargetWidth = Math.max(1, options.tilePixels) *
+      options.observerHeightWorldM * targetScreenPixelsPerSourcePixel /
+      options.focalLengthPixels;
+    return selectZoomWithVerticalHysteresis({
+      continuousZoom: Math.log2(
+        renderedWidthAtZoomZero / projectedTargetWidth,
+      ),
+      minimumContinuousZoom: Math.log2(
+        renderedWidthAtZoomZero / nativeDensityTargetWidth,
+      ),
+      observerHeightWorldM: options.observerHeightWorldM,
+      previousZoom: options.previousZoom,
+      minimumZoom: minZoom,
+      maximumZoom: options.maxTopologyZoom,
+    });
+  }
+
+  // Callers without a room-space eye height retain the native-density selector.
+  const targetWidth = nativeDensityTargetWidth;
   let zoom =
     options.previousZoom === undefined
       ? Math.max(
           minZoom,
           Math.round(
             Math.log2(
-              renderedImageryTileWidthM(
-                options.latitudeDegrees,
-                options.displayRadiusM,
-                0,
-              ) / targetWidth,
+              renderedWidthAtZoomZero / targetWidth,
             ),
           ),
         )
