@@ -58,12 +58,12 @@ const SCALE_NUMBER_FORMAT = new Intl.NumberFormat("en-GB", {
   maximumFractionDigits: 0,
 });
 
-/** Keeps human-scale ratios exact while simplifying large planetary ratios. */
+/** Displays scale in decade-sensitive steps, with a minimum step of one. */
 export function scaleDenominatorForDisplay(scaleDenominator: number): number {
   const denominator = validScaleDenominator(scaleDenominator);
-  return denominator < 1_000
+  return denominator < 100
     ? Math.round(denominator)
-    : Number(denominator.toPrecision(1));
+    : Number(denominator.toPrecision(2));
 }
 
 export function formatScaleRatio(scaleDenominator: number): string {

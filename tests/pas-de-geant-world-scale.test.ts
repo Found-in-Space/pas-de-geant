@@ -95,11 +95,21 @@ describe("universal 1:N world scale", () => {
   });
 
   it("formats the only user-facing scale representation consistently", () => {
+    expect(formatScaleRatio(120_000)).toBe("1 : 120,000");
+    expect(formatScaleRatio(110_000)).toBe("1 : 110,000");
+    expect(formatScaleRatio(20_000)).toBe("1 : 20,000");
+    expect(formatScaleRatio(19_000)).toBe("1 : 19,000");
+    expect(formatScaleRatio(2_000)).toBe("1 : 2,000");
+    expect(formatScaleRatio(1_900)).toBe("1 : 1,900");
+    expect(formatScaleRatio(200)).toBe("1 : 200");
+    expect(formatScaleRatio(190)).toBe("1 : 190");
+    expect(formatScaleRatio(20)).toBe("1 : 20");
+    expect(formatScaleRatio(19)).toBe("1 : 19");
     expect(formatScaleRatio(150)).toBe("1 : 150");
-    expect(formatScaleRatio(9_200)).toBe("1 : 9,000");
-    expect(formatScaleRatio(42_473)).toBe("1 : 40,000");
+    expect(formatScaleRatio(9_200)).toBe("1 : 9,200");
+    expect(formatScaleRatio(42_473)).toBe("1 : 42,000");
     expect(formatScaleRatio(60_000)).toBe("1 : 60,000");
-    expect(formatScaleRatio(8_494_678.4)).toBe("1 : 8,000,000");
+    expect(formatScaleRatio(8_494_678.4)).toBe("1 : 8,500,000");
     expect(formatScaleRatio(12.567)).toBe("1 : 13");
   });
 
