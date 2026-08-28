@@ -32,6 +32,27 @@ const CONTEXT: EarthToGaiaTimelineContext = {
   destinationDirectionJ2000: { x: 0, y: 0, z: -1 },
 };
 
+function smoothstep(progress: number): number {
+  return progress * progress * (3 - 2 * progress);
+}
+
+function inverseSmoothstep(progress: number): number {
+  let lower = 0;
+  let upper = 1;
+  for (let iteration = 0; iteration < 52; iteration += 1) {
+    const midpoint = (lower + upper) / 2;
+    if (smoothstep(midpoint) < progress) lower = midpoint;
+    else upper = midpoint;
+  }
+  return (lower + upper) / 2;
+}
+
+function logarithmicValue(from: number, to: number, progress: number): number {
+  return Math.exp(
+    Math.log(from) + (Math.log(to) - Math.log(from)) * progress,
+  );
+}
+
 describe("Earth-to-Gaia timeline", () => {
   it("rebases immediately into free space and reaches the exact stellar endpoint", () => {
     expect(sampleEarthToGaiaTimeline(0, CONTEXT)).toMatchObject({
@@ -86,16 +107,6 @@ describe("Earth-to-Gaia timeline", () => {
       previousScale = sample.scaleDenominator;
       previousEarthDistance = earthDistance;
     }
-    const midpoint = sampleEarthToGaiaTimeline(
-      EARTH_TO_GAIA_DURATION_MS / 2,
-      CONTEXT,
-    );
-    expect(midpoint.scaleDenominator).toBeCloseTo(
-      Math.sqrt(
-        CONTEXT.startScaleDenominator * STELLAR_SCALE_DENOMINATOR,
-      ),
-      6,
-    );
     const startEarthDistance = Math.hypot(
       CONTEXT.startObserverJ2000Pc.x - CONTEXT.earthCenterJ2000Pc.x,
       CONTEXT.startObserverJ2000Pc.y - CONTEXT.earthCenterJ2000Pc.y,
@@ -106,14 +117,64 @@ describe("Earth-to-Gaia timeline", () => {
       CONTEXT.earthCenterJ2000Pc.y,
       -STELLAR_SUN_DISTANCE_PC - CONTEXT.earthCenterJ2000Pc.z,
     );
+    const preservedElapsedMs = 20_000;
+    const preservedProgress = smoothstep(
+      preservedElapsedMs / 45_000,
+    );
+    const preserved = sampleEarthToGaiaTimeline(preservedElapsedMs, CONTEXT);
+    expect(preserved.scaleDenominator).toBeCloseTo(
+      logarithmicValue(
+        CONTEXT.startScaleDenominator,
+        STELLAR_SCALE_DENOMINATOR,
+        preservedProgress,
+      ),
+      6,
+    );
     expect(Math.hypot(
-      midpoint.observerJ2000Pc.x - CONTEXT.earthCenterJ2000Pc.x,
-      midpoint.observerJ2000Pc.y - CONTEXT.earthCenterJ2000Pc.y,
-      midpoint.observerJ2000Pc.z - CONTEXT.earthCenterJ2000Pc.z,
+      preserved.observerJ2000Pc.x - CONTEXT.earthCenterJ2000Pc.x,
+      preserved.observerJ2000Pc.y - CONTEXT.earthCenterJ2000Pc.y,
+      preserved.observerJ2000Pc.z - CONTEXT.earthCenterJ2000Pc.z,
     )).toBeCloseTo(
-      Math.sqrt(startEarthDistance * finalEarthDistance),
+      logarithmicValue(
+        startEarthDistance,
+        finalEarthDistance,
+        preservedProgress,
+      ),
       12,
     );
+  });
+
+  it("matches velocity where the preserved departure joins the faster tail", () => {
+    const earthFadeScaleDenominator = 6_371_008.8 * 2 /
+      BODY_FADE_END_DIAMETER_M;
+    const handoffProgress = Math.log(
+      earthFadeScaleDenominator / CONTEXT.startScaleDenominator,
+    ) / Math.log(
+      STELLAR_SCALE_DENOMINATOR / CONTEXT.startScaleDenominator,
+    );
+    const handoffElapsedMs = inverseSmoothstep(handoffProgress) * 45_000;
+    const stepMs = 1;
+    const transformProgressAt = (elapsedMs: number): number =>
+      Math.log(
+        sampleEarthToGaiaTimeline(elapsedMs, CONTEXT).scaleDenominator /
+          CONTEXT.startScaleDenominator,
+      ) / Math.log(
+        STELLAR_SCALE_DENOMINATOR / CONTEXT.startScaleDenominator,
+      );
+    const atHandoff = sampleEarthToGaiaTimeline(handoffElapsedMs, CONTEXT);
+    const leftVelocity = (
+      transformProgressAt(handoffElapsedMs) -
+      transformProgressAt(handoffElapsedMs - stepMs)
+    ) / stepMs;
+    const rightVelocity = (
+      transformProgressAt(handoffElapsedMs + stepMs) -
+      transformProgressAt(handoffElapsedMs)
+    ) / stepMs;
+
+    expect(handoffElapsedMs).toBeCloseTo(20_368.626, 3);
+    expect(atHandoff.scaleDenominator)
+      .toBeCloseTo(earthFadeScaleDenominator, 4);
+    expect(rightVelocity).toBeCloseTo(leftVelocity, 8);
   });
 
   it("never scales beyond one rendered metre per parsec", () => {
@@ -139,7 +200,7 @@ describe("Earth-to-Gaia timeline", () => {
       syntheticSunOpacity: 0,
       roomTranslationBlend: 0,
     });
-    const transition = sampleEarthToGaiaTimeline(40_000, CONTEXT);
+    const transition = sampleEarthToGaiaTimeline(32_000, CONTEXT);
     expect(transition.physicalSunOpacity).toBeGreaterThan(0);
     expect(transition.physicalSunOpacity).toBeLessThan(1);
     expect(transition.syntheticSunOpacity).toBeGreaterThan(0);

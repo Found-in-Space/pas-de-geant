@@ -178,7 +178,7 @@ export function realtimeSessionConfiguration(
           type: "function",
           name: "start_journey",
           description:
-            "Start or restart the deterministic 45-second Earth-to-Gaia visual preset. The headset owns its timing; do not narrate it.",
+            "Start or restart the deterministic 35-second Earth-to-Gaia visual preset. The headset owns its timing; do not narrate it.",
           parameters: {
             type: "object",
             properties: {

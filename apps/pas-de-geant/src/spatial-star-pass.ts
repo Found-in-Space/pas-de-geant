@@ -107,7 +107,27 @@ export class SpatialStarPass {
     this.unsubscribe = this.session.subscribe((delta) => {
       if (this.disposed) return;
       if (delta.type === "stars/cells-upsert") {
-        for (const cell of delta.cells) this.liveCells.set(cell.cellKey, cell);
+        const filteredCells: StarCellData[] = [];
+        const emptiedCellKeys: StarCellData["cellKey"][] = [];
+        for (const cell of delta.cells) {
+          const filtered = filterCatalogOriginStar(cell);
+          if (filtered) {
+            this.liveCells.set(filtered.cellKey, filtered);
+            filteredCells.push(filtered);
+          } else {
+            this.liveCells.delete(cell.cellKey);
+            emptiedCellKeys.push(cell.cellKey);
+          }
+        }
+        this.catalogField.apply({ ...delta, cells: filteredCells });
+        if (emptiedCellKeys.length > 0) {
+          this.catalogField.apply({
+            type: "stars/cells-remove",
+            providerId: delta.providerId,
+            cellKeys: emptiedCellKeys,
+            reason: "pas-de-geant.application-owned-sun",
+          });
+        }
       } else if (delta.type === "stars/cells-remove") {
         for (const cellKey of delta.cellKeys) this.liveCells.delete(cellKey);
       }
@@ -122,7 +142,7 @@ export class SpatialStarPass {
           this.catalogField.setCells(this.lastValidCells.values());
         }
       }
-      this.catalogField.apply(delta);
+      if (delta.type !== "stars/cells-upsert") this.catalogField.apply(delta);
       if (delta.type === "stars/current") {
         if (delta.starCount > 0 && this.liveCells.size > 0) {
           this.lastValidCells = new Map(this.liveCells);
@@ -327,6 +347,61 @@ export class SpatialStarPass {
       if (pendingCurrent) acceptCurrent(pendingCurrent);
     });
   }
+}
+
+/** Removes the application-owned heliocentric origin from catalogue cells. */
+export function filterCatalogOriginStar(
+  cell: StarCellData,
+): StarCellData | null {
+  const positions = cell.coordinates.components;
+  const retainedOrdinals: number[] = [];
+  for (let ordinal = 0; ordinal < cell.count; ordinal += 1) {
+    const offset = ordinal * 3;
+    if (
+      positions[offset] === 0 &&
+      positions[offset + 1] === 0 &&
+      positions[offset + 2] === 0
+    ) continue;
+    retainedOrdinals.push(ordinal);
+  }
+  if (retainedOrdinals.length === cell.count) return cell;
+  if (retainedOrdinals.length === 0) return null;
+
+  const coordinates = new Float32Array(retainedOrdinals.length * 3);
+  const magAbs = cell.attributes.magAbs
+    ? new Float32Array(retainedOrdinals.length)
+    : undefined;
+  const teffLog8 = cell.attributes.teffLog8
+    ? new Uint8Array(retainedOrdinals.length)
+    : undefined;
+  const refs: StarCellData["refs"] = cell.refs ? [] : undefined;
+  const pickMeta: StarCellData["pickMeta"] = cell.pickMeta ? [] : undefined;
+  for (let targetOrdinal = 0; targetOrdinal < retainedOrdinals.length;
+    targetOrdinal += 1) {
+    const sourceOrdinal = retainedOrdinals[targetOrdinal]!;
+    const sourceOffset = sourceOrdinal * 3;
+    const targetOffset = targetOrdinal * 3;
+    coordinates[targetOffset] = positions[sourceOffset]!;
+    coordinates[targetOffset + 1] = positions[sourceOffset + 1]!;
+    coordinates[targetOffset + 2] = positions[sourceOffset + 2]!;
+    if (magAbs) magAbs[targetOrdinal] = cell.attributes.magAbs![sourceOrdinal]!;
+    if (teffLog8) {
+      teffLog8[targetOrdinal] = cell.attributes.teffLog8![sourceOrdinal]!;
+    }
+    if (refs) refs.push(cell.refs![sourceOrdinal]!);
+    if (pickMeta) pickMeta.push(cell.pickMeta![sourceOrdinal]!);
+  }
+  return {
+    ...cell,
+    count: retainedOrdinals.length,
+    coordinates: { ...cell.coordinates, components: coordinates },
+    attributes: {
+      ...(magAbs ? { magAbs } : {}),
+      ...(teffLog8 ? { teffLog8 } : {}),
+    },
+    ...(refs ? { refs } : {}),
+    ...(pickMeta ? { pickMeta } : {}),
+  };
 }
 
 function createProjectionMaterial(): ProjectionMaterial {

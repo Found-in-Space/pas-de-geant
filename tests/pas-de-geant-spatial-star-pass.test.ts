@@ -6,6 +6,7 @@ import type {
   StarOctreeProviderSession,
 } from "@found-in-space/star-octree-provider";
 import {
+  filterCatalogOriginStar,
   SpatialStarPass,
   SPATIAL_STAR_EXPOSURE,
   SPATIAL_STAR_LIMITING_MAGNITUDE,
@@ -36,7 +37,46 @@ function starCell(): StarCellData {
   };
 }
 
-function fakeProvider(options: { empty?: boolean } = {}) {
+function mixedOriginCell(): StarCellData {
+  return {
+    ...starCell(),
+    count: 3,
+    coordinates: {
+      ...starCell().coordinates,
+      components: new Float32Array([
+        0, 0, 0,
+        2, 3, 4,
+        -5, 6, 7,
+      ]),
+    },
+    attributes: {
+      magAbs: new Float32Array([4.83, 1.25, 2.5]),
+      teffLog8: new Uint8Array([180, 210, 230]),
+    },
+    refs: [0, 1, 2].map((ordinal) => ({
+      datasetId: "test",
+      level: 0,
+      mortonCode: "test",
+      ordinal,
+    })),
+    pickMeta: [0, 1, 2].map((ordinal) => ({
+      cellKey: "0:test" as const,
+      level: 0,
+      mortonCode: "test",
+      ordinal,
+      gridX: 0,
+      gridY: 0,
+      gridZ: 0,
+      centerX: 0,
+      centerY: 0,
+      centerZ: 0,
+    })),
+  };
+}
+
+function fakeProvider(
+  options: { empty?: boolean; cell?: StarCellData } = {},
+) {
   const listeners = new Set<(delta: StarCellDelta) => void>();
   const views: unknown[] = [];
   const warmups: unknown[] = [];
@@ -55,7 +95,7 @@ function fakeProvider(options: { empty?: boolean } = {}) {
           const upsert: StarCellDelta = {
             type: "stars/cells-upsert",
             providerId: "test",
-            cells: [starCell()],
+            cells: [options.cell ?? starCell()],
           };
           for (const listener of listeners) listener(upsert);
         }
@@ -64,7 +104,7 @@ function fakeProvider(options: { empty?: boolean } = {}) {
         type: "stars/current",
         providerId: "test",
         cellKeys: options.empty ? [] : ["0:test"],
-        starCount: options.empty ? 0 : 1,
+        starCount: options.empty ? 0 : options.cell?.count ?? 1,
         viewRevision,
       };
       for (const listener of listeners) listener(current);
@@ -91,6 +131,86 @@ function fakeProvider(options: { empty?: boolean } = {}) {
 }
 
 describe("SpatialStarPass", () => {
+  it("removes only the exact-origin Sun while preserving aligned star data", () => {
+    const source = mixedOriginCell();
+    const filtered = filterCatalogOriginStar(source);
+    expect(filtered).not.toBeNull();
+    expect(filtered!.count).toBe(2);
+    expect(Array.from(filtered!.coordinates.components)).toEqual([
+      2, 3, 4,
+      -5, 6, 7,
+    ]);
+    expect(Array.from(filtered!.attributes.magAbs!)).toEqual([1.25, 2.5]);
+    expect(Array.from(filtered!.attributes.teffLog8!)).toEqual([210, 230]);
+    expect(filtered!.refs?.map(({ ordinal }) => ordinal)).toEqual([1, 2]);
+    expect(filtered!.pickMeta?.map(({ ordinal }) => ordinal)).toEqual([1, 2]);
+    const sunFree = starCell();
+    expect(filterCatalogOriginStar(sunFree)).toBe(sunFree);
+    expect(filterCatalogOriginStar({
+      ...source,
+      count: 1,
+      coordinates: {
+        ...source.coordinates,
+        components: new Float32Array([0, 0, 0]),
+      },
+      attributes: {
+        magAbs: new Float32Array([4.83]),
+        teffLog8: new Uint8Array([180]),
+      },
+      refs: source.refs?.slice(0, 1),
+      pickMeta: source.pickMeta?.slice(0, 1),
+    })).toBeNull();
+  });
+
+  it("renders one application-owned origin Sun with distinct observer ownership", async () => {
+    const fake = fakeProvider({ cell: mixedOriginCell() });
+    const pass = new SpatialStarPass({ provider: fake.provider });
+    await pass.load({ x: 0.0000048, y: 0, z: 0 });
+    pass.setView({
+      observerJ2000Pc: { x: 0.0000048, y: 0, z: 0 },
+      sunObserverJ2000Pc: { x: 0, y: 0, z: 1 },
+      j2000ToWorld: new THREE.Quaternion(),
+      trackingAnchorWorld: new THREE.Vector3(),
+      parallaxBlend: 1,
+      sunOpacity: 1,
+    });
+
+    const cataloguePoints = pass.scene
+      .getObjectByName("pas-de-geant-spatial-stars:points") as THREE.Points;
+    const sunPoints = pass.scene
+      .getObjectByName("pas-de-geant-stellar-sun:points") as THREE.Points;
+    expect(Array.from(
+      cataloguePoints.geometry.getAttribute("position").array,
+    )).toEqual([2, 3, 4, -5, 6, 7]);
+    expect(Array.from(
+      sunPoints.geometry.getAttribute("position").array,
+    )).toEqual([0, 0, 0]);
+    expect(pass.getSnapshot().starCount).toBe(2);
+    expect(((cataloguePoints.material as THREE.ShaderMaterial)
+      .uniforms.uObserverPosition!.value as THREE.Vector3).toArray())
+      .toEqual([0.0000048, 0, 0]);
+    expect(((sunPoints.material as THREE.ShaderMaterial)
+      .uniforms.uObserverPosition!.value as THREE.Vector3).toArray())
+      .toEqual([0, 0, 1]);
+
+    const remove: StarCellDelta = {
+      type: "stars/cells-remove",
+      providerId: "test",
+      cellKeys: ["0:test"],
+    };
+    for (const listener of fake.listeners) listener(remove);
+    const error: StarCellDelta = {
+      type: "stars/error",
+      providerId: "test",
+      error: { message: "later network failure" },
+    };
+    for (const listener of fake.listeners) listener(error);
+    expect(Array.from(
+      cataloguePoints.geometry.getAttribute("position").array,
+    )).toEqual([2, 3, 4, -5, 6, 7]);
+    await pass.dispose();
+  });
+
   it("keeps one SkyKit XR profile from the Earth view through the stellar view", async () => {
     const fake = fakeProvider();
     const pass = new SpatialStarPass({ provider: fake.provider });

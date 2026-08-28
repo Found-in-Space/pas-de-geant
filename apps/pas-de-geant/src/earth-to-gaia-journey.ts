@@ -1,11 +1,13 @@
 export const EARTH_TO_GAIA_JOURNEY_ID = "earth_to_gaia" as const;
-export const EARTH_TO_GAIA_DURATION_MS = 45_000;
+export const EARTH_TO_GAIA_DURATION_MS = 35_000;
+const LEGACY_EARTH_TO_GAIA_DURATION_MS = 45_000;
 export const PARSEC_METRES = 3.085677581491367e16;
 export const STELLAR_METRES_PER_PARSEC = 1;
 export const STELLAR_SUN_DISTANCE_PC = 1;
 export const STELLAR_SCALE_DENOMINATOR =
   PARSEC_METRES / STELLAR_METRES_PER_PARSEC;
-export const WHOLE_EARTH_SCALE_DENOMINATOR = 6_371_008.8 / 0.4;
+const EARTH_REFERENCE_RADIUS_M = 6_371_008.8;
+export const WHOLE_EARTH_SCALE_DENOMINATOR = EARTH_REFERENCE_RADIUS_M / 0.4;
 export const BODY_FADE_START_DIAMETER_M = 0.006;
 export const BODY_FADE_END_DIAMETER_M = 0.002;
 
@@ -283,10 +285,9 @@ export function sampleEarthToGaiaTimeline(
 ): EarthToGaiaTimelineSample {
   const elapsed = clamp(elapsedMs, 0, EARTH_TO_GAIA_DURATION_MS);
   const progress = elapsed / EARTH_TO_GAIA_DURATION_MS;
-  const transformProgress = easedRange(
+  const transformProgress = journeyTransformProgress(
     elapsed,
-    0,
-    EARTH_TO_GAIA_DURATION_MS,
+    context.startScaleDenominator,
   );
   const solarOverviewScaleDenominator = Math.min(
     context.solarOverviewScaleDenominator,
@@ -322,6 +323,48 @@ export function sampleEarthToGaiaTimeline(
     physicalSunOpacity: 1 - stellarBlend,
     syntheticSunOpacity: stellarBlend,
   };
+}
+
+/**
+ * Keeps the established departure timing until Earth has completely faded,
+ * then compresses the otherwise empty stellar tail without a velocity jump.
+ */
+function journeyTransformProgress(
+  elapsedMs: number,
+  startScaleDenominator: number,
+): number {
+  const earthFadeScaleDenominator =
+    EARTH_REFERENCE_RADIUS_M * 2 / BODY_FADE_END_DIAMETER_M;
+  const handoffProgress = logarithmicProgress(
+    startScaleDenominator,
+    STELLAR_SCALE_DENOMINATOR,
+    earthFadeScaleDenominator,
+  );
+  const handoffLegacyFraction = inverseSmoothstep(handoffProgress);
+  const handoffElapsedMs =
+    handoffLegacyFraction * LEGACY_EARTH_TO_GAIA_DURATION_MS;
+  if (elapsedMs <= handoffElapsedMs) {
+    return smoothstep(
+      elapsedMs / LEGACY_EARTH_TO_GAIA_DURATION_MS,
+    );
+  }
+
+  const tailDurationMs = EARTH_TO_GAIA_DURATION_MS - handoffElapsedMs;
+  const tailProgress = clamp(
+    (elapsedMs - handoffElapsedMs) / tailDurationMs,
+    0,
+    1,
+  );
+  const incomingProgressPerMs = smoothstepDerivative(
+    handoffLegacyFraction,
+  ) / LEGACY_EARTH_TO_GAIA_DURATION_MS;
+  return cubicHermite(
+    handoffProgress,
+    1,
+    incomingProgressPerMs * tailDurationMs,
+    0,
+    tailProgress,
+  );
 }
 
 export function renderedBodyOpacity(renderedDiameterM: number): number {
@@ -471,9 +514,59 @@ function logarithmicMix(from: number, to: number, progress: number): number {
   return Math.exp(mix(Math.log(from), Math.log(to), t));
 }
 
+function logarithmicProgress(from: number, to: number, value: number): number {
+  if (!(from > 0 && to > 0 && value > 0)) {
+    throw new Error("Logarithmic journey values must be positive.");
+  }
+  if (from === to) return 0;
+  return clamp(
+    Math.log(value / from) / Math.log(to / from),
+    0,
+    1,
+  );
+}
+
 function easedRange(value: number, from: number, to: number): number {
   const progress = clamp((value - from) / (to - from), 0, 1);
-  return progress * progress * (3 - 2 * progress);
+  return smoothstep(progress);
+}
+
+function smoothstep(progress: number): number {
+  const value = clamp(progress, 0, 1);
+  return value * value * (3 - 2 * value);
+}
+
+function smoothstepDerivative(progress: number): number {
+  const value = clamp(progress, 0, 1);
+  return 6 * value * (1 - value);
+}
+
+function inverseSmoothstep(progress: number): number {
+  const target = clamp(progress, 0, 1);
+  let lower = 0;
+  let upper = 1;
+  for (let iteration = 0; iteration < 52; iteration += 1) {
+    const midpoint = (lower + upper) / 2;
+    if (smoothstep(midpoint) < target) lower = midpoint;
+    else upper = midpoint;
+  }
+  return (lower + upper) / 2;
+}
+
+function cubicHermite(
+  from: number,
+  to: number,
+  fromTangent: number,
+  toTangent: number,
+  progress: number,
+): number {
+  const t = clamp(progress, 0, 1);
+  const tSquared = t * t;
+  const tCubed = tSquared * t;
+  return (2 * tCubed - 3 * tSquared + 1) * from +
+    (tCubed - 2 * tSquared + t) * fromTangent +
+    (-2 * tCubed + 3 * tSquared) * to +
+    (tCubed - tSquared) * toTangent;
 }
 
 function mix(from: number, to: number, progress: number): number {

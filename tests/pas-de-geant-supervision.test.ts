@@ -497,9 +497,9 @@ describe("supervision protocol", () => {
       id: "earth_to_gaia" as const,
       status: "running" as const,
       phase: "interstellar" as const,
-      elapsedMs: 38_500,
-      durationMs: 45_000 as const,
-      progress: 38_500 / 45_000,
+      elapsedMs: 28_500,
+      durationMs: 35_000 as const,
+      progress: 28_500 / 35_000,
       error: null,
     };
     expect(parseSupervisionMessage(protocolMessage({
@@ -512,7 +512,7 @@ describe("supervision protocol", () => {
       state: initialState,
       controls: {
         ...initialControls,
-        journey: { ...journey, elapsedMs: 45_001 },
+        journey: { ...journey, elapsedMs: 35_001 },
       },
     }))).toThrow(/timing/i);
   });
