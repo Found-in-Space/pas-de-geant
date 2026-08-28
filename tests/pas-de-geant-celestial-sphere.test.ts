@@ -19,6 +19,7 @@ import {
   CELESTIAL_LIMITING_MAGNITUDE,
   CELESTIAL_PLANET_NAMES,
   CelestialSphere,
+  appEcefToRenderJ2000Quaternion,
   type CelestialBodyEphemeris,
   calculateCelestialBodyEphemeris,
   celestialToWorldQuaternion,
@@ -33,6 +34,12 @@ import {
   initialPlanetState,
   rollContactFrame,
 } from "../apps/pas-de-geant/src/planet-state.js";
+import {
+  bodyPositionJ2000M,
+} from "../apps/pas-de-geant/src/solar-system.js";
+import {
+  relativeJ2000MetresToRender,
+} from "../apps/pas-de-geant/src/world-navigation.js";
 
 describe("Pas de Géant celestial-sphere regressions", () => {
   it("shares one Three runtime with the star-field renderer", () => {
@@ -77,6 +84,64 @@ describe("Pas de Géant celestial-sphere regressions", () => {
         -expectedHorizontal.x,
       ).normalize();
       expect(actual.distanceTo(expectedWorld)).toBeLessThan(1e-10);
+    }
+  });
+
+  it("keeps the one physical Sun above the London horizon for the August eclipse", () => {
+    const latitude = 51.5074;
+    const longitude = -0.1278;
+    const earthToWorld = earthToWorldQuaternion(
+      contactFrame(latitude, longitude),
+    );
+
+    for (const [utc, expectedAltitudeDegrees] of [
+      ["2026-08-12T15:34:00.000Z", 34.76],
+      ["2026-08-12T17:47:00.000Z", 14.45],
+    ] as const) {
+      const at = new Date(utc);
+      const earth = bodyPositionJ2000M("earth", at);
+      const sun = bodyPositionJ2000M("sun", at);
+      const standardDirection = new THREE.Vector3(
+        sun.x - earth.x,
+        sun.y - earth.y,
+        sun.z - earth.z,
+      ).normalize();
+      const rendered = relativeJ2000MetresToRender({
+        x: sun.x - earth.x,
+        y: sun.y - earth.y,
+        z: sun.z - earth.z,
+      }, 1);
+      const systemFrame = earthToWorld.clone().multiply(
+        appEcefToRenderJ2000Quaternion(at).invert(),
+      );
+      const worldDirection = new THREE.Vector3(
+        rendered.x,
+        rendered.y,
+        rendered.z,
+      ).normalize().applyQuaternion(systemFrame);
+      const expectedHorizontal = RotateVector(
+        Rotation_EQJ_HOR(at, new Observer(latitude, longitude, 0)),
+        new Vector(
+          standardDirection.x,
+          standardDirection.y,
+          standardDirection.z,
+          MakeTime(at),
+        ),
+      );
+      const expectedWorldDirection = new THREE.Vector3(
+        -expectedHorizontal.y,
+        expectedHorizontal.z,
+        -expectedHorizontal.x,
+      ).normalize();
+
+      expect(worldDirection.distanceTo(expectedWorldDirection))
+        .toBeLessThan(1e-10);
+      expect(
+        Math.abs(
+          THREE.MathUtils.radToDeg(Math.asin(worldDirection.y)) -
+            expectedAltitudeDegrees,
+        ),
+      ).toBeLessThan(0.1);
     }
   });
 
@@ -134,7 +199,7 @@ describe("Pas de Géant celestial-sphere regressions", () => {
     sphere.dispose();
   });
 
-  it("places the Sun and Moon at current J2000 directions", () => {
+  it("keeps Sun ephemeris while placing the Moon at its J2000 direction", () => {
     const at = new Date("2026-08-12T17:45:46.794Z");
     const ephemeris = calculateCelestialBodyEphemeris(at);
     const angularSeparation = new THREE.Vector3(
@@ -188,7 +253,7 @@ describe("Pas de Géant celestial-sphere regressions", () => {
     sphere.dispose();
   });
 
-  it("uses the exact observer location for eclipse parallax", () => {
+  it("uses the exact observer location for lunar parallax", () => {
     const at = new Date("2026-08-12T18:27:55.560Z");
     const latitude = 43;
     const longitude = -3;
@@ -206,8 +271,6 @@ describe("Pas de Géant celestial-sphere regressions", () => {
       observerAppEcefKm,
     );
 
-    const renderedSun = sphere.object3d
-      .getObjectByName("celestial-sun")!.position.clone().normalize();
     const renderedMoon = sphere.object3d
       .getObjectByName("celestial-moon")!.position.clone().normalize();
     const observer = ObserverVector(
@@ -215,24 +278,15 @@ describe("Pas de Géant celestial-sphere regressions", () => {
       new Observer(latitude, longitude, heightMeters),
       false,
     );
-    const sun = GeoVector(Body.Sun, at, true);
     const moon = GeoMoon(at);
-    const expectedSun = new THREE.Vector3(
-      sun.x - observer.x,
-      sun.y - observer.y,
-      sun.z - observer.z,
-    ).normalize();
     const expectedMoon = new THREE.Vector3(
       moon.x - observer.x,
       moon.y - observer.y,
       moon.z - observer.z,
     ).normalize();
 
-    expect(renderedSun.distanceTo(expectedSun)).toBeLessThan(2e-9);
     expect(renderedMoon.distanceTo(expectedMoon)).toBeLessThan(2e-9);
-    expect(
-      THREE.MathUtils.radToDeg(renderedSun.angleTo(renderedMoon)),
-    ).toBeLessThan(0.01);
+    expect(sphere.object3d.getObjectByName("celestial-sun")).toBeUndefined();
     sphere.dispose();
   });
 
@@ -303,7 +357,6 @@ describe("Pas de Géant celestial-sphere regressions", () => {
     const neptuneSprite = sphere.object3d.getObjectByName(
       "celestial-planet-neptune",
     ) as THREE.Sprite;
-    const sun = sphere.object3d.getObjectByName("celestial-sun")!;
     expect(jupiterSprite.visible).toBe(true);
     expect(neptuneSprite.visible).toBe(false);
     expect(jupiterSprite.material.blending).toBe(THREE.NormalBlending);
@@ -311,7 +364,6 @@ describe("Pas de Géant celestial-sphere regressions", () => {
     expect(jupiterSprite.material.opacity).toBeGreaterThan(
       neptuneSprite.material.opacity,
     );
-    expect(jupiterSprite.scale.x).toBeLessThan(sun.scale.x);
     expect(
       (jupiterSprite.material.map as THREE.DataTexture).isDataTexture,
     ).toBe(true);
@@ -321,9 +373,8 @@ describe("Pas de Géant celestial-sphere regressions", () => {
 
     expect(sphere.getVisibility().all_enabled).toBe(true);
     sphere.setVisibility("sun_and_moon", false);
-    expect(
-      sphere.object3d.getObjectByName("celestial-sun")?.visible,
-    ).toBe(false);
+    expect(sphere.getVisibility().sun_enabled).toBe(false);
+    expect(sphere.object3d.getObjectByName("celestial-sun")).toBeUndefined();
     expect(
       sphere.object3d.getObjectByName("celestial-moon")?.visible,
     ).toBe(false);
@@ -413,9 +464,7 @@ describe("Pas de Géant celestial-sphere regressions", () => {
       startMs + CELESTIAL_EPHEMERIS_STEP_MS - 1,
     );
     expect(ephemerisCalls).toBe(1);
-    expect(
-      sphere.object3d.getObjectByName("celestial-sun")?.position.x,
-    ).toBeGreaterThan(500);
+    expect(sphere.object3d.getObjectByName("celestial-sun")).toBeUndefined();
     expect(
       sphere.object3d.getObjectByName("celestial-moon")?.position.y,
     ).toBeGreaterThan(500);

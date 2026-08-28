@@ -34,6 +34,10 @@ import type {
   SupervisionSession,
 } from "./supervision-protocol.js";
 import { formatScaleRatio } from "./world-scale.js";
+import {
+  ECLIPSE_PLAYBACK_SCALE,
+  MAIN_WORLD_FEATURED_ECLIPSE_EVENT_ID,
+} from "./eclipse-types.js";
 
 const INITIAL_MAP_CENTER: L.LatLngExpression = [20, 0];
 const INITIAL_MAP_ZOOM = 2;
@@ -91,6 +95,43 @@ const eclipsePlaybackControl = element<HTMLInputElement>(
 );
 const eclipseTimeControl = element<HTMLInputElement>("eclipse-time-control");
 const eclipseTimeTarget = element<HTMLOutputElement>("eclipse-time-target");
+const worldEclipseCard = element<HTMLElement>("world-eclipse-card");
+const worldEclipseStatus = element<HTMLElement>("world-eclipse-status");
+const worldEclipseEventRow = element<HTMLElement>("world-eclipse-event-row");
+const worldEclipsePeakRow = element<HTMLElement>("world-eclipse-peak-row");
+const worldEclipseEventReadout = element<HTMLElement>(
+  "world-eclipse-event-readout",
+);
+const worldEclipsePeakReadout = element<HTMLElement>(
+  "world-eclipse-peak-readout",
+);
+const worldEclipseTimeReadout = element<HTMLElement>(
+  "world-eclipse-time-readout",
+);
+const worldEclipseConesControl = element<HTMLInputElement>(
+  "world-eclipse-cones-control",
+);
+const worldEclipseSelectButton = element<HTMLButtonElement>(
+  "world-eclipse-select-button",
+);
+const worldEclipseSimulationControls = element<HTMLElement>(
+  "world-eclipse-simulation-controls",
+);
+const worldEclipsePlaybackControl = element<HTMLInputElement>(
+  "world-eclipse-playback-control",
+);
+const worldEclipsePlaybackHint = element<HTMLElement>(
+  "world-eclipse-playback-hint",
+);
+const worldEclipseTimeControl = element<HTMLInputElement>(
+  "world-eclipse-time-control",
+);
+const worldEclipseTimeTarget = element<HTMLOutputElement>(
+  "world-eclipse-time-target",
+);
+const worldEclipseReturnLiveButton = element<HTMLButtonElement>(
+  "world-eclipse-return-live-button",
+);
 const commandStatus = element<HTMLParagraphElement>("command-status");
 const savedLocationCount = element<HTMLSpanElement>("saved-location-count");
 const savedLocationList = element<HTMLDivElement>("saved-location-list");
@@ -134,13 +175,26 @@ let terrainDraftInitialized = false;
 let terrainDraftDirty = false;
 let headingDraftDirty = false;
 let eclipseTimeDraftDirty = false;
+let worldEclipseTimeDraftDirty = false;
 const eclipseTimeScrubber = new SupervisorEclipseScrubber({
   send(utc, final) {
+    const scale = selectedLiveSession()?.controls.clock?.scale ?? 0;
     const commandId = sendCommand(
-      { kind: "setEclipseTime", utc },
+      { kind: "setSimulationClock", mode: "anchored", atUtc: utc, scale },
       final ? "Eclipse timeline" : "Eclipse timeline update",
     );
     if (!commandId) eclipseTimeDraftDirty = false;
+    return commandId;
+  },
+});
+const worldEclipseTimeScrubber = new SupervisorEclipseScrubber({
+  send(utc, final) {
+    const scale = selectedLiveSession()?.controls.clock?.scale ?? 0;
+    const commandId = sendCommand(
+      { kind: "setSimulationClock", mode: "anchored", atUtc: utc, scale },
+      final ? "Eclipse timeline" : "Eclipse timeline update",
+    );
+    if (!commandId) worldEclipseTimeDraftDirty = false;
     return commandId;
   },
 });
@@ -312,6 +366,8 @@ function resetDrafts(session: SupervisionSession): void {
   headingDraftDirty = false;
   eclipseTimeDraftDirty = false;
   eclipseTimeScrubber.cancel();
+  worldEclipseTimeDraftDirty = false;
+  worldEclipseTimeScrubber.cancel();
   if (session.state) initializeDrafts(session);
 }
 
@@ -417,17 +473,21 @@ function renderSessionList(): void {
     entry.name.textContent = sessionName(session);
     entry.timing.textContent = elapsedLabel(session.connectedAtMs);
     const eclipse = session.controls.eclipse;
-    entry.location.textContent = eclipse.active
-      ? `${eclipseKindLabel(eclipse.eventKind)} · ${
-        eclipse.playing ? "running" : "paused"
-      }`
-      : session.state
+    const eclipsePlaying = (session.controls.clock?.scale ?? 0) !== 0;
+    const location = session.state
       ? `${session.state.latitudeDegrees.toFixed(3)}°, ${session.state.longitudeDegrees.toFixed(3)}° · ${formatScaleRatio(session.state.scaleDenominator)} · ${
         session.state.headingDegrees === null
           ? "—"
           : `${Math.round(session.state.headingDegrees) % 360}°`
       }`
       : "Waiting for telemetry";
+    entry.location.textContent = eclipse.experience === "observatory"
+      ? `${eclipseKindLabel(eclipse.eventKind)} · ${
+        eclipsePlaying ? "running" : "paused"
+      }`
+      : eclipse.simulationActive
+        ? `${location} · eclipse ${eclipsePlaying ? "running" : "paused"}`
+        : location;
     if (entry.button !== insertionPoint) {
       sessionList.insertBefore(entry.button, insertionPoint);
     }
@@ -499,33 +559,33 @@ function renderEclipseControls(
   connected: boolean,
 ): void {
   const eclipse = session.controls.eclipse;
+  const clock = session.controls.clock;
   const playbackPending = [...pendingCommands.values()].find(
     (pending) => pending.sessionId === selectedSessionId &&
-      pending.command.kind === "setEclipsePlayback",
+      pending.command.kind === "setSimulationClock",
   );
-  const pendingPlaying = playbackPending?.command.kind === "setEclipsePlayback"
-    ? playbackPending.command.playing
+  const pendingPlaying = playbackPending?.command.kind === "setSimulationClock"
+    ? playbackPending.command.mode === "realtime" ||
+      playbackPending.command.scale !== 0
     : undefined;
+  const playing = pendingPlaying ?? ((clock?.scale ?? 0) !== 0);
 
   eclipseEventReadout.textContent = eclipse.eventId
     ? `${eclipseKindLabel(eclipse.eventKind)} · ${eclipse.eventId}`
     : "Waiting for eclipse telemetry";
   eclipsePeakReadout.textContent = formatUtc(eclipse.peakUtc);
-  eclipseTimeReadout.textContent = formatUtc(eclipse.atUtc);
-  eclipsePlaybackControl.checked = pendingPlaying ?? eclipse.playing;
+  eclipseTimeReadout.textContent = formatUtc(clock?.atUtc ?? null);
+  eclipsePlaybackControl.checked = playing;
   eclipsePlaybackControl.disabled = !connected || playbackPending !== undefined;
-  eclipsePlaybackReadout.textContent = (pendingPlaying ?? eclipse.playing)
-    ? "Running"
-    : "Paused";
-  eclipsePlaybackHint.textContent = eclipse.playbackRate === null
-    ? "Advance the selected eclipse timeline"
-    : `Advance the selected eclipse timeline at ${eclipse.playbackRate}×`;
+  eclipsePlaybackReadout.textContent = playing ? "Running" : "Paused";
+  eclipsePlaybackHint.textContent =
+    `Advance the selected eclipse timeline at ${ECLIPSE_PLAYBACK_SCALE}×`;
 
   const timelineAvailable = eclipse.contactStartUtc !== null &&
     eclipse.contactEndUtc !== null;
   eclipseTimeControl.disabled = !connected || !timelineAvailable;
-  if (!eclipseTimeDraftDirty && eclipse.atUtc) {
-    const fraction = supervisorEclipseTimelineFraction(eclipse, eclipse.atUtc);
+  if (!eclipseTimeDraftDirty && clock?.atUtc) {
+    const fraction = supervisorEclipseTimelineFraction(eclipse, clock.atUtc);
     if (fraction !== undefined) eclipseTimeControl.value = String(fraction);
   }
   const targetUtc = supervisorEclipseTimelineUtc(
@@ -533,6 +593,77 @@ function renderEclipseControls(
     eclipseTimeControl.valueAsNumber,
   );
   eclipseTimeTarget.value = formatUtc(targetUtc ?? null);
+}
+
+function selectedPendingCommand(
+  kinds: readonly SupervisionCommand["kind"][],
+): PendingCommand | undefined {
+  return [...pendingCommands.values()].find(
+    (pending) => pending.sessionId === selectedSessionId &&
+      kinds.includes(pending.kind),
+  );
+}
+
+function renderWorldEclipseControls(
+  session: SupervisionSession,
+  connected: boolean,
+): void {
+  const eclipse = session.controls.eclipse;
+  const clock = session.controls.clock;
+  const selecting = selectedPendingCommand(["selectEclipseEvent"]);
+  const returningLive = selectedPendingCommand(["returnToLiveTime"]);
+  const visibilityPending = selectedPendingCommand([
+    "setEclipseConeVisibility",
+  ]);
+  const playbackPending = selectedPendingCommand(["setSimulationClock"]);
+  const pendingVisible = visibilityPending?.command.kind ===
+      "setEclipseConeVisibility"
+    ? visibilityPending.command.visible
+    : undefined;
+  const pendingPlaying = playbackPending?.command.kind === "setSimulationClock"
+    ? playbackPending.command.mode === "realtime" ||
+      playbackPending.command.scale !== 0
+    : undefined;
+  const playing = pendingPlaying ?? ((clock?.scale ?? 0) !== 0);
+
+  worldEclipseCard.hidden = eclipse.experience !== "world";
+  if (eclipse.experience !== "world") return;
+  worldEclipseStatus.textContent = eclipse.simulationActive
+    ? playing ? "Running" : "Paused"
+    : "Live";
+  worldEclipseTimeReadout.textContent = formatUtc(clock?.atUtc ?? null);
+  worldEclipseConesControl.checked = pendingVisible ?? eclipse.conesVisible;
+  worldEclipseConesControl.disabled = !connected || visibilityPending !== undefined;
+  worldEclipseSelectButton.hidden = eclipse.simulationActive;
+  worldEclipseSelectButton.disabled = !connected || selecting !== undefined;
+  worldEclipseSimulationControls.hidden = !eclipse.simulationActive;
+  worldEclipseEventRow.hidden = !eclipse.simulationActive;
+  worldEclipsePeakRow.hidden = !eclipse.simulationActive;
+  worldEclipseEventReadout.textContent = eclipse.eventId
+    ? `${eclipseKindLabel(eclipse.eventKind)} · ${eclipse.eventId}`
+    : "—";
+  worldEclipsePeakReadout.textContent = formatUtc(eclipse.peakUtc);
+  worldEclipsePlaybackControl.checked = playing;
+  worldEclipsePlaybackControl.disabled = !connected ||
+    playbackPending !== undefined || returningLive !== undefined;
+  worldEclipsePlaybackHint.textContent =
+    `Advance the selected eclipse timeline at ${ECLIPSE_PLAYBACK_SCALE}×`;
+  worldEclipseReturnLiveButton.disabled = !connected ||
+    returningLive !== undefined;
+
+  const timelineAvailable = eclipse.simulationActive &&
+    eclipse.contactStartUtc !== null && eclipse.contactEndUtc !== null;
+  worldEclipseTimeControl.disabled = !connected || !timelineAvailable ||
+    returningLive !== undefined;
+  if (!worldEclipseTimeDraftDirty && clock?.atUtc) {
+    const fraction = supervisorEclipseTimelineFraction(eclipse, clock.atUtc);
+    if (fraction !== undefined) worldEclipseTimeControl.value = String(fraction);
+  }
+  const targetUtc = supervisorEclipseTimelineUtc(
+    eclipse,
+    worldEclipseTimeControl.valueAsNumber,
+  );
+  worldEclipseTimeTarget.value = formatUtc(targetUtc ?? null);
 }
 
 function showPinDestination(pin: LocationPin): void {
@@ -914,18 +1045,21 @@ function render(): void {
   emptyState.hidden = true;
   sessionWorkspace.hidden = false;
   const connected = liveSession !== undefined;
-  const eclipseActive = session.controls.eclipse.active;
+  const eclipseExperience = session.controls.eclipse.experience;
+  const observatory = eclipseExperience === "observatory";
   selectedMode.textContent = connected
-    ? eclipseActive
+    ? observatory
       ? `Eclipse Observatory · ${session.controls.eclipse.eventKind ?? "solar"}`
       : session.state
-      ? `${session.state.focusBody} · ${session.state.mode}`
+      ? `${session.state.focusBody} · ${session.state.mode}${
+        session.controls.eclipse.simulationActive ? " · eclipse" : ""
+      }`
       : "Connected · awaiting telemetry"
     : "Disconnected";
 
-  earthWorkspace.hidden = eclipseActive;
-  eclipseWorkspace.hidden = !eclipseActive;
-  if (eclipseActive) {
+  earthWorkspace.hidden = observatory;
+  eclipseWorkspace.hidden = !observatory;
+  if (observatory) {
     hideCurrentPosition();
     hideDestination();
     unsupportedNotice.hidden = connected;
@@ -945,7 +1079,8 @@ function render(): void {
   } else if (!session.state) {
     unsupportedNotice.textContent = "Waiting for the headset’s first navigation update.";
   } else if (!isSupported(session)) {
-    unsupportedNotice.textContent = `Controls are unavailable in ${session.state.focusBody} ${session.state.mode} mode. Earth surface mode is supported in this iteration.`;
+    unsupportedNotice.textContent =
+      `Earth surface controls are unavailable in ${session.state.focusBody} ${session.state.mode} mode. Eclipse simulation remains available.`;
   }
 
   const state = session.state;
@@ -995,6 +1130,7 @@ function render(): void {
   syncPinMapMarkers(session);
   renderSavedLocations(session, supported, connected);
   renderControls(supported, connected);
+  renderWorldEclipseControls(session, connected);
 }
 
 function updateDestinationFromFields(): void {
@@ -1119,10 +1255,11 @@ for (const group of Object.keys(satelliteControls) as SatelliteToolGroup[]) {
 }
 
 eclipsePlaybackControl.addEventListener("change", () => {
-  if (!selectedLiveSession()?.controls.eclipse.active) return;
+  if (!selectedLiveSession()?.controls.eclipse.simulationActive) return;
   sendCommand({
-    kind: "setEclipsePlayback",
-    playing: eclipsePlaybackControl.checked,
+    kind: "setSimulationClock",
+    mode: "anchored",
+    scale: eclipsePlaybackControl.checked ? ECLIPSE_PLAYBACK_SCALE : 0,
   }, eclipsePlaybackControl.checked
     ? "Eclipse simulation started"
     : "Eclipse simulation paused");
@@ -1140,13 +1277,65 @@ eclipseTimeControl.addEventListener("input", () => {
 
 eclipseTimeControl.addEventListener("change", () => {
   const eclipse = selectedLiveSession()?.controls.eclipse;
-  if (!eclipse?.active) return;
+  if (!eclipse?.simulationActive) return;
   const utc = supervisorEclipseTimelineUtc(
     eclipse,
     eclipseTimeControl.valueAsNumber,
   );
   if (!utc) return;
   eclipseTimeScrubber.finish(utc);
+});
+
+worldEclipseSelectButton.addEventListener("click", () => {
+  sendCommand({
+    kind: "selectEclipseEvent",
+    eventId: MAIN_WORLD_FEATURED_ECLIPSE_EVENT_ID,
+  }, "August 2026 eclipse selected");
+});
+
+worldEclipseReturnLiveButton.addEventListener("click", () => {
+  sendCommand({ kind: "returnToLiveTime" }, "Returned to live time");
+});
+
+worldEclipseConesControl.addEventListener("change", () => {
+  sendCommand({
+    kind: "setEclipseConeVisibility",
+    visible: worldEclipseConesControl.checked,
+  }, `Eclipse cones ${worldEclipseConesControl.checked ? "on" : "off"}`);
+});
+
+worldEclipsePlaybackControl.addEventListener("change", () => {
+  if (!selectedLiveSession()?.controls.eclipse.simulationActive) return;
+  sendCommand({
+    kind: "setSimulationClock",
+    mode: "anchored",
+    scale: worldEclipsePlaybackControl.checked ? ECLIPSE_PLAYBACK_SCALE : 0,
+  }, worldEclipsePlaybackControl.checked
+    ? "Eclipse simulation started"
+    : "Eclipse simulation paused");
+});
+
+worldEclipseTimeControl.addEventListener("input", () => {
+  worldEclipseTimeDraftDirty = true;
+  const eclipse = selectedLiveSession()?.controls.eclipse;
+  const utc = eclipse
+    ? supervisorEclipseTimelineUtc(
+        eclipse,
+        worldEclipseTimeControl.valueAsNumber,
+      )
+    : undefined;
+  worldEclipseTimeTarget.value = formatUtc(utc ?? null);
+  if (utc) worldEclipseTimeScrubber.update(utc);
+});
+
+worldEclipseTimeControl.addEventListener("change", () => {
+  const eclipse = selectedLiveSession()?.controls.eclipse;
+  if (!eclipse?.simulationActive) return;
+  const utc = supervisorEclipseTimelineUtc(
+    eclipse,
+    worldEclipseTimeControl.valueAsNumber,
+  );
+  if (utc) worldEclipseTimeScrubber.finish(utc);
 });
 
 function sendCommand(
@@ -1245,6 +1434,8 @@ function handleRelayStatus(status: SupervisorConnectionStatus): void {
   if (status === "reconnecting") {
     eclipseTimeScrubber.cancel();
     eclipseTimeDraftDirty = false;
+    worldEclipseTimeScrubber.cancel();
+    worldEclipseTimeDraftDirty = false;
     if (pendingCommands.size > 0) {
       pendingCommands.clear();
       setCommandStatus("Connection lost before acknowledgement.", "failed");
@@ -1256,11 +1447,20 @@ function handleCommandResult(result: CommandResultMessage): void {
   const pending = pendingCommands.get(result.commandId);
   if (!pending) return;
   pendingCommands.delete(result.commandId);
-  const eclipseScrubAcknowledgement = pending.command.kind === "setEclipseTime"
+  const observatoryScrubAcknowledgement = pending.command.kind ===
+      "setSimulationClock"
     ? eclipseTimeScrubber.acknowledge(result.commandId, result.ok)
     : "ignored";
+  const worldScrubAcknowledgement = pending.command.kind ===
+      "setSimulationClock"
+    ? worldEclipseTimeScrubber.acknowledge(result.commandId, result.ok)
+    : "ignored";
+  const eclipseScrubAcknowledgement = observatoryScrubAcknowledgement !== "ignored"
+    ? observatoryScrubAcknowledgement
+    : worldScrubAcknowledgement;
   if (eclipseScrubAcknowledgement === "complete") {
     eclipseTimeDraftDirty = false;
+    worldEclipseTimeDraftDirty = false;
   }
   if (result.ok) {
     const session = sessions.get(pending.sessionId);
@@ -1333,6 +1533,7 @@ const client = new SupervisorClient({
 
 window.addEventListener("beforeunload", () => {
   eclipseTimeScrubber.cancel();
+  worldEclipseTimeScrubber.cancel();
   client.stop();
 });
 window.setInterval(renderSessionList, 1_000);

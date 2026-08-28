@@ -55,10 +55,16 @@ Multiple guides can be active together. Headset visibility survives supervision
 socket reconnects but clears when the immersive XR session ends; saved locations
 remain on the dashboard's development origin until removed there.
 
-An immersive Eclipse Observatory session also appears in the dashboard. Its
-supervisor workspace shows the selected event, peak and current UTC, and can
-play or pause the eclipse timeline or scrub across the complete first-to-last
-contact period.
+The main-world dashboard includes eclipse simulation controls in every
+navigation mode without replacing the normal Earth controls. It follows live
+UTC by default. The supervisor can load the verified 12 August 2026 total
+eclipse paused at first contact, show or hide the shadow cones, play or pause
+the shared simulation clock at 180×, scrub across the complete first-to-last
+contact period, and return the whole astronomical scene to live time. Live
+aircraft interpolation remains tied to wall-clock time.
+
+An immersive standalone Eclipse Observatory session also appears in the
+dashboard with its dedicated event, UTC, playback, and timeline workspace.
 
 Warp and scale-denominator supervision commands accept an optional `time`
 duration in seconds. Positive values animate from the live state to the target

@@ -479,6 +479,18 @@ h3 {
 
 .eclipse-playback-control { padding: 10px 11px; }
 
+.world-eclipse-card[hidden],
+.world-eclipse-simulation[hidden],
+.world-eclipse-readouts > div[hidden],
+.world-eclipse-card > button[hidden] { display: none; }
+
+.world-eclipse-simulation {
+  display: grid;
+  gap: 10px;
+}
+
+.world-eclipse-readouts > div:last-child { grid-column: 1 / -1; }
+
 .eclipse-timeline-control {
   display: grid;
   gap: 5px;

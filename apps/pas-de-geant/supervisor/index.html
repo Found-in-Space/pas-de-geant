@@ -189,8 +189,71 @@
                     </label>
                   </div>
                   </section>
-                </div>
 
+                  <section id="world-eclipse-card" class="command-card world-eclipse-card" aria-labelledby="world-eclipse-heading" hidden>
+                  <div class="command-title">
+                    <div>
+                      <p class="eyebrow">World time</p>
+                      <h3 id="world-eclipse-heading">Eclipse simulation</h3>
+                    </div>
+                    <span id="world-eclipse-status" class="command-readout">Live</span>
+                  </div>
+
+                  <dl class="eclipse-readouts world-eclipse-readouts">
+                    <div id="world-eclipse-event-row" hidden>
+                      <dt>Selected eclipse</dt>
+                      <dd id="world-eclipse-event-readout">—</dd>
+                    </div>
+                    <div id="world-eclipse-peak-row" hidden>
+                      <dt>Peak UTC</dt>
+                      <dd id="world-eclipse-peak-readout">—</dd>
+                    </div>
+                    <div>
+                      <dt>Current UTC</dt>
+                      <dd id="world-eclipse-time-readout">—</dd>
+                    </div>
+                  </dl>
+
+                  <label class="tracking-control eclipse-playback-control">
+                    <span>
+                      <strong>Shadow cones</strong>
+                      <small>Show the Moon’s central and penumbral shadow geometry</small>
+                    </span>
+                    <input id="world-eclipse-cones-control" type="checkbox">
+                  </label>
+
+                  <button id="world-eclipse-select-button" class="primary-button" type="button">
+                    Explore the 12 August 2026 total eclipse
+                  </button>
+
+                  <div id="world-eclipse-simulation-controls" class="world-eclipse-simulation" hidden>
+                    <label class="tracking-control eclipse-playback-control">
+                      <span>
+                        <strong>Run eclipse simulation</strong>
+                        <small id="world-eclipse-playback-hint">Advance the selected eclipse timeline</small>
+                      </span>
+                      <input id="world-eclipse-playback-control" type="checkbox">
+                    </label>
+
+                    <div class="eclipse-timeline-control">
+                      <div class="heading-control-label">
+                        <label for="world-eclipse-time-control">Eclipse timeline
+                          <span class="field-hint">Drag across the complete first-to-last contact period</span>
+                        </label>
+                        <output id="world-eclipse-time-target" for="world-eclipse-time-control">—</output>
+                      </div>
+                      <input id="world-eclipse-time-control" class="eclipse-timeline-slider" type="range" min="0" max="1" step="0.0001" value="0.5">
+                      <div class="eclipse-timeline-markers" aria-hidden="true">
+                        <span>First contact</span>
+                        <span>Peak</span>
+                        <span>Last contact</span>
+                      </div>
+                    </div>
+
+                    <button id="world-eclipse-return-live-button" class="secondary-button" type="button">Return to live time</button>
+                  </div>
+                  </section>
+                </div>
               </aside>
             </div>
           </div>

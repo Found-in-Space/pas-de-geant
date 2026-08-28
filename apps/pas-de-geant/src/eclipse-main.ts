@@ -89,9 +89,10 @@ import {
   parseEclipseSelectionArguments,
   parseEclipseTimeArguments,
 } from "./eclipse-tools.js";
-import type {
-  EclipseContactRange,
-  EclipseFrame,
+import {
+  ECLIPSE_PLAYBACK_SCALE,
+  type EclipseContactRange,
+  type EclipseFrame,
 } from "./eclipse-types.js";
 import { EclipseWorkerClient } from "./eclipse-worker-client.js";
 import {
@@ -103,6 +104,14 @@ import {
   RealtimeVoiceAgent,
   type RealtimeAgentStatus,
 } from "./realtime-agent.js";
+import {
+  anchoredSimulationClock,
+  realtimeSimulationClock,
+  simulationClockSnapshot,
+  simulationClockWithScale,
+  simulationTimeMs,
+  type SimulationClockState,
+} from "./simulation-clock.js";
 import type {
   SupervisionCommand,
   SupervisionControlState,
@@ -122,7 +131,6 @@ import {
 } from "./world-scale.js";
 
 const DEFAULT_EVENT_ID = "solar-2026-08-12-total";
-const PLAYBACK_RATE = 180;
 const GEOMETRY_INTERVAL_MS = 160;
 const TERRAIN_VIEW_INTERVAL_MS = 250;
 const ECLIPSE_TEXTURE_SCREEN_PIXELS_PER_SOURCE_PIXEL = 0.5;
@@ -290,8 +298,7 @@ earthFixedRoot.add(footprints.group);
 interface ExperienceState {
   event: EclipseSummary;
   contacts: EclipseContactRange;
-  atMs: number;
-  playing: boolean;
+  simulationClock: SimulationClockState;
   panelVisible: boolean;
   voice: RealtimeAgentStatus;
   frame: EclipseFrame;
@@ -311,15 +318,15 @@ const initialEvents = await worker.events(
 for (const event of initialEvents) eventCache.set(event.id, event);
 const initialEvent = initialEvents.find(({ id }) => id === DEFAULT_EVENT_ID);
 if (!initialEvent) throw new Error(`Shadowline did not find ${DEFAULT_EVENT_ID}.`);
-const [initialContacts, initialFrame] = await Promise.all([
-  worker.contacts(initialEvent),
-  worker.latest(initialEvent, initialEvent.peakUtc),
-]);
+const initialContacts = await worker.contacts(initialEvent);
+const initialFrame = await worker.latest(initialEvent, initialContacts.startUtc);
 const state: ExperienceState = {
   event: initialEvent,
   contacts: initialContacts,
-  atMs: Date.parse(initialFrame.atUtc),
-  playing: false,
+  simulationClock: anchoredSimulationClock(
+    Date.parse(initialContacts.startUtc),
+    0,
+  ),
   panelVisible: true,
   voice: { state: "off", detail: "Press A to wake" },
   frame: initialFrame,
@@ -703,33 +710,40 @@ function updateEclipseTerrain(
 
 let frameCommitSequence = 0;
 let selectionSequence = 0;
-let requestedPlaybackTimeMs = state.atMs;
 
-async function setTimeUtc(utc: string): Promise<Record<string, unknown>> {
-  const timeMs = Date.parse(utc);
-  if (!Number.isFinite(timeMs)) throw new Error("Invalid eclipse UTC.");
-  const peakMs = Date.parse(state.event.peakUtc);
-  if (Math.abs(timeMs - peakMs) > 24 * 60 * 60 * 1_000) {
-    throw new Error("Eclipse time must be within 24 hours of global peak.");
-  }
-  requestedPlaybackTimeMs = timeMs;
+function currentSimulationTimeMs(wallTimeMs = Date.now()): number {
+  return simulationTimeMs(state.simulationClock, wallTimeMs);
+}
+
+async function commitFrameAt(timeMs: number): Promise<void> {
   frameCommitSequence += 1;
   const sequence = frameCommitSequence;
   const frame = await worker.latest(state.event, new Date(timeMs).toISOString());
   if (sequence !== frameCommitSequence || frame.event.id !== state.event.id) {
-    return eclipseStateReadback();
+    return;
   }
   state.frame = frame;
-  state.atMs = Date.parse(frame.atUtc);
   updateSceneFrame(frame);
   enforceTopographicFloor(currentViewCamera());
   syncPresentation();
+}
+
+async function setTimeUtc(utc: string): Promise<Record<string, unknown>> {
+  const timeMs = Date.parse(utc);
+  if (!Number.isFinite(timeMs)) throw new Error("Invalid eclipse UTC.");
+  state.simulationClock = anchoredSimulationClock(
+    timeMs,
+    state.simulationClock.scale,
+  );
+  await commitFrameAt(timeMs);
   return eclipseStateReadback();
 }
 
 function setPlaying(playing: boolean): Record<string, unknown> {
-  state.playing = playing;
-  requestedPlaybackTimeMs = state.atMs;
+  state.simulationClock = simulationClockWithScale(
+    state.simulationClock,
+    playing ? ECLIPSE_PLAYBACK_SCALE : 0,
+  );
   syncPresentation();
   return eclipseStateReadback();
 }
@@ -761,18 +775,17 @@ async function selectEvent(eventId: string): Promise<Record<string, unknown>> {
   selectionSequence += 1;
   const sequence = selectionSequence;
   const event = await verifiedEvent(eventId);
-  const [contacts, frame] = await Promise.all([
-    worker.contacts(event),
-    worker.latest(event, event.peakUtc),
-  ]);
+  const contacts = await worker.contacts(event);
+  const frame = await worker.latest(event, contacts.startUtc);
   if (sequence !== selectionSequence) return eclipseStateReadback();
   frameCommitSequence += 1;
   state.event = event;
   state.contacts = contacts;
   state.frame = frame;
-  state.atMs = Date.parse(frame.atUtc);
-  requestedPlaybackTimeMs = state.atMs;
-  state.playing = false;
+  state.simulationClock = anchoredSimulationClock(
+    Date.parse(contacts.startUtc),
+    0,
+  );
   inertialToStage = null;
   updateSceneFrame(frame);
   resetEarthOrbit();
@@ -782,6 +795,7 @@ async function selectEvent(eventId: string): Promise<Record<string, unknown>> {
 
 function eclipseStateReadback(): Record<string, unknown> {
   const frame = state.frame;
+  const clock = simulationClockSnapshot(state.simulationClock);
   syncObserverPhysicalPosition();
   const earthCentreDistancePhysicalM =
     state.observerPhysicalPositionM.length();
@@ -793,11 +807,11 @@ function eclipseStateReadback(): Record<string, unknown> {
     event_id: state.event.id,
     eclipse_kind: state.event.kind,
     peak_utc: state.event.peakUtc,
-    at_utc: new Date(state.atMs).toISOString(),
+    at_utc: new Date(clock.atMs).toISOString(),
     contact_start_utc: state.contacts.startUtc,
     contact_end_utc: state.contacts.endUtc,
-    playing: state.playing,
-    playback_rate: PLAYBACK_RATE,
+    playing: clock.scale !== 0,
+    playback_rate: clock.scale,
     navigation: "earth-orbital",
     earth_center_distance_physical_metres: earthCentreDistancePhysicalM,
     earth_center_distance_headset_metres: earthCentreDistanceHeadsetM,
@@ -821,6 +835,7 @@ function eclipseSupervisionNavigationState(): SupervisionNavigationSnapshot {
 }
 
 function eclipseSupervisionControlState(): SupervisionControlState {
+  const clock = simulationClockSnapshot(state.simulationClock);
   return {
     aircraft: {
       aircraft: false,
@@ -831,16 +846,21 @@ function eclipseSupervisionControlState(): SupervisionControlState {
       space_stations: false,
       science_education: false,
     },
+    clock: {
+      atUtc: new Date(clock.atMs).toISOString(),
+      anchorWallUtc: new Date(clock.anchorWallTimeMs).toISOString(),
+      offsetMs: clock.offsetMs,
+      scale: clock.scale,
+    },
     eclipse: {
-      active: true,
-      playing: state.playing,
+      experience: "observatory",
+      simulationActive: true,
+      conesVisible: true,
       eventId: state.event.id,
       eventKind: state.event.kind,
       peakUtc: state.event.peakUtc,
       contactStartUtc: state.contacts.startUtc,
       contactEndUtc: state.contacts.endUtc,
-      atUtc: new Date(state.atMs).toISOString(),
-      playbackRate: PLAYBACK_RATE,
     },
   };
 }
@@ -848,12 +868,21 @@ function eclipseSupervisionControlState(): SupervisionControlState {
 async function applyEclipseSupervisionCommand(
   command: SupervisionCommand,
 ): Promise<void> {
-  if (command.kind === "setEclipsePlayback") {
-    setPlaying(command.playing);
-    return;
-  }
-  if (command.kind === "setEclipseTime") {
-    await setTimeUtc(command.utc);
+  if (command.kind === "setSimulationClock") {
+    if (command.mode === "realtime") {
+      state.simulationClock = realtimeSimulationClock();
+      await commitFrameAt(currentSimulationTimeMs());
+      return;
+    }
+    const wallTimeMs = Date.now();
+    state.simulationClock = anchoredSimulationClock(
+      command.atUtc === undefined
+        ? simulationTimeMs(state.simulationClock, wallTimeMs)
+        : Date.parse(command.atUtc),
+      command.scale,
+      wallTimeMs,
+    );
+    await commitFrameAt(currentSimulationTimeMs(wallTimeMs));
     return;
   }
   throw new Error("This command requires an immersive Earth surface session.");
@@ -907,7 +936,10 @@ function stopSupervisionSession(): void {
 function timeFraction(): number {
   const start = Date.parse(state.contacts.startUtc);
   const end = Date.parse(state.contacts.endUtc);
-  return Math.max(0, Math.min(1, (state.atMs - start) / (end - start)));
+  return Math.max(
+    0,
+    Math.min(1, (currentSimulationTimeMs() - start) / (end - start)),
+  );
 }
 
 function frameStatus(): string {
@@ -919,12 +951,13 @@ function frameStatus(): string {
 }
 
 function panelState(): EclipsePanelState {
+  const clock = simulationClockSnapshot(state.simulationClock);
   return {
     eventLabel: `${formatEventKind(state.event.kind)} · ${formatEventDate(state.event.peakUtc)}`,
-    atUtc: new Date(state.atMs).toISOString(),
+    atUtc: new Date(clock.atMs).toISOString(),
     status: frameStatus(),
     timeFraction: timeFraction(),
-    playing: state.playing,
+    playing: clock.scale !== 0,
     altitudeAboveTerrainMetres: latestTopographicAltitudeMetres,
     scaleDenominator: state.stage.scaleDenominator,
     voiceState: state.voice.state,
@@ -948,21 +981,23 @@ let panelSignature = "";
 let lastPanelRedrawMs = Number.NEGATIVE_INFINITY;
 
 function syncPresentation(nowMs = performance.now()): void {
+  const clock = simulationClockSnapshot(state.simulationClock);
+  const atUtc = new Date(clock.atMs).toISOString();
   eventReadout.textContent =
     `${formatEventKind(state.event.kind)} · ${formatEventDate(state.event.peakUtc)}`;
-  timeReadout.textContent = new Date(state.atMs).toISOString().replace("T", " ").replace(".000Z", "Z");
+  timeReadout.textContent = atUtc.replace("T", " ").replace(".000Z", "Z");
   altitudeReadout.textContent =
     `${formatPhysicalAltitude(latestTopographicAltitudeMetres)} · ` +
     formatScaleRatio(state.stage.scaleDenominator);
   voiceReadout.textContent = state.voice.detail;
   document.body.dataset.eventId = state.event.id;
-  document.body.dataset.eclipseUtc = new Date(state.atMs).toISOString();
+  document.body.dataset.eclipseUtc = atUtc;
   document.body.dataset.eclipseNavigation = "earth-orbital";
   document.body.dataset.eclipseAltitudeMetres =
     String(latestTopographicAltitudeMetres);
   document.body.dataset.eclipseScaleDenominator =
     String(state.stage.scaleDenominator);
-  document.body.dataset.eclipsePlaying = String(state.playing);
+  document.body.dataset.eclipsePlaying = String(clock.scale !== 0);
   const panelRuntime = handPanelRuntime;
   if (!panelRuntime) return;
   const nextPanelState = panelState();
@@ -1176,7 +1211,7 @@ async function handlePanelOutput(output: RuntimeOutput): Promise<void> {
   const command = eclipsePanelCommand(output);
   if (!command) return;
   if (command.type === "toggle-playback") {
-    setPlaying(!state.playing);
+    setPlaying(state.simulationClock.scale === 0);
   } else if (command.type === "reset-stage") {
     resetEclipseStage();
   } else if (command.type === "toggle-voice") {
@@ -1365,7 +1400,7 @@ function updateControllerButtons(): EclipseControllerIntent | undefined {
   const intent = eclipseControllerIntent(session, buttonLatch);
   if (intent.toggleVoice) void voiceAgent.toggle();
   if (intent.resetStage) resetEclipseStage();
-  if (intent.togglePlayback) setPlaying(!state.playing);
+  if (intent.togglePlayback) setPlaying(state.simulationClock.scale === 0);
   if (intent.togglePanel) {
     state.panelVisible = !state.panelVisible;
   }
@@ -1624,17 +1659,14 @@ function render(nowMs: number): void {
       );
     }
   }
-  if (state.playing) {
-    const start = Date.parse(state.contacts.startUtc);
-    const end = Date.parse(state.contacts.endUtc);
-    requestedPlaybackTimeMs += simulationIntervalMs * PLAYBACK_RATE;
-    if (requestedPlaybackTimeMs > end) {
-      requestedPlaybackTimeMs = start + (requestedPlaybackTimeMs - start) % (end - start);
-    }
+  if (state.simulationClock.scale !== 0) {
     if (nowMs - previousGeometryRequestMs >= GEOMETRY_INTERVAL_MS) {
       previousGeometryRequestMs = nowMs;
-      void setTimeUtc(new Date(requestedPlaybackTimeMs).toISOString()).catch((error) => {
-        state.playing = false;
+      void commitFrameAt(currentSimulationTimeMs()).catch((error) => {
+        state.simulationClock = simulationClockWithScale(
+          state.simulationClock,
+          0,
+        );
         console.error("Eclipse playback stopped:", error);
         syncPresentation();
       });

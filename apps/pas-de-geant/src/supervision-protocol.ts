@@ -9,8 +9,8 @@ import {
 import { validScaleDenominator } from "./world-scale.js";
 
 export const SUPERVISION_PATH = "/api/supervision";
-export const SUPERVISION_SUBPROTOCOL = "pas-de-geant.supervision.v3";
-export const SUPERVISION_PROTOCOL_VERSION = 3;
+export const SUPERVISION_SUBPROTOCOL = "pas-de-geant.supervision.v4";
+export const SUPERVISION_PROTOCOL_VERSION = 4;
 
 export interface SupervisionNavigationState {
   readonly sequence: number;
@@ -31,20 +31,26 @@ export type SupervisionNavigationSnapshot = Omit<
 export interface SupervisionControlState {
   readonly aircraft: Readonly<Record<AircraftDisplayTarget, boolean>>;
   readonly satellites: Readonly<Record<SatelliteToolGroup, boolean>>;
+  readonly clock: SupervisionSimulationClockState | null;
   readonly eclipse: SupervisionEclipseControlState;
 }
 
+export interface SupervisionSimulationClockState {
+  readonly atUtc: string;
+  readonly anchorWallUtc: string;
+  readonly offsetMs: number;
+  readonly scale: number;
+}
+
 export interface SupervisionEclipseControlState {
-  /** True when this session is running the standalone Eclipse Observatory. */
-  readonly active: boolean;
-  readonly playing: boolean;
+  readonly experience: "none" | "world" | "observatory";
+  readonly simulationActive: boolean;
+  readonly conesVisible: boolean;
   readonly eventId: string | null;
   readonly eventKind: string | null;
   readonly peakUtc: string | null;
   readonly contactStartUtc: string | null;
   readonly contactEndUtc: string | null;
-  readonly atUtc: string | null;
-  readonly playbackRate: number | null;
 }
 
 export const DEFAULT_SUPERVISION_CONTROL_STATE: SupervisionControlState = {
@@ -57,16 +63,16 @@ export const DEFAULT_SUPERVISION_CONTROL_STATE: SupervisionControlState = {
     space_stations: false,
     science_education: false,
   },
+  clock: null,
   eclipse: {
-    active: false,
-    playing: false,
+    experience: "none",
+    simulationActive: false,
+    conesVisible: false,
     eventId: null,
     eventKind: null,
     peakUtc: null,
     contactStartUtc: null,
     contactEndUtc: null,
-    atUtc: null,
-    playbackRate: null,
   },
 };
 
@@ -119,12 +125,25 @@ export type SupervisionCommand =
     readonly enabled: boolean;
   }
   | {
-    readonly kind: "setEclipsePlayback";
-    readonly playing: boolean;
+    readonly kind: "selectEclipseEvent";
+    readonly eventId: string;
   }
   | {
-    readonly kind: "setEclipseTime";
-    readonly utc: string;
+    readonly kind: "returnToLiveTime";
+  }
+  | {
+    readonly kind: "setEclipseConeVisibility";
+    readonly visible: boolean;
+  }
+  | {
+    readonly kind: "setSimulationClock";
+    readonly mode: "realtime";
+  }
+  | {
+    readonly kind: "setSimulationClock";
+    readonly mode: "anchored";
+    readonly atUtc?: string;
+    readonly scale: number;
   };
 
 export interface SupervisionSession {
@@ -300,6 +319,12 @@ function nullableUtc(value: unknown, description: string): string | null {
   return new Date(timeMs).toISOString();
 }
 
+function requiredUtc(value: unknown, description: string): string {
+  const result = nullableUtc(value, description);
+  if (result === null) throw new Error(`${description} is required.`);
+  return result;
+}
+
 export function parseSupervisionControlState(
   value: unknown,
 ): SupervisionControlState {
@@ -307,11 +332,48 @@ export function parseSupervisionControlState(
   const candidate = record(value, "Control state");
   const aircraft = record(candidate.aircraft, "Aircraft control state");
   const satellites = record(candidate.satellites, "Satellite control state");
+  const clockCandidate = candidate.clock === null || candidate.clock === undefined
+    ? null
+    : record(candidate.clock, "Simulation clock state");
+  const clock = clockCandidate === null
+    ? null
+    : {
+        atUtc: requiredUtc(
+          clockCandidate.atUtc,
+          "Simulation clock current UTC",
+        ),
+        anchorWallUtc: requiredUtc(
+          clockCandidate.anchorWallUtc,
+          "Simulation clock anchor wall UTC",
+        ),
+        offsetMs: finiteNumber(
+          clockCandidate.offsetMs,
+          "Simulation clock offset",
+        ),
+        scale: finiteNumber(
+          clockCandidate.scale,
+          "Simulation clock scale",
+        ),
+      };
   const eclipse = candidate.eclipse === undefined
     ? DEFAULT_SUPERVISION_CONTROL_STATE.eclipse
     : record(candidate.eclipse, "Eclipse control state");
-  const eclipseActive = requiredBoolean(eclipse.active, "Eclipse active");
-  const eclipsePlaying = requiredBoolean(eclipse.playing, "Eclipse playing");
+  const eclipseExperience = eclipse.experience;
+  if (
+    eclipseExperience !== "none" &&
+    eclipseExperience !== "world" &&
+    eclipseExperience !== "observatory"
+  ) {
+    throw new Error("Eclipse experience must be none, world, or observatory.");
+  }
+  const simulationActive = requiredBoolean(
+    eclipse.simulationActive,
+    "Eclipse simulation active",
+  );
+  const conesVisible = requiredBoolean(
+    eclipse.conesVisible,
+    "Eclipse cones visible",
+  );
   const eventId = nullableString(eclipse.eventId, "Eclipse event ID");
   const eventKind = nullableString(eclipse.eventKind, "Eclipse event kind");
   const peakUtc = nullableUtc(eclipse.peakUtc, "Eclipse peak UTC");
@@ -323,17 +385,30 @@ export function parseSupervisionControlState(
     eclipse.contactEndUtc,
     "Eclipse contact end UTC",
   );
-  const atUtc = nullableUtc(eclipse.atUtc, "Eclipse current UTC");
-  const playbackRate = eclipse.playbackRate === null
-    ? null
-    : finiteNumber(eclipse.playbackRate, "Eclipse playback rate");
   if (
-    eclipseActive &&
+    simulationActive &&
     (!eventId || !eventKind || !peakUtc || !contactStartUtc ||
-      !contactEndUtc || !atUtc ||
-      playbackRate === null || playbackRate <= 0)
+      !contactEndUtc || !clock)
   ) {
-    throw new Error("An active eclipse requires event, UTC, and playback details.");
+    throw new Error(
+      "An active eclipse simulation requires event and clock details.",
+    );
+  }
+  if (simulationActive && eclipseExperience === "none") {
+    throw new Error("An active eclipse simulation requires an eclipse experience.");
+  }
+  if (eclipseExperience === "observatory" && !simulationActive) {
+    throw new Error("The Eclipse Observatory requires an active simulation.");
+  }
+  if (
+    !simulationActive &&
+    (eventId !== null || eventKind !== null || peakUtc !== null ||
+      contactStartUtc !== null || contactEndUtc !== null)
+  ) {
+    throw new Error("Inactive eclipse telemetry cannot include an event timeline.");
+  }
+  if (eclipseExperience === "none" && conesVisible) {
+    throw new Error("A session without eclipse support cannot report eclipse state.");
   }
   if (
     contactStartUtc && contactEndUtc &&
@@ -363,16 +438,16 @@ export function parseSupervisionControlState(
         "Science and education satellites enabled",
       ),
     },
+    clock,
     eclipse: {
-      active: eclipseActive,
-      playing: eclipsePlaying,
+      experience: eclipseExperience,
+      simulationActive,
+      conesVisible,
       eventId,
       eventKind,
       peakUtc,
       contactStartUtc,
       contactEndUtc,
-      atUtc,
-      playbackRate,
     },
   };
 }
@@ -509,17 +584,42 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
       ),
     };
   }
-  if (candidate.kind === "setEclipsePlayback") {
+  if (candidate.kind === "selectEclipseEvent") {
+    const eventId = requiredString(candidate.eventId, "Eclipse event ID").trim();
+    if (!eventId) throw new Error("Eclipse event ID is required.");
+    return { kind: "selectEclipseEvent", eventId };
+  }
+  if (candidate.kind === "returnToLiveTime") {
+    return { kind: "returnToLiveTime" };
+  }
+  if (candidate.kind === "setEclipseConeVisibility") {
     return {
-      kind: "setEclipsePlayback",
-      playing: requiredBoolean(candidate.playing, "Eclipse playback"),
+      kind: "setEclipseConeVisibility",
+      visible: requiredBoolean(candidate.visible, "Eclipse cones visible"),
     };
   }
-  if (candidate.kind === "setEclipseTime") {
-    const utc = requiredString(candidate.utc, "Eclipse UTC");
-    const timeMs = Date.parse(utc);
-    if (!Number.isFinite(timeMs)) throw new Error("Eclipse UTC must be valid.");
-    return { kind: "setEclipseTime", utc: new Date(timeMs).toISOString() };
+  if (candidate.kind === "setSimulationClock") {
+    if (candidate.mode === "realtime") {
+      return { kind: "setSimulationClock", mode: "realtime" };
+    }
+    if (candidate.mode !== "anchored") {
+      throw new Error("Simulation clock mode must be realtime or anchored.");
+    }
+    const atUtc = candidate.atUtc === undefined
+      ? undefined
+      : requiredString(candidate.atUtc, "Simulation clock UTC");
+    const atMs = atUtc === undefined ? undefined : Date.parse(atUtc);
+    if (atMs !== undefined && !Number.isFinite(atMs)) {
+      throw new Error("Simulation clock UTC must be valid.");
+    }
+    return {
+      kind: "setSimulationClock",
+      mode: "anchored",
+      ...(atMs === undefined
+        ? {}
+        : { atUtc: new Date(atMs).toISOString() }),
+      scale: finiteNumber(candidate.scale, "Simulation clock scale"),
+    };
   }
   throw new Error("Unknown supervision command.");
 }

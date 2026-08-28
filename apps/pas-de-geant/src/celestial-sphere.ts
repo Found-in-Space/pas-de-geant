@@ -46,7 +46,6 @@ export type CelestialPlanetName =
 const ORIGIN_EPSILON_PC = 1e-9;
 const SUN_RADIUS_KM = 695_700;
 const MOON_RADIUS_KM = 1_737.4;
-const SUN_DISC_RADIUS_UV = 0.18;
 const MOON_RENDER_DISTANCE_M = CELESTIAL_SPHERE_RADIUS_M - 1;
 const PLANET_TEXTURE_SIZE = 64;
 const PLANET_MIN_OPACITY = 0.55;
@@ -309,18 +308,7 @@ class CelestialBodies {
   readonly object3d = new THREE.Group();
 
   private readonly planets = new CelestialPlanetField();
-
-  private readonly sunTexture = createSunTexture();
-  private readonly sunMaterial = new THREE.SpriteMaterial({
-    map: this.sunTexture,
-    color: 0xffffff,
-    transparent: true,
-    depthTest: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    toneMapped: false,
-  });
-  private readonly sun = new THREE.Sprite(this.sunMaterial);
+  private sunEnabled = true;
   private readonly moonGeometry = new THREE.SphereGeometry(1, 32, 16);
   private readonly moonMaterial = createMoonMaterial();
   private readonly moon = new THREE.Mesh(
@@ -329,9 +317,7 @@ class CelestialBodies {
   );
   private readonly calculateEphemeris: CelestialEphemerisProvider;
   private readonly observerJ2000Au = new THREE.Vector3();
-  private readonly sunJ2000Au = new THREE.Vector3();
   private readonly moonJ2000Au = new THREE.Vector3();
-  private readonly topocentricSun = new THREE.Vector3();
   private readonly topocentricMoon = new THREE.Vector3();
   private readonly moonToEarth = new THREE.Vector3();
   private readonly moonNorth = new THREE.Vector3();
@@ -352,11 +338,9 @@ class CelestialBodies {
     this.calculateEphemeris = calculateEphemeris;
     this.object3d.name = "celestial-bodies";
     this.object3d.visible = false;
-    this.sun.name = "celestial-sun";
-    this.sun.frustumCulled = false;
     this.moon.name = "celestial-moon";
     this.moon.frustumCulled = false;
-    this.object3d.add(this.planets.object3d, this.sun, this.moon);
+    this.object3d.add(this.planets.object3d, this.moon);
   }
 
   setMoonTexture(texture: THREE.Texture): void {
@@ -388,33 +372,13 @@ class CelestialBodies {
       .applyQuaternion(appEcefToJ2000)
       .divideScalar(KM_PER_AU);
     this.planets.updateObserver(this.observerJ2000Au);
-    this.sunJ2000Au.set(
-      ephemeris.sunDirectionJ2000.x * ephemeris.sunDistanceAu,
-      ephemeris.sunDirectionJ2000.y * ephemeris.sunDistanceAu,
-      ephemeris.sunDirectionJ2000.z * ephemeris.sunDistanceAu,
-    );
     this.moonJ2000Au.set(
       ephemeris.moonDirectionJ2000.x * ephemeris.moonDistanceAu,
       ephemeris.moonDirectionJ2000.y * ephemeris.moonDistanceAu,
       ephemeris.moonDirectionJ2000.z * ephemeris.moonDistanceAu,
     );
-    this.topocentricSun
-      .subVectors(this.sunJ2000Au, this.observerJ2000Au);
     this.topocentricMoon
       .subVectors(this.moonJ2000Au, this.observerJ2000Au);
-
-    const sunDistanceAu = this.topocentricSun.length();
-    this.sun.position
-      .copy(this.topocentricSun)
-      .multiplyScalar(CELESTIAL_SPHERE_RADIUS_M / sunDistanceAu);
-    const sunAngularRadiusRad = Math.asin(
-      SUN_RADIUS_KM / (sunDistanceAu * KM_PER_AU),
-    );
-    const sunDiscDiameterM =
-      2 * CELESTIAL_SPHERE_RADIUS_M *
-      Math.tan(sunAngularRadiusRad);
-    const sunSpriteSizeM = sunDiscDiameterM / (2 * SUN_DISC_RADIUS_UV);
-    this.sun.scale.set(sunSpriteSizeM, sunSpriteSizeM, 1);
 
     const moonDistanceAu = this.topocentricMoon.length();
     this.moon.position
@@ -444,12 +408,12 @@ class CelestialBodies {
     ) as Record<CelestialPlanetVisibilityTarget, boolean>;
     const allPlanetsEnabled = Object.values(planets).every(Boolean);
     return {
-      sun_enabled: this.sun.visible,
+      sun_enabled: this.sunEnabled,
       moon_enabled: this.moon.visible,
       planets,
       all_planets_enabled: allPlanetsEnabled,
       all_enabled:
-        this.sun.visible && this.moon.visible && allPlanetsEnabled,
+        this.sunEnabled && this.moon.visible && allPlanetsEnabled,
     };
   }
 
@@ -458,7 +422,7 @@ class CelestialBodies {
     enabled: boolean,
   ): CelestialVisibilityState {
     if (target === "sun" || target === "sun_and_moon" || target === "all") {
-      this.sun.visible = enabled;
+      this.sunEnabled = enabled;
     }
     if (target === "moon" || target === "sun_and_moon" || target === "all") {
       this.moon.visible = enabled;
@@ -539,10 +503,8 @@ class CelestialBodies {
   }
 
   dispose(): void {
-    this.object3d.remove(this.planets.object3d, this.sun, this.moon);
+    this.object3d.remove(this.planets.object3d, this.moon);
     this.planets.dispose();
-    this.sunTexture.dispose();
-    this.sunMaterial.dispose();
     this.moonGeometry.dispose();
     this.moonMaterial.dispose();
     this.moonTexture?.dispose();
@@ -655,6 +617,15 @@ export function equatorialJ2000ToAppEcefQuaternion(
   );
   return APP_ECEF_FROM_STANDARD_ECEF.clone()
     .multiply(standardEcefToJ2000.invert())
+    .normalize();
+}
+
+/** Maps app ECEF body axes into the rendered, Y-up J2000 frame. */
+export function appEcefToRenderJ2000Quaternion(
+  at: Date,
+): THREE.Quaternion {
+  return APP_ECEF_FROM_STANDARD_ECEF.clone()
+    .multiply(equatorialJ2000ToAppEcefQuaternion(at).invert())
     .normalize();
 }
 
@@ -1070,47 +1041,6 @@ function scalePlanetColor(color: PlanetColor, scale: number): PlanetColor {
 
 function clampedByte(value: number): number {
   return Math.round(THREE.MathUtils.clamp(value, 0, 255));
-}
-
-function createSunTexture(): THREE.DataTexture {
-  const size = 128;
-  const pixels = new Uint8Array(size * size * 4);
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const dx = (x + 0.5) / size - 0.5;
-      const dy = (y + 0.5) / size - 0.5;
-      const radius = Math.hypot(dx, dy);
-      const offset = (y * size + x) * 4;
-      if (radius <= SUN_DISC_RADIUS_UV) {
-        const centre = 1 - radius / SUN_DISC_RADIUS_UV;
-        pixels[offset] = 255;
-        pixels[offset + 1] = Math.round(204 + 51 * centre);
-        pixels[offset + 2] = Math.round(96 + 159 * centre);
-        pixels[offset + 3] = 255;
-      } else {
-        const glow = Math.max(
-          0,
-          1 - (radius - SUN_DISC_RADIUS_UV) /
-          (0.5 - SUN_DISC_RADIUS_UV),
-        ) ** 3;
-        pixels[offset] = 255;
-        pixels[offset + 1] = 154;
-        pixels[offset + 2] = 55;
-        pixels[offset + 3] = Math.round(150 * glow);
-      }
-    }
-  }
-  const texture = new THREE.DataTexture(
-    pixels,
-    size,
-    size,
-    THREE.RGBAFormat,
-    THREE.UnsignedByteType,
-  );
-  texture.name = "celestial-sun-texture";
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.needsUpdate = true;
-  return texture;
 }
 
 function createMoonMaterial(): THREE.ShaderMaterial {

@@ -11,6 +11,7 @@ import {
   type ThreeHostPose,
   type ThreePointerPhase,
 } from "@found-in-space/touch-os/hosts/three";
+import type { EclipseSummary } from "@found-in-space/shadowline";
 import * as THREE from "three";
 import { VRButton } from "three/addons/webxr/VRButton.js";
 import {
@@ -35,6 +36,7 @@ import {
 } from "./controller-input.js";
 import { bodyFixedToRenderQuaternion } from "./body-attitude.js";
 import {
+  appEcefToRenderJ2000Quaternion,
   CelestialSphere,
   equatorialJ2000ToAppEcefQuaternion,
 } from "./celestial-sphere.js";
@@ -49,6 +51,9 @@ import {
   eclipseTopographicSurfaceRadius,
 } from "./eclipse-earth-surface.js";
 import { RetainedShadowCones } from "./eclipse-rendering.js";
+import { eclipseYearFromEventId } from "./eclipse-tools.js";
+import { EclipseWorkerClient } from "./eclipse-worker-client.js";
+import type { EclipseContactRange } from "./eclipse-types.js";
 import {
   parseCelestialVisibilityArguments,
 } from "./celestial-visibility.js";
@@ -185,6 +190,13 @@ import {
 } from "./satellite-groups.js";
 import { SatelliteLayer } from "./satellite-layer.js";
 import {
+  anchoredSimulationClock,
+  realtimeSimulationClock,
+  simulationClockSnapshot,
+  simulationTimeMs,
+  type SimulationClockState,
+} from "./simulation-clock.js";
+import {
   geographicTravelFromWorld,
   geographicViewHeadingDegrees,
   normalizeHeadingDegrees,
@@ -202,6 +214,16 @@ import type {
   SupervisionClient,
   SupervisionConnectionStatus,
 } from "./supervision-client.js";
+
+interface WorldEclipseSelection {
+  readonly event: EclipseSummary;
+  readonly contacts: EclipseContactRange;
+}
+
+interface WorldExperienceState extends PlanetState {
+  simulationClock: SimulationClockState;
+  eclipse: WorldEclipseSelection | null;
+}
 
 interface PasDeGeantDebugApi {
   help(): Record<string, string>;
@@ -428,9 +450,10 @@ const planetRoot = new THREE.Group();
 scene.add(planetRoot);
 
 const celestialSphere = new CelestialSphere();
-// Temporarily hide the Sun, Moon, and planet sky objects: their finite render
-// distance can put them in front of Earth and make them show through at high zoom.
-celestialSphere.setVisibility("all", false);
+// Keep finite-distance sky objects hidden by default. The physical solar-system
+// Sun remains the one canonical Sun in every navigation mode.
+celestialSphere.setVisibility("moon", false);
+celestialSphere.setVisibility("planets", false);
 scene.add(celestialSphere.object3d);
 const textureLoader = new THREE.TextureLoader();
 const moonBaseTexturePromise = textureLoader.loadAsync(
@@ -510,10 +533,14 @@ setPreflightCheck(
     initialLocation.longitudeDegrees,
   ),
 );
-let state = initialPlanetState(
-  initialLocation.latitudeDegrees,
-  initialLocation.longitudeDegrees,
-);
+let state: WorldExperienceState = {
+  ...initialPlanetState(
+    initialLocation.latitudeDegrees,
+    initialLocation.longitudeDegrees,
+  ),
+  simulationClock: realtimeSimulationClock(),
+  eclipse: null,
+};
 let warpTransition: TimedTransition<NavigationCoordinates> | undefined;
 let scaleTransition: TimedTransition<number> | undefined;
 let headingTransition: TimedTransition<number> | undefined;
@@ -969,7 +996,7 @@ function orbitObserverSystemPosition(
   const renderOffset = headWorld.clone().sub(orbit.focusWorldPosition)
     .applyQuaternion(orbit.systemFrameQuaternion.clone().invert());
   return translatedObserverJ2000M(
-    bodyPositionJ2000M(focusBodyId, new Date()),
+    bodyPositionJ2000M(focusBodyId, presentationDate()),
     renderOffset,
     denominator,
   );
@@ -1011,7 +1038,11 @@ function syncHeadsetFloorPosition(): void {
   headsetFloorPosition.set(head.x, head.z);
 }
 
-function initializeOrbit(when = new Date()): void {
+function presentationDate(): Date {
+  return new Date(simulationTimeMs(state.simulationClock));
+}
+
+function initializeOrbit(when = presentationDate()): void {
   freeNavigationFrame = undefined;
   resetObserverRig();
   const viewCamera = currentViewCamera();
@@ -1077,10 +1108,14 @@ function resetPlanet(): void {
   warpTransition = undefined;
   scaleTransition = undefined;
   headingTransition = undefined;
-  state = initialPlanetState(
-    initialLocation.latitudeDegrees,
-    initialLocation.longitudeDegrees,
-  );
+  state = {
+    ...initialPlanetState(
+      initialLocation.latitudeDegrees,
+      initialLocation.longitudeDegrees,
+    ),
+    simulationClock: state.simulationClock,
+    eclipse: state.eclipse,
+  };
   scaleDenominator = DEFAULT_SCALE_DENOMINATOR;
   previousXrHead = null;
   freeObserverJ2000M = undefined;
@@ -1356,6 +1391,9 @@ function supervisionNavigationState(): SupervisionNavigationSnapshot {
 }
 
 function supervisionControlState(): SupervisionControlState {
+  const nowMs = Date.now();
+  const clock = simulationClockSnapshot(state.simulationClock, nowMs);
+  const eclipse = state.eclipse;
   return {
     aircraft: {
       aircraft: aircraftEnabled,
@@ -1366,16 +1404,21 @@ function supervisionControlState(): SupervisionControlState {
       space_stations: satelliteGroups.stations.enabled,
       science_education: satelliteGroups["science-education"].enabled,
     },
+    clock: {
+      atUtc: new Date(clock.atMs).toISOString(),
+      anchorWallUtc: new Date(clock.anchorWallTimeMs).toISOString(),
+      offsetMs: clock.offsetMs,
+      scale: clock.scale,
+    },
     eclipse: {
-      active: false,
-      playing: false,
-      eventId: null,
-      eventKind: null,
-      peakUtc: null,
-      contactStartUtc: null,
-      contactEndUtc: null,
-      atUtc: null,
-      playbackRate: null,
+      experience: "world",
+      simulationActive: eclipse !== null,
+      conesVisible: eclipseConesVisible,
+      eventId: eclipse?.event.id ?? null,
+      eventKind: eclipse?.event.kind ?? null,
+      peakUtc: eclipse?.event.peakUtc ?? null,
+      contactStartUtc: eclipse?.contacts.startUtc ?? null,
+      contactEndUtc: eclipse?.contacts.endUtc ?? null,
     },
   };
 }
@@ -1438,7 +1481,67 @@ const canonicalLocationPinMutations: CanonicalLocationPinMutations = {
   readPinState: () => locationPinStore.snapshot(),
 };
 
-function applySupervisionCommand(command: SupervisionCommand): void {
+let eclipseWorker: EclipseWorkerClient | undefined;
+let eclipseSelectionSequence = 0;
+
+async function selectSupervisedEclipse(eventId: string): Promise<void> {
+  const year = eclipseYearFromEventId(eventId);
+  if (year === null) throw new Error("Unrecognized solar eclipse event ID.");
+  eclipseSelectionSequence += 1;
+  const sequence = eclipseSelectionSequence;
+  eclipseWorker ??= new EclipseWorkerClient();
+  const events = await eclipseWorker.events(
+    `${String(year).padStart(4, "0")}-01-01T00:00:00Z`,
+    `${String(year + 1).padStart(4, "0")}-01-01T00:00:00Z`,
+  );
+  const eclipseEvent = events.find(({ id }) => id === eventId);
+  if (!eclipseEvent) throw new Error(`Shadowline did not verify ${eventId}.`);
+  const contacts = await eclipseWorker.contacts(eclipseEvent);
+  if (sequence !== eclipseSelectionSequence) return;
+  state.eclipse = { event: eclipseEvent, contacts };
+  state.simulationClock = anchoredSimulationClock(
+    Date.parse(contacts.startUtc),
+    0,
+  );
+  syncEclipseConesVisible(true);
+  updatePresentation(presentationDate());
+}
+
+function updateSupervisedEclipseTime(): void {
+  lastShadowConeUpdateSecond = Number.NEGATIVE_INFINITY;
+  updatePresentation(presentationDate());
+}
+
+async function applySupervisionCommand(command: SupervisionCommand): Promise<void> {
+  if (command.kind === "selectEclipseEvent") {
+    await selectSupervisedEclipse(command.eventId);
+    return;
+  }
+  if (command.kind === "returnToLiveTime") {
+    eclipseSelectionSequence += 1;
+    state.eclipse = null;
+    state.simulationClock = realtimeSimulationClock();
+    updateSupervisedEclipseTime();
+    return;
+  }
+  if (command.kind === "setEclipseConeVisibility") {
+    setEclipseConesVisible(command.visible);
+    return;
+  }
+  if (command.kind === "setSimulationClock") {
+    const wallTimeMs = Date.now();
+    state.simulationClock = command.mode === "realtime"
+      ? realtimeSimulationClock(wallTimeMs)
+      : anchoredSimulationClock(
+          command.atUtc === undefined
+            ? simulationTimeMs(state.simulationClock, wallTimeMs)
+            : Date.parse(command.atUtc),
+          command.scale,
+          wallTimeMs,
+        );
+    updateSupervisedEclipseTime();
+    return;
+  }
   if (navigationMode !== "surface" || focusBodyId !== "earth") {
     throw new Error("Supervision controls currently require Earth surface mode.");
   }
@@ -1456,13 +1559,6 @@ function applySupervisionCommand(command: SupervisionCommand): void {
   } else if (command.kind === "setSatelliteGroupVisibility") {
     const { group, enabled } = parseSatelliteVisibilityArguments(command);
     void setSatelliteGroupEnabled(group, enabled);
-  } else if (
-    command.kind === "setEclipsePlayback" ||
-    command.kind === "setEclipseTime"
-  ) {
-    throw new Error(
-      "Eclipse controls require the Eclipse Observatory experience.",
-    );
   } else {
     applySupervisorNavigationMutation(command, canonicalNavigationMutations);
   }
@@ -1586,17 +1682,22 @@ function setTextureTileOverlayVisible(visible: boolean): void {
   moonTerrain.setTextureTileOverlayVisible(visible);
 }
 
-function setEclipseConesVisible(visible: boolean): void {
+function syncEclipseConesVisible(visible: boolean): void {
   eclipseConesVisible = visible;
   shadowCones.group.visible = visible;
   lastShadowConeUpdateSecond = Number.NEGATIVE_INFINITY;
   document.body.dataset.eclipseCones = visible ? "visible" : "hidden";
+  handPanelLocationSignature = "";
+}
+
+function setEclipseConesVisible(visible: boolean): void {
+  syncEclipseConesVisible(visible);
 }
 
 function moveSpaceObserver(renderTravel: THREE.Vector3): void {
   if (navigationMode !== "free") return;
   const focus = celestialBody(focusBodyId);
-  const focusPosition = bodyPositionJ2000M(focusBodyId, new Date());
+  const focusPosition = bodyPositionJ2000M(focusBodyId, presentationDate());
   freeObserverJ2000M ??= systemObserverForFocus(
     focusPosition,
     focus.referenceRadiusM,
@@ -1621,7 +1722,7 @@ function focusDistanceHeadsetM(): number {
       .distanceTo(orbitNavigation.focusWorldPosition);
   }
   if (!freeObserverJ2000M) return focusedDisplayRadiusM() * 3;
-  const focusPosition = bodyPositionJ2000M(focusBodyId, new Date());
+  const focusPosition = bodyPositionJ2000M(focusBodyId, presentationDate());
   return headsetMetresForPhysicalMetres(Math.hypot(
     freeObserverJ2000M.x - focusPosition.x,
     freeObserverJ2000M.y - focusPosition.y,
@@ -1645,7 +1746,7 @@ function bodyAttitudeJ2000(
   target = new THREE.Quaternion(),
 ): THREE.Quaternion {
   if (bodyId === "earth") {
-    return target.copy(equatorialJ2000ToAppEcefQuaternion(when)).invert();
+    return target.copy(appEcefToRenderJ2000Quaternion(when));
   }
   return bodyFixedToRenderQuaternion(bodyRotation(bodyId, when), target);
 }
@@ -1864,7 +1965,8 @@ function placeBodyInSystemFrame(
     .add(frame.originWorldPosition);
   root.quaternion.copy(frame.systemFrameQuaternion).multiply(attitude);
   root.scale.setScalar(displayRadiusForScale(bodyId, scaleDenominator));
-  root.visible = true;
+  root.visible = bodyId !== "sun" ||
+    celestialSphere.getVisibility().sun_enabled;
 }
 
 function updateSystemPresentation(when: Date): SystemPresentationFrame {
@@ -2049,7 +2151,7 @@ function updateShadowConePresentation(
   );
 }
 
-function updatePresentation(when = new Date()): void {
+function updatePresentation(when = presentationDate()): void {
   let coordinates = coordinatesForFrame(state.contact);
   worldRotationQuaternion.setFromAxisAngle(worldUp, worldRotationRadians);
   worldRotationPivot.set(
@@ -3745,11 +3847,15 @@ function render(nowMs: number): void {
     lastKnownXrFrameRate = xrFrameRate;
   }
   if (renderer.xr.isPresenting) renderer.xr.updateCamera(camera);
-  const utcMilliseconds = Date.now();
-  const when = new Date(utcMilliseconds);
+  const wallTimeMs = Date.now();
   const intervalMs = nowMs - previousFrameMs;
   const deltaSeconds = Math.min(0.05, intervalMs / 1000);
   previousFrameMs = nowMs;
+  const simulationTimeMsValue = simulationTimeMs(
+    state.simulationClock,
+    wallTimeMs,
+  );
+  const when = new Date(simulationTimeMsValue);
   updateNavigationTransitions(nowMs);
   if (simulationInputEnabled) {
     if (renderer.xr.isPresenting) {
@@ -3777,11 +3883,11 @@ function render(nowMs: number): void {
     ? displayRadiusForScale("earth", scaleDenominator)
     : planetRoot.getWorldScale(earthWorldScale).x;
   aircraftLayer.update(
-    utcMilliseconds,
+    wallTimeMs,
     earthDisplayRadiusM,
   );
   satelliteLayer.update(
-    utcMilliseconds,
+    simulationTimeMsValue,
     earthDisplayRadiusM,
   );
   const viewCamera = currentViewCamera();
@@ -3804,7 +3910,7 @@ function render(nowMs: number): void {
   celestialSphere.update(
     planetRoot.quaternion,
     cameraWorldPosition,
-    utcMilliseconds,
+    simulationTimeMsValue,
     celestialObserverAppEcefKm,
   );
   updateHandPanel(nowMs);
@@ -3827,6 +3933,7 @@ window.addEventListener("beforeunload", () => {
   terrain.dispose();
   locationPinLayer.dispose();
   celestialSphere.dispose();
+  eclipseWorker?.dispose();
   shadowCones.dispose();
   handPanel.dispose();
   handPanelRuntime.dispose();
