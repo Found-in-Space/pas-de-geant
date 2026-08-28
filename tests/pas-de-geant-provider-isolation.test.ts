@@ -3,6 +3,7 @@ import { ElevationTileProvider } from "../apps/pas-de-geant/src/elevation-tile-p
 import {
   HttpTileError,
   ImageTileProvider,
+  type SourceImageLoad,
 } from "../apps/pas-de-geant/src/image-tile-provider.js";
 import {
   ScheduledImageryProvider,
@@ -41,12 +42,15 @@ function imageryProvider(
 }
 
 function elevationProvider(
-  loadSource: ConstructorParameters<typeof ImageTileProvider>[0]["loadSource"],
+  loadSource: (
+    sourceTile: TileIdentity,
+    signal: AbortSignal,
+  ) => Promise<SourceImageLoad>,
 ): ImageTileProvider {
   return new ImageTileProvider({
     mode: "terrain",
     tilePixels: 1,
-    concurrency: 1,
+    processingConcurrency: 1,
     resolveSource: (sourceTile) => ({
       sourceTile,
       sourceScale: 1,

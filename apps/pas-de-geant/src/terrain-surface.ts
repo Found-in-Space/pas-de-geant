@@ -941,6 +941,9 @@ export class TerrainSurface {
           queued: provider.queued,
           network_deferred: provider.networkDeferred,
           in_flight: provider.inFlight,
+          acquisition_active: provider.acquisitionActive,
+          processing_queued: provider.processingQueued,
+          processing_active: provider.processingActive,
         },
         horizon_culling: {
           retained_planner_tile_count: horizon.horizonTileCount,
