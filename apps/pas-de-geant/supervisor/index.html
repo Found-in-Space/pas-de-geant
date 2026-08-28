@@ -40,6 +40,27 @@
           <p id="unsupported-notice" class="notice" hidden></p>
 
           <div id="earth-workspace">
+            <section id="journey-card" class="journey-card" aria-labelledby="journey-heading">
+              <div class="command-title">
+                <div>
+                  <p class="eyebrow">Preset journey</p>
+                  <h3 id="journey-heading">Earth to Gaia</h3>
+                </div>
+                <span id="journey-status" class="mode-chip">Ready</span>
+              </div>
+              <div class="journey-progress-copy">
+                <strong id="journey-phase">Start on the Earth surface</strong>
+                <span id="journey-time">0:00 / 0:45</span>
+              </div>
+              <progress id="journey-progress" max="45" value="0">0%</progress>
+              <p id="journey-error" class="journey-error" hidden></p>
+              <div class="action-row journey-actions">
+                <button id="journey-start-button" class="primary-button" type="button">Start</button>
+                <button id="journey-pause-button" class="secondary-button" type="button" disabled>Pause</button>
+                <button id="journey-stop-button" class="secondary-button" type="button" disabled>Stop</button>
+              </div>
+            </section>
+
             <div class="supervision-grid">
               <div class="map-column">
                 <section class="map-card" aria-label="Headset position and gaze">

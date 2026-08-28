@@ -366,6 +366,8 @@ describe("Pas de Géant Realtime voice agent", () => {
               target?: { enum?: string[] };
               mode?: { enum?: string[] };
               group?: { enum?: string[] };
+              action?: { enum?: string[] };
+              journey?: { enum?: string[] };
               time?: { type?: string; minimum?: number };
               scale_denominator?: { type?: string; exclusiveMinimum?: number };
               display_radius_metres?: unknown;
@@ -380,6 +382,9 @@ describe("Pas de Géant Realtime voice agent", () => {
     );
     expect(configuration.session.tools.map((tool) => tool.name)).toEqual([
       "get_navigation_state",
+      "get_journey_state",
+      "start_journey",
+      "control_journey",
       "set_navigation",
       "get_user_location",
       "set_user_location",
@@ -431,6 +436,21 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.instructions).toContain(
       "leave all unrelated controls unchanged",
     );
+    expect(configuration.session.instructions).toContain(
+      "Never narrate, count down, or announce timed journey phases",
+    );
+    expect(configuration.session.tools.find(
+      ({ name }) => name === "start_journey",
+    )?.parameters).toMatchObject({
+      required: ["journey"],
+      properties: { journey: { enum: ["earth_to_gaia"] } },
+    });
+    expect(configuration.session.tools.find(
+      ({ name }) => name === "control_journey",
+    )?.parameters).toMatchObject({
+      required: ["action"],
+      properties: { action: { enum: ["pause", "resume", "stop"] } },
+    });
     expect(configuration.session.instructions).toContain(
       "authoritative high-precision live app position",
     );

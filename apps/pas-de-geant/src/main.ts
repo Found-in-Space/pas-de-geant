@@ -41,6 +41,16 @@ import {
   equatorialJ2000ToAppEcefQuaternion,
 } from "./celestial-sphere.js";
 import {
+  EARTH_TO_GAIA_JOURNEY_ID,
+  JourneyRunner,
+  PARSEC_METRES,
+  STELLAR_METRES_PER_PARSEC,
+  sampleEarthToGaiaTimeline,
+  type EarthToGaiaTimelineContext,
+  type EarthToGaiaTimelineSample,
+  type JourneyVector3,
+} from "./earth-to-gaia-journey.js";
+import {
   observerProjectedToBodyRadius,
   observerTranslatedForHeadPosition,
   updateTargetLockedOrbitFrame,
@@ -93,6 +103,7 @@ import {
   initialPlanetState,
   rollContactFrame,
   solvePlanetPose,
+  type ContactFrame,
   type PlanetState,
 } from "./planet-state.js";
 import { resolveInitialLocation } from "./initial-location.js";
@@ -189,6 +200,11 @@ import {
   type SatelliteGroupId,
 } from "./satellite-groups.js";
 import { SatelliteLayer } from "./satellite-layer.js";
+import { SpatialStarPass } from "./spatial-star-pass.js";
+import {
+  j2000ToWorldQuaternion,
+  trackingRoomOffsetWorld,
+} from "./stellar-coordinate-frame.js";
 import {
   anchoredSimulationClock,
   realtimeSimulationClock,
@@ -400,6 +416,8 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.35;
+renderer.autoClear = false;
+renderer.setClearColor(0x01040a, 1);
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType("local-floor");
 let xrFramebufferScaleFactor = 1;
@@ -407,7 +425,7 @@ renderer.xr.setFramebufferScaleFactor(xrFramebufferScaleFactor);
 sceneRoot.append(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x01040a);
+scene.background = null;
 const camera = new THREE.PerspectiveCamera(
   62,
   window.innerWidth / window.innerHeight,
@@ -449,9 +467,9 @@ function setRealtimeAudioStream(stream: MediaStream | null): void {
 const planetRoot = new THREE.Group();
 scene.add(planetRoot);
 
+// CelestialSphere now retains only finite-body ephemeris and visibility state;
+// SpatialStarPass owns the one catalogue-star render path.
 const celestialSphere = new CelestialSphere();
-// Keep finite-distance sky objects hidden by default. The physical solar-system
-// Sun remains the one canonical Sun in every navigation mode.
 celestialSphere.setVisibility("moon", false);
 celestialSphere.setVisibility("planets", false);
 scene.add(celestialSphere.object3d);
@@ -474,16 +492,6 @@ void moonBaseTexturePromise.then(
     console.warn("LRO Moon texture is unavailable:", error);
   },
 );
-document.body.dataset.starStatus = "loading";
-document.body.dataset.starCount = "0";
-void celestialSphere.load().then((result) => {
-  document.body.dataset.starStatus = result.status;
-  document.body.dataset.starCount = String(result.count);
-  if (result.status === "unavailable") {
-    console.warn("SkyKit star catalog is unavailable:", result.error);
-  }
-});
-
 const blueMarbleTexture = await textureLoader.loadAsync(
   `${import.meta.env.BASE_URL}bluemarble-2048.png`,
 );
@@ -541,6 +549,24 @@ let state: WorldExperienceState = {
   simulationClock: realtimeSimulationClock(),
   eclipse: null,
 };
+const spatialStarPass = new SpatialStarPass();
+document.body.dataset.starStatus = "loading";
+document.body.dataset.starCount = "0";
+const initialEarthJ2000M = bodyPositionJ2000M(
+  "earth",
+  new Date(simulationTimeMs(state.simulationClock)),
+);
+void spatialStarPass.load(vectorMetresToParsecs(initialEarthJ2000M)).then(
+  () => {
+    const snapshot = spatialStarPass.getSnapshot();
+    document.body.dataset.starStatus = snapshot.status;
+    document.body.dataset.starCount = String(snapshot.starCount);
+  },
+  (error: unknown) => {
+    document.body.dataset.starStatus = "failed";
+    console.warn("SkyKit spatial star catalog is unavailable:", error);
+  },
+);
 let warpTransition: TimedTransition<NavigationCoordinates> | undefined;
 let scaleTransition: TimedTransition<number> | undefined;
 let headingTransition: TimedTransition<number> | undefined;
@@ -548,6 +574,13 @@ let navigationMode: NavigationMode = "surface";
 let focusBodyId: SolarSystemBodyId = "earth";
 let scaleDenominator = DEFAULT_SCALE_DENOMINATOR;
 let freeObserverJ2000M: Vector3d | undefined;
+let navigationRealm: "solar_system" | "stellar" = "solar_system";
+let activeJourneySample: EarthToGaiaTimelineSample | null = null;
+let journeyTrackingAnchorWorld = new THREE.Vector3();
+let journeyTrackingOriginLocal = new THREE.Vector3();
+const journeyRoomOffsetWorld = new THREE.Vector3();
+const observerRigWorldQuaternion = new THREE.Quaternion();
+let journeyJ2000ToWorld = new THREE.Quaternion();
 interface OrbitNavigationState {
   observer: EclipseObserverTransform;
   /** Authoritative J2000 observer position in physical metres. */
@@ -570,6 +603,32 @@ if (Number.isFinite(benchmarkScaleDenominator) && benchmarkScaleDenominator > 0)
 
 function focusedDisplayRadiusM(): number {
   return displayRadiusForScale(focusBodyId, scaleDenominator);
+}
+
+function vectorMetresToParsecs(value: Vector3d): JourneyVector3 {
+  return {
+    x: value.x / PARSEC_METRES,
+    y: value.y / PARSEC_METRES,
+    z: value.z / PARSEC_METRES,
+  };
+}
+
+function vectorParsecsToMetres(value: JourneyVector3): Vector3d {
+  return {
+    x: value.x * PARSEC_METRES,
+    y: value.y * PARSEC_METRES,
+    z: value.z * PARSEC_METRES,
+  };
+}
+
+function authoredStellarObserverJ2000M(): Vector3d {
+  if (navigationMode === "free" && freeObserverJ2000M) {
+    return freeObserverJ2000M;
+  }
+  if (navigationMode === "orbit" && orbitNavigation) {
+    return orbitNavigation.observerSystemPositionM;
+  }
+  return bodyPositionJ2000M("earth", presentationDate());
 }
 const terrain = new TerrainSurface({
   renderer,
@@ -863,6 +922,7 @@ const handPanel = createThreePanelSession({
   driver: handPanelDriver,
   enabled: false,
   outputHandler(output: RuntimeOutput) {
+    if (journeyRunner.isLocked()) return;
     const action = handPanelNavigationAction(output);
     if (action === "cycle-mode") {
       const modes: NavigationMode[] = ["surface", "orbit", "free"];
@@ -1379,7 +1439,17 @@ function supervisionNavigationState(): SupervisionNavigationSnapshot {
   } catch {
     // A vertical gaze has no stable horizontal projection.
   }
+  const observerJ2000M = authoredStellarObserverJ2000M();
+  const stellar = navigationRealm === "stellar" || activeJourneySample !== null
+    ? {
+        observerJ2000Pc: vectorMetresToParsecs(observerJ2000M),
+        metresPerParsec: STELLAR_METRES_PER_PARSEC,
+        roomTranslationBlend: activeJourneySample?.roomTranslationBlend ??
+          (navigationRealm === "stellar" ? 1 : 0),
+      }
+    : null;
   return {
+    realm: navigationRealm,
     mode: navigationMode,
     focusBody: focusBodyId,
     latitudeDegrees: coordinates.latitudeDegrees,
@@ -1387,6 +1457,7 @@ function supervisionNavigationState(): SupervisionNavigationSnapshot {
     scaleDenominator,
     terrainMultiplier: state.terrainMultiplier,
     headingDegrees,
+    stellar,
   };
 }
 
@@ -1420,6 +1491,7 @@ function supervisionControlState(): SupervisionControlState {
       contactStartUtc: eclipse?.contacts.startUtc ?? null,
       contactEndUtc: eclipse?.contacts.endUtc ?? null,
     },
+    journey: journeyRunner.getState(),
   };
 }
 
@@ -1481,6 +1553,384 @@ const canonicalLocationPinMutations: CanonicalLocationPinMutations = {
   readPinState: () => locationPinStore.snapshot(),
 };
 
+interface EarthToGaiaSnapshot {
+  readonly capturedAtMs: number;
+  readonly contact: ContactFrame;
+  readonly terrainMultiplier: number;
+  readonly scaleDenominator: number;
+  readonly worldRotationRadians: number;
+  readonly simulationClock: SimulationClockState;
+  readonly eclipse: WorldEclipseSelection | null;
+  readonly eclipseConesVisible: boolean;
+  readonly simulationInputEnabled: boolean;
+  readonly frozenTimeMs: number;
+  readonly gazeWorld: THREE.Vector3;
+  readonly systemFrameQuaternion: THREE.Quaternion;
+  readonly j2000ToWorld: THREE.Quaternion;
+  readonly trackingOriginLocal: THREE.Vector3;
+  readonly transitions: {
+    readonly warp: TimedTransition<NavigationCoordinates> | undefined;
+    readonly scale: TimedTransition<number> | undefined;
+    readonly heading: TimedTransition<number> | undefined;
+  };
+  readonly layerVisibility: {
+    readonly planet: boolean;
+    readonly moon: boolean;
+    readonly placeholders: ReadonlyMap<SolarSystemBodyId, boolean>;
+    readonly shadowCones: boolean;
+    readonly celestialBodies: boolean;
+    readonly stars: boolean;
+  };
+}
+
+interface EarthToGaiaPreparation {
+  readonly context: EarthToGaiaTimelineContext;
+  readonly gazeWorld: THREE.Vector3;
+  readonly systemFrameQuaternion: THREE.Quaternion;
+  readonly j2000ToWorld: THREE.Quaternion;
+  readonly trackingOriginLocal: THREE.Vector3;
+}
+
+interface JourneyMaterialState {
+  readonly opacity: number;
+  readonly transparent: boolean;
+  readonly depthWrite: boolean;
+}
+
+const journeyMaterialStates = new Map<THREE.Material, JourneyMaterialState>();
+
+function cloneContactFrame(frame: ContactFrame): ContactFrame {
+  return {
+    upEcef: frame.upEcef.clone(),
+    eastEcef: frame.eastEcef.clone(),
+    northEcef: frame.northEcef.clone(),
+  };
+}
+
+function captureEarthToGaiaSnapshot(): EarthToGaiaSnapshot {
+  if (navigationMode !== "surface" || focusBodyId !== "earth") {
+    throw new Error("Start the Earth-to-Gaia journey from the Earth surface.");
+  }
+  updatePresentation(presentationDate());
+  const frame = lastSystemPresentationFrame;
+  if (!frame) throw new Error("The Solar System frame is not ready.");
+  const viewCamera = currentViewCamera();
+  viewCamera.updateWorldMatrix(true, false);
+  const gazeWorld = new THREE.Vector3(0, 0, -1)
+    .applyQuaternion(viewCamera.getWorldQuaternion(new THREE.Quaternion()))
+    .normalize();
+  const j2000ToWorld = j2000ToWorldQuaternion(
+    frame.systemFrameQuaternion,
+  );
+  return {
+    capturedAtMs: performance.now(),
+    contact: cloneContactFrame(state.contact),
+    terrainMultiplier: state.terrainMultiplier,
+    scaleDenominator,
+    worldRotationRadians,
+    simulationClock: { ...state.simulationClock },
+    eclipse: state.eclipse,
+    eclipseConesVisible,
+    simulationInputEnabled,
+    frozenTimeMs: simulationTimeMs(state.simulationClock),
+    gazeWorld,
+    systemFrameQuaternion: frame.systemFrameQuaternion.clone(),
+    j2000ToWorld,
+    trackingOriginLocal: viewCamera.position.clone(),
+    transitions: {
+      warp: warpTransition ? { ...warpTransition } : undefined,
+      scale: scaleTransition ? { ...scaleTransition } : undefined,
+      heading: headingTransition ? { ...headingTransition } : undefined,
+    },
+    layerVisibility: {
+      planet: planetRoot.visible,
+      moon: moonRoot.visible,
+      placeholders: new Map(
+        [...placeholderRoots].map(([bodyId, root]) => [bodyId, root.visible]),
+      ),
+      shadowCones: shadowCones.group.visible,
+      celestialBodies: celestialSphere.object3d.visible,
+      stars: spatialStarPass.scene.visible,
+    },
+  };
+}
+
+async function prepareEarthToGaiaJourney(
+  snapshot: EarthToGaiaSnapshot,
+  signal: AbortSignal,
+): Promise<EarthToGaiaPreparation> {
+  // Preflight is visually stationary even when the journey was requested
+  // during an authored transition. Restoration resumes it from this instant.
+  warpTransition = undefined;
+  scaleTransition = undefined;
+  headingTransition = undefined;
+  const when = new Date(snapshot.frozenTimeMs);
+  const startObserverM = bodyPositionJ2000M("earth", when);
+  const startObserverPc = vectorMetresToParsecs(startObserverM);
+  const inverseFrame = snapshot.j2000ToWorld.clone().invert();
+  const gazeJ2000 = snapshot.gazeWorld.clone()
+    .applyQuaternion(inverseFrame)
+    .normalize();
+  const destinationDirectionJ2000 = gazeJ2000.multiplyScalar(-1);
+  const sunPositionM = bodyPositionJ2000M("sun", when);
+  const solarOverviewScaleDenominator = Math.max(
+    ...SOLAR_SYSTEM_BODIES.map((body) => {
+      const position = bodyPositionJ2000M(body.id, when);
+      return Math.hypot(
+        position.x - sunPositionM.x,
+        position.y - sunPositionM.y,
+        position.z - sunPositionM.z,
+      ) + body.referenceRadiusM;
+    }),
+  ) / 4;
+  const context: EarthToGaiaTimelineContext = {
+    solarOverviewScaleDenominator,
+    interstellarStartObserverPc: startObserverPc,
+    destinationDirectionJ2000,
+  };
+  await spatialStarPass.load(startObserverPc, signal);
+  const routePoints: JourneyVector3[] = [];
+  for (let second = 32; second <= 43; second += 1) {
+    const observer = sampleEarthToGaiaTimeline(second * 1_000, context)
+      .observerJ2000Pc;
+    if (observer) routePoints.push(observer);
+  }
+  const destinationPc = routePoints.at(-1);
+  if (!destinationPc) throw new Error("The stellar destination is unavailable.");
+  await spatialStarPass.warmJourney(routePoints, destinationPc, signal);
+  return {
+    context,
+    gazeWorld: snapshot.gazeWorld.clone(),
+    systemFrameQuaternion: snapshot.systemFrameQuaternion.clone(),
+    j2000ToWorld: snapshot.j2000ToWorld.clone(),
+    trackingOriginLocal: snapshot.trackingOriginLocal.clone(),
+  };
+}
+
+function beginEarthToGaiaJourney(
+  snapshot: EarthToGaiaSnapshot,
+  preparation: EarthToGaiaPreparation,
+): void {
+  warpTransition = undefined;
+  scaleTransition = undefined;
+  headingTransition = undefined;
+  state.simulationClock = anchoredSimulationClock(snapshot.frozenTimeMs, 0);
+  journeyTrackingOriginLocal.copy(preparation.trackingOriginLocal);
+  journeyJ2000ToWorld.copy(preparation.j2000ToWorld);
+  spatialStarPass.scene.visible = true;
+  navigationRealm = "solar_system";
+  activeJourneySample = null;
+}
+
+function enterJourneyOrbit(preparation: EarthToGaiaPreparation): void {
+  resetObserverRig();
+  const viewCamera = currentViewCamera();
+  viewCamera.updateWorldMatrix(true, false);
+  const headPosition = viewCamera.getWorldPosition(new THREE.Vector3());
+  const focusWorldPosition = headPosition.clone().addScaledVector(
+    preparation.gazeWorld,
+    displayRadiusForScale("earth", scaleDenominator) * 3,
+  );
+  navigationMode = "orbit";
+  focusBodyId = "earth";
+  orbitNavigation = {
+    observer: {
+      position: observerRig.position.clone(),
+      quaternion: observerRig.quaternion.clone(),
+    },
+    observerSystemPositionM: { x: 0, y: 0, z: 0 },
+    focusWorldPosition,
+    systemFrameQuaternion: preparation.systemFrameQuaternion.clone(),
+  };
+  freeObserverJ2000M = undefined;
+  freeNavigationFrame = undefined;
+  previousXrHead = null;
+  syncOrbitObserverSystemPosition();
+}
+
+function applyEarthToGaiaSample(
+  sample: EarthToGaiaTimelineSample,
+  _snapshot: EarthToGaiaSnapshot,
+  preparation: EarthToGaiaPreparation,
+): void {
+  activeJourneySample = sample;
+  navigationRealm = sample.realm;
+  if (sample.navigationMode === "orbit" && navigationMode === "surface") {
+    enterJourneyOrbit(preparation);
+  } else if (sample.navigationMode === "free" && navigationMode === "orbit") {
+    setNavigationMode("free");
+  }
+  commitScaleDenominator(sample.scaleDenominator);
+  if (sample.observerJ2000Pc) {
+    freeObserverJ2000M = vectorParsecsToMetres(sample.observerJ2000Pc);
+  }
+  document.body.dataset.journeyPhase = sample.phase;
+  document.body.dataset.journeyProgress = String(sample.progress);
+}
+
+function restoreJourneyMaterials(): void {
+  for (const [material, original] of journeyMaterialStates) {
+    material.opacity = original.opacity;
+    material.transparent = original.transparent;
+    material.depthWrite = original.depthWrite;
+    material.needsUpdate = true;
+  }
+  journeyMaterialStates.clear();
+}
+
+function setObjectOpacity(root: THREE.Object3D, opacity: number): void {
+  const value = THREE.MathUtils.clamp(opacity, 0, 1);
+  root.traverse((object) => {
+    const candidate = object as THREE.Object3D & {
+      material?: THREE.Material | THREE.Material[];
+    };
+    const materials = Array.isArray(candidate.material)
+      ? candidate.material
+      : candidate.material ? [candidate.material] : [];
+    for (const material of materials) {
+      let original = journeyMaterialStates.get(material);
+      if (!original) {
+        original = {
+          opacity: material.opacity,
+          transparent: material.transparent,
+          depthWrite: material.depthWrite,
+        };
+        journeyMaterialStates.set(material, original);
+      }
+      material.opacity = original.opacity * value;
+      material.transparent = original.transparent || value < 0.999;
+      material.depthWrite = original.depthWrite && value >= 0.999;
+      material.needsUpdate = true;
+    }
+  });
+  root.visible = value > 0.001;
+}
+
+function applyJourneyVisualOpacity(): void {
+  const sample = activeJourneySample;
+  if (!sample) return;
+  setObjectOpacity(planetRoot, sample.planetOpacity);
+  setObjectOpacity(moonRoot, sample.planetOpacity);
+  for (const [bodyId, root] of placeholderRoots) {
+    setObjectOpacity(
+      root,
+      bodyId === "sun" ? sample.physicalSunOpacity : sample.planetOpacity,
+    );
+  }
+  setObjectOpacity(celestialSphere.object3d, sample.planetOpacity);
+  setObjectOpacity(shadowCones.group, sample.planetOpacity);
+}
+
+function restoreEarthToGaiaSnapshot(snapshot: EarthToGaiaSnapshot): void {
+  restoreJourneyMaterials();
+  activeJourneySample = null;
+  navigationRealm = "solar_system";
+  navigationMode = "surface";
+  focusBodyId = "earth";
+  state.contact = cloneContactFrame(snapshot.contact);
+  state.terrainMultiplier = snapshot.terrainMultiplier;
+  state.simulationClock = { ...snapshot.simulationClock };
+  state.eclipse = snapshot.eclipse;
+  scaleDenominator = snapshot.scaleDenominator;
+  worldRotationRadians = snapshot.worldRotationRadians;
+  const pausedDurationMs = performance.now() - snapshot.capturedAtMs;
+  warpTransition = snapshot.transitions.warp
+    ? {
+        ...snapshot.transitions.warp,
+        startedAtMs: snapshot.transitions.warp.startedAtMs + pausedDurationMs,
+      }
+    : undefined;
+  scaleTransition = snapshot.transitions.scale
+    ? {
+        ...snapshot.transitions.scale,
+        startedAtMs: snapshot.transitions.scale.startedAtMs + pausedDurationMs,
+      }
+    : undefined;
+  headingTransition = snapshot.transitions.heading
+    ? {
+        ...snapshot.transitions.heading,
+        startedAtMs: snapshot.transitions.heading.startedAtMs + pausedDurationMs,
+      }
+    : undefined;
+  simulationInputEnabled = snapshot.simulationInputEnabled;
+  syncEclipseConesVisible(snapshot.eclipseConesVisible);
+  orbitNavigation = undefined;
+  freeObserverJ2000M = undefined;
+  freeNavigationFrame = undefined;
+  resetObserverRig();
+  syncHeadsetFloorPosition();
+  previousXrHead = null;
+  planetRoot.visible = snapshot.layerVisibility.planet;
+  moonRoot.visible = snapshot.layerVisibility.moon;
+  for (const [bodyId, visible] of snapshot.layerVisibility.placeholders) {
+    placeholderRoots.get(bodyId)!.visible = visible;
+  }
+  shadowCones.group.visible = snapshot.layerVisibility.shadowCones;
+  celestialSphere.object3d.visible = snapshot.layerVisibility.celestialBodies;
+  spatialStarPass.scene.visible = snapshot.layerVisibility.stars;
+  document.body.dataset.journeyPhase = "idle";
+  document.body.dataset.journeyProgress = "0";
+  updatePresentation();
+}
+
+const journeyRunner = new JourneyRunner<
+  EarthToGaiaSnapshot,
+  EarthToGaiaPreparation
+>({
+  hooks: {
+    capture: captureEarthToGaiaSnapshot,
+    prepare: prepareEarthToGaiaJourney,
+    begin: beginEarthToGaiaJourney,
+    apply: applyEarthToGaiaSample,
+    restore: restoreEarthToGaiaSnapshot,
+    stateChanged(journeyState) {
+      document.body.dataset.journeyStatus = journeyState.status;
+      document.body.dataset.journeyPhase = journeyState.phase;
+      document.body.dataset.journeyProgress = String(journeyState.progress);
+    },
+  },
+  context: (preparation) => preparation.context,
+});
+
+function startEarthToGaiaJourney(): ReturnType<typeof journeyRunner.getState> {
+  const current = journeyRunner.getState();
+  if (
+    current.status === "preparing" ||
+    current.status === "running" ||
+    current.status === "paused"
+  ) {
+    throw new Error("The Earth-to-Gaia journey is already active.");
+  }
+  const completion = journeyRunner.start();
+  const immediateState = journeyRunner.getState();
+  void completion.catch((error: unknown) => {
+    console.warn("The Earth-to-Gaia journey could not start:", error);
+  });
+  return immediateState;
+}
+
+function requireJourneyUnlocked(): void {
+  if (journeyRunner.isLocked()) {
+    throw new Error("Stop the Earth-to-Gaia journey before changing this control.");
+  }
+}
+
+function resetExperience(): void {
+  if (journeyRunner.isLocked() || journeyRunner.getState().status === "failed") {
+    journeyRunner.cancel(false);
+    restoreJourneyMaterials();
+    activeJourneySample = null;
+    navigationRealm = "solar_system";
+    navigationMode = "surface";
+    focusBodyId = "earth";
+    orbitNavigation = undefined;
+    freeObserverJ2000M = undefined;
+    freeNavigationFrame = undefined;
+    resetObserverRig();
+  }
+  resetPlanet();
+}
+
 let eclipseWorker: EclipseWorkerClient | undefined;
 let eclipseSelectionSequence = 0;
 
@@ -1513,6 +1963,23 @@ function updateSupervisedEclipseTime(): void {
 }
 
 async function applySupervisionCommand(command: SupervisionCommand): Promise<void> {
+  if (command.kind === "startJourney") {
+    startEarthToGaiaJourney();
+    return;
+  }
+  if (command.kind === "pauseJourney") {
+    journeyRunner.pause();
+    return;
+  }
+  if (command.kind === "resumeJourney") {
+    journeyRunner.resume();
+    return;
+  }
+  if (command.kind === "stopJourney") {
+    journeyRunner.stop();
+    return;
+  }
+  requireJourneyUnlocked();
   if (command.kind === "selectEclipseEvent") {
     await selectSupervisedEclipse(command.eventId);
     return;
@@ -1943,6 +2410,8 @@ interface SystemPresentationFrame {
   systemFrameQuaternion: THREE.Quaternion;
 }
 
+let lastSystemPresentationFrame: SystemPresentationFrame | undefined;
+
 function placeBodyInSystemFrame(
   bodyId: SolarSystemBodyId,
   root: THREE.Object3D,
@@ -2175,6 +2644,7 @@ function updatePresentation(when = presentationDate()): void {
       pose,
     );
   }
+  lastSystemPresentationFrame = systemFrame;
   updateSolarLighting();
   updateShadowConePresentation(when, systemFrame);
   const view = terrainViewMetrics();
@@ -2318,6 +2788,7 @@ const voiceAgent = new RealtimeVoiceAgent({
         ? focusDistanceHeadsetM()
         : null;
       return {
+        realm: navigationRealm,
         mode: navigationMode,
         focus_body: focusBodyId,
         scale_denominator: scaleDenominator,
@@ -2328,7 +2799,33 @@ const voiceAgent = new RealtimeVoiceAgent({
           : orbitDistanceHeadsetM * scaleDenominator,
       };
     },
+    get_journey_state() {
+      return journeyRunner.getState();
+    },
+    start_journey(argumentsValue) {
+      if (
+        !argumentsValue ||
+        typeof argumentsValue !== "object" ||
+        (argumentsValue as Record<string, unknown>).journey !==
+          EARTH_TO_GAIA_JOURNEY_ID
+      ) {
+        throw new Error("Journey must be earth_to_gaia.");
+      }
+      return startEarthToGaiaJourney();
+    },
+    control_journey(argumentsValue) {
+      if (!argumentsValue || typeof argumentsValue !== "object") {
+        throw new Error("Journey control arguments are required.");
+      }
+      const action = (argumentsValue as Record<string, unknown>).action;
+      if (action === "pause") journeyRunner.pause();
+      else if (action === "resume") journeyRunner.resume();
+      else if (action === "stop") journeyRunner.stop();
+      else throw new Error("Journey action must be pause, resume, or stop.");
+      return journeyRunner.getState();
+    },
     set_navigation(argumentsValue) {
+      requireJourneyUnlocked();
       if (!argumentsValue || typeof argumentsValue !== "object") {
         throw new Error("Navigation arguments are required.");
       }
@@ -2403,6 +2900,7 @@ const voiceAgent = new RealtimeVoiceAgent({
       };
     },
     set_user_location(argumentsValue) {
+      requireJourneyUnlocked();
       const location = parseLocationToolArguments(argumentsValue);
       const resultingState = applyVoiceWarpMutation(
         location,
@@ -2425,6 +2923,7 @@ const voiceAgent = new RealtimeVoiceAgent({
       return locationPinVoiceState();
     },
     add_location_pin(argumentsValue) {
+      requireJourneyUnlocked();
       if (!argumentsValue || typeof argumentsValue !== "object") {
         throw new Error("Location pin arguments are required.");
       }
@@ -2439,6 +2938,7 @@ const voiceAgent = new RealtimeVoiceAgent({
       return { ok: true, pin_id: pin.pinId, ...locationPinVoiceState() };
     },
     remove_location_pin(argumentsValue) {
+      requireJourneyUnlocked();
       applyVoiceRemovePinMutation(
         pinIdFromVoiceArguments(argumentsValue),
         canonicalLocationPinMutations,
@@ -2446,6 +2946,7 @@ const voiceAgent = new RealtimeVoiceAgent({
       return { ok: true, ...locationPinVoiceState() };
     },
     set_location_pin_visibility(argumentsValue) {
+      requireJourneyUnlocked();
       const { pinId, visible } = pinVisibilityFromVoiceArguments(argumentsValue);
       applyVoiceSetPinVisibilityMutation(
         pinId,
@@ -2455,11 +2956,13 @@ const voiceAgent = new RealtimeVoiceAgent({
       return { ok: true, ...locationPinVoiceState() };
     },
     rename_location_pin(argumentsValue) {
+      requireJourneyUnlocked();
       const { pinId, label } = pinRenameFromVoiceArguments(argumentsValue);
       applyVoiceRenamePinMutation(pinId, label, canonicalLocationPinMutations);
       return { ok: true, pin_id: pinId, ...locationPinVoiceState() };
     },
     set_location_pin_guidance(argumentsValue) {
+      requireJourneyUnlocked();
       const { pinId, enabled } = pinGuidanceFromVoiceArguments(argumentsValue);
       applyVoiceSetPinGuidanceMutation(
         pinId,
@@ -2472,9 +2975,11 @@ const voiceAgent = new RealtimeVoiceAgent({
       return viewDirectionState();
     },
     set_view_direction(argumentsValue) {
+      requireJourneyUnlocked();
       return setViewDirection(argumentsValue);
     },
     async set_satellite_group_visibility(argumentsValue) {
+      requireJourneyUnlocked();
       const { group, enabled } =
         parseSatelliteVisibilityArguments(argumentsValue);
       return await setSatelliteGroupEnabled(group, enabled);
@@ -2483,6 +2988,7 @@ const voiceAgent = new RealtimeVoiceAgent({
       return celestialSphere.getVisibility();
     },
     set_celestial_visibility(argumentsValue) {
+      requireJourneyUnlocked();
       const { target, enabled } =
         parseCelestialVisibilityArguments(argumentsValue);
       return {
@@ -2512,6 +3018,7 @@ const voiceAgent = new RealtimeVoiceAgent({
       return aircraftDisplayState();
     },
     set_aircraft_display(argumentsValue) {
+      requireJourneyUnlocked();
       const display = parseAircraftDisplayArguments(argumentsValue);
       return setAircraftDisplay(display.target, display.enabled);
     },
@@ -2522,16 +3029,19 @@ const voiceAgent = new RealtimeVoiceAgent({
       return terrain.getTilePlannerState();
     },
     set_tile_pixel_ratio(argumentsValue) {
+      requireJourneyUnlocked();
       return terrain.setTilePixelRatio(
         parseTilePixelRatioArguments(argumentsValue),
       );
     },
     set_tile_max_zoom(argumentsValue) {
+      requireJourneyUnlocked();
       return terrain.setTileMaxZoom(
         parseTileMaxZoomArguments(argumentsValue),
       );
     },
     set_tile_recalculation(argumentsValue) {
+      requireJourneyUnlocked();
       return terrain.setTileRecalculation(
         parseTileRecalculationArguments(argumentsValue),
       );
@@ -2680,6 +3190,11 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
   const session = renderer.xr.getSession();
   if (!session) return;
   const intent = controllerIntent(session, nowMs, buttonLatch);
+  if (journeyRunner.isLocked()) {
+    if (intent.toggleAgent) void voiceAgent.toggle();
+    if (intent.reset) resetExperience();
+    return;
+  }
   if (navigationMode !== "orbit" && intent.turnAxis !== 0) {
     rotateViewDirection(
       intent.turnAxis * XR_TURN_RATE_DEGREES_PER_SECOND * deltaSeconds,
@@ -2748,7 +3263,7 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
   if (intent.toggleAgent) {
     void voiceAgent.toggle();
   }
-  if (intent.reset) resetPlanet();
+  if (intent.reset) resetExperience();
 }
 
 function orbitSystemFrameByRadians(
@@ -2826,6 +3341,7 @@ function updateOrbitControls(
 }
 
 function updateDesktopControls(deltaSeconds: number): void {
+  if (journeyRunner.isLocked()) return;
   const sideways =
     Number(keys.has("KeyD")) - Number(keys.has("KeyA"));
   const forward =
@@ -2896,7 +3412,9 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   renderer.domElement.setPointerCapture(event.pointerId);
 });
 renderer.domElement.addEventListener("pointermove", (event) => {
-  if (!pointerActive || renderer.xr.isPresenting) return;
+  if (!pointerActive || renderer.xr.isPresenting || journeyRunner.isLocked()) {
+    return;
+  }
   if (navigationMode === "orbit") {
     orbitSystemFrameByRadians(
       -(event.clientX - pointerX) * 0.002,
@@ -2914,7 +3432,11 @@ renderer.domElement.addEventListener("pointermove", (event) => {
   pointerY = event.clientY;
 });
 renderer.domElement.addEventListener("wheel", (event) => {
-  if (renderer.xr.isPresenting || navigationMode !== "orbit") return;
+  if (
+    renderer.xr.isPresenting ||
+    navigationMode !== "orbit" ||
+    journeyRunner.isLocked()
+  ) return;
   event.preventDefault();
   updateOrbitControls(
     0,
@@ -2933,8 +3455,13 @@ renderer.domElement.addEventListener("pointerup", (event) => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (journeyRunner.isLocked()) {
+    if (!event.repeat && event.code === "Backspace") resetExperience();
+    event.preventDefault();
+    return;
+  }
   if (event.repeat && event.code === "Backspace") return;
-  if (event.code === "Backspace") resetPlanet();
+  if (event.code === "Backspace") resetExperience();
   if (!event.repeat && event.code === "KeyM") {
     const modes: NavigationMode[] = ["surface", "orbit", "free"];
     setNavigationMode(modes[(modes.indexOf(navigationMode) + 1) % modes.length]!);
@@ -3277,6 +3804,7 @@ renderer.xr.addEventListener("sessionstart", () => {
   void startSupervisionSession();
 });
 renderer.xr.addEventListener("sessionend", () => {
+  if (journeyRunner.isLocked()) journeyRunner.cancel(true);
   document.body.classList.remove("xr-presenting");
   stopSupervisionSession();
   locationPinStore.clear();
@@ -3400,7 +3928,7 @@ function debugControlState(): Record<string, unknown> {
     layers: {
       terrain: terrain.group.visible,
       atmosphere: atmosphere.mesh.visible,
-      stars: celestialSphere.object3d.visible,
+      stars: spatialStarPass.scene.visible,
       aircraft: aircraftLayer.group.visible,
       handPanel: handPanelVisible,
     },
@@ -3528,7 +4056,7 @@ function captureBenchmarkRestoreState(): BenchmarkRestoreState {
     layers: {
       terrain: terrain.group.visible,
       atmosphere: atmosphere.mesh.visible,
-      stars: celestialSphere.object3d.visible,
+      stars: spatialStarPass.scene.visible,
       aircraft: aircraftLayer.group.visible,
       handPanel: handPanelVisible,
     },
@@ -3650,7 +4178,7 @@ const debugApi: PasDeGeantDebugApi = {
     terrain.setRenderCullingEnabled(true);
     renderingEnabled = true;
     terrain.group.visible = true;
-    celestialSphere.object3d.visible = true;
+    spatialStarPass.scene.visible = true;
     aircraftLayer.group.visible = false;
     handPanelVisible = false;
     handPanel.enabled = false;
@@ -3690,7 +4218,7 @@ const debugApi: PasDeGeantDebugApi = {
     terrain.setRenderCullingEnabled(restore.terrainRenderCullingEnabled);
     terrain.group.visible = restore.layers.terrain;
     atmosphere.mesh.visible = restore.layers.atmosphere;
-    celestialSphere.object3d.visible = restore.layers.stars;
+    spatialStarPass.scene.visible = restore.layers.stars;
     aircraftLayer.group.visible = restore.layers.aircraft;
     handPanelVisible = restore.layers.handPanel;
     if (restore.foveation !== undefined) {
@@ -3815,7 +4343,7 @@ const debugApi: PasDeGeantDebugApi = {
         atmosphere.mesh.visible = visible;
         break;
       case "stars":
-        celestialSphere.object3d.visible = visible;
+        spatialStarPass.scene.visible = visible;
         break;
       case "aircraft":
         aircraftLayer.group.visible = visible;
@@ -3840,6 +4368,8 @@ if (import.meta.env.DEV || benchmarkParameters.get("debug") === "1") {
 const cameraWorldPosition = new THREE.Vector3();
 const celestialObserverAppEcefKm = new THREE.Vector3();
 const earthWorldScale = new THREE.Vector3();
+const starJ2000ToWorld = new THREE.Quaternion();
+let lastStarTelemetryUpdateMs = Number.NEGATIVE_INFINITY;
 function render(nowMs: number): void {
   const applicationStartMs = performance.now();
   const xrFrameRate = renderer.xr.getSession()?.frameRate;
@@ -3851,13 +4381,14 @@ function render(nowMs: number): void {
   const intervalMs = nowMs - previousFrameMs;
   const deltaSeconds = Math.min(0.05, intervalMs / 1000);
   previousFrameMs = nowMs;
+  journeyRunner.update(nowMs);
   const simulationTimeMsValue = simulationTimeMs(
     state.simulationClock,
     wallTimeMs,
   );
   const when = new Date(simulationTimeMsValue);
   updateNavigationTransitions(nowMs);
-  if (simulationInputEnabled) {
+  if (simulationInputEnabled || journeyRunner.isLocked()) {
     if (renderer.xr.isPresenting) {
       updatePhysicalWalking();
       updateXrControls(deltaSeconds, nowMs);
@@ -3866,6 +4397,7 @@ function render(nowMs: number): void {
     }
   }
   updatePresentation(when);
+  applyJourneyVisualOpacity();
   const pinCoordinates = coordinatesForFrame(state.contact);
   locationPinLayer.update({
     pinState: locationPinStore.snapshot(),
@@ -3913,8 +4445,50 @@ function render(nowMs: number): void {
     simulationTimeMsValue,
     celestialObserverAppEcefKm,
   );
+  const starObserverPc = vectorMetresToParsecs(
+    authoredStellarObserverJ2000M(),
+  );
+  const starFrame = activeJourneySample
+    ? journeyJ2000ToWorld
+    : j2000ToWorldQuaternion(
+        lastSystemPresentationFrame?.systemFrameQuaternion ??
+          worldRotationQuaternion,
+        starJ2000ToWorld,
+      );
+  if (activeJourneySample) {
+    observerRig.getWorldQuaternion(observerRigWorldQuaternion);
+    trackingRoomOffsetWorld(
+      camera.position,
+      journeyTrackingOriginLocal,
+      observerRigWorldQuaternion,
+      journeyRoomOffsetWorld,
+    );
+    journeyTrackingAnchorWorld.copy(cameraWorldPosition)
+      .sub(journeyRoomOffsetWorld);
+  }
+  const starTrackingAnchor = activeJourneySample
+    ? journeyTrackingAnchorWorld
+    : cameraWorldPosition;
+  spatialStarPass.setView({
+    observerJ2000Pc: starObserverPc,
+    j2000ToWorld: starFrame,
+    trackingAnchorWorld: starTrackingAnchor,
+    parallaxBlend: activeJourneySample?.roomTranslationBlend ?? 0,
+    sunOpacity: activeJourneySample?.syntheticSunOpacity ?? 0,
+  });
+  if (nowMs - lastStarTelemetryUpdateMs >= 1_000) {
+    lastStarTelemetryUpdateMs = nowMs;
+    const starSnapshot = spatialStarPass.getSnapshot();
+    document.body.dataset.starStatus = starSnapshot.status;
+    document.body.dataset.starCount = String(starSnapshot.starCount);
+  }
   updateHandPanel(nowMs);
-  if (renderingEnabled) renderer.render(scene, camera);
+  if (renderingEnabled) {
+    renderer.clear(true, true, true);
+    spatialStarPass.render(renderer, camera);
+    renderer.clearDepth();
+    renderer.render(scene, camera);
+  }
   frameTelemetry.record(
     nowMs,
     intervalMs,
@@ -3933,6 +4507,7 @@ window.addEventListener("beforeunload", () => {
   terrain.dispose();
   locationPinLayer.dispose();
   celestialSphere.dispose();
+  void spatialStarPass.dispose();
   eclipseWorker?.dispose();
   shadowCones.dispose();
   handPanel.dispose();

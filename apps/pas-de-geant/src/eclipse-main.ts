@@ -121,6 +121,7 @@ import type {
   SupervisionClient,
   SupervisionConnectionStatus,
 } from "./supervision-client.js";
+import { idleJourneyState } from "./earth-to-gaia-journey.js";
 import { TerrainSurface, type TerrainSurfaceView } from "./terrain-surface.js";
 import { proxiedTileConfiguration } from "./tile-proxy.js";
 import {
@@ -824,6 +825,7 @@ function eclipseStateReadback(): Record<string, unknown> {
 
 function eclipseSupervisionNavigationState(): SupervisionNavigationSnapshot {
   return {
+    realm: "solar_system",
     mode: "orbit",
     focusBody: "earth",
     latitudeDegrees: latestEarthSurfaceObservation.latitudeDegrees,
@@ -831,6 +833,7 @@ function eclipseSupervisionNavigationState(): SupervisionNavigationSnapshot {
     scaleDenominator: state.stage.scaleDenominator,
     terrainMultiplier: 1,
     headingDegrees: null,
+    stellar: null,
   };
 }
 
@@ -862,6 +865,7 @@ function eclipseSupervisionControlState(): SupervisionControlState {
       contactStartUtc: state.contacts.startUtc,
       contactEndUtc: state.contacts.endUtc,
     },
+    journey: idleJourneyState(),
   };
 }
 

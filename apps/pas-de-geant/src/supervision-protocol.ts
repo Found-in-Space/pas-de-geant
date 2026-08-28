@@ -7,13 +7,32 @@ import {
   type LocationPin,
 } from "./location-pin.js";
 import { validScaleDenominator } from "./world-scale.js";
+import {
+  EARTH_TO_GAIA_DURATION_MS,
+  EARTH_TO_GAIA_JOURNEY_ID,
+  idleJourneyState,
+  type EarthToGaiaJourneyPhase,
+  type EarthToGaiaJourneyState,
+  type EarthToGaiaJourneyStatus,
+} from "./earth-to-gaia-journey.js";
 
 export const SUPERVISION_PATH = "/api/supervision";
-export const SUPERVISION_SUBPROTOCOL = "pas-de-geant.supervision.v4";
-export const SUPERVISION_PROTOCOL_VERSION = 4;
+export const SUPERVISION_SUBPROTOCOL = "pas-de-geant.supervision.v5";
+export const SUPERVISION_PROTOCOL_VERSION = 5;
+
+export interface SupervisionStellarState {
+  readonly observerJ2000Pc: {
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+  };
+  readonly metresPerParsec: number;
+  readonly roomTranslationBlend: number;
+}
 
 export interface SupervisionNavigationState {
   readonly sequence: number;
+  readonly realm: "solar_system" | "stellar";
   readonly mode: NavigationMode;
   readonly focusBody: SolarSystemBodyId;
   readonly latitudeDegrees: number;
@@ -21,6 +40,7 @@ export interface SupervisionNavigationState {
   readonly scaleDenominator: number;
   readonly terrainMultiplier: number;
   readonly headingDegrees: number | null;
+  readonly stellar: SupervisionStellarState | null;
 }
 
 export type SupervisionNavigationSnapshot = Omit<
@@ -33,6 +53,7 @@ export interface SupervisionControlState {
   readonly satellites: Readonly<Record<SatelliteToolGroup, boolean>>;
   readonly clock: SupervisionSimulationClockState | null;
   readonly eclipse: SupervisionEclipseControlState;
+  readonly journey: EarthToGaiaJourneyState;
 }
 
 export interface SupervisionSimulationClockState {
@@ -74,6 +95,7 @@ export const DEFAULT_SUPERVISION_CONTROL_STATE: SupervisionControlState = {
     contactStartUtc: null,
     contactEndUtc: null,
   },
+  journey: idleJourneyState(),
 };
 
 export type SupervisionCommand =
@@ -144,6 +166,19 @@ export type SupervisionCommand =
     readonly mode: "anchored";
     readonly atUtc?: string;
     readonly scale: number;
+  }
+  | {
+    readonly kind: "startJourney";
+    readonly journeyId: typeof EARTH_TO_GAIA_JOURNEY_ID;
+  }
+  | {
+    readonly kind: "pauseJourney";
+  }
+  | {
+    readonly kind: "resumeJourney";
+  }
+  | {
+    readonly kind: "stopJourney";
   };
 
 export interface SupervisionSession {
@@ -325,6 +360,66 @@ function requiredUtc(value: unknown, description: string): string {
   return result;
 }
 
+const JOURNEY_STATUSES: ReadonlySet<EarthToGaiaJourneyStatus> = new Set([
+  "idle",
+  "preparing",
+  "running",
+  "paused",
+  "completed",
+  "failed",
+]);
+const JOURNEY_PHASES: ReadonlySet<EarthToGaiaJourneyPhase> = new Set([
+  "idle",
+  "preparing",
+  "earth",
+  "earth_scale",
+  "whole_earth",
+  "solar_scale",
+  "solar_overview",
+  "interstellar",
+  "stellar_reveal",
+  "failed",
+]);
+
+function parseJourneyState(value: unknown): EarthToGaiaJourneyState {
+  if (value === undefined) return idleJourneyState();
+  const candidate = record(value, "Journey state");
+  if (candidate.id !== EARTH_TO_GAIA_JOURNEY_ID) {
+    throw new Error("Unknown journey ID.");
+  }
+  if (!JOURNEY_STATUSES.has(candidate.status as EarthToGaiaJourneyStatus)) {
+    throw new Error("Unknown journey status.");
+  }
+  if (!JOURNEY_PHASES.has(candidate.phase as EarthToGaiaJourneyPhase)) {
+    throw new Error("Unknown journey phase.");
+  }
+  const elapsedMs = finiteNumber(candidate.elapsedMs, "Journey elapsed time");
+  const durationMs = finiteNumber(candidate.durationMs, "Journey duration");
+  const progress = finiteNumber(candidate.progress, "Journey progress");
+  if (
+    elapsedMs < 0 ||
+    elapsedMs > EARTH_TO_GAIA_DURATION_MS ||
+    durationMs !== EARTH_TO_GAIA_DURATION_MS
+  ) {
+    throw new Error("Journey timing is invalid.");
+  }
+  if (progress < 0 || progress > 1) {
+    throw new Error("Journey progress must be between zero and one.");
+  }
+  const error = candidate.error === null
+    ? null
+    : requiredString(candidate.error, "Journey error");
+  return {
+    id: EARTH_TO_GAIA_JOURNEY_ID,
+    status: candidate.status as EarthToGaiaJourneyStatus,
+    phase: candidate.phase as EarthToGaiaJourneyPhase,
+    elapsedMs,
+    durationMs: EARTH_TO_GAIA_DURATION_MS,
+    progress,
+    error,
+  };
+}
+
 export function parseSupervisionControlState(
   value: unknown,
 ): SupervisionControlState {
@@ -449,6 +544,7 @@ export function parseSupervisionControlState(
       contactStartUtc,
       contactEndUtc,
     },
+    journey: parseJourneyState(candidate.journey),
   };
 }
 
@@ -486,12 +582,12 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
   const candidate = record(value, "Supervision command");
   if ("displayRadiusM" in candidate) {
     throw new Error(
-      "displayRadiusM is not supported by protocol v3; use scaleDenominator.",
+      "displayRadiusM is not supported by protocol v5; use scaleDenominator.",
     );
   }
   if ("radialMultiplier" in candidate) {
     throw new Error(
-      "radialMultiplier is not supported by protocol v3; use terrainMultiplier.",
+      "radialMultiplier is not supported by protocol v5; use terrainMultiplier.",
     );
   }
   if (candidate.kind === "warp") {
@@ -621,6 +717,18 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
       scale: finiteNumber(candidate.scale, "Simulation clock scale"),
     };
   }
+  if (candidate.kind === "startJourney") {
+    if (candidate.journeyId !== EARTH_TO_GAIA_JOURNEY_ID) {
+      throw new Error("Unknown journey ID.");
+    }
+    return {
+      kind: "startJourney",
+      journeyId: EARTH_TO_GAIA_JOURNEY_ID,
+    };
+  }
+  if (candidate.kind === "pauseJourney") return { kind: "pauseJourney" };
+  if (candidate.kind === "resumeJourney") return { kind: "resumeJourney" };
+  if (candidate.kind === "stopJourney") return { kind: "stopJourney" };
   throw new Error("Unknown supervision command.");
 }
 
@@ -630,12 +738,12 @@ export function parseSupervisionNavigationState(
   const candidate = record(value, "Navigation state");
   if ("displayRadiusM" in candidate) {
     throw new Error(
-      "displayRadiusM is not supported by protocol v3; use scaleDenominator.",
+      "displayRadiusM is not supported by protocol v5; use scaleDenominator.",
     );
   }
   if ("radialMultiplier" in candidate) {
     throw new Error(
-      "radialMultiplier is not supported by protocol v3; use terrainMultiplier.",
+      "radialMultiplier is not supported by protocol v5; use terrainMultiplier.",
     );
   }
   const sequence = finiteNumber(candidate.sequence, "State sequence");
@@ -648,6 +756,9 @@ export function parseSupervisionNavigationState(
     candidate.mode !== "free"
   ) {
     throw new Error("Unknown navigation mode.");
+  }
+  if (candidate.realm !== "solar_system" && candidate.realm !== "stellar") {
+    throw new Error("Unknown navigation realm.");
   }
   if (typeof candidate.focusBody !== "string" || !BODY_IDS.has(candidate.focusBody)) {
     throw new Error("Unknown focus body.");
@@ -670,8 +781,45 @@ export function parseSupervisionNavigationState(
       throw new Error("Heading must be between 0 and 360 degrees.");
     }
   }
+  let stellar: SupervisionStellarState | null = null;
+  if (candidate.stellar !== null && candidate.stellar !== undefined) {
+    const stellarCandidate = record(candidate.stellar, "Stellar telemetry");
+    const observer = record(
+      stellarCandidate.observerJ2000Pc,
+      "Stellar observer",
+    );
+    const metresPerParsec = finiteNumber(
+      stellarCandidate.metresPerParsec,
+      "Stellar metres per parsec",
+    );
+    const roomTranslationBlend = finiteNumber(
+      stellarCandidate.roomTranslationBlend,
+      "Stellar room-translation blend",
+    );
+    if (metresPerParsec <= 0) {
+      throw new Error("Stellar metres per parsec must be positive.");
+    }
+    if (roomTranslationBlend < 0 || roomTranslationBlend > 1) {
+      throw new Error(
+        "Stellar room-translation blend must be between zero and one.",
+      );
+    }
+    stellar = {
+      observerJ2000Pc: {
+        x: finiteNumber(observer.x, "Stellar observer x"),
+        y: finiteNumber(observer.y, "Stellar observer y"),
+        z: finiteNumber(observer.z, "Stellar observer z"),
+      },
+      metresPerParsec,
+      roomTranslationBlend,
+    };
+  }
+  if (candidate.realm === "stellar" && stellar === null) {
+    throw new Error("The stellar realm requires stellar telemetry.");
+  }
   return {
     sequence,
+    realm: candidate.realm,
     mode: candidate.mode,
     focusBody: candidate.focusBody as SolarSystemBodyId,
     latitudeDegrees: latitude(candidate.latitudeDegrees),
@@ -679,6 +827,7 @@ export function parseSupervisionNavigationState(
     scaleDenominator,
     terrainMultiplier,
     headingDegrees,
+    stellar,
   };
 }
 

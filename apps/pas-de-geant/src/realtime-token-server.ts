@@ -70,7 +70,11 @@ export function realtimeSessionConfiguration(
         "the Moon, orbit any registered body, or free-roam in space. Answer conversationally in one or " +
         "two short sentences. Ask only one question at a time and give only one " +
         "step at a time. After using a tool, summarize only the result the user " +
-        "needs. The position shown by the app is the place under " +
+        "needs. Use get_journey_state to read the Earth-to-Gaia preset state, " +
+        "start_journey to begin or restart it, and control_journey only to " +
+        "pause, resume, or stop it. Acknowledge journey tool results in one " +
+        "short phrase. Never narrate, count down, or announce timed journey " +
+        "phases; the headset owns the complete visual sequence. The position shown by the app is the place under " +
         "the user’s feet. Use get_navigation_state before reporting the current " +
         "world, mode, or scale. Use set_navigation to change world, placement " +
         "mode, or universal 1:N scale denominator. Surface mode is available on Earth and " +
@@ -156,6 +160,44 @@ export function realtimeSessionConfiguration(
           name: "get_navigation_state",
           description: "Read the current placement mode, focus body, universal 1:N scale denominator, and terrain exaggeration.",
           parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+        {
+          type: "function",
+          name: "get_journey_state",
+          description:
+            "Read the current Earth-to-Gaia preset status, phase, elapsed time, progress, and any preparation error.",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+        {
+          type: "function",
+          name: "start_journey",
+          description:
+            "Start or restart the deterministic 45-second Earth-to-Gaia visual preset. The headset owns its timing; do not narrate it.",
+          parameters: {
+            type: "object",
+            properties: {
+              journey: { type: "string", enum: ["earth_to_gaia"] },
+            },
+            required: ["journey"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "control_journey",
+          description:
+            "Pause, resume, or stop the active Earth-to-Gaia visual preset.",
+          parameters: {
+            type: "object",
+            properties: {
+              action: {
+                type: "string",
+                enum: ["pause", "resume", "stop"],
+              },
+            },
+            required: ["action"],
+            additionalProperties: false,
+          },
         },
         {
           type: "function",

@@ -34,6 +34,7 @@ import {
 import {
   attachSupervisionRelay,
 } from "../apps/pas-de-geant/src/supervision-server.js";
+import { idleJourneyState } from "../apps/pas-de-geant/src/earth-to-gaia-journey.js";
 
 function protocolMessage(
   value: Omit<Record<string, unknown>, "protocolVersion">,
@@ -43,6 +44,7 @@ function protocolMessage(
 
 const initialState: SupervisionNavigationState = {
   sequence: 0,
+  realm: "solar_system",
   mode: "surface",
   focusBody: "earth",
   latitudeDegrees: 51.5074,
@@ -50,6 +52,7 @@ const initialState: SupervisionNavigationState = {
   scaleDenominator: 60_000,
   terrainMultiplier: 1,
   headingDegrees: 42.5,
+  stellar: null,
 };
 
 const initialControls: SupervisionControlState = {
@@ -78,11 +81,12 @@ const initialControls: SupervisionControlState = {
     contactStartUtc: null,
     contactEndUtc: null,
   },
+  journey: idleJourneyState(),
 };
 
 describe("supervision protocol", () => {
   it("rejects incompatible versions and unknown message types", () => {
-    for (const protocolVersion of [1, 2, 3]) {
+    for (const protocolVersion of [1, 2, 3, 4]) {
       expect(() => parseSupervisionMessage({
         protocolVersion,
         type: "headset.hello",
@@ -298,6 +302,23 @@ describe("supervision protocol", () => {
       kind: "setEclipseConeVisibility",
       visible: true,
     })).toEqual({ kind: "setEclipseConeVisibility", visible: true });
+    expect(parseSupervisionCommand({
+      kind: "startJourney",
+      journeyId: "earth_to_gaia",
+    })).toEqual({ kind: "startJourney", journeyId: "earth_to_gaia" });
+    expect(parseSupervisionCommand({ kind: "pauseJourney" })).toEqual({
+      kind: "pauseJourney",
+    });
+    expect(parseSupervisionCommand({ kind: "resumeJourney" })).toEqual({
+      kind: "resumeJourney",
+    });
+    expect(parseSupervisionCommand({ kind: "stopJourney" })).toEqual({
+      kind: "stopJourney",
+    });
+    expect(() => parseSupervisionCommand({
+      kind: "startJourney",
+      journeyId: "unknown",
+    })).toThrow(/journey/i);
   });
 
   it("validates full navigation state sequences and nullable heading", () => {
@@ -340,6 +361,28 @@ describe("supervision protocol", () => {
         aircraft: { aircraft: "yes", labels: false },
       },
     }))).toThrow(/aircraft symbols/i);
+
+    const stellarState = {
+      ...initialState,
+      realm: "stellar" as const,
+      mode: "free" as const,
+      scaleDenominator: 3.085677581491367e17,
+      stellar: {
+        observerJ2000Pc: { x: 1, y: -2, z: 9.7467943448 },
+        metresPerParsec: 0.1,
+        roomTranslationBlend: 1,
+      },
+    };
+    expect(parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: stellarState,
+      controls: initialControls,
+    }))).toMatchObject({ state: stellarState });
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: { ...stellarState, stellar: null },
+      controls: initialControls,
+    }))).toThrow(/stellar telemetry/i);
   });
 
   it("validates live world and active observatory eclipse telemetry", () => {
@@ -418,6 +461,31 @@ describe("supervision protocol", () => {
         },
       },
     }))).toThrow(/contact end/i);
+  });
+
+  it("round-trips journey preparation and running telemetry", () => {
+    const journey = {
+      id: "earth_to_gaia" as const,
+      status: "running" as const,
+      phase: "interstellar" as const,
+      elapsedMs: 38_500,
+      durationMs: 45_000 as const,
+      progress: 38_500 / 45_000,
+      error: null,
+    };
+    expect(parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: initialState,
+      controls: { ...initialControls, journey },
+    }))).toMatchObject({ controls: { journey } });
+    expect(() => parseSupervisionMessage(protocolMessage({
+      type: "headset.state",
+      state: initialState,
+      controls: {
+        ...initialControls,
+        journey: { ...journey, elapsedMs: 45_001 },
+      },
+    }))).toThrow(/timing/i);
   });
 });
 

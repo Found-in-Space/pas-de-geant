@@ -38,6 +38,7 @@ import {
   ECLIPSE_PLAYBACK_SCALE,
   MAIN_WORLD_FEATURED_ECLIPSE_EVENT_ID,
 } from "./eclipse-types.js";
+import { EARTH_TO_GAIA_JOURNEY_ID } from "./earth-to-gaia-journey.js";
 
 const INITIAL_MAP_CENTER: L.LatLngExpression = [20, 0];
 const INITIAL_MAP_ZOOM = 2;
@@ -59,6 +60,14 @@ const sessionWorkspace = element<HTMLDivElement>("session-workspace");
 const earthWorkspace = element<HTMLDivElement>("earth-workspace");
 const eclipseWorkspace = element<HTMLDivElement>("eclipse-workspace");
 const unsupportedNotice = element<HTMLParagraphElement>("unsupported-notice");
+const journeyStatus = element<HTMLElement>("journey-status");
+const journeyPhase = element<HTMLElement>("journey-phase");
+const journeyTime = element<HTMLElement>("journey-time");
+const journeyProgress = element<HTMLProgressElement>("journey-progress");
+const journeyError = element<HTMLParagraphElement>("journey-error");
+const journeyStartButton = element<HTMLButtonElement>("journey-start-button");
+const journeyPauseButton = element<HTMLButtonElement>("journey-pause-button");
+const journeyStopButton = element<HTMLButtonElement>("journey-stop-button");
 const mapElement = element<HTMLDivElement>("earth-map");
 const centerMapButton = element<HTMLButtonElement>("center-map-button");
 const warpForm = element<HTMLFormElement>("warp-form");
@@ -258,8 +267,18 @@ function elapsedLabel(startedAtMs: number): string {
   return minutes < 60 ? `${minutes}m live` : `${Math.floor(minutes / 60)}h live`;
 }
 
-function isSupported(session: SupervisionSession | undefined): boolean {
+function isEarthSurface(session: SupervisionSession | undefined): boolean {
   return session?.state?.mode === "surface" && session.state.focusBody === "earth";
+}
+
+function journeyOwnsSession(session: SupervisionSession | undefined): boolean {
+  const status = session?.controls.journey.status;
+  return status === "preparing" || status === "running" ||
+    status === "paused" || status === "completed";
+}
+
+function isSupported(session: SupervisionSession | undefined): boolean {
+  return isEarthSurface(session) && !journeyOwnsSession(session);
 }
 
 function selectedLiveSession(): SupervisionSession | undefined {
@@ -493,6 +512,61 @@ function renderSessionList(): void {
     }
     insertionPoint = entry.button.nextElementSibling;
   }
+}
+
+const JOURNEY_PHASE_LABELS = {
+  idle: "Start on the Earth surface",
+  preparing: "Preparing the Gaia catalogue",
+  earth: "Earth surface",
+  earth_scale: "Expanding beyond Earth",
+  whole_earth: "Whole Earth",
+  solar_scale: "Expanding through the Solar System",
+  solar_overview: "Solar System overview",
+  interstellar: "Travelling into the stellar neighbourhood",
+  stellar_reveal: "The Sun among the Gaia stars",
+  failed: "Preparation failed",
+} as const;
+
+function formatJourneyTime(elapsedMs: number): string {
+  const seconds = Math.max(0, Math.min(45, Math.floor(elapsedMs / 1_000)));
+  return `0:${String(seconds).padStart(2, "0")} / 0:45`;
+}
+
+function renderJourneyControls(
+  session: SupervisionSession,
+  connected: boolean,
+): void {
+  const journey = session.controls.journey;
+  const startPending = selectedPendingCommand(["startJourney"]);
+  const controlPending = selectedPendingCommand([
+    "pauseJourney",
+    "resumeJourney",
+    "stopJourney",
+  ]);
+  journeyStatus.textContent = journey.status === "idle"
+    ? "Ready"
+    : journey.status[0]!.toUpperCase() + journey.status.slice(1);
+  journeyPhase.textContent = JOURNEY_PHASE_LABELS[journey.phase];
+  journeyTime.textContent = formatJourneyTime(journey.elapsedMs);
+  journeyProgress.value = journey.elapsedMs / 1_000;
+  journeyError.hidden = journey.error === null;
+  journeyError.textContent = journey.error ?? "";
+
+  const canRestart = journey.status === "completed";
+  const canStart = isEarthSurface(session) &&
+    (journey.status === "idle" || journey.status === "failed");
+  journeyStartButton.textContent = canRestart
+    ? "Restart"
+    : journey.status === "failed" ? "Try again" : "Start";
+  journeyStartButton.disabled = !connected || startPending !== undefined ||
+    controlPending !== undefined ||
+    (!canStart && !canRestart);
+  const canPause = journey.status === "running" || journey.status === "paused";
+  journeyPauseButton.textContent = journey.status === "paused" ? "Resume" : "Pause";
+  journeyPauseButton.disabled = !connected || startPending !== undefined ||
+    controlPending !== undefined || !canPause;
+  journeyStopButton.disabled = !connected || controlPending !== undefined ||
+    !journeyOwnsSession(session);
 }
 
 function renderControls(supported: boolean, connected: boolean): void {
@@ -1051,7 +1125,8 @@ function render(): void {
     ? observatory
       ? `Eclipse Observatory · ${session.controls.eclipse.eventKind ?? "solar"}`
       : session.state
-      ? `${session.state.focusBody} · ${session.state.mode}${
+      ? `${session.state.realm === "stellar" ? "Gaia" : session.state.focusBody} · ${session.state.mode}${
+        journeyOwnsSession(session) ? ` · ${session.controls.journey.status}` : ""}${
         session.controls.eclipse.simulationActive ? " · eclipse" : ""
       }`
       : "Connected · awaiting telemetry"
@@ -1072,12 +1147,16 @@ function render(): void {
   }
 
   initializeDrafts(session);
+  renderJourneyControls(session, connected);
   const supported = connected && isSupported(session);
   unsupportedNotice.hidden = supported;
   if (!connected) {
     unsupportedNotice.textContent = "This headset has disconnected. Select another session explicitly to continue.";
   } else if (!session.state) {
     unsupportedNotice.textContent = "Waiting for the headset’s first navigation update.";
+  } else if (journeyOwnsSession(session)) {
+    unsupportedNotice.textContent =
+      "The preset journey owns navigation, time, scale, and layer controls until it is stopped or reset.";
   } else if (!isSupported(session)) {
     unsupportedNotice.textContent =
       `Earth surface controls are unavailable in ${session.state.focusBody} ${session.state.mode} mode. Eclipse simulation remains available.`;
@@ -1130,7 +1209,10 @@ function render(): void {
   syncPinMapMarkers(session);
   renderSavedLocations(session, supported, connected);
   renderControls(supported, connected);
-  renderWorldEclipseControls(session, connected);
+  renderWorldEclipseControls(
+    session,
+    connected && !journeyOwnsSession(session),
+  );
 }
 
 function updateDestinationFromFields(): void {
@@ -1224,6 +1306,27 @@ centerMapButton.addEventListener("click", () => {
   const session = selectedLiveSession();
   if (!session || !isSupported(session)) return;
   centerMapOnSession(session, false);
+});
+
+journeyStartButton.addEventListener("click", () => {
+  sendCommand({
+    kind: "startJourney",
+    journeyId: EARTH_TO_GAIA_JOURNEY_ID,
+  }, journeyStartButton.textContent === "Restart"
+    ? "Earth-to-Gaia journey restarted"
+    : "Earth-to-Gaia journey started");
+});
+
+journeyPauseButton.addEventListener("click", () => {
+  const paused = selectedLiveSession()?.controls.journey.status === "paused";
+  sendCommand(
+    { kind: paused ? "resumeJourney" : "pauseJourney" },
+    paused ? "Earth-to-Gaia journey resumed" : "Earth-to-Gaia journey paused",
+  );
+});
+
+journeyStopButton.addEventListener("click", () => {
+  sendCommand({ kind: "stopJourney" }, "Earth-to-Gaia journey stopped");
 });
 
 for (const target of Object.keys(aircraftControls) as AircraftDisplayTarget[]) {
