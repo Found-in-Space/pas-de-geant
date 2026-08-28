@@ -7,6 +7,7 @@ import type {
 } from "@found-in-space/star-octree-provider";
 import {
   SpatialStarPass,
+  SPATIAL_STAR_EXPOSURE,
   SPATIAL_STAR_LIMITING_MAGNITUDE,
 } from "../apps/pas-de-geant/src/spatial-star-pass.js";
 
@@ -90,13 +91,13 @@ function fakeProvider(options: { empty?: boolean } = {}) {
 }
 
 describe("SpatialStarPass", () => {
-  it("renders catalogue points at background depth without a finite star shell", async () => {
+  it("keeps one SkyKit XR profile from the Earth view through the stellar view", async () => {
     const fake = fakeProvider();
     const pass = new SpatialStarPass({ provider: fake.provider });
     await pass.load({ x: 0, y: 0, z: 0 });
     pass.setView({
       observerJ2000Pc: { x: 0, y: 0, z: 0 },
-      sunObserverJ2000Pc: { x: 0, y: 0, z: 10 },
+      sunObserverJ2000Pc: { x: 0, y: 0, z: 1 },
       j2000ToWorld: new THREE.Quaternion(),
       trackingAnchorWorld: new THREE.Vector3(),
       parallaxBlend: 0,
@@ -109,19 +110,49 @@ describe("SpatialStarPass", () => {
       "pas-de-geant-spatial-stars:points",
     ) as THREE.Points | undefined;
     const material = points?.material as THREE.ShaderMaterial;
+    const halo = catalogue?.getObjectByName(
+      "pas-de-geant-spatial-stars:halo",
+    ) as THREE.Points | undefined;
+    const haloMaterial = halo?.material as THREE.ShaderMaterial;
     expect(material.depthTest).toBe(false);
     expect(material.depthWrite).toBe(false);
+    expect(haloMaterial.depthTest).toBe(false);
+    expect(haloMaterial.depthWrite).toBe(false);
     expect(material.vertexShader).toContain("clip.z = clip.w * 0.999999");
     expect(material.vertexShader).not.toContain("520");
-    expect((material.uniforms.uObserverPc!.value as THREE.Vector3).toArray())
+    expect((material.uniforms.uObserverPosition!.value as THREE.Vector3).toArray())
       .toEqual([0, 0, 0]);
+    expect(material.uniforms.uScale!.value).toBe(1);
+    expect(material.uniforms.uMagLimit!.value)
+      .toBe(SPATIAL_STAR_LIMITING_MAGNITUDE);
+    expect(material.uniforms.uExposure!.value).toBe(SPATIAL_STAR_EXPOSURE);
+    expect(material.uniforms.uNearMagLimitRadiusPc!.value).toBe(1);
+    expect(material.uniforms.uNearSizeFloor!.value).toBe(8);
+    expect(material.uniforms.uNearAlphaFloor!.value).toBe(0.35);
+    const earthVertexShader = material.vertexShader;
+    const earthFragmentShader = material.fragmentShader;
+    pass.setView({
+      observerJ2000Pc: { x: 0, y: 0, z: 0 },
+      sunObserverJ2000Pc: { x: 0, y: 0, z: 1 },
+      j2000ToWorld: new THREE.Quaternion(),
+      trackingAnchorWorld: new THREE.Vector3(),
+      parallaxBlend: 1,
+      sunOpacity: 1,
+    });
+    expect(material.vertexShader).toBe(earthVertexShader);
+    expect(material.fragmentShader).toBe(earthFragmentShader);
+    expect(material.uniforms.uExposure!.value).toBe(SPATIAL_STAR_EXPOSURE);
+    expect(material.uniforms.uMagLimit!.value)
+      .toBe(SPATIAL_STAR_LIMITING_MAGNITUDE);
+    expect(material.uniforms.uParallaxBlend!.value).toBe(1);
     const sun = pass.scene.getObjectByName("pas-de-geant-stellar-sun");
     const sunPoints = sun?.getObjectByName(
       "pas-de-geant-stellar-sun:points",
     ) as THREE.Points | undefined;
     const sunMaterial = sunPoints?.material as THREE.ShaderMaterial;
-    expect((sunMaterial.uniforms.uObserverPc!.value as THREE.Vector3).toArray())
-      .toEqual([0, 0, 10]);
+    expect((sunMaterial.uniforms.uObserverPosition!.value as THREE.Vector3).toArray())
+      .toEqual([0, 0, 1]);
+    expect(sunMaterial.uniforms.uJourneyOpacity!.value).toBe(1);
     expect(fake.views.at(-1)).toMatchObject({
       limitingMagnitude: SPATIAL_STAR_LIMITING_MAGNITUDE,
       mDesired: SPATIAL_STAR_LIMITING_MAGNITUDE,
@@ -135,8 +166,8 @@ describe("SpatialStarPass", () => {
     await pass.load({ x: 0, y: 0, z: 0 });
     const route = [
       { x: 0, y: 0, z: 0 },
-      { x: 0, y: 0, z: 5 },
-      { x: 0, y: 0, z: 10 },
+      { x: 0, y: 0, z: 0.5 },
+      { x: 0, y: 0, z: 1 },
     ];
     await pass.warmJourney(route, route[2]!, new AbortController().signal);
     expect(fake.warmups.length).toBeGreaterThanOrEqual(5);

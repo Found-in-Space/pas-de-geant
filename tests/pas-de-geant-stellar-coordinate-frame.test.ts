@@ -57,7 +57,7 @@ describe("stellar J2000 coordinate frame", () => {
     const capturedGazeWorld = new THREE.Vector3(0.2, 0.1, -1).normalize();
     const capturedGazeJ2000 = capturedGazeWorld.clone()
       .applyQuaternion(frame.clone().invert());
-    const finalObserverJ2000 = capturedGazeJ2000.clone().multiplyScalar(-10);
+    const finalObserverJ2000 = capturedGazeJ2000.clone().multiplyScalar(-1);
     const sunDirectionWorld = finalObserverJ2000.clone().negate().normalize()
       .applyQuaternion(frame);
     expect(sunDirectionWorld.distanceTo(capturedGazeWorld)).toBeLessThan(1e-12);

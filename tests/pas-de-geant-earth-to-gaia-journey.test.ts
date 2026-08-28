@@ -4,6 +4,7 @@ import {
   JourneyRunner,
   STELLAR_METRES_PER_PARSEC,
   STELLAR_SCALE_DENOMINATOR,
+  STELLAR_SUN_DISTANCE_PC,
   WHOLE_EARTH_SCALE_DENOMINATOR,
   apparentMagnitude,
   observerWithRoomTranslation,
@@ -53,14 +54,15 @@ describe("Earth-to-Gaia timeline", () => {
       reveal.observerJ2000Pc!.x,
       reveal.observerJ2000Pc!.y,
       reveal.observerJ2000Pc!.z,
-    )).toBeCloseTo(10, 12);
-    expect(reveal.observerJ2000Pc).toMatchObject({ x: 0, y: 0, z: -10 });
+    )).toBeCloseTo(STELLAR_SUN_DISTANCE_PC, 12);
+    expect(reveal.observerJ2000Pc).toMatchObject({ x: 0, y: 0, z: -1 });
     expect(reveal.catalogObserverJ2000Pc).toEqual(
       CONTEXT.catalogObserverJ2000Pc,
     );
-    expect(reveal.scaleDenominator).toBe(3.085677581491367e17);
-    expect(10 * STELLAR_METRES_PER_PARSEC).toBe(1);
-    expect(apparentMagnitude(4.83, 10)).toBeCloseTo(4.83, 12);
+    expect(reveal.scaleDenominator).toBe(3.085677581491367e16);
+    expect(STELLAR_SUN_DISTANCE_PC * STELLAR_METRES_PER_PARSEC).toBe(1);
+    expect(apparentMagnitude(4.83, STELLAR_SUN_DISTANCE_PC))
+      .toBeCloseTo(-0.17, 12);
   });
 
   it("moves the Earth around the viewer with positive clearance", () => {
@@ -103,7 +105,7 @@ describe("Earth-to-Gaia timeline", () => {
     expect(final.z).toBeCloseTo(-1.8, 12);
   });
 
-  it("never scales beyond one rendered metre per ten parsecs", () => {
+  it("never scales beyond one rendered metre per parsec", () => {
     const oversizedContext = {
       ...CONTEXT,
       solarOverviewScaleDenominator: STELLAR_SCALE_DENOMINATOR * 2,
@@ -149,7 +151,7 @@ describe("Earth-to-Gaia timeline", () => {
       (value) => ({ x: -value.z, y: value.y, z: value.x }),
       1,
     );
-    expect(observer).toEqual({ x: 7, y: 19, z: 32 });
+    expect(observer).toEqual({ x: 9.7, y: 19.9, z: 30.2 });
     expect(observerWithRoomTranslation(
       { x: 10, y: 20, z: 30 },
       { x: 0.2, y: -0.1, z: 0.3 },
@@ -237,7 +239,7 @@ describe("JourneyRunner", () => {
       elapsedMs: EARTH_TO_GAIA_DURATION_MS,
       progress: 1,
     });
-    expect(samples.at(-1)?.observerJ2000Pc).toMatchObject({ z: -10 });
+    expect(samples.at(-1)?.observerJ2000Pc).toMatchObject({ z: -1 });
 
     await runner.start();
     expect(restores).toBe(1);

@@ -13,7 +13,9 @@ import {
   createSkykitStarPreloadRequestsFromSpatialHints,
 } from "@found-in-space/skykit";
 import {
+  createDefaultThreeStarFieldMaterialProfile,
   createThreeStarField,
+  DEFAULT_THREE_STAR_FIELD_VIEW,
   type ThreeStarField,
   type ThreeStarFieldMaterialProfile,
   type ThreeStarFieldView,
@@ -24,7 +26,8 @@ import {
   type JourneyVector3,
 } from "./earth-to-gaia-journey.js";
 
-export const SPATIAL_STAR_LIMITING_MAGNITUDE = 6.5;
+export const SPATIAL_STAR_LIMITING_MAGNITUDE = 7.5;
+export const SPATIAL_STAR_EXPOSURE = 100_000;
 export const SYNTHETIC_SUN_ABSOLUTE_MAGNITUDE = 4.83;
 export const SYNTHETIC_SUN_TEMPERATURE_K = 5_772;
 
@@ -327,62 +330,152 @@ export class SpatialStarPass {
 }
 
 function createProjectionMaterial(): ProjectionMaterial {
-  const uniforms = {
-    uObserverPc: { value: new THREE.Vector3() },
-    uTrackingAnchorWorld: { value: new THREE.Vector3() },
-    uWorldToJ2000: { value: new THREE.Matrix3() },
-    uJ2000ToWorld: { value: new THREE.Matrix3() },
-    uParallaxBlend: { value: 0 },
-    uMetresPerParsec: { value: STELLAR_METRES_PER_PARSEC },
-    uLimitingMagnitude: { value: SPATIAL_STAR_LIMITING_MAGNITUDE },
-    uOpacity: { value: 1 },
-    uExposure: { value: 2_500 },
-    uBaseSize: { value: 0.9 },
-    uSizeScale: { value: 3 },
-  };
-  const material = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: STAR_VERTEX_SHADER,
-    fragmentShader: STAR_FRAGMENT_SHADER,
-    transparent: true,
-    depthTest: false,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
+  let fieldView = skykitXrView(DEFAULT_THREE_STAR_FIELD_VIEW);
+  const baseProfile = createDefaultThreeStarFieldMaterialProfile({
+    limitingMagnitude: SPATIAL_STAR_LIMITING_MAGNITUDE,
+    coordinateUnitsPerParsec: STELLAR_METRES_PER_PARSEC,
+    exposure: SPATIAL_STAR_EXPOSURE,
+    nearMagLimitFloor: 25,
+    nearMagLimitRadiusPc: 1,
+    nearSizeFloor: 8,
+    nearAlphaFloor: 0.35,
   });
-  const rotationMatrix = new THREE.Matrix4();
+  const material = projectionShaderMaterial(baseProfile.material);
+  const haloMaterial = projectionShaderMaterial(baseProfile.haloMaterial);
+  const materials = [material, haloMaterial];
+  const j2000ToWorldMatrix = new THREE.Matrix4();
+  const worldToJ2000Matrix = new THREE.Matrix4();
   const inverseQuaternion = new THREE.Quaternion();
   const profile: ThreeStarFieldMaterialProfile = {
     material,
-    haloMaterial: null,
+    haloMaterial,
     updateUniforms({ view }: { view: ThreeStarFieldView }) {
-      uniforms.uLimitingMagnitude.value = view.limitingMagnitude;
+      fieldView = skykitXrView(view);
+      baseProfile.updateUniforms?.({ view: fieldView });
     },
     dispose() {
-      material.dispose();
+      baseProfile.dispose?.();
     },
   };
   return {
     profile,
     setView(view, opacity) {
-      uniforms.uObserverPc.value.set(
-        view.observerJ2000Pc.x,
-        view.observerJ2000Pc.y,
-        view.observerJ2000Pc.z,
-      );
-      uniforms.uTrackingAnchorWorld.value.copy(view.trackingAnchorWorld);
-      uniforms.uParallaxBlend.value = THREE.MathUtils.clamp(
-        view.parallaxBlend,
-        0,
-        1,
-      );
-      uniforms.uOpacity.value = THREE.MathUtils.clamp(opacity, 0, 1);
-      rotationMatrix.makeRotationFromQuaternion(view.j2000ToWorld);
-      uniforms.uJ2000ToWorld.value.setFromMatrix4(rotationMatrix);
+      fieldView = skykitXrView({
+        ...fieldView,
+        observerPosition: view.observerJ2000Pc,
+      });
+      baseProfile.updateUniforms?.({ view: fieldView });
+      j2000ToWorldMatrix.makeRotationFromQuaternion(view.j2000ToWorld);
       inverseQuaternion.copy(view.j2000ToWorld).invert();
-      rotationMatrix.makeRotationFromQuaternion(inverseQuaternion);
-      uniforms.uWorldToJ2000.value.setFromMatrix4(rotationMatrix);
+      worldToJ2000Matrix.makeRotationFromQuaternion(inverseQuaternion);
+      const parallaxBlend = THREE.MathUtils.clamp(view.parallaxBlend, 0, 1);
+      const journeyOpacity = THREE.MathUtils.clamp(opacity, 0, 1);
+      for (const shader of materials) {
+        const uniforms = shader.uniforms;
+        (uniforms.uTrackingAnchorWorld!.value as THREE.Vector3)
+          .copy(view.trackingAnchorWorld);
+        (uniforms.uJ2000ToWorld!.value as THREE.Matrix3)
+          .setFromMatrix4(j2000ToWorldMatrix);
+        (uniforms.uWorldToJ2000!.value as THREE.Matrix3)
+          .setFromMatrix4(worldToJ2000Matrix);
+        uniforms.uParallaxBlend!.value = parallaxBlend;
+        uniforms.uMetresPerParsec!.value = STELLAR_METRES_PER_PARSEC;
+        uniforms.uJourneyOpacity!.value = journeyOpacity;
+      }
     },
   };
+}
+
+function skykitXrView(view: ThreeStarFieldView): ThreeStarFieldView {
+  return {
+    ...view,
+    limitingMagnitude: SPATIAL_STAR_LIMITING_MAGNITUDE,
+    coordinateUnitsPerParsec: STELLAR_METRES_PER_PARSEC,
+    exposure: SPATIAL_STAR_EXPOSURE,
+    nearMagLimitFloor: 25,
+    nearMagLimitRadiusPc: 1,
+    nearSizeFloor: 8,
+    nearAlphaFloor: 0.35,
+  };
+}
+
+function projectionShaderMaterial(
+  candidate: THREE.Material | null | undefined,
+): THREE.ShaderMaterial {
+  if (!(candidate instanceof THREE.ShaderMaterial)) {
+    throw new Error("SkyKit's tuned star profile must use shader materials.");
+  }
+  Object.assign(candidate.uniforms, {
+    uTrackingAnchorWorld: { value: new THREE.Vector3() },
+    uWorldToJ2000: { value: new THREE.Matrix3() },
+    uJ2000ToWorld: { value: new THREE.Matrix3() },
+    uParallaxBlend: { value: 0 },
+    uMetresPerParsec: { value: STELLAR_METRES_PER_PARSEC },
+    uJourneyOpacity: { value: 1 },
+  });
+  candidate.vertexShader = projectTunedVertexShader(candidate.vertexShader);
+  candidate.fragmentShader = fadeTunedFragmentShader(candidate.fragmentShader);
+  candidate.depthTest = false;
+  candidate.depthWrite = false;
+  return candidate;
+}
+
+function projectTunedVertexShader(source: string): string {
+  const declarations = /* glsl */ `
+  uniform vec3 uTrackingAnchorWorld;
+  uniform mat3 uWorldToJ2000;
+  uniform mat3 uJ2000ToWorld;
+  uniform float uParallaxBlend;
+  uniform float uMetresPerParsec;
+
+  vec3 pdgEffectiveObserverPc() {
+    vec3 trackedWorldM = cameraPosition - uTrackingAnchorWorld;
+    vec3 trackedPc = uWorldToJ2000 * trackedWorldM /
+      max(uMetresPerParsec, 0.000001);
+    return uObserverPosition + trackedPc * uParallaxBlend;
+  }
+
+  `;
+  const projectedPosition = /* glsl */ `
+    vec3 relativePc = position - pdgEffectiveObserverPc();
+    float projectionDistancePc = max(length(relativePc), 0.000001);
+    vec3 worldDirection = uJ2000ToWorld *
+      (relativePc / projectionDistancePc);
+    vec3 viewDirection = mat3(viewMatrix) * worldDirection;
+    if (viewDirection.z >= -0.000001) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      gl_PointSize = 0.0;
+      return;
+    }
+    vec4 clip = projectionMatrix * vec4(viewDirection, 1.0);
+    clip.z = clip.w * 0.999999;
+    gl_Position = clip;`;
+  return source
+    .replace("  float decodeTemperature", `${declarations}  float decodeTemperature`)
+    .replace(
+      "length(position - uObserverPosition)",
+      "length(position - pdgEffectiveObserverPc())",
+    )
+    .replace(
+      "    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+      projectedPosition,
+    );
+}
+
+function fadeTunedFragmentShader(source: string): string {
+  return source
+    .replace(
+      "  uniform sampler2D map;",
+      "  uniform sampler2D map;\n  uniform float uJourneyOpacity;",
+    )
+    .replace(
+      "gl_FragColor = vec4(finalColor, starAlpha);",
+      "gl_FragColor = vec4(finalColor, starAlpha * uJourneyOpacity);",
+    )
+    .replace(
+      "gl_FragColor = vec4(vColor * alpha, alpha);",
+      "gl_FragColor = vec4(vColor * alpha, alpha * uJourneyOpacity);",
+    );
 }
 
 function syntheticSunCell(): StarCellData {
@@ -430,91 +523,3 @@ function throwIfAbortedSignal(signal: AbortSignal | undefined): void {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
-const STAR_VERTEX_SHADER = /* glsl */ `
-  attribute float teff_log8;
-  attribute float magAbs;
-
-  uniform vec3 uObserverPc;
-  uniform vec3 uTrackingAnchorWorld;
-  uniform mat3 uWorldToJ2000;
-  uniform mat3 uJ2000ToWorld;
-  uniform float uParallaxBlend;
-  uniform float uMetresPerParsec;
-  uniform float uLimitingMagnitude;
-  uniform float uOpacity;
-  uniform float uExposure;
-  uniform float uBaseSize;
-  uniform float uSizeScale;
-
-  varying vec3 vColor;
-  varying float vAlpha;
-
-  float decodeTemperature(float log8) {
-    if (log8 >= 0.996) return 5800.0;
-    return 2000.0 * pow(25.0, log8);
-  }
-
-  vec3 blackbodyToRGB(float temp) {
-    float t = clamp(temp, 1000.0, 40000.0) / 100.0;
-    vec3 c;
-    if (t <= 66.0) c.r = 255.0;
-    else c.r = 329.698727446 * pow(t - 60.0, -0.1332047592);
-    if (t <= 66.0) c.g = 99.4708025861 * log(t) - 161.119568166;
-    else c.g = 288.1221695283 * pow(t - 60.0, -0.0755148492);
-    if (t >= 66.0) c.b = 255.0;
-    else if (t <= 19.0) c.b = 0.0;
-    else c.b = 138.5177312231 * log(t - 10.0) - 305.0447927307;
-    return clamp(c / 255.0, 0.0, 1.0);
-  }
-
-  void main() {
-    vec3 trackedWorldM = cameraPosition - uTrackingAnchorWorld;
-    vec3 trackedPc = uWorldToJ2000 * trackedWorldM /
-      max(uMetresPerParsec, 0.000001);
-    vec3 eyeObserverPc = uObserverPc + trackedPc * uParallaxBlend;
-    vec3 relativePc = position - eyeObserverPc;
-    float distancePc = max(length(relativePc), 0.000001);
-    float apparentMag = magAbs + 5.0 * (log(distancePc) / log(10.0) - 1.0);
-    float magnitudeFade = 1.0 - smoothstep(
-      uLimitingMagnitude - 0.75,
-      uLimitingMagnitude,
-      apparentMag
-    );
-    float flux = pow(10.0, -0.4 * apparentMag);
-    float energy = max(flux * uExposure, 0.0);
-    gl_PointSize = magnitudeFade > 0.0
-      ? uBaseSize + uSizeScale * pow(energy, 0.32)
-      : 0.0;
-    vAlpha = magnitudeFade * clamp(1.0 - exp(-energy), 0.04, 1.0) * uOpacity;
-    vColor = blackbodyToRGB(decodeTemperature(teff_log8));
-
-    vec3 worldDirection = uJ2000ToWorld * (relativePc / distancePc);
-    vec3 viewDirection = mat3(viewMatrix) * worldDirection;
-    if (viewDirection.z >= -0.000001 || vAlpha <= 0.0) {
-      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-      gl_PointSize = 0.0;
-      return;
-    }
-    vec4 clip = projectionMatrix * vec4(viewDirection, 1.0);
-    clip.z = clip.w * 0.999999;
-    gl_Position = clip;
-  }
-`;
-
-const STAR_FRAGMENT_SHADER = /* glsl */ `
-  varying vec3 vColor;
-  varying float vAlpha;
-
-  void main() {
-    if (vAlpha <= 0.0) discard;
-    float distanceFromCentre = distance(gl_PointCoord, vec2(0.5));
-    if (distanceFromCentre > 0.5) discard;
-    float core = exp(-distanceFromCentre * 16.0);
-    float halo = 1.0 - smoothstep(0.08, 0.5, distanceFromCentre);
-    float alpha = max(core, halo * 0.28) * vAlpha;
-    if (alpha < 0.003) discard;
-    vec3 color = mix(vColor, vec3(1.0), core * 0.55);
-    gl_FragColor = vec4(color * alpha, alpha);
-  }
-`;

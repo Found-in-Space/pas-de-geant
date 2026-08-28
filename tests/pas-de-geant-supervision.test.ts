@@ -384,10 +384,10 @@ describe("supervision protocol", () => {
       ...initialState,
       realm: "stellar" as const,
       mode: "free" as const,
-      scaleDenominator: 3.085677581491367e17,
+      scaleDenominator: 3.085677581491367e16,
       stellar: {
         observerJ2000Pc: { x: 1, y: -2, z: 9.7467943448 },
-        metresPerParsec: 0.1,
+        metresPerParsec: 1,
         roomTranslationBlend: 1,
       },
     };

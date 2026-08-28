@@ -1,7 +1,8 @@
 export const EARTH_TO_GAIA_JOURNEY_ID = "earth_to_gaia" as const;
 export const EARTH_TO_GAIA_DURATION_MS = 45_000;
 export const PARSEC_METRES = 3.085677581491367e16;
-export const STELLAR_METRES_PER_PARSEC = 0.1;
+export const STELLAR_METRES_PER_PARSEC = 1;
+export const STELLAR_SUN_DISTANCE_PC = 1;
 export const STELLAR_SCALE_DENOMINATOR =
   PARSEC_METRES / STELLAR_METRES_PER_PARSEC;
 export const WHOLE_EARTH_SCALE_DENOMINATOR = 6_371_008.8 / 0.4;
@@ -391,7 +392,11 @@ function interstellarObserver(
     STELLAR_SCALE_DENOMINATOR,
   ) *
     SOLAR_OVERVIEW_SUN_DISTANCE_M / PARSEC_METRES;
-  const radius = logarithmicMix(startRadius, 10, progress);
+  const radius = logarithmicMix(
+    startRadius,
+    STELLAR_SUN_DISTANCE_PC,
+    progress,
+  );
   return scaleVector(destinationDirection, radius);
 }
 
