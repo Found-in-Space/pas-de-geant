@@ -18,7 +18,7 @@ npm run dev -- --port 4197
 ```
 
 Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel or orbit,
-Z/X to change planet scale, C/V to change orbital altitude or radial
+Z/X to change planet scale, C/V to change orbital altitude or terrain
 exaggeration, and Backspace to reset.
 Use the World and Navigation selectors for Earth/Moon ground mode and any-body
 orbit/free mode. M cycles navigation modes and N switches Earth/Moon.
@@ -112,7 +112,7 @@ pasDeGeantDebug.help()
 pasDeGeantDebug.snapshot()
 pasDeGeantDebug.setLocation(45.88, 6.89)
 pasDeGeantDebug.setScaleDenominator(80000)
-pasDeGeantDebug.setRadialMultiplier(2)
+pasDeGeantDebug.setTerrainMultiplier(2)
 pasDeGeantDebug.setMaxZ("textures", 14)
 pasDeGeantDebug.setTilePixelRatio("textures", 1.5)
 ```
@@ -152,7 +152,7 @@ pasDeGeantDebug.beginBenchmark({
   latitudeDegrees: 43.722952,
   longitudeDegrees: 10.396597,
   scaleDenominator: 2548.40352,
-  radialMultiplier: 1,
+  terrainMultiplier: 1,
 })
 ```
 
@@ -191,7 +191,7 @@ re-entering; foveation can change during a session.
 - Left trigger + left stick left/right: turn the view
 - Left grip: faster travel
 - Right stick vertical: whole-planet scale
-- Right stick horizontal: orbital altitude, or surface radial exaggeration
+- Right stick horizontal: orbital altitude, or surface terrain exaggeration
 - X: toggle committed terrain-tile tint and boundaries
 - Y: toggle photographic source-tile boundaries
 - A: toggle the Realtime voice guide
@@ -206,7 +206,7 @@ uses head-relative 3D thrust and increases velocity with distance from the
 focused body. Left grip/Shift accelerates movement.
 
 The hand panel uses touch-os and the embedded NASA Blue Marble image to show
-the underfoot point, display scale, radial multiplier, committed terrain zoom
+the underfoot point, display scale, terrain multiplier, committed terrain zoom
 range, and voice-agent state.
 
 The Realtime voice guide also exposes `get_navigation_state` and
@@ -231,8 +231,8 @@ For detailed colour and LOLA topography, configure two geographic XYZ
 pyramids (linear longitude and latitude, including both poles):
 
 ```sh
-VITE_LUNAR_IMAGERY_XYZ_TEMPLATE='https://tiles.example/moon/imagery/{z}/{x}/{y}.png'
-VITE_LUNAR_ELEVATION_XYZ_TEMPLATE='https://tiles.example/moon/elevation/{z}/{x}/{y}.png'
+PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE='https://tiles.example/moon/imagery/{z}/{x}/{y}.png'
+PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE='https://tiles.example/moon/elevation/{z}/{x}/{y}.png'
 ```
 
 Elevation PNGs store the source unsigned 16-bit LOLA value in the red and
@@ -300,10 +300,11 @@ the independent committed terrain cut.
 
 ### Optional photographic imagery
 
-No network imagery provider is hard-coded. Configure one at build time:
+No photographic imagery provider is hard-coded. Configure its server-side
+cached upstream and public metadata:
 
 ```sh
-VITE_IMAGERY_XYZ_TEMPLATE='https://example.test/{z}/{x}/{y}.jpg'
+PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE='https://example.test/{z}/{x}/{y}.jpg'
 VITE_IMAGERY_ATTRIBUTION='Required provider attribution'
 VITE_IMAGERY_PROVIDER_ID='provider-id'
 VITE_IMAGERY_TILE_SIZE=512
@@ -311,9 +312,10 @@ VITE_IMAGERY_MIN_ZOOM=0
 VITE_IMAGERY_MAX_ZOOM=22
 ```
 
-The URL and attribution are required together. Source tiles retain their
-native dimensions, requests never exceed the provider maximum zoom, and deep
-draw levels crop the corresponding source ancestor.
+The upstream URL and any credentials in it remain server-side. Browser code
+receives only the attribution, source metadata, and same-origin cached route.
+Source tiles retain their native dimensions, requests never exceed the provider
+maximum zoom, and deep draw levels crop the corresponding source ancestor.
 
 When the configured source is MapTiler `satellite-v2`, the application uses
 MapTiler Satellite Plain's 256 px raster endpoint by default while preserving
@@ -330,25 +332,25 @@ onion remains 8 by 8 in both cases. Its source-pixel size is supplied to the
 existing imagery zoom selector, and each variant has a distinct provider and
 request URL so their pages cannot share cache identity.
 
-During local development, textures and elevation use the canonical same-origin
-route `/api/tiles/{provider}/{z}/{x}/{y}`. The server registry expands those
+Textures and elevation always use the canonical same-origin route
+`/api/tiles/{provider}/{z}/{x}/{y}`. The server registry expands those
 coordinates through the selected provider's HTTP(S) URL template. Provider IDs
 not present in the registry return 404, so the endpoint cannot be used as an
 open forward proxy.
 
-The initial registry exposes `textures`, the diagnostic `textures-source`, and
-`elevation`. Each provider has its own request coalescing, throttle queue, and
-cache namespace below a user-level cache shared by checkouts and worktrees.
+The initial registry exposes `textures`, the diagnostic `textures-source`,
+`elevation`, and configured lunar sources. Each provider has its own request
+coalescing, throttle queue, and cache namespace below a user-level cache shared
+by checkouts and worktrees.
 The default root is `~/Library/Caches/pas-de-geant/tiles` on macOS,
 `$XDG_CACHE_HOME/pas-de-geant/tiles` when `XDG_CACHE_HOME` is an absolute path,
 `%LOCALAPPDATA%\pas-de-geant\tiles` on Windows, and
 `~/.cache/pas-de-geant/tiles` otherwise. By default, each queue permits 16
 upstream requests at a time and spaces starts by 10 ms (about 100 starts per
 second). A provider's `Retry-After` pauses only its own queue; rate-limit
-responses without that header use a five-second fallback. Production builds
-and previews keep the configured direct provider URLs.
+responses without that header use a five-second fallback.
 
-The development defaults can be tuned in `.env.local`:
+The cache defaults can be tuned in `.env.local`:
 
 ```sh
 PAS_DE_GEANT_TILE_PROXY_MAX_CONCURRENCY=16
@@ -363,12 +365,20 @@ PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE=
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_SCHEME=xyz
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_TEMPLATE=https://tiles.mapterhorn.com/{z}/{x}/{y}.webp
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_SCHEME=xyz
+PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_SCHEME=xyz
+PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_SCHEME=xyz
 PAS_DE_GEANT_TILE_PROXY_UPSTREAM_HEADERS_JSON={}
 PAS_DE_GEANT_TILE_PROXY_FORWARD_REQUEST_HEADERS=origin,referer,user-agent
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_HEADERS_JSON=
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_FORWARD_REQUEST_HEADERS=
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_HEADERS_JSON=
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_FORWARD_REQUEST_HEADERS=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_HEADERS_JSON=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_FORWARD_REQUEST_HEADERS=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_HEADERS_JSON=
+PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_FORWARD_REQUEST_HEADERS=
 PAS_DE_GEANT_TILE_PROXY_PROVIDERS_JSON=
 ```
 
@@ -556,14 +566,16 @@ licence applies independently of the application code. Set
 `VITE_AMAZON_FOREST_MANIFEST_URL` to test another locally served or hosted
 manifest.
 
-Each year is an independent checkbox under **Amazon forest POC**, so either or
-both outlines can be visible. The same independent controls appear in the
-development supervisor and are available to the voice agent through
-`get_amazon_forest_outlines` and `set_amazon_forest_outline_visibility`.
-Available controls come from the manifest, so adding another generated year
-does not require another display mode. The larger regional outputs are
-deliberately not part of the normal app assets; generate or host them separately
-if close-up inspection becomes part of the experience.
+The internal forest-outline store is the single state and mutation boundary
+used by the renderer, supervision, and voice integrations, and is available for
+a future TouchOS control. The POC exposes its independent year checkboxes only
+in the development supervisor for now; there are no controls on the preflight
+page. The voice agent uses the same store through `get_amazon_forest_outlines` and
+`set_amazon_forest_outline_visibility`. Available controls come from the
+manifest, so adding another generated year does not require another display
+mode. The larger regional outputs are deliberately not part of the normal app
+assets; generate or host them separately if close-up inspection becomes part of
+the experience.
 
 ## Other layers
 
@@ -577,13 +589,15 @@ Live Flight Follower traffic is opt-in and only streams during an immersive VR
 session. Leaving VR, hiding the page, or disabling the layer closes the stream.
 The client follows Flight Follower's predicted trajectories, renders reported
 surface-vehicle categories distinctly, and anchors explicit on-ground reports
-to the same Mapterhorn elevation tiles used by the terrain surface.
+to the physical elevation sampled from the same Mapterhorn tiles used by the
+terrain surface. Terrain exaggeration does not change traffic altitude.
 
 CelesTrak satellite tracking is also opt-in. The 100 brightest, space-station,
 and combined science/education groups can be enabled independently from the
 page or by asking the voice guide. Orbital elements are cached for CelesTrak's
 two-hour update interval, while SGP4 propagation moves the markers locally.
-Satellite altitude uses the same radial multiplier as terrain and aircraft.
+Satellite altitude remains at the universal global scale and is independent of
+terrain exaggeration.
 
 ## Validation
 

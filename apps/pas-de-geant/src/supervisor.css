@@ -57,22 +57,14 @@ h3 {
 }
 
 .dashboard {
-  display: grid;
   width: 100%;
   height: 100dvh;
   min-height: 0;
-  grid-template-columns: 244px minmax(0, 1fr);
   overflow: hidden;
 }
 
-.session-rail {
-  display: flex;
-  min-height: 0;
-  flex-direction: column;
-  padding: 16px 12px 12px;
-  overflow: hidden;
-  border-right: 1px solid rgb(167 216 218 / 12%);
-  background: rgb(3 11 15 / 72%);
+.supervisor-heading {
+  min-width: 150px;
 }
 
 .relay-status {
@@ -101,7 +93,8 @@ h3 {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin: 23px 4px 8px;
+  gap: 10px;
+  margin: 0 2px 6px;
 }
 
 .session-heading span {
@@ -113,11 +106,16 @@ h3 {
   display: grid;
   min-height: 0;
   gap: 6px;
-  padding-right: 3px;
-  overflow-y: auto;
+  grid-auto-columns: minmax(210px, 280px);
+  grid-auto-flow: column;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
   align-content: start;
   scrollbar-gutter: stable;
 }
+
+.headset-strip { min-width: 0; }
 
 .session-button,
 .session-empty {
@@ -183,25 +181,37 @@ h3 {
 
 .workspace {
   display: flex;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  padding: 14px 16px 16px;
+  padding: 0 16px 16px;
   overflow: hidden;
 }
 
 .workspace-header {
-  display: flex;
+  display: grid;
   flex: none;
+  grid-template-columns: auto minmax(220px, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 18px;
+  margin: 0 -16px 10px;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid rgb(167 216 218 / 12%);
+  background: rgb(3 11 15 / 58%);
 }
 
-.workspace-header h2 {
+.selected-session-summary {
+  display: grid;
+  min-width: 180px;
+  justify-items: end;
+  gap: 3px;
+  text-align: right;
+}
+
+.selected-session-summary h2 {
   margin-top: 2px;
-  font-size: 1.3rem;
+  font-size: 1.05rem;
 }
 
 .mode-chip {
@@ -775,8 +785,6 @@ input:focus {
   font-size: 0.68rem;
 }
 
-.locations-card { margin-top: 10px; }
-
 .saved-location-list {
   display: grid;
   gap: 5px;
@@ -925,40 +933,23 @@ input:focus {
 .command-status[data-state="failed"] { color: #ff9a91; }
 
 @media (max-width: 1150px) {
-  .dashboard { grid-template-columns: 218px minmax(0, 1fr); }
-  .workspace { padding: 12px; }
+  .workspace { padding: 0 12px 12px; }
+  .workspace-header {
+    margin: 0 -12px 10px;
+    padding: 10px 12px;
+  }
   .supervision-grid { grid-template-columns: minmax(300px, 1fr) minmax(255px, 290px); }
   .earth-map { height: clamp(225px, 43vh, 360px); }
 }
 
 @media (max-width: 840px) {
-  .dashboard {
-    grid-template-rows: 124px minmax(0, 1fr);
-    grid-template-columns: 1fr;
+  .workspace-header {
+    grid-template-columns: auto minmax(220px, 1fr);
+    gap: 10px 16px;
   }
-
-  .session-rail {
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    grid-template-columns: 180px minmax(0, 1fr);
-    gap: 4px 12px;
-    padding: 9px 11px;
-    border-right: 0;
-    border-bottom: 1px solid rgb(167 216 218 / 12%);
-  }
-
-  .session-rail > header { grid-row: 1 / 3; }
-  .session-heading { margin: 0 2px; }
-
-  .session-list {
-    grid-auto-columns: minmax(180px, 220px);
-    grid-auto-flow: column;
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-
-  .session-button { height: 76px; }
-  .workspace-header { margin-bottom: 8px; }
+  .headset-strip { grid-column: 1 / -1; grid-row: 2; }
+  .selected-session-summary { grid-column: 2; grid-row: 1; }
+  .session-list { grid-auto-columns: minmax(200px, 250px); }
   .supervision-grid { grid-template-columns: minmax(300px, 1fr) minmax(255px, 300px); }
 }
 
@@ -969,14 +960,23 @@ input:focus {
 }
 
 @media (max-width: 520px) {
-  .dashboard { grid-template-rows: 112px minmax(0, 1fr); }
-  .session-rail { grid-template-columns: 145px minmax(0, 1fr); }
-  .session-heading { display: none; }
-  .session-list { grid-row: 1 / 3; }
-  .workspace { padding: 9px; }
-  .workspace-header { align-items: flex-start; }
-  .workspace-header h2 { font-size: 1.08rem; }
-  .mode-chip { max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .workspace { padding: 0 9px 9px; }
+  .workspace-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    margin: 0 -9px 9px;
+    padding: 9px;
+  }
+  .supervisor-heading h1 { font-size: 1.08rem; }
+  .selected-session-summary { min-width: 0; }
+  .selected-session-summary h2 {
+    max-width: 160px;
+    overflow: hidden;
+    font-size: 0.92rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mode-chip { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .scale-control-grid { grid-template-columns: 1fr; }
   .eclipse-readouts { grid-template-columns: 1fr; }
   .eclipse-readouts > div:first-child { grid-column: auto; }
@@ -984,6 +984,5 @@ input:focus {
 
 @media (max-height: 700px) and (min-width: 701px) {
   .earth-map { height: clamp(200px, 38vh, 280px); }
-  .workspace { padding-top: 10px; }
-  .workspace-header h2 { font-size: 1.12rem; }
+  .selected-session-summary h2 { font-size: 0.95rem; }
 }

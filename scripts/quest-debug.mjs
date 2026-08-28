@@ -181,8 +181,8 @@ function usage() {
     "",
     "Examples:",
     "  npm run quest:debug -- call setLocation '[45.88,6.89]'",
-    "  npm run quest:debug -- call setScale '[80]'",
-    "  npm run quest:debug -- call setRadialMultiplier '[2]'",
+    "  npm run quest:debug -- call setScaleDenominator '[80000]'",
+    "  npm run quest:debug -- call setTerrainMultiplier '[2]'",
     "  npm run quest:debug -- call setMaxZ '[\"textures\",14]'",
     "  npm run quest:debug -- call setRendering '[false]'",
   ].join("\n");

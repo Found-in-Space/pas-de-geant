@@ -75,7 +75,7 @@ function responseRecorder() {
   return { response, headers, status: () => status, body: () => body };
 }
 
-describe("development tile proxy", () => {
+describe("cached tile proxy", () => {
   it("selects a user-level cache independently of the checkout", () => {
     expect(
       defaultTileProxyCacheDirectory({
@@ -101,15 +101,12 @@ describe("development tile proxy", () => {
       attribution: "Example imagery",
     };
     expect(
-      proxiedTileConfiguration(configuration, true, "textures").urlTemplate,
+      proxiedTileConfiguration(configuration, "textures").urlTemplate,
     ).toBe(
       "/api/tiles/textures/{z}/{x}/{y}",
     );
-    expect(proxiedTileConfiguration(configuration, false, "textures")).toBe(
-      configuration,
-    );
     expect(() =>
-      proxiedTileConfiguration(configuration, true, "../other")
+      proxiedTileConfiguration(configuration, "../other")
     ).toThrow("provider IDs");
   });
 

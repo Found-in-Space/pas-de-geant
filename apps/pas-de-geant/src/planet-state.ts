@@ -19,7 +19,7 @@ export interface ContactFrame {
 
 export interface PlanetState {
   contact: ContactFrame;
-  radialMultiplier: number;
+  terrainMultiplier: number;
 }
 
 export interface PlanetPose {
@@ -58,7 +58,7 @@ export function initialPlanetState(
 ): PlanetState {
   return {
     contact: contactFrame(latitudeDegrees, longitudeDegrees),
-    radialMultiplier: 1,
+    terrainMultiplier: 1,
   };
 }
 
@@ -177,29 +177,30 @@ export function solvePlanetPose(
   };
 }
 
-/** Headset-space radial displacement for a body's physical surface model. */
-export function radialHeadsetMetresForPhysicalMetres(
-  physicalMetres: number,
-  displayRadiusM: number,
-  radialMultiplier: number,
-  referenceRadiusM: number,
-): number {
-  return physicalMetres * displayRadiusM / referenceRadiusM * radialMultiplier;
-}
-
 /**
- * Radial offset in normalized body-local units. The root's uniform scale
- * applies the whole-planet scale exactly once.
+ * Physical offset in normalized body-local units. The root's uniform scale
+ * applies the universal scale denominator exactly once.
  */
-export function normalizedBodyLocalRadialOffset(
+export function normalizedBodyLocalPhysicalOffset(
   physicalMetres: number,
-  radialMultiplier: number,
   referenceRadiusM: number,
 ): number {
-  return physicalMetres * radialMultiplier / referenceRadiusM;
+  return physicalMetres / referenceRadiusM;
 }
 
-export function applyRadialMultiplierRate(
+/** Exaggerated terrain elevation in normalized body-local units. */
+export function normalizedBodyLocalTerrainOffset(
+  elevationMetres: number,
+  terrainMultiplier: number,
+  referenceRadiusM: number,
+): number {
+  return normalizedBodyLocalPhysicalOffset(
+    elevationMetres * terrainMultiplier,
+    referenceRadiusM,
+  );
+}
+
+export function applyTerrainMultiplierRate(
   multiplier: number,
   axis: number,
   deltaSeconds: number,

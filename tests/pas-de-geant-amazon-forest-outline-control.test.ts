@@ -4,6 +4,7 @@ import {
   normalizeAmazonForestOutlineYears,
   parseAmazonForestOutlineVisibilityArguments,
 } from "../apps/pas-de-geant/src/amazon-forest-outline-control.js";
+import { AmazonForestOutlineStore } from "../apps/pas-de-geant/src/amazon-forest-outline-state.js";
 
 describe("Amazon forest outline controls", () => {
   const availableYears = [1986, 2000, 2023];
@@ -35,5 +36,33 @@ describe("Amazon forest outline controls", () => {
       year: 2023,
       visible: "yes",
     })).toThrow(/boolean/i);
+  });
+
+  it("serializes mutations and publishes one canonical state", async () => {
+    const appliedYears: number[][] = [];
+    const store = new AmazonForestOutlineStore({
+      async availableYears() {
+        return availableYears;
+      },
+      async setYears(years) {
+        appliedYears.push([...years]);
+      },
+    });
+    const states: Array<{ availableYears: readonly number[]; visibleYears: readonly number[] }> = [];
+    const unsubscribe = store.subscribe((state) => states.push(state));
+
+    await store.load();
+    await Promise.all([
+      store.setYearVisibility(2023, true),
+      store.setYearVisibility(1986, true),
+    ]);
+    unsubscribe();
+
+    expect(appliedYears).toEqual([[2023], [1986, 2023]]);
+    expect(store.snapshot()).toEqual({
+      availableYears,
+      visibleYears: [1986, 2023],
+    });
+    expect(states.at(-1)?.visibleYears).toEqual([1986, 2023]);
   });
 });

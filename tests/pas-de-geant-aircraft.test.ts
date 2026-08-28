@@ -5,6 +5,8 @@ import {
   sampleAircraft,
 } from "../apps/pas-de-geant/src/aircraft-feed.js";
 import {
+  aircraftNormalizedAltitude,
+  aircraftNormalizedHeight,
   aircraftRenderKind,
   formatAircraftLabel,
 } from "../apps/pas-de-geant/src/aircraft-layer.js";
@@ -12,6 +14,7 @@ import {
   parseAircraftDisplayArguments,
   shouldStreamAircraft,
 } from "../apps/pas-de-geant/src/aircraft-lifecycle.js";
+import { EARTH_SURFACE_MODEL } from "../apps/pas-de-geant/src/surface-model.js";
 
 function flightFollowerTrack(
   id = "484abc",
@@ -110,6 +113,21 @@ describe("Pas de Géant Flight Follower support", () => {
     });
     expect(aircraftRenderKind(ground?.emitterCategory)).toBe("vehicle");
     expect(ground && formatAircraftLabel(ground).secondary).toBe("GND 18KT 090°");
+  });
+
+  it("places airborne and on-ground traffic at true physical elevation", () => {
+    expect(aircraftNormalizedAltitude(1_000)).toBeCloseTo(
+      304.8 / EARTH_SURFACE_MODEL.referenceRadiusM,
+      12,
+    );
+    expect(aircraftNormalizedHeight(30_000, true, 1_500)).toBeCloseTo(
+      1_500 / EARTH_SURFACE_MODEL.referenceRadiusM,
+      12,
+    );
+    expect(aircraftNormalizedHeight(30_000, false, 1_500)).toBeCloseTo(
+      9_144 / EARTH_SURFACE_MODEL.referenceRadiusM,
+      12,
+    );
   });
 
   it("interpolates the backend trajectory across the antimeridian and then holds", () => {

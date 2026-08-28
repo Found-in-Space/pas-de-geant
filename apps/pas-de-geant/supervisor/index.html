@@ -9,26 +9,27 @@
   </head>
   <body>
     <main class="dashboard">
-      <aside class="session-rail">
-        <header>
-          <p class="eyebrow">Pas de Géant</p>
-          <h1>Live supervision</h1>
-          <p id="relay-status" class="relay-status" data-state="connecting">Connecting…</p>
-        </header>
-        <div class="session-heading">
-          <h2>Headsets</h2>
-          <span id="session-count">0 live</span>
-        </div>
-        <div id="session-list" class="session-list" aria-live="polite"></div>
-      </aside>
-
       <section class="workspace">
         <header class="workspace-header">
-          <div>
-            <p class="eyebrow">Selected session</p>
-            <h2 id="selected-title">Choose a headset</h2>
+          <div class="supervisor-heading">
+            <p class="eyebrow">Pas de Géant</p>
+            <h1>Live supervision</h1>
+            <p id="relay-status" class="relay-status" data-state="connecting">Connecting…</p>
           </div>
-          <p id="selected-mode" class="mode-chip">No session selected</p>
+
+          <div class="headset-strip">
+            <div class="session-heading">
+              <p class="eyebrow">Headsets</p>
+              <span id="session-count">0 live</span>
+            </div>
+            <div id="session-list" class="session-list" aria-live="polite"></div>
+          </div>
+
+          <div class="selected-session-summary">
+            <p class="eyebrow">Selected headset</p>
+            <h2 id="selected-title">Choose a headset</h2>
+            <p id="selected-mode" class="mode-chip">No session selected</p>
+          </div>
         </header>
 
         <div id="empty-state" class="empty-state">
@@ -40,24 +41,34 @@
 
           <div id="earth-workspace">
             <div class="supervision-grid">
-            <div class="map-column">
-              <section class="map-card" aria-label="Headset position and gaze">
-                <div class="map-toolbar">
-                  <div>
-                    <p class="eyebrow">Position and gaze</p>
-                    <strong>OpenStreetMap</strong>
+              <div class="map-column">
+                <section class="map-card" aria-label="Headset position and gaze">
+                  <div class="map-toolbar">
+                    <div>
+                      <p class="eyebrow">Position and gaze</p>
+                      <strong>OpenStreetMap</strong>
+                    </div>
+                    <button id="center-map-button" class="text-button" type="button">Center user</button>
                   </div>
-                  <button id="center-map-button" class="text-button" type="button">Center user</button>
-                </div>
-                <div id="earth-map" class="earth-map" aria-label="Interactive supervision map"></div>
-                <p class="map-caption">Pan or zoom, then click to draft a destination. Warp and Save remain explicit.</p>
-              </section>
+                  <div id="earth-map" class="earth-map" aria-label="Interactive supervision map"></div>
+                  <p class="map-caption">Pan or zoom, then click to draft a destination. Warp and Save remain explicit.</p>
+                </section>
 
-            </div>
+                <section class="locations-card" aria-labelledby="locations-heading">
+                  <div class="command-title">
+                    <div>
+                      <p class="eyebrow">This browser + selected headset</p>
+                      <h3 id="locations-heading">Locations</h3>
+                    </div>
+                    <span id="saved-location-count">0 locations</span>
+                  </div>
+                  <div id="saved-location-list" class="saved-location-list"></div>
+                </section>
+              </div>
 
-            <aside class="control-column" aria-label="Headset controls">
-              <div class="command-grid">
-                <form id="warp-form" class="command-card">
+              <aside class="control-column" aria-label="Headset controls">
+                <div class="command-grid">
+                  <form id="warp-form" class="command-card">
                   <div class="command-title">
                     <div>
                       <p class="eyebrow">Location</p>
@@ -77,9 +88,9 @@
                     <button id="warp-button" class="primary-button" type="submit">Warp headset</button>
                     <button id="add-pin-button" class="secondary-button" type="button">Save location</button>
                   </div>
-                </form>
+                  </form>
 
-                <section class="command-card">
+                  <section class="command-card">
                   <div class="command-title">
                     <div>
                       <p class="eyebrow">Scale</p>
@@ -97,19 +108,19 @@
                         <button id="scale-button" class="compact-button" type="submit" aria-label="Apply scale">Go</button>
                       </div>
                     </form>
-                    <form id="radial-form" class="scale-control">
-                      <label for="radial-multiplier">Radial amplification
+                    <form id="terrain-form" class="scale-control">
+                      <label for="terrain-multiplier">Terrain multiplier
                         <span class="field-hint">Higher mountains</span>
                       </label>
                       <div class="input-action">
-                        <input id="radial-multiplier" type="number" min="0" step="any" required>
-                        <button id="radial-button" class="compact-button" type="submit" aria-label="Apply radial amplification">Go</button>
+                        <input id="terrain-multiplier" type="number" min="0" step="any" required>
+                        <button id="terrain-button" class="compact-button" type="submit" aria-label="Apply terrain multiplier">Go</button>
                       </div>
                     </form>
                   </div>
-                </section>
+                  </section>
 
-                <section class="command-card">
+                  <section class="command-card">
                   <div class="command-title">
                     <div>
                       <p class="eyebrow">Orientation</p>
@@ -131,9 +142,9 @@
                     <span>W</span>
                     <span>N</span>
                   </div>
-                </section>
+                  </section>
 
-                <section class="command-card" aria-labelledby="tracking-heading">
+                  <section class="command-card" aria-labelledby="tracking-heading">
                   <div class="command-title">
                     <div>
                       <p class="eyebrow">Live layers</p>
@@ -194,17 +205,6 @@
 
               </aside>
             </div>
-
-            <section class="locations-card" aria-labelledby="locations-heading">
-              <div class="command-title">
-                <div>
-                  <p class="eyebrow">This browser + selected headset</p>
-                  <h3 id="locations-heading">Locations</h3>
-                </div>
-                <span id="saved-location-count">0 locations</span>
-              </div>
-              <div id="saved-location-list" class="saved-location-list"></div>
-            </section>
           </div>
 
           <div id="eclipse-workspace" class="eclipse-workspace" hidden>

@@ -30,7 +30,7 @@ declare global {
         latitudeDegrees?: number;
         longitudeDegrees?: number;
         scaleDenominator?: number;
-        radialMultiplier?: number;
+        terrainMultiplier?: number;
       }): Record<string, unknown>;
       endBenchmark(): Record<string, unknown>;
       setScaleDenominator(scaleDenominator: number): Record<string, unknown>;

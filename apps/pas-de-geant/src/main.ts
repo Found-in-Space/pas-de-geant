@@ -20,12 +20,11 @@ import {
 } from "./aircraft-feed.js";
 import { AircraftLayer } from "./aircraft-layer.js";
 import {
-  amazonForestOutlineColor,
-  amazonForestOutlineYearsWithVisibility,
   parseAmazonForestOutlineVisibilityArguments,
   type AmazonForestOutlineControlState,
 } from "./amazon-forest-outline-control.js";
 import { AmazonForestOutlineLayer } from "./amazon-forest-outline-layer.js";
+import { AmazonForestOutlineStore } from "./amazon-forest-outline-state.js";
 import {
   parseAircraftDisplayArguments,
   shouldStreamAircraft,
@@ -41,7 +40,10 @@ import {
   type DominantStickAxis,
 } from "./controller-input.js";
 import { bodyFixedToRenderQuaternion } from "./body-attitude.js";
-import { CelestialSphere } from "./celestial-sphere.js";
+import {
+  CelestialSphere,
+  equatorialJ2000ToAppEcefQuaternion,
+} from "./celestial-sphere.js";
 import {
   observerProjectedToBodyRadius,
   observerTranslatedForHeadPosition,
@@ -52,6 +54,7 @@ import {
   eclipseEarthSurfaceObservation,
   eclipseTopographicSurfaceRadius,
 } from "./eclipse-earth-surface.js";
+import { RetainedShadowCones } from "./eclipse-rendering.js";
 import {
   parseCelestialVisibilityArguments,
 } from "./celestial-visibility.js";
@@ -83,7 +86,7 @@ import {
 } from "./imagery-variants.js";
 import { proxiedTileConfiguration } from "./tile-proxy.js";
 import {
-  applyRadialMultiplierRate,
+  applyTerrainMultiplierRate,
   contactFrame,
   coordinatesForFrame,
   EARTH_MEAN_RADIUS_KM,
@@ -146,6 +149,10 @@ import {
   type Vector3d,
 } from "./solar-system.js";
 import {
+  calculateSolarShadowGeometry,
+  solarShadowConeLengthM,
+} from "./solar-shadow-geometry.js";
+import {
   displayRadiusForScale,
   orbitalAngularStepRadians,
   orbitalLogarithmicValue,
@@ -158,6 +165,7 @@ import {
   DEFAULT_SCALE_DENOMINATOR,
   headsetScaleFactorForDenominatorChange,
   headsetMetresForPhysicalMetres,
+  physicalMetresForHeadsetMetres,
   scaleDenominatorAfterInput,
   validScaleDenominator,
 } from "./world-scale.js";
@@ -211,13 +219,13 @@ interface PasDeGeantDebugApi {
     latitudeDegrees?: number;
     longitudeDegrees?: number;
     scaleDenominator?: number;
-    radialMultiplier?: number;
+    terrainMultiplier?: number;
   }): Record<string, unknown>;
   endBenchmark(): Record<string, unknown>;
   reset(): Record<string, unknown>;
   setLocation(latitudeDegrees: number, longitudeDegrees: number): unknown;
   setScaleDenominator(scaleDenominator: number): Record<string, unknown>;
-  setRadialMultiplier(multiplier: number): Record<string, unknown>;
+  setTerrainMultiplier(multiplier: number): Record<string, unknown>;
   setView(view: {
     pitchRadians?: number;
     yawRadians?: number;
@@ -278,9 +286,6 @@ const xrCheckStatus = element<HTMLSpanElement>("xr-check-status");
 const xrRequirements = element<HTMLParagraphElement>("xr-requirements");
 const errorState = element<HTMLDivElement>("error-state");
 const errorMessage = element<HTMLParagraphElement>("error-message");
-const amazonForestYearControls = element<HTMLDivElement>(
-  "amazon-forest-years",
-);
 const imageryAttribution = element<HTMLElement>("imagery-attribution");
 const researchRegion = element<HTMLElement>("research-region");
 const researchAnswer = element<HTMLParagraphElement>("research-answer");
@@ -485,15 +490,12 @@ const selectedImageryConfiguration = baseImageryConfiguration
 const runtimeImageryConfiguration = selectedImageryConfiguration
   ? proxiedTileConfiguration(
       selectedImageryConfiguration,
-      import.meta.env.DEV &&
-        Boolean(import.meta.env.VITE_IMAGERY_XYZ_TEMPLATE),
       selectedImageryConfiguration === baseImageryConfiguration
         ? "textures-source"
         : "textures",
     )
   : undefined;
 const photographicImageryProvider =
-  window.__PAS_DE_GEANT_IMAGERY_PROVIDER__ ??
   configuredXyzImageryProvider(runtimeImageryConfiguration);
 document.body.dataset.imageryProvider =
   photographicImageryProvider?.id ?? "blue-marble";
@@ -556,7 +558,7 @@ const terrain = new TerrainSurface({
     latitudeDegrees: initialLocation.latitudeDegrees,
     longitudeDegrees: initialLocation.longitudeDegrees,
     displayRadiusM: displayRadiusForScale("earth", scaleDenominator),
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     observerHeightWorldM: 1.65,
     focalLengthPixels: 1_000,
   },
@@ -567,17 +569,12 @@ const amazonForestOutlines = new AmazonForestOutlineLayer(
     "https://data.foundin.space/3592e66d-2b29-4e4b-97d0-7fc1d3e9e4f8/manifest.json",
 );
 planetRoot.add(amazonForestOutlines.group);
-document.body.dataset.amazonForestOutline = "off";
-let amazonForestAvailableYears: readonly number[] = [];
-let amazonForestVisibleYears: readonly number[] = [];
-let amazonForestMutationQueue = Promise.resolve();
-const amazonForestYearInputs = new Map<number, HTMLInputElement>();
+const amazonForestOutlineStore = new AmazonForestOutlineStore(
+  amazonForestOutlines,
+);
 
 function amazonForestOutlineControlState(): AmazonForestOutlineControlState {
-  return {
-    availableYears: amazonForestAvailableYears,
-    visibleYears: amazonForestVisibleYears,
-  };
+  return amazonForestOutlineStore.snapshot();
 }
 
 function amazonForestOutlineVoiceState(): Record<string, unknown> {
@@ -588,55 +585,10 @@ function amazonForestOutlineVoiceState(): Record<string, unknown> {
   };
 }
 
-function syncAmazonForestYearControls(): void {
-  for (const [year, input] of amazonForestYearInputs) {
-    input.checked = amazonForestVisibleYears.includes(year);
-  }
-  document.body.dataset.amazonForestOutline =
-    amazonForestVisibleYears.join(",") || "off";
-}
-
-function setAmazonForestYearControlsDisabled(disabled: boolean): void {
-  for (const input of amazonForestYearInputs.values()) input.disabled = disabled;
-}
-
-function renderAmazonForestYearControls(): void {
-  amazonForestYearInputs.clear();
-  const controls = amazonForestAvailableYears.map((year) => {
-    const label = document.createElement("label");
-    label.className = "amazon-forest-year-control";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.value = String(year);
-    const swatch = document.createElement("span");
-    swatch.className = "amazon-forest-year-swatch";
-    swatch.style.backgroundColor = amazonForestOutlineColor(
-      year,
-      amazonForestAvailableYears,
-    );
-    const text = document.createElement("span");
-    text.textContent = String(year);
-    input.addEventListener("change", () => {
-      void setAmazonForestYearVisibility(year, input.checked).catch((error) => {
-        console.warn("Amazon forest outlines are unavailable:", error);
-      });
-    });
-    label.append(input, swatch, text);
-    amazonForestYearInputs.set(year, input);
-    return label;
-  });
-  amazonForestYearControls.replaceChildren(...controls);
-  syncAmazonForestYearControls();
-}
-
-const amazonForestAvailableYearsRequest = amazonForestOutlines.availableYears()
-  .then((years) => {
-    amazonForestAvailableYears = years;
-    renderAmazonForestYearControls();
-    return years;
-  });
-void amazonForestAvailableYearsRequest.catch((error) => {
-  amazonForestYearControls.textContent = "Unavailable";
+amazonForestOutlineStore.subscribe(({ visibleYears }) => {
+  document.body.dataset.amazonForestOutline = visibleYears.join(",") || "off";
+});
+void amazonForestOutlineStore.load().catch((error) => {
   document.body.dataset.amazonForestOutline = "unavailable";
   console.warn("Amazon forest outline manifest is unavailable:", error);
 });
@@ -645,28 +597,7 @@ function setAmazonForestYearVisibility(
   year: number,
   visible: boolean,
 ): Promise<AmazonForestOutlineControlState> {
-  const mutation = amazonForestMutationQueue.then(async () => {
-    await amazonForestAvailableYearsRequest;
-    const nextYears = amazonForestOutlineYearsWithVisibility(
-      amazonForestVisibleYears,
-      amazonForestAvailableYears,
-      year,
-      visible,
-    );
-    setAmazonForestYearControlsDisabled(true);
-    document.body.dataset.amazonForestOutline = "loading";
-    try {
-      await amazonForestOutlines.setYears(nextYears);
-      amazonForestVisibleYears = nextYears;
-      syncAmazonForestYearControls();
-      return amazonForestOutlineControlState();
-    } finally {
-      setAmazonForestYearControlsDisabled(false);
-      syncAmazonForestYearControls();
-    }
-  });
-  amazonForestMutationQueue = mutation.then(() => undefined, () => undefined);
-  return mutation;
+  return amazonForestOutlineStore.setYearVisibility(year, visible);
 }
 const locationPinStore = new LocationPinStore();
 const locationPinLayer = new LocationPinLayer((latitudeDegrees, longitudeDegrees) =>
@@ -693,7 +624,7 @@ const moonTerrain = new TerrainSurface({
     latitudeDegrees: initialLocation.latitudeDegrees,
     longitudeDegrees: initialLocation.longitudeDegrees,
     displayRadiusM: displayRadiusForScale("moon", scaleDenominator),
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     observerHeightWorldM: 1.65,
     focalLengthPixels: 1_000,
   },
@@ -716,6 +647,9 @@ for (const body of SOLAR_SYSTEM_BODIES) {
   placeholderRoots.set(body.id, root);
   scene.add(root);
 }
+const shadowCones = new RetainedShadowCones();
+shadowCones.group.visible = false;
+scene.add(shadowCones.group);
 scene.add(new THREE.AmbientLight(0x8793a8, 0.65));
 scene.onBeforeRender = (_renderer, _scene, renderCamera): void => {
   terrain.updateRenderVisibility(renderCamera);
@@ -733,6 +667,8 @@ planetRoot.add(atmosphere.mesh);
 
 let tileOverlayVisible = false;
 let textureTileOverlayVisible = false;
+let eclipseConesVisible = false;
+let lastShadowConeUpdateSecond = Number.NEGATIVE_INFINITY;
 let realtimeAgentStatus: RealtimeAgentStatus = {
   state: "off",
   detail: "Press A to wake",
@@ -949,6 +885,8 @@ const handPanel = createThreePanelSession({
       );
     } else if (action === "toggle-earth-moon") {
       setFocusBody(focusBodyId === "earth" ? "moon" : "earth");
+    } else if (action === "toggle-eclipse-cones") {
+      setEclipseConesVisible(!eclipseConesVisible);
     }
   },
 });
@@ -1114,7 +1052,7 @@ function syncHeadsetFloorPosition(): void {
   headsetFloorPosition.set(head.x, head.z);
 }
 
-function initializeOrbit(): void {
+function initializeOrbit(when = new Date()): void {
   freeNavigationFrame = undefined;
   resetObserverRig();
   const viewCamera = currentViewCamera();
@@ -1131,10 +1069,7 @@ function initializeOrbit(): void {
     focusedDisplayRadiusM() * 3,
   );
 
-  const when = new Date();
-  const bodyAttitude = bodyFixedToRenderQuaternion(
-    bodyRotation(focusBodyId, when),
-  );
+  const bodyAttitude = bodyAttitudeJ2000(focusBodyId, when);
   const localRadial = focusBodyId === "earth" || focusBodyId === "moon"
     ? state.contact.upEcef.clone()
     : new THREE.Vector3(0, 0, 1);
@@ -1295,13 +1230,13 @@ function setScaleDenominator(nextScaleDenominator: number): number {
   return scaleDenominator;
 }
 
-function setRadialMultiplier(radialMultiplier: number): number {
-  if (!Number.isFinite(radialMultiplier) || radialMultiplier < 0) {
-    throw new Error("Radial multiplier must be nonnegative and finite.");
+function setTerrainMultiplier(terrainMultiplier: number): number {
+  if (!Number.isFinite(terrainMultiplier) || terrainMultiplier < 0) {
+    throw new Error("Terrain multiplier must be nonnegative and finite.");
   }
-  state.radialMultiplier = radialMultiplier;
+  state.terrainMultiplier = terrainMultiplier;
   updatePresentation();
-  return state.radialMultiplier;
+  return state.terrainMultiplier;
 }
 
 function setUserLocation(
@@ -1456,7 +1391,7 @@ function supervisionNavigationState(): SupervisionNavigationSnapshot {
     latitudeDegrees: coordinates.latitudeDegrees,
     longitudeDegrees: coordinates.longitudeDegrees,
     scaleDenominator,
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     headingDegrees,
   };
 }
@@ -1490,7 +1425,7 @@ function supervisionControlState(): SupervisionControlState {
 const canonicalNavigationMutations: CanonicalNavigationMutations = {
   warp: warpUserLocation,
   setScaleDenominator: transitionScaleDenominator,
-  setRadialMultiplier,
+  setTerrainMultiplier,
   setHeading: transitionHeading,
   readState: supervisionNavigationState,
 };
@@ -1700,6 +1635,13 @@ function setTextureTileOverlayVisible(visible: boolean): void {
   moonTerrain.setTextureTileOverlayVisible(visible);
 }
 
+function setEclipseConesVisible(visible: boolean): void {
+  eclipseConesVisible = visible;
+  shadowCones.group.visible = visible;
+  lastShadowConeUpdateSecond = Number.NEGATIVE_INFINITY;
+  document.body.dataset.eclipseCones = visible ? "visible" : "hidden";
+}
+
 function moveSpaceObserver(renderTravel: THREE.Vector3): void {
   if (navigationMode !== "free") return;
   const focus = celestialBody(focusBodyId);
@@ -1745,6 +1687,17 @@ const surfaceBasis = new THREE.Matrix4();
 const surfaceQuaternion = new THREE.Quaternion();
 const surfacePoint = new THREE.Vector3();
 const systemBodyAttitudeQuaternion = new THREE.Quaternion();
+
+function bodyAttitudeJ2000(
+  bodyId: SolarSystemBodyId,
+  when: Date,
+  target = new THREE.Quaternion(),
+): THREE.Quaternion {
+  if (bodyId === "earth") {
+    return target.copy(equatorialJ2000ToAppEcefQuaternion(when)).invert();
+  }
+  return bodyFixedToRenderQuaternion(bodyRotation(bodyId, when), target);
+}
 
 function terrainViewMetrics(): {
   eyeHeightWorldM: number;
@@ -1830,6 +1783,29 @@ function bodySurfaceView(
   };
 }
 
+function focusSurfaceAltitudePhysicalM(): number | undefined {
+  if (navigationMode !== "orbit" || !orbitNavigation) return undefined;
+  if (focusBodyId === "earth") {
+    return physicalMetresForHeadsetMetres(
+      bodySurfaceView("earth", planetRoot).observerHeightWorldM,
+      scaleDenominator,
+    );
+  }
+  if (focusBodyId === "moon") {
+    return physicalMetresForHeadsetMetres(
+      bodySurfaceView("moon", moonRoot).observerHeightWorldM,
+      scaleDenominator,
+    );
+  }
+  return Math.max(
+    0,
+    physicalMetresForHeadsetMetres(
+      focusDistanceHeadsetM(),
+      scaleDenominator,
+    ) - celestialBody(focusBodyId).referenceRadiusM,
+  );
+}
+
 function enforceOrbitSurfaceFloor(): void {
   if (navigationMode !== "orbit" || !orbitNavigation) return;
   const root = focusBodyId === "earth"
@@ -1854,14 +1830,14 @@ function enforceOrbitSurfaceFloor(): void {
       terrain.sampleElevationMetres(
         observation.latitudeDegrees,
         observation.longitudeDegrees,
-      ) * state.radialMultiplier,
+      ) * state.terrainMultiplier,
     ) / earthReferenceRadiusM;
   } else if (focusBodyId === "moon") {
     const surface = bodySurfaceView("moon", root);
     normalizedFloorRadius += moonTerrain.sampleElevationMetres(
       surface.latitudeDegrees,
       surface.longitudeDegrees,
-    ) * state.radialMultiplier / celestialBody("moon").referenceRadiusM;
+    ) * state.terrainMultiplier / celestialBody("moon").referenceRadiusM;
   }
   const floorDistance = normalizedFloorRadius * displayRadiusM;
   if (headWorld.distanceTo(centreWorld) >= floorDistance) return;
@@ -1909,11 +1885,41 @@ function systemObserverForFocus(
   };
 }
 
-function updateSystemPresentation(): void {
-  const when = new Date();
+interface SystemPresentationFrame {
+  originJ2000M: Vector3d;
+  originWorldPosition: THREE.Vector3;
+  systemFrameQuaternion: THREE.Quaternion;
+}
+
+function placeBodyInSystemFrame(
+  bodyId: SolarSystemBodyId,
+  root: THREE.Object3D,
+  when: Date,
+  frame: SystemPresentationFrame,
+): void {
+  const bodyPosition = bodyPositionJ2000M(bodyId, when);
+  const rendered = relativeJ2000MetresToRender({
+    x: bodyPosition.x - frame.originJ2000M.x,
+    y: bodyPosition.y - frame.originJ2000M.y,
+    z: bodyPosition.z - frame.originJ2000M.z,
+  }, scaleDenominator);
+  const attitude = bodyAttitudeJ2000(
+    bodyId,
+    when,
+    systemBodyAttitudeQuaternion,
+  );
+  root.position.set(rendered.x, rendered.y, rendered.z)
+    .applyQuaternion(frame.systemFrameQuaternion)
+    .add(frame.originWorldPosition);
+  root.quaternion.copy(frame.systemFrameQuaternion).multiply(attitude);
+  root.scale.setScalar(displayRadiusForScale(bodyId, scaleDenominator));
+  root.visible = true;
+}
+
+function updateSystemPresentation(when: Date): SystemPresentationFrame {
   const focusBody = celestialBody(focusBodyId);
   const focusPosition = bodyPositionJ2000M(focusBodyId, when);
-  if (navigationMode === "orbit" && !orbitNavigation) initializeOrbit();
+  if (navigationMode === "orbit" && !orbitNavigation) initializeOrbit(when);
   if (navigationMode === "free" && !freeNavigationFrame) {
     const viewCamera = currentViewCamera();
     viewCamera.updateWorldMatrix(true, false);
@@ -1933,82 +1939,55 @@ function updateSystemPresentation(): void {
     headsetMetresForPhysicalMetres(10_000_000_000_000, scaleDenominator),
   );
   camera.updateProjectionMatrix();
-  const place = (bodyId: SolarSystemBodyId, root: THREE.Object3D): void => {
-    const body = celestialBody(bodyId);
-    const bodyPosition = bodyPositionJ2000M(bodyId, when);
-    const origin = navigationMode === "orbit" ? focusPosition : observer;
-    const rendered = relativeJ2000MetresToRender({
-      x: bodyPosition.x - origin.x,
-      y: bodyPosition.y - origin.y,
-      z: bodyPosition.z - origin.z,
-    }, scaleDenominator);
-    const attitude = bodyFixedToRenderQuaternion(
-      bodyRotation(bodyId, when),
-      systemBodyAttitudeQuaternion,
-    );
-    if (navigationMode === "orbit" && orbitNavigation) {
-      root.position.set(rendered.x, rendered.y, rendered.z)
-        .applyQuaternion(orbitNavigation.systemFrameQuaternion)
-        .add(orbitNavigation.focusWorldPosition);
-      root.quaternion.copy(orbitNavigation.systemFrameQuaternion)
-        .multiply(attitude);
-    } else if (freeNavigationFrame) {
-      root.position.set(rendered.x, rendered.y, rendered.z)
-        .applyQuaternion(freeNavigationFrame.systemFrameQuaternion)
-        .add(freeNavigationFrame.anchorWorldPosition);
-      root.quaternion.copy(freeNavigationFrame.systemFrameQuaternion)
-        .multiply(attitude);
-    } else {
-      root.position.set(rendered.x, rendered.y + 1.65, rendered.z);
-      root.position.sub(worldRotationPivot)
-        .applyQuaternion(worldRotationQuaternion)
-        .add(worldRotationPivot);
-      root.quaternion.copy(worldRotationQuaternion).multiply(attitude);
-    }
-    root.scale.setScalar(displayRadiusForScale(bodyId, scaleDenominator));
-    root.visible = true;
-  };
-  place("earth", planetRoot);
-  place("moon", moonRoot);
-  for (const [bodyId, root] of placeholderRoots) place(bodyId, root);
-  document.body.dataset.scaleDenominator = String(scaleDenominator);
+  const frame: SystemPresentationFrame = navigationMode === "orbit" &&
+      orbitNavigation
+    ? {
+        originJ2000M: focusPosition,
+        originWorldPosition: orbitNavigation.focusWorldPosition,
+        systemFrameQuaternion: orbitNavigation.systemFrameQuaternion,
+      }
+    : freeNavigationFrame
+      ? {
+          originJ2000M: observer,
+          originWorldPosition: freeNavigationFrame.anchorWorldPosition,
+          systemFrameQuaternion: freeNavigationFrame.systemFrameQuaternion,
+        }
+      : {
+          originJ2000M: observer,
+          originWorldPosition: new THREE.Vector3(0, 1.65, 0),
+          systemFrameQuaternion: worldRotationQuaternion,
+        };
+  placeBodyInSystemFrame("earth", planetRoot, when, frame);
+  placeBodyInSystemFrame("moon", moonRoot, when, frame);
+  for (const [bodyId, root] of placeholderRoots) {
+    placeBodyInSystemFrame(bodyId, root, when, frame);
+  }
+  return frame;
 }
 
-function updatePresentation(): void {
-  let coordinates = coordinatesForFrame(state.contact);
-  worldRotationQuaternion.setFromAxisAngle(worldUp, worldRotationRadians);
-  worldRotationPivot.set(
-    headsetFloorPosition.x,
-    0,
-    headsetFloorPosition.y,
-  );
-  document.body.dataset.navigationMode = navigationMode;
-  document.body.dataset.focusBody = focusBodyId;
-  if (navigationMode !== "surface") {
-    updateSystemPresentation();
-    enforceOrbitSurfaceFloor();
-  } else {
-    camera.far = 1_200;
-    camera.updateProjectionMatrix();
-    for (const root of placeholderRoots.values()) root.visible = false;
-    if (focusBodyId === "moon") {
-      planetRoot.visible = false;
-      moonRoot.visible = true;
-      applySphericalSurfacePose(
-        moonRoot,
-        coordinates.latitudeDegrees,
-        coordinates.longitudeDegrees,
-        displayRadiusForScale("moon", scaleDenominator),
-      );
-    } else {
-      planetRoot.visible = true;
-      moonRoot.visible = false;
-    }
-  }
+function updateSurfaceSystemPresentation(
+  when: Date,
+  coordinates: { latitudeDegrees: number; longitudeDegrees: number },
+  pose: ReturnType<typeof solvePlanetPose>,
+): SystemPresentationFrame {
   const earthDisplayRadiusM = displayRadiusForScale("earth", scaleDenominator);
   const moonDisplayRadiusM = displayRadiusForScale("moon", scaleDenominator);
-  const pose = solvePlanetPose(state, headsetFloorPosition, earthDisplayRadiusM);
-  if (navigationMode === "surface" && focusBodyId === "earth") {
+  for (const root of placeholderRoots.values()) root.visible = false;
+  planetRoot.visible = true;
+  moonRoot.visible = true;
+  if (focusBodyId === "moon") {
+    applySphericalSurfacePose(
+      moonRoot,
+      coordinates.latitudeDegrees,
+      coordinates.longitudeDegrees,
+      moonDisplayRadiusM,
+    );
+    moonRoot.quaternion.premultiply(worldRotationQuaternion);
+    moonRoot.position
+      .sub(worldRotationPivot)
+      .applyQuaternion(worldRotationQuaternion)
+      .add(worldRotationPivot);
+  } else {
     planetRoot.quaternion
       .copy(pose.earthToWorld)
       .premultiply(worldRotationQuaternion);
@@ -2018,23 +1997,145 @@ function updatePresentation(): void {
       .applyQuaternion(worldRotationQuaternion)
       .add(worldRotationPivot);
     planetRoot.scale.setScalar(earthDisplayRadiusM);
-  } else if (navigationMode === "surface" && focusBodyId === "moon") {
-    moonRoot.quaternion.premultiply(worldRotationQuaternion);
-    moonRoot.position
-      .sub(worldRotationPivot)
-      .applyQuaternion(worldRotationQuaternion)
-      .add(worldRotationPivot);
   }
+
+  const focusRoot = focusBodyId === "moon" ? moonRoot : planetRoot;
+  const focusAttitude = bodyAttitudeJ2000(focusBodyId, when);
+  const frame: SystemPresentationFrame = {
+    originJ2000M: bodyPositionJ2000M(focusBodyId, when),
+    originWorldPosition: focusRoot.position.clone(),
+    systemFrameQuaternion: focusRoot.quaternion.clone()
+      .multiply(focusAttitude.invert())
+      .normalize(),
+  };
+  if (focusBodyId === "moon") {
+    placeBodyInSystemFrame("earth", planetRoot, when, frame);
+  } else {
+    placeBodyInSystemFrame("moon", moonRoot, when, frame);
+  }
+  const sunRoot = placeholderRoots.get("sun")!;
+  placeBodyInSystemFrame("sun", sunRoot, when, frame);
+
+  const farthestPhysicalM = Math.max(
+    ...(["earth", "moon", "sun"] as const).map((bodyId) => {
+      const position = bodyPositionJ2000M(bodyId, when);
+      const distanceFromFocusM = Math.hypot(
+        position.x - frame.originJ2000M.x,
+        position.y - frame.originJ2000M.y,
+        position.z - frame.originJ2000M.z,
+      );
+      return distanceFromFocusM + celestialBody(bodyId).referenceRadiusM;
+    }),
+  );
+  camera.far = Math.max(
+    1_200,
+    headsetMetresForPhysicalMetres(farthestPhysicalM, scaleDenominator) * 1.05,
+  );
+  camera.updateProjectionMatrix();
+  return frame;
+}
+
+const sunWorldPosition = new THREE.Vector3();
+const earthWorldPosition = new THREE.Vector3();
+const moonWorldPosition = new THREE.Vector3();
+const sunlightDirection = new THREE.Vector3();
+const shadowMoonPosition = new THREE.Vector3();
+const shadowAxis = new THREE.Vector3();
+const coneToEarthFixed = new THREE.Matrix4();
+
+function updateSolarLighting(): void {
+  placeholderRoots.get("sun")!.getWorldPosition(sunWorldPosition);
+  planetRoot.getWorldPosition(earthWorldPosition);
+  moonRoot.getWorldPosition(moonWorldPosition);
+  terrain.setSunlightDirection(
+    sunlightDirection.copy(sunWorldPosition).sub(earthWorldPosition),
+  );
+  moonTerrain.setSunlightDirection(
+    sunlightDirection.copy(sunWorldPosition).sub(moonWorldPosition),
+  );
+}
+
+function updateShadowConePresentation(
+  when: Date,
+  frame: SystemPresentationFrame,
+): void {
+  shadowCones.group.visible = eclipseConesVisible;
+  shadowCones.group.position.copy(planetRoot.position);
+  shadowCones.group.quaternion.copy(frame.systemFrameQuaternion);
+  shadowCones.group.scale.setScalar(1 / scaleDenominator);
+  if (!eclipseConesVisible) return;
+  const second = Math.floor(when.getTime() / 1_000);
+  if (second === lastShadowConeUpdateSecond) return;
+  lastShadowConeUpdateSecond = second;
+  const geometry = calculateSolarShadowGeometry(when);
+  const moonPosition = relativeJ2000MetresToRender(
+    geometry.moonFromEarthJ2000M,
+    1,
+  );
+  const direction = relativeJ2000MetresToRender(
+    geometry.shadowDirectionJ2000,
+    1,
+  );
+  shadowMoonPosition.set(moonPosition.x, moonPosition.y, moonPosition.z);
+  shadowAxis.set(direction.x, direction.y, direction.z).normalize();
+  coneToEarthFixed.makeRotationFromQuaternion(
+    equatorialJ2000ToAppEcefQuaternion(when),
+  );
+  shadowCones.update({
+    moonPosition: shadowMoonPosition,
+    shadowAxis,
+    physicalLengthM: solarShadowConeLengthM(geometry),
+    centralConeSlope: geometry.centralConeSlope,
+    penumbraConeSlope: geometry.penumbraConeSlope,
+    coneToEarthFixed,
+  });
+  document.body.dataset.eclipseConeTime = geometry.atUtc;
+  document.body.dataset.eclipseAxisMissKm = String(
+    geometry.axisMissDistanceM / 1_000,
+  );
+  document.body.dataset.eclipseCentralRadiusKm = String(
+    geometry.centralConeRadiusAtEarthPlaneM / 1_000,
+  );
+}
+
+function updatePresentation(when = new Date()): void {
+  let coordinates = coordinatesForFrame(state.contact);
+  worldRotationQuaternion.setFromAxisAngle(worldUp, worldRotationRadians);
+  worldRotationPivot.set(
+    headsetFloorPosition.x,
+    0,
+    headsetFloorPosition.y,
+  );
+  document.body.dataset.navigationMode = navigationMode;
+  document.body.dataset.focusBody = focusBodyId;
+  const earthDisplayRadiusM = displayRadiusForScale("earth", scaleDenominator);
+  const moonDisplayRadiusM = displayRadiusForScale("moon", scaleDenominator);
+  const pose = solvePlanetPose(state, headsetFloorPosition, earthDisplayRadiusM);
+  let systemFrame: SystemPresentationFrame;
+  if (navigationMode !== "surface") {
+    systemFrame = updateSystemPresentation(when);
+    enforceOrbitSurfaceFloor();
+  } else {
+    systemFrame = updateSurfaceSystemPresentation(
+      when,
+      coordinates,
+      pose,
+    );
+  }
+  updateSolarLighting();
+  updateShadowConePresentation(when, systemFrame);
   const view = terrainViewMetrics();
-  const earthOrbitalView = navigationMode === "orbit"
+  const earthOrbitalView = navigationMode !== "surface" || focusBodyId !== "earth"
     ? bodySurfaceView("earth", planetRoot)
     : undefined;
-  const moonOrbitalView = navigationMode === "orbit"
+  const moonOrbitalView = navigationMode !== "surface" || focusBodyId !== "moon"
     ? bodySurfaceView("moon", moonRoot)
     : undefined;
-  const focusedOrbitalView = focusBodyId === "earth"
-    ? earthOrbitalView
-    : focusBodyId === "moon" ? moonOrbitalView : undefined;
+  const focusedOrbitalView = navigationMode === "orbit"
+    ? focusBodyId === "earth"
+      ? earthOrbitalView
+      : focusBodyId === "moon" ? moonOrbitalView : undefined
+    : undefined;
   if (focusedOrbitalView) {
     state.contact = contactFrame(
       focusedOrbitalView.latitudeDegrees,
@@ -2052,7 +2153,7 @@ function updatePresentation(): void {
     longitudeDegrees:
       earthOrbitalView?.longitudeDegrees ?? coordinates.longitudeDegrees,
     displayRadiusM: earthOrbitalView?.displayRadiusM ?? earthDisplayRadiusM,
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     observerHeightWorldM:
       earthOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
     focalLengthPixels: view.focalLengthPixels,
@@ -2063,7 +2164,7 @@ function updatePresentation(): void {
     longitudeDegrees:
       moonOrbitalView?.longitudeDegrees ?? coordinates.longitudeDegrees,
     displayRadiusM: moonOrbitalView?.displayRadiusM ?? moonDisplayRadiusM,
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     observerHeightWorldM:
       moonOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
     focalLengthPixels: view.focalLengthPixels,
@@ -2071,7 +2172,6 @@ function updatePresentation(): void {
   });
   atmosphere.update({
     displayRadiusM: earthOrbitalView?.displayRadiusM ?? earthDisplayRadiusM,
-    radialMultiplier: state.radialMultiplier,
     observerHeightWorldM:
       earthOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
   });
@@ -2084,16 +2184,15 @@ function handPanelStatus(
   const lod = terrain.getLodStatus();
   return {
     scaleDenominator,
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     minimumTerrainZoom: lod.minZoom,
     maximumTerrainZoom: lod.maxZoom,
     terrainBudgetLimited: lod.budgetLimited,
     agentState: realtimeAgentStatus.state,
     navigationMode,
     focusBody: celestialBody(focusBodyId).name,
-    focusDistanceHeadsetM: navigationMode === "orbit"
-      ? focusDistanceHeadsetM()
-      : undefined,
+    eclipseConesVisible,
+    focusAltitudePhysicalM: focusSurfaceAltitudePhysicalM(),
   };
 }
 
@@ -2109,14 +2208,15 @@ function handPanelStateSignature(
     longitudeDegrees.toFixed(2),
     northAngle.toFixed(2),
     status.scaleDenominator.toFixed(3),
-    status.radialMultiplier.toFixed(1),
+    status.terrainMultiplier.toFixed(1),
     status.minimumTerrainZoom,
     status.maximumTerrainZoom,
     status.terrainBudgetLimited ? "capped" : "screen",
     status.agentState,
     status.navigationMode,
     status.focusBody,
-    status.focusDistanceHeadsetM?.toFixed(2),
+    status.eclipseConesVisible ? "cones" : "no-cones",
+    status.focusAltitudePhysicalM?.toFixed(0),
   ].join(":");
 }
 
@@ -2168,7 +2268,7 @@ const voiceAgent = new RealtimeVoiceAgent({
         mode: navigationMode,
         focus_body: focusBodyId,
         scale_denominator: scaleDenominator,
-        radial_multiplier: state.radialMultiplier,
+        terrain_multiplier: state.terrainMultiplier,
         focus_distance_headset_metres: orbitDistanceHeadsetM,
         focus_distance_physical_metres: orbitDistanceHeadsetM === null
           ? null
@@ -2327,7 +2427,7 @@ const voiceAgent = new RealtimeVoiceAgent({
       return await setSatelliteGroupEnabled(group, enabled);
     },
     async get_amazon_forest_outlines() {
-      await amazonForestAvailableYearsRequest;
+      await amazonForestOutlineStore.load();
       return amazonForestOutlineVoiceState();
     },
     async set_amazon_forest_outline_visibility(argumentsValue) {
@@ -2593,8 +2693,8 @@ function updateXrControls(deltaSeconds: number, nowMs: number): void {
       intent.scaleAxis,
       deltaSeconds,
     ));
-    state.radialMultiplier = applyRadialMultiplierRate(
-      state.radialMultiplier,
+    state.terrainMultiplier = applyTerrainMultiplierRate(
+      state.terrainMultiplier,
       intent.radialAxis,
       deltaSeconds,
     );
@@ -2742,8 +2842,8 @@ function updateDesktopControls(deltaSeconds: number): void {
     scaleAxis,
     deltaSeconds,
   ));
-  state.radialMultiplier = applyRadialMultiplierRate(
-    state.radialMultiplier,
+  state.terrainMultiplier = applyTerrainMultiplierRate(
+    state.terrainMultiplier,
     radialAxis,
     deltaSeconds,
   );
@@ -2802,6 +2902,9 @@ window.addEventListener("keydown", (event) => {
   if (!event.repeat && event.code === "KeyN") {
     setFocusBody(focusBodyId === "earth" ? "moon" : "earth");
   }
+  if (!event.repeat && event.code === "KeyE") {
+    setEclipseConesVisible(!eclipseConesVisible);
+  }
   if (
     [
       "KeyW",
@@ -2817,6 +2920,7 @@ window.addEventListener("keydown", (event) => {
       "Backspace",
       "KeyM",
       "KeyN",
+      "KeyE",
     ].includes(event.code)
   ) {
     keys.add(event.code);
@@ -3170,7 +3274,7 @@ interface BenchmarkRestoreState {
     readonly longitudeDegrees: number;
   };
   readonly scaleDenominator: number;
-  readonly radialMultiplier: number;
+  readonly terrainMultiplier: number;
   readonly pitchRadians: number;
   readonly yawRadians: number;
   readonly worldRotationRadians: number;
@@ -3232,7 +3336,7 @@ function debugControlState(): Record<string, unknown> {
     },
     scaleDenominator,
     focusedBodyDisplayRadiusM: focusedDisplayRadiusM(),
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     view: {
       pitchRadians: pitch,
       yawRadians: yaw,
@@ -3370,7 +3474,7 @@ function captureBenchmarkRestoreState(): BenchmarkRestoreState {
   return {
     coordinates: coordinatesForFrame(state.contact),
     scaleDenominator,
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     pitchRadians: pitch,
     yawRadians: yaw,
     worldRotationRadians,
@@ -3437,7 +3541,7 @@ const debugApi: PasDeGeantDebugApi = {
       snapshot: "snapshot() — controls, frames, renderer, tiles, network, browser",
       marks: "mark(name?), marks(), clearMetrics()",
       benchmark: "beginBenchmark(options?), then freeze with setTileRecalculation(\"both\", false) once planner work is zero; endBenchmark() restores the captured session",
-      position: "setLocation(lat, lon), setScaleDenominator(value), setRadialMultiplier(value), setView({pitchRadians?, yawRadians?}), reset()",
+      position: "setLocation(lat, lon), setScaleDenominator(value), setTerrainMultiplier(value), setView({pitchRadians?, yawRadians?}), reset()",
       tiles: "setTilePixelRatio(target, ratio), setMaxZ(target, z|null), setTileRecalculation(target, enabled)",
       rendering: "setRendering(enabled), setInputEnabled(enabled), setFoveation(0..1), setFramebufferScale(value), setDesktopPixelRatio(value)",
       terrainRenderCulling: "setTerrainRenderCulling(enabled) — same-build render-only visibility A/B",
@@ -3473,20 +3577,20 @@ const debugApi: PasDeGeantDebugApi = {
       options.scaleDenominator ?? DEFAULT_SCALE_DENOMINATOR,
       "scaleDenominator",
     );
-    const radialMultiplier = finiteDebugNumber(
-      options.radialMultiplier ?? 1,
-      "radialMultiplier",
+    const terrainMultiplier = finiteDebugNumber(
+      options.terrainMultiplier ?? 1,
+      "terrainMultiplier",
     );
     validScaleDenominator(benchmarkScaleDenominator);
-    if (radialMultiplier < 0) {
-      throw new Error("radialMultiplier must be nonnegative.");
+    if (terrainMultiplier < 0) {
+      throw new Error("terrainMultiplier must be nonnegative.");
     }
     benchmarkRestoreState ??= captureBenchmarkRestoreState();
     setSimulationInputEnabled(false);
     terrain.setTileRecalculation({ target: "both", enabled: false });
     setUserLocation(latitudeDegrees, longitudeDegrees);
     commitScaleDenominator(benchmarkScaleDenominator);
-    state.radialMultiplier = radialMultiplier;
+    state.terrainMultiplier = terrainMultiplier;
     pitch = 0;
     yaw = 0;
     worldRotationRadians = 0;
@@ -3533,7 +3637,7 @@ const debugApi: PasDeGeantDebugApi = {
       restore.coordinates.longitudeDegrees,
     );
     commitScaleDenominator(restore.scaleDenominator);
-    state.radialMultiplier = restore.radialMultiplier;
+    state.terrainMultiplier = restore.terrainMultiplier;
     pitch = restore.pitchRadians;
     yaw = restore.yawRadians;
     worldRotationRadians = restore.worldRotationRadians;
@@ -3573,9 +3677,9 @@ const debugApi: PasDeGeantDebugApi = {
     setScaleDenominator(value);
     return debugControlState();
   },
-  setRadialMultiplier(multiplier) {
+  setTerrainMultiplier(multiplier) {
     const value = finiteDebugNumber(multiplier, "multiplier");
-    setRadialMultiplier(value);
+    setTerrainMultiplier(value);
     return debugControlState();
   },
   setView(view) {
@@ -3704,6 +3808,7 @@ function render(nowMs: number): void {
   }
   if (renderer.xr.isPresenting) renderer.xr.updateCamera(camera);
   const utcMilliseconds = Date.now();
+  const when = new Date(utcMilliseconds);
   const intervalMs = nowMs - previousFrameMs;
   const deltaSeconds = Math.min(0.05, intervalMs / 1000);
   previousFrameMs = nowMs;
@@ -3716,7 +3821,7 @@ function render(nowMs: number): void {
       updateDesktopControls(deltaSeconds);
     }
   }
-  updatePresentation();
+  updatePresentation(when);
   const pinCoordinates = coordinatesForFrame(state.contact);
   locationPinLayer.update({
     pinState: locationPinStore.snapshot(),
@@ -3725,7 +3830,7 @@ function render(nowMs: number): void {
     userLatitudeDegrees: pinCoordinates.latitudeDegrees,
     userLongitudeDegrees: pinCoordinates.longitudeDegrees,
     displayRadiusM: displayRadiusForScale("earth", scaleDenominator),
-    radialMultiplier: state.radialMultiplier,
+    terrainMultiplier: state.terrainMultiplier,
     visible: renderer.xr.isPresenting &&
       navigationMode === "surface" && focusBodyId === "earth",
   });
@@ -3736,12 +3841,10 @@ function render(nowMs: number): void {
   aircraftLayer.update(
     utcMilliseconds,
     earthDisplayRadiusM,
-    state.radialMultiplier,
   );
   satelliteLayer.update(
     utcMilliseconds,
     earthDisplayRadiusM,
-    state.radialMultiplier,
   );
   const viewCamera = currentViewCamera();
   viewCamera.getWorldPosition(cameraWorldPosition);
@@ -3786,6 +3889,7 @@ window.addEventListener("beforeunload", () => {
   terrain.dispose();
   locationPinLayer.dispose();
   celestialSphere.dispose();
+  shadowCones.dispose();
   handPanel.dispose();
   handPanelRuntime.dispose();
 });
@@ -3801,6 +3905,7 @@ const benchmarkMetricsTimer = benchmarkParameters.get("benchmarkMetrics") === "1
 updatePresentation();
 setTileOverlayVisible(false);
 setTextureTileOverlayVisible(false);
+setEclipseConesVisible(false);
 setPreflightCheck(worldCheck, worldCheckStatus, "ready", "World ready");
 errorState.hidden = true;
 aircraftLayer.visible = false;
