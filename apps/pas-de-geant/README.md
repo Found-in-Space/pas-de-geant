@@ -259,6 +259,67 @@ npm run lunar:tiles -- \
 It produces `imagery/{z}/{x}/{y}.png` and
 `elevation/{z}/{x}/{y}.png`, ready for any static object store or local server.
 
+### Compare native lunar imagery locally
+
+The dataset preview downloads the 0–3° N, 0–3° E Kaguya seamless and standard
+ortho tiles, plus the corresponding native LROC WAC source strip. It creates
+a synchronized pan/zoom comparison, losslessly encoded PNG display tiles,
+and GeoTIFFs preserving the original values and lunar coordinates. Kaguya's
+8.42 m and 7.40 m grids remain at their original 10,800² and 12,288² dimensions;
+WAC remains at 100 m/pixel. Select either dataset in either panel and use its
+1:1 button to inspect one source pixel per physical display pixel.
+
+Run from the repository root with a Python interpreter containing GDAL and
+NumPy (the development Mac's Homebrew GDAL uses the interpreter below):
+
+```sh
+/opt/homebrew/opt/python@3.14/bin/python3.14 scripts/build-lunar-preview.py --download
+python3 -m http.server 4198 --bind 127.0.0.1 --directory .cache/lunar-preview/site
+```
+
+Open `http://127.0.0.1:4198/`. Omit `--download` to rebuild from cached sources.
+The approximately 635 MB of sources and 550 MB of compiled previews stay in
+the ignored `.cache/lunar-preview/` directory. This preview is independent of
+the application development server and does not configure the globe's imagery.
+
+Both Kaguya images use a shared 0.5–99.5 percentile display stretch after
+applying their respective PDS scale/offset values. WAC uses its own stretch
+and has different illumination. PNG display values are 8-bit; the GeoTIFFs
+retain the source precision and validity masks. Highest-resolution tiles are
+pixel copies of the tone-mapped source; lower levels use area averaging.
+No sharpening is applied. This one patch does not assess neighboring joins,
+polar coverage, or the optional NASA colour composite. Provenance, exact grid
+dimensions, scales, and display intervals are recorded in `manifest.json`.
+
+The join study extends that same viewer with a four-tile junction at 3° N,
+3° E, transitions at 84° N/S, and polar tile joins at 88° N/S along the prime
+meridian. Run this after building the original comparison:
+
+```sh
+/opt/homebrew/opt/python@3.14/bin/python3.14 scripts/build-lunar-join-preview.py --download --build
+```
+
+It reuses the existing preview server. Select a **Study area**, toggle **Join
+lines**, and use **1:1 pixels** to inspect the assembled image. Equatorial
+samples preserve each product's native grid. Polar samples use the same lunar
+stereographic projection at 10 m/pixel, with bilinear resampling; these are
+compiled output pixels rather than untouched cylindrical source pixels. The
+seamless polar transition is a deliberate hard switch at 84° latitude, with
+no blending or fallback fill to hide a mismatch. The preview is opaque: low
+saturation displays as black, high saturation as white, and blank data as
+black. Saturation categories use nearest-neighbour reprojection separately
+from the calibrated values. Scientific GeoTIFFs retain their validity masks.
+The area outside each cropped sample also displays as black.
+
+The study covers representative polar-region joins, not the complete caps at
+90°. JAXA's host ignores byte-range requests; the downloader reads a normal
+source stream through its last needed row, preserving those original bytes
+and the detached label in `.cache/lunar-preview/join-sources/`. Cached complete
+images are reused. Scene JSON files record source windows, radiometric scales,
+output grids, and valid-pixel fractions. Derived GeoTIFFs contain calibrated
+Float32 samples. Both products and all joins within a scene share one display
+stretch. Use `--build` without `--download` to rebuild entirely from the cache.
+
 ## Terrain and imagery library
 
 The production surface is composed from reusable, provider-neutral modules:
