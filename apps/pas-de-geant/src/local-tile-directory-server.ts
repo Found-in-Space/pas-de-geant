@@ -68,7 +68,7 @@ export function createTileDirectoryMiddleware(
         stream.on("error", (error) => {
           if (!response.headersSent) response.statusCode = 500;
           response.end();
-          console.error(`Could not read lunar imagery tile ${tilePath}:`, error);
+          console.error(`Could not read local tile ${tilePath}:`, error);
         });
         stream.pipe(response);
       },

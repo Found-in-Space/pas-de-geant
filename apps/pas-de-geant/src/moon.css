@@ -148,6 +148,76 @@ h1 {
   gap: 8px;
 }
 
+.topography-toggle {
+  display: flex;
+  height: 42px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 13px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 22px;
+  background: rgb(12 12 15 / 76%);
+  color: #d0ccc3;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  backdrop-filter: blur(14px);
+}
+
+.topography-toggle:hover,
+.topography-toggle:focus-within {
+  border-color: rgb(255 255 255 / 44%);
+  background: rgb(39 38 38 / 86%);
+}
+
+.topography-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.toggle-track {
+  width: 28px;
+  height: 16px;
+  padding: 2px;
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: 9px;
+  background: rgb(255 255 255 / 7%);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.toggle-track span {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #aaa69d;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.topography-toggle input:checked + .toggle-track {
+  border-color: #d8c89d;
+  background: rgb(216 200 157 / 28%);
+}
+
+.topography-toggle input:checked + .toggle-track span {
+  background: #f0dfb1;
+  transform: translateX(12px);
+}
+
+.topography-toggle input:focus-visible + .toggle-track {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+.topography-toggle strong {
+  color: #f0dfb1;
+  font-size: 0.7rem;
+}
+
 .moon-controls button {
   min-width: 42px;
   height: 42px;
@@ -287,8 +357,18 @@ footer {
   }
 
   .moon-controls {
+    left: 18px;
     right: 18px;
     bottom: 61px;
+    justify-content: flex-end;
+  }
+
+  .topography-toggle {
+    margin-right: auto;
+  }
+
+  .topography-toggle > span:nth-of-type(2) {
+    display: none;
   }
 
   footer {

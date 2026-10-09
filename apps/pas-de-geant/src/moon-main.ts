@@ -18,6 +18,8 @@ const MAXIMUM_DRAG_RADIANS_PER_PIXEL = 0.002;
 const INITIAL_DISTANCE_M = 5.8;
 const INITIAL_LATITUDE_DEGREES = 18;
 const INITIAL_LONGITUDE_DEGREES = -24;
+const PHYSICAL_TERRAIN_MULTIPLIER = 1;
+const EXAGGERATED_TERRAIN_MULTIPLIER = 5;
 
 const element = <T extends HTMLElement>(id: string): T => {
   const value = document.getElementById(id);
@@ -30,6 +32,15 @@ const coordinatesReadout = element<HTMLElement>("coordinates-readout");
 const altitudeReadout = element<HTMLElement>("altitude-readout");
 const textureReadout = element<HTMLElement>("texture-readout");
 const loadingState = element<HTMLElement>("loading-state");
+const exaggeratedTopography = element<HTMLInputElement>(
+  "exaggerated-topography",
+);
+
+function terrainMultiplier(): number {
+  return exaggeratedTopography.checked
+    ? EXAGGERATED_TERRAIN_MULTIPLIER
+    : PHYSICAL_TERRAIN_MULTIPLIER;
+}
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
@@ -117,7 +128,7 @@ const surface = new TerrainSurface({
     latitudeDegrees: INITIAL_LATITUDE_DEGREES,
     longitudeDegrees: INITIAL_LONGITUDE_DEGREES,
     displayRadiusM: DISPLAY_RADIUS_M,
-    terrainMultiplier: 0,
+    terrainMultiplier: terrainMultiplier(),
     observerHeightWorldM: INITIAL_DISTANCE_M - DISPLAY_RADIUS_M,
     focalLengthPixels: 1_000,
   },
@@ -165,6 +176,7 @@ function hemisphere(value: number, positive: string, negative: string): string {
 
 function updateSurface(): void {
   let view = currentView();
+  const currentTerrainMultiplier = terrainMultiplier();
   const minimumObserverHeightM = imageryProvider
     ? observerHeightForImageryZoom({
         displayRadiusM: DISPLAY_RADIUS_M,
@@ -193,6 +205,7 @@ function updateSurface(): void {
     view.latitudeDegrees.toFixed(4),
     view.longitudeDegrees.toFixed(4),
     view.distanceM.toFixed(4),
+    currentTerrainMultiplier,
     window.innerHeight,
   ].join(":");
   if (signature !== lastViewSignature) {
@@ -201,7 +214,7 @@ function updateSurface(): void {
       latitudeDegrees: view.latitudeDegrees,
       longitudeDegrees: view.longitudeDegrees,
       displayRadiusM: DISPLAY_RADIUS_M,
-      terrainMultiplier: 0,
+      terrainMultiplier: currentTerrainMultiplier,
       observerHeightWorldM: Math.max(
         0.001,
         view.distanceM - DISPLAY_RADIUS_M,
@@ -262,6 +275,10 @@ zoomOutButton.addEventListener("click", () => {
   setDistance(currentView().distanceM / 0.72);
 });
 element<HTMLButtonElement>("reset-view").addEventListener("click", resetView);
+exaggeratedTopography.addEventListener("change", () => {
+  lastViewSignature = "";
+  updateSurface();
+});
 
 window.addEventListener("keydown", (event) => {
   if (event.key === "+" || event.key === "=") {

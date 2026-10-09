@@ -37,6 +37,12 @@
       </section>
 
       <nav class="moon-controls" aria-label="Moon navigation">
+        <label class="topography-toggle">
+          <input id="exaggerated-topography" type="checkbox">
+          <span class="toggle-track" aria-hidden="true"><span></span></span>
+          <span>Exaggerated topography</span>
+          <strong>5×</strong>
+        </label>
         <button id="zoom-in" type="button" aria-label="Move closer">+</button>
         <button id="zoom-out" type="button" aria-label="Move farther away">−</button>
         <button id="reset-view" class="reset-button" type="button">Reset view</button>
@@ -53,7 +59,7 @@
       </div>
 
       <footer>
-        Imagery: NASA LRO / LROC · Produced by the Found in Space texture pipeline
+        Imagery: NASA LRO / LROC · Topography: NASA LRO / LOLA
       </footer>
     </main>
     <script type="module" src="../src/moon-bootstrap.ts"></script>

@@ -218,6 +218,8 @@ export default defineConfig(({ mode }) => {
   const lunarElevationUrlTemplate =
     serverEnvironment
       .PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE;
+  const lunarElevationDirectory =
+    serverEnvironment.PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY;
   const textureScheme = tileScheme(
     serverEnvironment.PAS_DE_GEANT_TILE_PROXY_TEXTURES_SCHEME,
   );
@@ -360,6 +362,12 @@ export default defineConfig(({ mode }) => {
       ? resolve(appDirectory, lunarImageryDirectory)
       : undefined,
   );
+  const lunarElevationDirectoryMiddleware = createTileDirectoryMiddleware(
+    "lunar-elevation",
+    lunarElevationDirectory
+      ? resolve(appDirectory, lunarElevationDirectory)
+      : undefined,
+  );
   return {
     define: {
       "import.meta.env.PAS_DE_GEANT_IMAGERY_CONFIGURED": JSON.stringify(
@@ -372,7 +380,7 @@ export default defineConfig(({ mode }) => {
         lunarImageryMaximumZoom,
       ),
       "import.meta.env.PAS_DE_GEANT_LUNAR_ELEVATION_CONFIGURED": JSON.stringify(
-        Boolean(lunarElevationUrlTemplate),
+        Boolean(lunarElevationUrlTemplate || lunarElevationDirectory),
       ),
     },
     plugins: [
@@ -392,6 +400,9 @@ export default defineConfig(({ mode }) => {
           if (lunarImageryDirectoryMiddleware) {
             server.middlewares.use(lunarImageryDirectoryMiddleware);
           }
+          if (lunarElevationDirectoryMiddleware) {
+            server.middlewares.use(lunarElevationDirectoryMiddleware);
+          }
           server.middlewares.use(tileProxyMiddleware);
         },
         configurePreviewServer(server) {
@@ -401,6 +412,9 @@ export default defineConfig(({ mode }) => {
           server.middlewares.use(satelliteFeedMiddleware);
           if (lunarImageryDirectoryMiddleware) {
             server.middlewares.use(lunarImageryDirectoryMiddleware);
+          }
+          if (lunarElevationDirectoryMiddleware) {
+            server.middlewares.use(lunarElevationDirectoryMiddleware);
           }
           server.middlewares.use(tileProxyMiddleware);
         },

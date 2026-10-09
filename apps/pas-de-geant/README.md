@@ -250,6 +250,7 @@ the product's `imagery` directory and open the dedicated viewer:
 
 ```sh
 PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY=/path/to/product/output/imagery \
+PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY=/path/to/product/output/elevation \
   npm run dev -- --port 4197
 ```
 
@@ -281,6 +282,7 @@ npm run lunar:tiles -- \
 
 It produces `imagery/{z}/{x}/{y}.png` and
 `elevation/{z}/{x}/{y}.png`, ready for any static object store or local server.
+Either source argument may be omitted when rebuilding only one pyramid.
 
 ### Compare native lunar imagery locally
 
@@ -457,8 +459,11 @@ PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_TEMPLATE=https://tiles.mapterhorn.com
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_SCHEME=xyz
 PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE=
 PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_SCHEME=xyz
+PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM=8
+PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY=
 PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE=
 PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_SCHEME=xyz
+PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY=
 PAS_DE_GEANT_TILE_PROXY_UPSTREAM_HEADERS_JSON={}
 PAS_DE_GEANT_TILE_PROXY_FORWARD_REQUEST_HEADERS=origin,referer,user-agent
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_HEADERS_JSON=
