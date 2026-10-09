@@ -9,6 +9,7 @@ import {
 } from "../apps/pas-de-geant/src/controller-input.js";
 import {
   orbitalAngularStepRadians,
+  orbitalDragRadiansPerPixel,
   orbitalLogarithmicValue,
   shapedOrbitalAxis,
 } from "../apps/pas-de-geant/src/world-navigation.js";
@@ -210,6 +211,16 @@ describe("Pas de Géant controller regressions", () => {
     )).toBeCloseTo(20, 12);
     expect(orbitalLogarithmicValue(3, 1, 4, false)).toBeCloseTo(6, 12);
     expect(orbitalLogarithmicValue(3, -1, 4, false)).toBeCloseTo(1.5, 12);
+  });
+
+  it("reduces pointer orbit travel in proportion to surface altitude", () => {
+    const far = orbitalDragRadiansPerPixel(3_000, 1_000, 1_000, 0.004);
+    const near = orbitalDragRadiansPerPixel(1_010, 1_000, 1_000, 0.004);
+
+    expect(far).toBeCloseTo(0.002, 12);
+    expect(near).toBeCloseTo(0.00001, 12);
+    expect(orbitalDragRadiansPerPixel(10_000, 1_000, 1_000, 0.004))
+      .toBe(0.004);
   });
 
   it("latches a diagonal right stick to one orbital function", () => {

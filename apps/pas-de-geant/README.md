@@ -23,6 +23,10 @@ exaggeration, and Backspace to reset.
 Use the World and Navigation selectors for Earth/Moon ground mode and any-body
 orbit/free mode. M cycles navigation modes and N switches Earth/Moon.
 
+The focused desktop Moon viewer is at `http://127.0.0.1:4197/moon/`. Drag to
+orbit, scroll or pinch to approach the surface, and use the on-screen controls
+or +/− keys to change distance.
+
 The standalone Eclipse Observatory is at
 `http://127.0.0.1:4197/eclipse/`. Earth, Moon, shadow cones, and the apparent
 Sun remain in one coherent system frame; the unscaled headset and controllers
@@ -240,6 +244,25 @@ pyramids (linear longitude and latitude, including both poles):
 PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE='https://tiles.example/moon/imagery/{z}/{x}/{y}.png'
 PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE='https://tiles.example/moon/elevation/{z}/{x}/{y}.png'
 ```
+
+For local acceptance of a controlled texture-pipeline output, point the app at
+the product's `imagery` directory and open the dedicated viewer:
+
+```sh
+PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY=/path/to/product/output/imagery \
+  npm run dev -- --port 4197
+```
+
+The current LROC WAC product reaches zoom 8. Override
+`PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM` only when testing another admitted
+product contract.
+
+The dedicated Moon viewer uses the configured product's zoom-0 tile as its
+whole-globe base, waits for the complete visible imagery cut before dismissing
+the loading state, and advances GPU publication even while the camera is still.
+For legibility it applies one source-wide linear-light tone exponent of `0.55`
+to the base and every detail tile. This is a runtime presentation choice; it
+does not alter the controlled payload or normalize individual tiles.
 
 Elevation PNGs store the source unsigned 16-bit LOLA value in the red and
 green channels. Runtime height is `value × 0.5 − 10,000 m`, relative to the

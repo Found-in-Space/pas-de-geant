@@ -90,6 +90,33 @@ export function renderedImageryTileWidthM(
   );
 }
 
+/** Eye height where one source texel at a zoom occupies one screen pixel. */
+export function observerHeightForImageryZoom(options: {
+  readonly displayRadiusM: number;
+  readonly latitudeDegrees: number;
+  readonly focalLengthPixels: number;
+  readonly tilePixels: number;
+  readonly zoom: number;
+  readonly targetScreenPixelsPerSourcePixel?: number;
+}): number {
+  const focalLengthPixels = Math.max(1, options.focalLengthPixels);
+  const tilePixels = Math.max(1, options.tilePixels);
+  const targetScreenPixelsPerSourcePixel =
+    options.targetScreenPixelsPerSourcePixel ?? 1;
+  if (
+    !Number.isFinite(targetScreenPixelsPerSourcePixel) ||
+    targetScreenPixelsPerSourcePixel <= 0
+  ) {
+    throw new RangeError("Target screen/source density must be positive.");
+  }
+  return renderedImageryTileWidthM(
+    options.latitudeDegrees,
+    options.displayRadiusM,
+    options.zoom,
+  ) * focalLengthPixels /
+    (tilePixels * targetScreenPixelsPerSourcePixel);
+}
+
 export function selectImageryZoom(options: ImageryZoomOptions): number {
   const minZoom = Math.max(0, Math.floor(options.minZoom));
   const targetScreenPixelsPerSourcePixel =

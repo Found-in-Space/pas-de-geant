@@ -1183,6 +1183,25 @@ export class ImageryVirtualTexture {
     return this.target.maxZoom;
   }
 
+  get hasCompleteImagery(): boolean {
+    if (!this.scheduler || this.migration !== undefined) return false;
+    const scheduling = this.scheduler.debugState;
+    if (
+      scheduling.planner_requests.total_outstanding > 0 ||
+      scheduling.target_submission.pending ||
+      scheduling.target_submission.in_flight ||
+      this.desiredSourceKeys.size === 0
+    ) return false;
+    return [...this.desiredSourceKeys].every((key) =>
+      this.committedSourceKeys.has(key)
+    );
+  }
+
+  /** Advances bounded GPU upload work without recalculating the view target. */
+  processFrame(): void {
+    if (!this.loadingSuspended) this.processUploads();
+  }
+
   getPlannerState() {
     const payloadRequests = this.scheduler?.debugState ?? {
       planner_requests: { requested: 0, in_flight: 0, total_outstanding: 0 },

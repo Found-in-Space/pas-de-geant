@@ -172,6 +172,7 @@ import {
 import {
   displayRadiusForScale,
   orbitalAngularStepRadians,
+  orbitalDragRadiansPerPixel,
   orbitalLogarithmicValue,
   relativeJ2000MetresToRender,
   spaceTravelSpeedHeadsetMPerSecond,
@@ -3529,9 +3530,15 @@ renderer.domElement.addEventListener("pointermove", (event) => {
     return;
   }
   if (navigationMode === "orbit") {
+    const radiansPerPixel = orbitalDragRadiansPerPixel(
+      focusDistanceHeadsetM(),
+      focusedDisplayRadiusM(),
+      terrainViewMetrics().focalLengthPixels,
+      0.002,
+    );
     orbitSystemFrameByRadians(
-      -(event.clientX - pointerX) * 0.002,
-      (event.clientY - pointerY) * 0.002,
+      -(event.clientX - pointerX) * radiansPerPixel,
+      (event.clientY - pointerY) * radiansPerPixel,
     );
     pointerX = event.clientX;
     pointerY = event.clientY;

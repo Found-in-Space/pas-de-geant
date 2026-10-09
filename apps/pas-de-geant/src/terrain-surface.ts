@@ -109,6 +109,8 @@ export interface TerrainSurfaceOptions {
   readonly elevationProvider?: TerrainElevationProvider;
   readonly surfaceModel?: SurfaceModel;
   readonly terrainLod?: TerrainLodOptions;
+  /** Uniform linear-light presentation curve; 1 preserves source values. */
+  readonly albedoToneExponent?: number;
   readonly initialView: TerrainSurfaceView;
 }
 
@@ -510,6 +512,7 @@ const FRAGMENT_SHADER = `
   uniform vec4 surfaceOverlayUvTransform;
   uniform vec3 tileTint;
   uniform vec3 sunlight;
+  uniform float albedoToneExponent;
   in vec2 vTileUv;
   in vec3 vBaseWorldPosition;
   in vec3 vWorldPosition;
@@ -564,6 +567,7 @@ const FRAGMENT_SHADER = `
     vec3 albedo = photographicImageryAllowed > 0.5
       ? resolvedImageryAlbedo()
       : texture(blueMarbleMap, vBlueMarbleUv).rgb;
+    albedo = pow(max(albedo, vec3(0.0)), vec3(albedoToneExponent));
     if (surfaceOverlayVisible > 0.5 && vSkirt < 0.5) {
       vec2 overlayUv =
         vBlueMarbleUv * surfaceOverlayUvTransform.xy +
@@ -642,6 +646,10 @@ export class TerrainSurface {
   private latestView: TerrainSurfaceView;
 
   constructor(options: TerrainSurfaceOptions) {
+    const albedoToneExponent = options.albedoToneExponent ?? 1;
+    if (!Number.isFinite(albedoToneExponent) || albedoToneExponent <= 0) {
+      throw new RangeError("Surface albedo tone exponent must be positive.");
+    }
     this.renderer = options.renderer;
     this.surfaceModel = options.surfaceModel ?? EARTH_SURFACE_MODEL;
     const initialView: TerrainSurfaceView = {
@@ -735,6 +743,7 @@ export class TerrainSurface {
         value: new THREE.Vector4(1, 1, 0, 0),
       },
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
+      albedoToneExponent: { value: albedoToneExponent },
       heightEncodingKind: {
         value: this.surfaceModel.heightEncoding.kind === "terrarium" ? 0 : 1,
       },
@@ -915,6 +924,15 @@ export class TerrainSurface {
 
   get hasCommittedSurface(): boolean {
     return this.snapshot.committedCut.length > 0;
+  }
+
+  get hasCompleteImagery(): boolean {
+    return this.imagery.hasCompleteImagery;
+  }
+
+  /** Advances bounded imagery publication while the camera remains still. */
+  processFrame(): void {
+    this.imagery.processFrame();
   }
 
   get renderCullingEnabled(): boolean {

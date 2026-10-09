@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   ancestorAtZoom,
+  observerHeightForImageryZoom,
   selectImageryZoom,
 } from "../apps/pas-de-geant/src/imagery-core.js";
 import {
@@ -96,6 +97,24 @@ function reconcileForTest(
 }
 
 describe("independent photographic imagery pipeline", () => {
+  it("reports imagery readiness only after every desired page is committed", () => {
+    const texture = Object.create(ImageryVirtualTexture.prototype) as any;
+    texture.scheduler = {
+      debugState: {
+        planner_requests: { total_outstanding: 0 },
+        target_submission: { pending: false, in_flight: false },
+      },
+    };
+    texture.committedSourceKeys = new Set(["3/1/2"]);
+    texture.desiredSourceKeys = new Set(["3/1/2", "3/2/2"]);
+    texture.migration = undefined;
+    expect(texture.hasCompleteImagery).toBe(false);
+    texture.committedSourceKeys.add("3/2/2");
+    expect(texture.hasCompleteImagery).toBe(true);
+    texture.migration = {};
+    expect(texture.hasCompleteImagery).toBe(false);
+  });
+
   it("refreshes horizon culling while topology recalculation is frozen", () => {
     const updateHorizonCulling = vi.fn();
     const updateTarget = vi.fn();
@@ -942,6 +961,33 @@ describe("independent photographic imagery pipeline", () => {
     });
 
     expect(halfMetre).toBe(oneMetre + 1);
+  });
+
+  it("identifies the one-to-one observer height for a native source zoom", () => {
+    const common = {
+      displayRadiusM: 2.25,
+      latitudeDegrees: 18,
+      longitudeDegrees: -24,
+      focalLengthPixels: 1_000,
+      tilePixels: 512,
+      minZoom: 0,
+      maxZoom: 8,
+    };
+    const observerHeightWorldM = observerHeightForImageryZoom({
+      ...common,
+      zoom: common.maxZoom,
+    });
+
+    expect(selectImageryZoom({
+      ...common,
+      observerHeightWorldM,
+      maxTopologyZoom: common.maxZoom,
+    })).toBe(common.maxZoom);
+    expect(selectImageryZoom({
+      ...common,
+      observerHeightWorldM: observerHeightWorldM * 2,
+      maxTopologyZoom: common.maxZoom,
+    })).toBe(common.maxZoom - 1);
   });
 
   it("retains refined imagery for twenty centimetres of upward head movement", () => {

@@ -130,6 +130,7 @@ import {
   headsetMetresForPhysicalMetres,
   validScaleDenominator,
 } from "./world-scale.js";
+import { orbitalDragRadiansPerPixel } from "./world-navigation.js";
 
 const DEFAULT_EVENT_ID = "solar-2026-08-12-total";
 const GEOMETRY_INTERVAL_MS = 160;
@@ -1449,13 +1450,23 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
 renderer.domElement.addEventListener("pointermove", (event) => {
   if (!pointerActive || renderer.xr.isPresenting) return;
   eclipseHeadWorldPose(camera, desktopHeadPosition, observerViewQuaternion);
+  const earthCentre = earthCentreWorld();
+  const radiansPerPixel = orbitalDragRadiansPerPixel(
+    desktopHeadPosition.distanceTo(earthCentre),
+    displayRadiusMetres(
+      EARTH_REFERENCE_RADIUS_M,
+      state.stage.scaleDenominator,
+    ),
+    terrainFocalLengthPixels(camera),
+    0.004,
+  );
   commitObserverRigTransform(updateObserverEarthOrbit(
     state.observerRigTransform,
     desktopHeadPosition,
     observerViewQuaternion,
-    earthCentreWorld(),
-    -(event.clientX - pointerX) * 0.004,
-    (event.clientY - pointerY) * 0.004,
+    earthCentre,
+    -(event.clientX - pointerX) * radiansPerPixel,
+    (event.clientY - pointerY) * radiansPerPixel,
   ));
   enforceTopographicFloor(camera);
   pointerX = event.clientX;

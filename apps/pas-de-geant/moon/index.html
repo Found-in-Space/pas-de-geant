@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+      name="description"
+      content="Navigate the Moon using the Found in Space LROC WAC texture pyramid."
+    >
+    <meta name="theme-color" content="#050507">
+    <title>Moon — Pas de Géant</title>
+  </head>
+  <body>
+    <main class="moon-experience">
+      <div id="scene-root" class="scene-root" aria-hidden="true"></div>
+
+      <header class="moon-header">
+        <a class="back-link" href="../">← Pas de Géant</a>
+        <p class="eyebrow">Found in Space · Lunar surface</p>
+        <h1>The Moon</h1>
+        <p class="lede">Drag to travel around the globe. Scroll or pinch to approach the surface.</p>
+      </header>
+
+      <section class="moon-readout" aria-label="Current lunar view" aria-live="polite">
+        <div>
+          <span>Centre</span>
+          <strong id="coordinates-readout">—</strong>
+        </div>
+        <div>
+          <span>Altitude</span>
+          <strong id="altitude-readout">—</strong>
+        </div>
+        <div>
+          <span>Texture</span>
+          <strong id="texture-readout">Preparing…</strong>
+        </div>
+      </section>
+
+      <nav class="moon-controls" aria-label="Moon navigation">
+        <button id="zoom-in" type="button" aria-label="Move closer">+</button>
+        <button id="zoom-out" type="button" aria-label="Move farther away">−</button>
+        <button id="reset-view" class="reset-button" type="button">Reset view</button>
+      </nav>
+
+      <div id="loading-state" class="loading-state" role="status" aria-live="polite">
+        <span class="loading-moon" aria-hidden="true"></span>
+        <span>Assembling the lunar surface…</span>
+      </div>
+
+      <div id="error-state" class="error-state" role="alert" hidden>
+        <strong>The Moon viewer could not start</strong>
+        <p id="error-message"></p>
+      </div>
+
+      <footer>
+        Imagery: NASA LRO / LROC · Produced by the Found in Space texture pipeline
+      </footer>
+    </main>
+    <script type="module" src="../src/moon-bootstrap.ts"></script>
+  </body>
+</html>

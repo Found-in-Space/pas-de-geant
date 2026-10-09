@@ -13,6 +13,7 @@ import {
   type TileProxyScheme,
 } from "./src/tile-proxy-server.js";
 import { selectImageryVariant } from "./src/imagery-variants.js";
+import { createTileDirectoryMiddleware } from "./src/local-tile-directory-server.js";
 import { MAPTERHORN_ELEVATION_URL_TEMPLATE } from "./src/tile-upstream-configuration.js";
 
 function optionalNumber(value: string | undefined): number | undefined {
@@ -209,6 +210,11 @@ export default defineConfig(({ mode }) => {
   const lunarImageryUrlTemplate =
     serverEnvironment
       .PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE;
+  const lunarImageryDirectory =
+    serverEnvironment.PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY;
+  const lunarImageryMaximumZoom = optionalNumber(
+    serverEnvironment.PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM,
+  ) ?? 8;
   const lunarElevationUrlTemplate =
     serverEnvironment
       .PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE;
@@ -348,13 +354,22 @@ export default defineConfig(({ mode }) => {
       serverEnvironment.PAS_DE_GEANT_TILE_PROXY_UPSTREAM_BACKOFF_MS,
     ),
   });
+  const lunarImageryDirectoryMiddleware = createTileDirectoryMiddleware(
+    "lunar-imagery",
+    lunarImageryDirectory
+      ? resolve(appDirectory, lunarImageryDirectory)
+      : undefined,
+  );
   return {
     define: {
       "import.meta.env.PAS_DE_GEANT_IMAGERY_CONFIGURED": JSON.stringify(
         Boolean(textureUrlTemplate),
       ),
       "import.meta.env.PAS_DE_GEANT_LUNAR_IMAGERY_CONFIGURED": JSON.stringify(
-        Boolean(lunarImageryUrlTemplate),
+        Boolean(lunarImageryUrlTemplate || lunarImageryDirectory),
+      ),
+      "import.meta.env.PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM": JSON.stringify(
+        lunarImageryMaximumZoom,
       ),
       "import.meta.env.PAS_DE_GEANT_LUNAR_ELEVATION_CONFIGURED": JSON.stringify(
         Boolean(lunarElevationUrlTemplate),
@@ -374,6 +389,9 @@ export default defineConfig(({ mode }) => {
           server.middlewares.use(locationGeocodeMiddleware);
           server.middlewares.use(externalKnowledgeMiddleware);
           server.middlewares.use(satelliteFeedMiddleware);
+          if (lunarImageryDirectoryMiddleware) {
+            server.middlewares.use(lunarImageryDirectoryMiddleware);
+          }
           server.middlewares.use(tileProxyMiddleware);
         },
         configurePreviewServer(server) {
@@ -381,6 +399,9 @@ export default defineConfig(({ mode }) => {
           server.middlewares.use(locationGeocodeMiddleware);
           server.middlewares.use(externalKnowledgeMiddleware);
           server.middlewares.use(satelliteFeedMiddleware);
+          if (lunarImageryDirectoryMiddleware) {
+            server.middlewares.use(lunarImageryDirectoryMiddleware);
+          }
           server.middlewares.use(tileProxyMiddleware);
         },
       },
@@ -404,6 +425,9 @@ export default defineConfig(({ mode }) => {
           main: fileURLToPath(new URL("./index.html", import.meta.url)),
           eclipse: fileURLToPath(
             new URL("./eclipse/index.html", import.meta.url),
+          ),
+          moon: fileURLToPath(
+            new URL("./moon/index.html", import.meta.url),
           ),
           tileOnion: fileURLToPath(
             new URL("./demos/tile-onion.html", import.meta.url),
