@@ -96,6 +96,11 @@ public browser host with the Vite process's internal host, so it also works
 behind a reverse proxy. Both servers listen on all local interfaces so a device
 on the private subnet can connect directly.
 
+For an additional development hostname, set
+`__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` to that exact hostname in the server
+process environment. Vite host checks, local HTTP APIs, and the supervision
+origin checks honor the same setting, including private Tailscale HTTPS names.
+
 WebXR requires a secure context. A USB-connected Quest can use an Android
 reverse tunnel:
 

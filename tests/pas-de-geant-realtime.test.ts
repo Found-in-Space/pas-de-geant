@@ -638,6 +638,25 @@ describe("Pas de Géant Realtime voice agent", () => {
     });
   });
 
+  it("allows only the extra development hostname configured for Vite", () => {
+    vi.stubEnv("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS", "Dev.Peer.ts.net.");
+    try {
+      expect(isAllowedRequestOrigin("https://dev.peer.ts.net")).toBe(true);
+      expect(isAllowedRequestOrigin("https://dev.peer.ts.net:443")).toBe(true);
+      for (const origin of [
+        "https://other.peer.ts.net",
+        "https://sub.dev.peer.ts.net",
+        "https://dev.peer.ts.net.malicious.example",
+        "ftp://dev.peer.ts.net",
+      ]) {
+        expect(isAllowedRequestOrigin(origin), origin).toBe(false);
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(isAllowedRequestOrigin("https://dev.peer.ts.net")).toBe(false);
+  });
+
   it("allows local, private-network, and k-si.com request origins", () => {
     for (const origin of [
       undefined,
