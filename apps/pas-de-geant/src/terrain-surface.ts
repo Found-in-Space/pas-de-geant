@@ -1121,6 +1121,7 @@ export class TerrainSurface {
     const segments = terrainSegmentsForZoom(
       tile.z,
       this.terrainLod.segmentTiers,
+      this.surfaceModel.minimumProjectedWorldSegments,
     );
     const bounds = this.surfaceModel.tileBounds(tile);
     const imageryBounds = imageryBoundsForGeographicBounds(

@@ -75,6 +75,16 @@ describe("Terrain LOD configuration", () => {
     });
   });
 
+  it("preserves a world-space tessellation floor as tile zoom coarsens", () => {
+    expect([0, 1, 2, 3, 7].map((zoom) =>
+      terrainSegmentsForZoom(
+        zoom,
+        undefined,
+        64,
+      )
+    )).toEqual([64, 32, 16, 16, 32]);
+  });
+
   it("uses arbitrary provider maxima and validates explicit overrides", () => {
     const provider = { tilePixels: 256, maxSourceZoom: 14 };
     const defaults = normalizeTerrainLodOptions(provider);

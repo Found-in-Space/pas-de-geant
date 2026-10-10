@@ -21,6 +21,8 @@ export interface SurfaceModel {
   readonly id: SurfaceModelId;
   readonly referenceRadiusM: number;
   readonly projection: TileProjection;
+  /** Minimum mesh subdivisions across either full projected world axis. */
+  readonly minimumProjectedWorldSegments: number;
   readonly minimumNormalizedSurfaceRadius: number;
   readonly heightEncoding: HeightEncoding;
   readonly elevationMetadata: ElevationProviderMetadata;
@@ -65,6 +67,7 @@ export const EARTH_SURFACE_MODEL: SurfaceModel = Object.freeze({
   id: "earth",
   referenceRadiusM: EARTH_MEAN_RADIUS_KM * 1_000,
   projection: "web-mercator",
+  minimumProjectedWorldSegments: 16,
   minimumNormalizedSurfaceRadius: WGS84_B_KM / EARTH_MEAN_RADIUS_KM,
   heightEncoding: Object.freeze({ kind: "terrarium" }),
   elevationMetadata: Object.freeze({
@@ -108,6 +111,7 @@ export const MOON_SURFACE_MODEL: SurfaceModel = Object.freeze({
   id: "moon",
   referenceRadiusM: 1_737_400,
   projection: "geographic",
+  minimumProjectedWorldSegments: 64,
   minimumNormalizedSurfaceRadius: 1,
   heightEncoding: Object.freeze({
     kind: "rg16",
