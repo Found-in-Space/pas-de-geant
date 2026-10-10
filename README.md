@@ -30,6 +30,9 @@ reset.
 
 Open `http://127.0.0.1:4197/moon/` for the focused Moon viewer. Its imagery,
 elevation, and display configuration are shared with the main experience.
+Open `http://127.0.0.1:4197/?world=moon` to start the walking experience on the
+Moon. In a headset, select **Enter VR** and use the same room-scale walking and
+controller controls as Earth.
 
 WebXR requires a secure context. A USB-connected Quest can use an Android
 reverse tunnel so its browser sees the local server as device-local:

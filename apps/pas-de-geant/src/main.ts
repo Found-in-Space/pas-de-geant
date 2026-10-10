@@ -113,7 +113,7 @@ import {
   type ContactFrame,
   type PlanetState,
 } from "@found-in-space/worlds/planet-state";
-import { resolveInitialLocation } from "./initial-location.js";
+import { resolveInitialWorldLocation } from "./initial-location.js";
 import {
   greatCircleDistanceKm,
   LocationPinStore,
@@ -321,6 +321,7 @@ const element = <T extends HTMLElement>(id: string): T => {
 
 const sceneRoot = element<HTMLDivElement>("scene-root");
 const benchmarkParameters = new URLSearchParams(window.location.search);
+const initialFocusBodyId = benchmarkParameters.get("world") === "moon" ? "moon" : "earth";
 const vrSlot = element<HTMLDivElement>("vr-slot");
 const worldCheck = element<HTMLLIElement>("world-check");
 const worldCheckStatus = element<HTMLSpanElement>("world-check-status");
@@ -339,7 +340,13 @@ const earthImageryCredit = imageryCredit.innerHTML;
 const researchRegion = element<HTMLElement>("research-region");
 const researchAnswer = element<HTMLParagraphElement>("research-answer");
 const researchSources = element<HTMLUListElement>("research-sources");
-const initialLocationPromise = resolveInitialLocation();
+const initialLocationPromise = resolveInitialWorldLocation(initialFocusBodyId);
+if (initialFocusBodyId === "moon") {
+  document.title = "Walk on the Moon — Pas de Géant";
+  element<HTMLElement>("preflight-title").textContent = "Walk on the Moon";
+  worldCheck.querySelector("strong")!.textContent = "Lunar surface";
+  locationCheckStatus.textContent = "Choosing lunar starting point";
+}
 
 type PreflightState = "pending" | "ready" | "failed";
 
@@ -573,7 +580,7 @@ const spatialStarPass = new SpatialStarPass();
 document.body.dataset.starStatus = "loading";
 document.body.dataset.starCount = "0";
 const initialBodyJ2000M = bodyPositionJ2000M(
-  "earth",
+  initialFocusBodyId,
   new Date(simulationTimeMs(state.simulationClock)),
 );
 void spatialStarPass.load(vectorMetresToParsecs(initialBodyJ2000M)).then(
@@ -591,7 +598,7 @@ let warpTransition: TimedTransition<NavigationCoordinates> | undefined;
 let scaleTransition: TimedTransition<number> | undefined;
 let headingTransition: TimedTransition<number> | undefined;
 let navigationMode: NavigationMode = "surface";
-let focusBodyId: SolarSystemBodyId = "earth";
+let focusBodyId: SolarSystemBodyId = initialFocusBodyId;
 let scaleDenominator = DEFAULT_SCALE_DENOMINATOR;
 let freeObserverJ2000M: Vector3d | undefined;
 let navigationRealm: "solar_system" | "stellar" = "solar_system";
@@ -848,7 +855,7 @@ const moonMapBitmap: BitmapHandle = {
 const handPanelRuntime = createRuntime({
   root: createHandPanelRoot(
     initialCoordinates,
-    earthMapBitmap,
+    focusBodyId === "moon" ? moonMapBitmap : earthMapBitmap,
     { x: 0, y: -1 },
     initialHandPanelStatus,
   ),
@@ -4631,7 +4638,7 @@ updatePresentation();
 setTileOverlayVisible(false);
 setTextureTileOverlayVisible(false);
 setEclipseConesVisible(false);
-setPreflightCheck(worldCheck, worldCheckStatus, "ready", "World ready");
+setPreflightCheck(worldCheck, worldCheckStatus, "ready", `${celestialBody(initialFocusBodyId).name} ready`);
 errorState.hidden = true;
 aircraftLayer.visible = false;
 setAircraftEnabled(false);

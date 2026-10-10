@@ -5,14 +5,15 @@ import { lunarSurfaceSource } from "./lunar-configuration.js";
 import { MOON_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
 import { createWorldRuntime, celestialBody, contactFrame } from "@found-in-space/worlds";
 import { orbitalDragRadiansPerPixel } from "@found-in-space/worlds/world-navigation";
+import { LUNAR_START_LOCATION } from "./initial-location.js";
 
 const DISPLAY_RADIUS_M = 2.25;
 const ABSOLUTE_MINIMUM_HEIGHT_M = 0.012;
 const MAXIMUM_DISTANCE_M = 18;
 const MAXIMUM_DRAG_RADIANS_PER_PIXEL = 0.002;
 const INITIAL_DISTANCE_M = 5.8;
-const INITIAL_LATITUDE_DEGREES = 18;
-const INITIAL_LONGITUDE_DEGREES = -24;
+const INITIAL_LATITUDE_DEGREES = LUNAR_START_LOCATION.latitudeDegrees;
+const INITIAL_LONGITUDE_DEGREES = LUNAR_START_LOCATION.longitudeDegrees;
 const PHYSICAL_TERRAIN_MULTIPLIER = 1;
 const EXAGGERATED_TERRAIN_MULTIPLIER = 5;
 

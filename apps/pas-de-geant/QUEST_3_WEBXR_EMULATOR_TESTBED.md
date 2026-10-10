@@ -56,6 +56,19 @@ Use a different port when necessary:
 PAS_DE_GEANT_XR_PORT=4297 npm run test:browser:xr
 ```
 
+For the focused Moon walking regression:
+
+```sh
+npm run test:browser:xr -- pas-de-geant.moon-xr.spec.ts
+```
+
+This starts `/?world=moon` in stereo VR, moves the tracked headset by 20 cm,
+checks that the lunar contact frame travels by the same displayed distance,
+changes scale, resets, and checks that the default Earth page still enters VR.
+It uses bundled imagery with external tile/catalogue requests disabled and
+writes `moon-walking-stereo.png` in the test output directory. Detailed LOLA
+terrain and real-device performance remain separate checks.
+
 The default emulated drawing buffer is fixed at 800 by 450 pixels. Fixing the
 viewport makes planner inputs reproducible and keeps stereo software rendering
 practical. Override it explicitly for a separate labelled experiment:

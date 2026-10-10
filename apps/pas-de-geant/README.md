@@ -33,6 +33,16 @@ The focused desktop Moon viewer is at `http://127.0.0.1:4197/moon/`. Drag to
 orbit, scroll or pinch to approach the surface, and use the on-screen controls
 or +/− keys to change distance.
 
+For walking on the Moon, open `http://127.0.0.1:4197/?world=moon`, or use
+**Walk on the Moon in VR** from either page. The launch starts in lunar ground
+mode at 18° N, 24° W without requesting Earth geolocation. In the headset,
+select **Enter VR**, then walk through your room or use the left stick to travel.
+The right stick changes world scale vertically and relief exaggeration
+horizontally; hold B to reset. This uses the same WebXR camera, controllers,
+contact-frame transport, terrain runtime, and wrist panel as Earth. Moon terrain
+readouts and debug controls refer to the lunar surface. Without a configured
+LOLA source it renders the reference sphere with the bundled lunar imagery.
+
 The standalone Eclipse Observatory is at
 `http://127.0.0.1:4197/eclipse/`. Earth, Moon, shadow cones, and the apparent
 Sun remain in one coherent system frame; the unscaled headset and controllers
@@ -120,6 +130,7 @@ adb reverse tcp:4197 tcp:4197
 ```
 
 Then open `http://localhost:4197` in the headset.
+Use `http://localhost:4197/?world=moon` for the lunar walking launch.
 
 ### Quest runtime diagnostics
 
