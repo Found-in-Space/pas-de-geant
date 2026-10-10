@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   TileSourceLoadQueue,
   type TileSourceLoadEvent,
-} from "../apps/pas-de-geant/src/tile-source-load-queue.js";
+} from "@found-in-space/worlds/tile-source-load-queue";
 
 interface Deferred<T> {
   readonly promise: Promise<T>;

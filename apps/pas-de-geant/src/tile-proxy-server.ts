@@ -9,8 +9,8 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { isAllowedRequestOrigin } from "./realtime-token-server.js";
-import { TILE_PROXY_PATH } from "./tile-proxy.js";
-import type { TileIdentity } from "./tile-transition-planner.js";
+import { TILE_PROXY_PATH } from "@found-in-space/worlds/tile-proxy";
+import type { TileIdentity } from "@found-in-space/worlds/tile-transition-planner";
 
 const DEFAULT_MAX_CONCURRENCY = 16;
 const DEFAULT_MINIMUM_INTERVAL_MS = 10;

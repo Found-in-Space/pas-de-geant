@@ -1,12 +1,12 @@
 import {
   tileIdentityKey,
   type TileIdentity,
-} from "./tile-transition-planner.js";
+} from "@found-in-space/worlds/tile-transition-planner";
 import type {
   TileProvider,
   TileProviderResult,
   TileRequestHandle,
-} from "./tile-provider.js";
+} from "@found-in-space/worlds/tile-provider";
 
 export type FakeFailureMode =
   | "none"

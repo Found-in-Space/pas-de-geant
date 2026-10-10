@@ -19,7 +19,7 @@ import type { RealtimeAgentState } from "./realtime-agent.js";
 import {
   DEFAULT_SCALE_DENOMINATOR,
   formatScaleRatio,
-} from "./world-scale.js";
+} from "@found-in-space/worlds/world-scale";
 
 export { earthMapImageRects, earthMapPoint } from "./earth-map.js";
 

@@ -386,6 +386,7 @@ export class ScheduledImageryProvider
   }
 
   get metrics(): {
+    failureTotal: number;
     requestTotal: number;
     sourceLoadTotal: number;
     cacheLookupTotal: number;
@@ -401,6 +402,7 @@ export class ScheduledImageryProvider
   } {
     const metrics = this.queue.metrics;
     return {
+      failureTotal: metrics.failureTotal,
       requestTotal: metrics.requestTotal,
       sourceLoadTotal: metrics.sourceLoadTotal,
       cacheLookupTotal: metrics.cacheLookupTotal,
@@ -540,7 +542,7 @@ export class ImageryWorkerClient {
   constructor(worker?: ImageryWorkerPort) {
     this.worker =
       worker ??
-      new Worker(new URL("./imagery-decoder.worker.ts", import.meta.url), {
+      new Worker(new URL("./imagery-decoder.worker.js", import.meta.url), {
         type: "module",
       });
     this.worker.onmessage = ({ data }) => {
@@ -1195,6 +1197,10 @@ export class ImageryVirtualTexture {
     return [...this.desiredSourceKeys].every((key) =>
       this.committedSourceKeys.has(key)
     );
+  }
+
+  get hasFailure(): boolean {
+    return (this.provider?.metrics.failureTotal ?? 0) > 0;
   }
 
   /** Advances bounded GPU upload work without recalculating the view target. */

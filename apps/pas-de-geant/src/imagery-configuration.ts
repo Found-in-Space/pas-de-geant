@@ -1,5 +1,5 @@
-import type { XyzImageryConfiguration } from "./imagery-provider.js";
-import { tileProxyUrlTemplate } from "./tile-proxy.js";
+import type { XyzImageryConfiguration } from "@found-in-space/worlds/imagery-provider";
+import { tileProxyUrlTemplate } from "@found-in-space/worlds/tile-proxy";
 
 function optionalNumber(value: string | undefined): number | undefined {
   if (!value) return undefined;

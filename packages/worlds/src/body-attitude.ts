@@ -6,6 +6,15 @@ const J2000_TO_RENDER = new THREE.Quaternion().setFromAxisAngle(
   -Math.PI / 2,
 );
 const BODY_BASIS = new THREE.Matrix4();
+const RENDER_TO_J2000 = J2000_TO_RENDER.clone().invert();
+
+/** Body-fixed coordinates to raw J2000/ICRS axes used by Skykit. */
+export function bodyFixedToIcrsQuaternion(
+  rotation: BodyRotation,
+  target = new THREE.Quaternion(),
+): THREE.Quaternion {
+  return bodyFixedToRenderQuaternion(rotation, target).premultiply(RENDER_TO_J2000);
+}
 
 /** Maps the app's body-fixed x/up/-east axes into the rendered J2000 frame. */
 export function bodyFixedToRenderQuaternion(

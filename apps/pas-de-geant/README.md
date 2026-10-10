@@ -9,6 +9,12 @@ metres in Float64 data, with one `1:N` conversion to headset metres applied only
 render boundary. This keeps the same architecture usable from a one-metre toy
 planet to a hundred-metre exploration globe and across interplanetary distance.
 
+Shared geometry, ephemerides, surface streaming, and navigation frames live in
+[`@found-in-space/worlds`](../../packages/worlds/README.md). Earth, Moon, and
+plain planetary globes use `createWorldRuntime`; the Eclipse Observatory uses
+the package's terrain capability. The optional `/skykit` adapter lets another
+Found in Space host use this runtime through Skykit's public lifecycle.
+
 ## Run locally
 
 From the repository root:
@@ -263,12 +269,16 @@ The current LROC WAC product reaches zoom 8. Override
 `PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM` only when testing another admitted
 product contract.
 
-The dedicated Moon viewer uses the configured product's zoom-0 tile as its
-whole-globe base, waits for the complete visible imagery cut before dismissing
-the loading state, and advances GPU publication even while the camera is still.
-For legibility it applies one source-wide linear-light tone exponent of `0.55`
-to the base and every detail tile. This is a runtime presentation choice; it
-does not alter the controlled payload or normalize individual tiles.
+The main experience and dedicated Moon viewer share one source loader and use
+the configured product's zoom-0 tile as their whole-globe base. The focused
+viewer waits for the complete visible imagery cut, or a committed surface with
+a usable base after an imagery failure, before dismissing its loading state.
+GPU publication advances even while the camera is still. Both views apply one
+source-wide linear-light tone exponent of `0.55` to the base and every detail
+tile. This is a runtime presentation choice; it does not alter the controlled
+payload or normalize individual tiles. Geographic detail calculations retain
+the north/south tile span at the poles rather than using Mercator's latitude
+scale factor.
 
 Elevation PNGs store the source unsigned 16-bit LOLA value in the red and
 green channels. Runtime height is `value × 0.5 − 10,000 m`, relative to the

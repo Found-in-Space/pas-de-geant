@@ -149,7 +149,7 @@ export class TileWorkerScheduler<Resource> {
     this.snapshotValue = initialSnapshot(normalizedInitialTarget);
     this.worker =
       options.createWorker?.() ??
-      new Worker(new URL("./tile-scheduler.worker.ts", import.meta.url), {
+      new Worker(new URL("./tile-scheduler.worker.js", import.meta.url), {
         type: "module",
       });
     this.worker.onmessage = (event) => this.handleMessage(event.data);

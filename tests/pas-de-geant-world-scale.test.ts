@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   celestialBody,
-} from "../apps/pas-de-geant/src/solar-system.js";
+} from "@found-in-space/worlds/solar-system";
 import {
   displayRadiusForScale,
   initialWorldNavigationState,
   withNavigationTarget,
   withScaleDenominator,
-} from "../apps/pas-de-geant/src/world-navigation.js";
+} from "@found-in-space/worlds/world-navigation";
 import {
   sampleScaleTransition,
 } from "../apps/pas-de-geant/src/navigation-transition.js";
@@ -18,7 +18,7 @@ import {
   headsetMetresForPhysicalMetres,
   physicalMetresForHeadsetMetres,
   scaleDenominatorAfterInput,
-} from "../apps/pas-de-geant/src/world-scale.js";
+} from "@found-in-space/worlds/world-scale";
 
 describe("universal 1:N world scale", () => {
   it("displays Earth at 106.18348 metres at 1:60,000", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   TileRequestCircuit,
-} from "../apps/pas-de-geant/src/tile-request-circuit.js";
+} from "@found-in-space/worlds/tile-request-circuit";
 
 describe("Tile request circuit", () => {
   it("preserves the longest cooldown from concurrent provider failures", () => {

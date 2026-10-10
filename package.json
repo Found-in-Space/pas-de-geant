@@ -14,19 +14,20 @@
     "url": "https://github.com/Found-in-Space/pas-de-geant/issues"
   },
   "workspaces": [
-    "apps/pas-de-geant"
+    "apps/pas-de-geant",
+    "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @found-in-space/pas-de-geant",
+    "build": "npm run build --workspace @found-in-space/worlds && npm run build --workspace @found-in-space/pas-de-geant",
     "amazon:outlines": "node scripts/build-amazon-forest-outlines.mjs",
     "check": "npm run typecheck",
     "dev": "npm run dev --workspace @found-in-space/pas-de-geant --",
     "quest:debug": "node scripts/quest-debug.mjs",
     "lunar:tiles": "node scripts/build-lunar-tiles.mjs",
-    "test": "vitest run",
+    "test": "npm run build --workspace @found-in-space/worlds && vitest run",
     "test:browser": "playwright test --config playwright.pas-de-geant.config.ts",
     "test:browser:xr": "playwright test --config playwright.pas-de-geant-xr.config.ts",
-    "typecheck": "tsc --build --pretty false && tsc --project tsconfig.tools.json --pretty false"
+    "typecheck": "npm run build --workspace @found-in-space/worlds && tsc --build --pretty false && tsc --project tsconfig.tools.json --pretty false"
   },
   "engines": {
     "node": ">=22.0.0"

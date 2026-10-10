@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { ElevationTileProvider } from "../apps/pas-de-geant/src/elevation-tile-provider.js";
+import { ElevationTileProvider } from "@found-in-space/worlds/elevation-tile-provider";
 import type {
   ImageTileProvider,
   ImageTileResource,
-} from "../apps/pas-de-geant/src/image-tile-provider.js";
-import type { TileProviderResult } from "../apps/pas-de-geant/src/tile-provider.js";
-import { TileTransitionScheduler } from "../apps/pas-de-geant/src/tile-transition-scheduler.js";
-import { tileIdentityKey, type TileIdentity } from "../apps/pas-de-geant/src/tile-transition-planner.js";
+} from "@found-in-space/worlds/image-tile-provider";
+import type { TileProviderResult } from "@found-in-space/worlds/tile-provider";
+import { TileTransitionScheduler } from "@found-in-space/worlds/tile-transition-scheduler";
+import { tileIdentityKey, type TileIdentity } from "@found-in-space/worlds/tile-transition-planner";
 
 function provider() {
   let observer: ((result: TileProviderResult<never>) => void) | undefined;

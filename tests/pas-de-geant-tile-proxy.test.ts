@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   proxiedTileConfiguration,
-} from "../apps/pas-de-geant/src/tile-proxy.js";
+} from "@found-in-space/worlds/tile-proxy";
 import {
   createTileProxyMiddleware,
   defaultTileProxyCacheDirectory,

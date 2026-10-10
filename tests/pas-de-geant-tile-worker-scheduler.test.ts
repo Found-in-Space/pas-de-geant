@@ -2,19 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   TileSchedulerCommand,
   TileSchedulerMessage,
-} from "../apps/pas-de-geant/src/tile-scheduler-protocol.js";
+} from "@found-in-space/worlds/tile-scheduler-protocol";
 import {
   TileWorkerScheduler,
   type TileSchedulerWorker,
-} from "../apps/pas-de-geant/src/tile-worker-scheduler.js";
+} from "@found-in-space/worlds/tile-worker-scheduler";
 import type {
   TileProvider,
   TileProviderResult,
-} from "../apps/pas-de-geant/src/tile-provider.js";
-import type { TileIdentity } from "../apps/pas-de-geant/src/tile-transition-planner.js";
-import { tileBounds } from "../apps/pas-de-geant/src/tile-onion-core.js";
-import { ScheduledImageryProvider } from "../apps/pas-de-geant/src/imagery.js";
-import type { ImageryProvider } from "../apps/pas-de-geant/src/imagery-provider.js";
+} from "@found-in-space/worlds/tile-provider";
+import type { TileIdentity } from "@found-in-space/worlds/tile-transition-planner";
+import { tileBounds } from "@found-in-space/worlds/tile-onion-core";
+import { ScheduledImageryProvider } from "@found-in-space/worlds/imagery";
+import type { ImageryProvider } from "@found-in-space/worlds/imagery-provider";
 
 function layoutTarget(
   maxZoom: number,

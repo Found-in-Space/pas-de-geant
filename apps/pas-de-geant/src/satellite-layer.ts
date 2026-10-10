@@ -13,8 +13,8 @@ import {
   normalizedBodyLocalPhysicalOffset,
   WGS84_A_KM,
   WGS84_B_KM,
-} from "./planet-state.js";
-import { EARTH_SURFACE_MODEL } from "./surface-model.js";
+} from "@found-in-space/worlds/planet-state";
+import { EARTH_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
 import {
   SATELLITE_GROUPS,
   satelliteGroupConfiguration,

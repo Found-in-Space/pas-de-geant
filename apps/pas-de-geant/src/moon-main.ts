@@ -1,15 +1,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { observerHeightForImageryZoom } from "./imagery-core.js";
-import {
-  LUNAR_DISPLAY_TONE_EXPONENT,
-  lunarElevationProvider,
-  lunarImageryProvider,
-} from "./lunar-configuration.js";
-import { MOON_SURFACE_MODEL } from "./surface-model.js";
-import { TerrainSurface } from "./terrain-surface.js";
-import { tileProxyUrl } from "./tile-proxy.js";
-import { orbitalDragRadiansPerPixel } from "./world-navigation.js";
+import { observerHeightForImageryZoom } from "@found-in-space/worlds/imagery-core";
+import { lunarSurfaceSource } from "./lunar-configuration.js";
+import { MOON_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
+import { createWorldRuntime, celestialBody, contactFrame } from "@found-in-space/worlds";
+import { orbitalDragRadiansPerPixel } from "@found-in-space/worlds/world-navigation";
 
 const DISPLAY_RADIUS_M = 2.25;
 const ABSOLUTE_MINIMUM_HEIGHT_M = 0.012;
@@ -67,13 +62,7 @@ function directionForCoordinates(
   latitudeDegrees: number,
   longitudeDegrees: number,
 ): THREE.Vector3 {
-  const latitude = THREE.MathUtils.degToRad(latitudeDegrees);
-  const longitude = THREE.MathUtils.degToRad(longitudeDegrees);
-  return new THREE.Vector3(
-    Math.cos(latitude) * Math.cos(longitude),
-    Math.sin(latitude),
-    -Math.cos(latitude) * Math.sin(longitude),
-  );
+  return contactFrame(latitudeDegrees, longitudeDegrees).upEcef;
 }
 
 const initialDirection = directionForCoordinates(
@@ -93,37 +82,13 @@ controls.zoomSpeed = 0.85;
 controls.target.set(0, 0, 0);
 controls.update();
 
-const textureLoader = new THREE.TextureLoader();
-const imageryProvider = lunarImageryProvider();
-const baseTexture = imageryProvider
-  ? await textureLoader.loadAsync(
-    tileProxyUrl("lunar-imagery", { z: 0, x: 0, y: 0 }),
-  ).catch(
-    (error: unknown) => {
-      console.warn("LROC z0 base tile is unavailable; using bundled fallback:", error);
-      return textureLoader.loadAsync(
-        `${import.meta.env.BASE_URL}lroc-color-2k.jpg`,
-      );
-    },
-  )
-  : await textureLoader.loadAsync(
-    `${import.meta.env.BASE_URL}lroc-color-2k.jpg`,
-  );
-baseTexture.colorSpace = THREE.SRGBColorSpace;
-baseTexture.flipY = false;
-baseTexture.wrapS = THREE.RepeatWrapping;
-baseTexture.wrapT = THREE.ClampToEdgeWrapping;
-baseTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-baseTexture.needsUpdate = true;
-
+const source = await lunarSurfaceSource(renderer);
+const imageryProvider = source.imageryProvider;
 const maximumNativeZoom = imageryProvider?.maxZoom ?? 2;
-const surface = new TerrainSurface({
+const world = createWorldRuntime({
+  body: celestialBody("moon"),
   renderer,
-  baseTexture,
-  imageryProvider,
-  elevationProvider: lunarElevationProvider(),
-  surfaceModel: MOON_SURFACE_MODEL,
-  albedoToneExponent: LUNAR_DISPLAY_TONE_EXPONENT,
+  surface: source,
   initialView: {
     latitudeDegrees: INITIAL_LATITUDE_DEGREES,
     longitudeDegrees: INITIAL_LONGITUDE_DEGREES,
@@ -133,13 +98,13 @@ const surface = new TerrainSurface({
     focalLengthPixels: 1_000,
   },
 });
+const surface = world.surface;
 surface.setTileMaxZoom({ target: "both", value: maximumNativeZoom });
-surface.group.scale.setScalar(DISPLAY_RADIUS_M);
-surface.setSunlightDirection(new THREE.Vector3(4, 2.6, 3));
-scene.add(surface.group);
+world.setSunlightDirection(new THREE.Vector3(4, 2.6, 3));
+scene.add(world.object3d);
 
 scene.onBeforeRender = (_renderer, _scene, renderCamera): void => {
-  surface.updateRenderVisibility(renderCamera);
+  world.beforeRender(renderCamera);
 };
 
 const viewDirection = new THREE.Vector3();
@@ -149,7 +114,8 @@ const zoomInButton = element<HTMLButtonElement>("zoom-in");
 const zoomOutButton = element<HTMLButtonElement>("zoom-out");
 
 function focalLengthPixels(): number {
-  return window.innerHeight /
+  const drawingBufferSize = renderer.getDrawingBufferSize(new THREE.Vector2());
+  return drawingBufferSize.y /
     (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
 }
 
@@ -179,6 +145,7 @@ function updateSurface(): void {
   const currentTerrainMultiplier = terrainMultiplier();
   const minimumObserverHeightM = imageryProvider
     ? observerHeightForImageryZoom({
+        projection: MOON_SURFACE_MODEL.projection,
         displayRadiusM: DISPLAY_RADIUS_M,
         latitudeDegrees: view.latitudeDegrees,
         focalLengthPixels: focalLengthPixels(),
@@ -198,7 +165,8 @@ function updateSurface(): void {
   controls.rotateSpeed = orbitalDragRadiansPerPixel(
     view.distanceM,
     DISPLAY_RADIUS_M,
-    focalLengthPixels(),
+    renderer.domElement.clientHeight /
+      (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)),
     MAXIMUM_DRAG_RADIANS_PER_PIXEL,
   ) * renderer.domElement.clientHeight / (2 * Math.PI);
   const signature = [
@@ -210,7 +178,7 @@ function updateSurface(): void {
   ].join(":");
   if (signature !== lastViewSignature) {
     lastViewSignature = signature;
-    surface.update({
+    world.update({
       latitudeDegrees: view.latitudeDegrees,
       longitudeDegrees: view.longitudeDegrees,
       displayRadiusM: DISPLAY_RADIUS_M,
@@ -233,7 +201,8 @@ function updateSurface(): void {
     : `${Math.round(altitudeKm).toLocaleString()} km`;
   const textureZoom = surface.getTileDebugControls().textures
     .effective_target_zoom;
-  textureReadout.textContent = imageryProvider
+  const readiness = world.getReadiness();
+  textureReadout.textContent = imageryProvider && readiness.imagery !== "fallback"
     ? `LROC 100 m · z${textureZoom}/${imageryProvider.maxZoom}`
     : "Bundled 2K fallback";
   zoomInButton.disabled = view.distanceM <= controls.minDistance + 1e-6;
@@ -241,9 +210,7 @@ function updateSurface(): void {
 
   if (
     !firstSurfaceShown &&
-    (imageryProvider
-      ? surface.hasCompleteImagery
-      : surface.hasCommittedSurface)
+    readiness.ready
   ) {
     firstSurfaceShown = true;
     loadingState.hidden = true;
@@ -304,17 +271,17 @@ window.addEventListener("resize", () => {
 function render(): void {
   controls.update();
   updateSurface();
-  surface.processFrame();
+  world.processFrame();
   renderer.render(scene, camera);
-  requestAnimationFrame(render);
+  animationFrame = requestAnimationFrame(render);
 }
 
 updateSurface();
-requestAnimationFrame(render);
+let animationFrame = requestAnimationFrame(render);
 
 window.addEventListener("pagehide", () => {
+  cancelAnimationFrame(animationFrame);
   controls.dispose();
-  surface.dispose();
-  baseTexture.dispose();
+  world.dispose();
   renderer.dispose();
 }, { once: true });

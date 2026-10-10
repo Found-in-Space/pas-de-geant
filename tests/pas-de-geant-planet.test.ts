@@ -11,7 +11,7 @@ import {
   normalizedBodyLocalTerrainOffset,
   rollContactFrame,
   solvePlanetPose,
-} from "../apps/pas-de-geant/src/planet-state.js";
+} from "@found-in-space/worlds/planet-state";
 
 const DISPLAY_RADIUS_M = 3_000;
 

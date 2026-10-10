@@ -3,7 +3,7 @@ import {
   ancestorAtZoom,
   observerHeightForImageryZoom,
   selectImageryZoom,
-} from "../apps/pas-de-geant/src/imagery-core.js";
+} from "@found-in-space/worlds/imagery-core";
 import {
   ImageryVirtualTexture,
   ImageryWorkerClient,
@@ -16,15 +16,15 @@ import {
   planImageryPoolMigration,
   planImageryPoolMigrationRetarget,
   type ImageryWorkerPort,
-} from "../apps/pas-de-geant/src/imagery.js";
+} from "@found-in-space/worlds/imagery";
 import {
   generateImageryMipChain,
   imageryMipDimensions,
-} from "../apps/pas-de-geant/src/imagery-mip-chain.js";
+} from "@found-in-space/worlds/imagery-mip-chain";
 import type {
   ImageryDecoderCommand,
   ImageryDecoderMessage,
-} from "../apps/pas-de-geant/src/imagery-decoder-protocol.js";
+} from "@found-in-space/worlds/imagery-decoder-protocol";
 import {
   BLUE_MARBLE_IMAGERY_KEY,
   buildDesiredImageryTree,
@@ -36,17 +36,17 @@ import {
   type DesiredImageryTree,
   type ImageryImageNode,
   type ImageryTreeNode,
-} from "../apps/pas-de-geant/src/imagery-tree.js";
-import { ImageryRequestError, type ImageryProvider } from "../apps/pas-de-geant/src/imagery-provider.js";
-import { terrainTargetForView } from "../apps/pas-de-geant/src/terrain-surface.js";
+} from "@found-in-space/worlds/imagery-tree";
+import { ImageryRequestError, type ImageryProvider } from "@found-in-space/worlds/imagery-provider";
+import { terrainTargetForView } from "@found-in-space/worlds/terrain-surface";
 import {
   createTileDebugControls,
   tileTopologySelectionChanged,
   withTilePixelRatio,
-} from "../apps/pas-de-geant/src/tile-debug-controls.js";
-import { TileHorizonCulling } from "../apps/pas-de-geant/src/tile-horizon-culling.js";
-import { TileTransitionScheduler } from "../apps/pas-de-geant/src/tile-transition-scheduler.js";
-import type { TileIdentity } from "../apps/pas-de-geant/src/tile-transition-planner.js";
+} from "@found-in-space/worlds/tile-debug-controls";
+import { TileHorizonCulling } from "@found-in-space/worlds/tile-horizon-culling";
+import { TileTransitionScheduler } from "@found-in-space/worlds/tile-transition-scheduler";
+import type { TileIdentity } from "@found-in-space/worlds/tile-transition-planner";
 
 function tileKey(tile: TileIdentity): string {
   return `${tile.z}/${tile.x}/${tile.y}`;

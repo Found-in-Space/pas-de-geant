@@ -4,8 +4,8 @@ import {
   classifyTilesWithinHorizon,
   geometricHorizonRadians,
   plannerHorizonCandidates,
-} from "../apps/pas-de-geant/src/tile-horizon-culling.js";
-import { tileIdentityKey } from "../apps/pas-de-geant/src/tile-transition-planner.js";
+} from "@found-in-space/worlds/tile-horizon-culling";
+import { tileIdentityKey } from "@found-in-space/worlds/tile-transition-planner";
 
 describe("planner horizon culling", () => {
   it("considers only committed tiles and planner replacement outputs", () => {

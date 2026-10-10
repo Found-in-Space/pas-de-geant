@@ -1,4 +1,4 @@
-import { EARTH_MEAN_RADIUS_KM } from "./planet-state.js";
+import { EARTH_MEAN_RADIUS_KM } from "@found-in-space/worlds/planet-state";
 
 export interface LocationPin {
   readonly pinId: string;

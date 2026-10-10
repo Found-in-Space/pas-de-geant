@@ -40,7 +40,7 @@ import {
   isHandTrackingInputSource,
   type DominantStickAxis,
 } from "./controller-input.js";
-import { bodyFixedToRenderQuaternion } from "./body-attitude.js";
+import { bodyFixedToRenderQuaternion } from "@found-in-space/worlds/body-attitude";
 import {
   appEcefToRenderJ2000Quaternion,
   CelestialSphere,
@@ -92,7 +92,7 @@ import {
 } from "./external-knowledge.js";
 import {
   configuredXyzImageryProvider,
-} from "./imagery-provider.js";
+} from "@found-in-space/worlds/imagery-provider";
 import {
   imageryConfiguration,
 } from "./imagery-configuration.js";
@@ -100,7 +100,7 @@ import {
   MAPTILER_IMAGERY_VARIANT_PARAMETER,
   selectImageryVariant,
 } from "./imagery-variants.js";
-import { proxiedTileConfiguration } from "./tile-proxy.js";
+import { proxiedTileConfiguration } from "@found-in-space/worlds/tile-proxy";
 import {
   applyTerrainMultiplierRate,
   contactFrame,
@@ -109,10 +109,10 @@ import {
   geodeticSurfaceEcefKm,
   initialPlanetState,
   rollContactFrame,
-  solvePlanetPose,
+  solveBodySurfacePose,
   type ContactFrame,
   type PlanetState,
-} from "./planet-state.js";
+} from "@found-in-space/worlds/planet-state";
 import { resolveInitialLocation } from "./initial-location.js";
 import {
   greatCircleDistanceKm,
@@ -153,9 +153,13 @@ import {
   type NavigationCoordinates,
   type TimedTransition,
 } from "./navigation-transition.js";
-import { TerrainSurface } from "./terrain-surface.js";
-import { lunarElevationProvider, lunarImageryProvider } from "./lunar-configuration.js";
-import { MOON_SURFACE_MODEL } from "./surface-model.js";
+import { createWorldRuntime, type WorldRuntime } from "@found-in-space/worlds";
+import type { TerrainSurface } from "@found-in-space/worlds/terrain-surface";
+import { lunarSurfaceSource } from "./lunar-configuration.js";
+import { earthBaseTextureUrl } from "./world-assets.js";
+import { EARTH_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
+import { ElevationTileProvider } from "@found-in-space/worlds/elevation-tile-provider";
+import { createElevationTileProvider } from "@found-in-space/worlds/image-tile-provider";
 import {
   SOLAR_SYSTEM_BODIES,
   bodyPositionJ2000M,
@@ -164,7 +168,7 @@ import {
   isSolarSystemBodyId,
   type SolarSystemBodyId,
   type Vector3d,
-} from "./solar-system.js";
+} from "@found-in-space/worlds/solar-system";
 import {
   calculateSolarShadowGeometry,
   solarShadowConeLengthM,
@@ -178,7 +182,7 @@ import {
   spaceTravelSpeedHeadsetMPerSecond,
   translatedObserverJ2000M,
   type NavigationMode,
-} from "./world-navigation.js";
+} from "@found-in-space/worlds/world-navigation";
 import {
   DEFAULT_SCALE_DENOMINATOR,
   headsetScaleFactorForDenominatorChange,
@@ -186,14 +190,14 @@ import {
   physicalMetresForHeadsetMetres,
   scaleDenominatorAfterInput,
   validScaleDenominator,
-} from "./world-scale.js";
+} from "@found-in-space/worlds/world-scale";
 import {
   parseTileMaxZoomArguments,
   parseTilePixelRatioArguments,
   parseTileRecalculationArguments,
   type TileDebugControlsReadback,
   type TileDebugTarget,
-} from "./tile-debug-controls.js";
+} from "@found-in-space/worlds/tile-debug-controls";
 import {
   FrameTelemetry,
   summarizeResourceTimings,
@@ -213,7 +217,7 @@ import {
   j2000ObserverAtWorldPoint,
   j2000ToWorldQuaternion,
   trackingRoomOffsetWorld,
-} from "./stellar-coordinate-frame.js";
+} from "@found-in-space/worlds/stellar-coordinate-frame";
 import {
   anchoredSimulationClock,
   realtimeSimulationClock,
@@ -328,6 +332,10 @@ const xrRequirements = element<HTMLParagraphElement>("xr-requirements");
 const errorState = element<HTMLDivElement>("error-state");
 const errorMessage = element<HTMLParagraphElement>("error-message");
 const imageryAttribution = element<HTMLElement>("imagery-attribution");
+const terrainCredit = element<HTMLElement>("terrain-credit");
+const imageryCredit = element<HTMLElement>("imagery-credit");
+const earthTerrainCredit = terrainCredit.innerHTML;
+const earthImageryCredit = imageryCredit.innerHTML;
 const researchRegion = element<HTMLElement>("research-region");
 const researchAnswer = element<HTMLParagraphElement>("research-answer");
 const researchSources = element<HTMLUListElement>("research-sources");
@@ -483,27 +491,18 @@ celestialSphere.setVisibility("moon", false);
 celestialSphere.setVisibility("planets", false);
 scene.add(celestialSphere.object3d);
 const textureLoader = new THREE.TextureLoader();
-const moonBaseTexturePromise = textureLoader.loadAsync(
-  `${import.meta.env.BASE_URL}lroc-color-2k.jpg`,
-);
-void moonBaseTexturePromise.then(
-  (texture) => {
+const worldRuntimes: WorldRuntime[] = [];
+const lunarSurfacePromise = lunarSurfaceSource(renderer);
+void lunarSurfacePromise.then(
+  (source) => {
+    const texture = source.baseTexture.clone();
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
-    texture.anisotropy = Math.min(
-      4,
-      renderer.capabilities.getMaxAnisotropy(),
-    );
+    texture.flipY = true;
     celestialSphere.setMoonTexture(texture);
   },
-  (error) => {
-    console.warn("LRO Moon texture is unavailable:", error);
-  },
+  (error) => console.warn("LRO Moon texture is unavailable:", error),
 );
-const blueMarbleTexture = await textureLoader.loadAsync(
-  `${import.meta.env.BASE_URL}bluemarble-2048.png`,
-);
+const blueMarbleTexture = await textureLoader.loadAsync(earthBaseTextureUrl);
 blueMarbleTexture.colorSpace = THREE.SRGBColorSpace;
 blueMarbleTexture.flipY = false;
 blueMarbleTexture.wrapS = THREE.RepeatWrapping;
@@ -573,11 +572,11 @@ let state: WorldExperienceState = {
 const spatialStarPass = new SpatialStarPass();
 document.body.dataset.starStatus = "loading";
 document.body.dataset.starCount = "0";
-const initialEarthJ2000M = bodyPositionJ2000M(
+const initialBodyJ2000M = bodyPositionJ2000M(
   "earth",
   new Date(simulationTimeMs(state.simulationClock)),
 );
-void spatialStarPass.load(vectorMetresToParsecs(initialEarthJ2000M)).then(
+void spatialStarPass.load(vectorMetresToParsecs(initialBodyJ2000M)).then(
   () => {
     const snapshot = spatialStarPass.getSnapshot();
     document.body.dataset.starStatus = snapshot.status;
@@ -649,12 +648,21 @@ function authoredStellarObserverJ2000M(): Vector3d {
   if (navigationMode === "orbit" && orbitNavigation) {
     return orbitNavigation.observerSystemPositionM;
   }
-  return bodyPositionJ2000M("earth", presentationDate());
+  return bodyPositionJ2000M(focusBodyId, presentationDate());
 }
-const terrain = new TerrainSurface({
+const earthWorld = createWorldRuntime({
+  body: celestialBody("earth"),
+  root: planetRoot,
   renderer,
-  baseTexture: blueMarbleTexture,
-  imageryProvider: photographicImageryProvider,
+  surface: {
+    baseTexture: blueMarbleTexture,
+    imageryProvider: photographicImageryProvider,
+    surfaceModel: EARTH_SURFACE_MODEL,
+    elevationProvider: new ElevationTileProvider(createElevationTileProvider(
+      EARTH_SURFACE_MODEL.elevationMetadata,
+      EARTH_SURFACE_MODEL.elevationMetadata.maxSourceZoom,
+    )),
+  },
   initialView: {
     latitudeDegrees: initialLocation.latitudeDegrees,
     longitudeDegrees: initialLocation.longitudeDegrees,
@@ -664,7 +672,8 @@ const terrain = new TerrainSurface({
     focalLengthPixels: 1_000,
   },
 });
-planetRoot.add(terrain.group);
+const terrain = earthWorld.surface;
+worldRuntimes.push(earthWorld);
 const amazonForestOutlines = new AmazonForestOutlineLayer(
   import.meta.env.VITE_AMAZON_FOREST_MANIFEST_URL?.trim() ||
     "https://data.foundin.space/3592e66d-2b29-4e4b-97d0-7fc1d3e9e4f8/manifest.json",
@@ -706,21 +715,12 @@ const locationPinLayer = new LocationPinLayer((latitudeDegrees, longitudeDegrees
 );
 planetRoot.add(locationPinLayer.worldGroup);
 scene.add(locationPinLayer.hudGroup);
-const moonBaseTexture = (await moonBaseTexturePromise).clone();
-moonBaseTexture.colorSpace = THREE.SRGBColorSpace;
-moonBaseTexture.flipY = false;
-moonBaseTexture.wrapS = THREE.RepeatWrapping;
-moonBaseTexture.wrapT = THREE.ClampToEdgeWrapping;
-moonBaseTexture.needsUpdate = true;
-const moonRoot = new THREE.Group();
-moonRoot.name = "moon-root";
-scene.add(moonRoot);
-const moonTerrain = new TerrainSurface({
+const moonSource = await lunarSurfacePromise;
+const moonBaseTexture = moonSource.baseTexture;
+const moonWorld = createWorldRuntime({
+  body: celestialBody("moon"),
   renderer,
-  baseTexture: moonBaseTexture,
-  imageryProvider: lunarImageryProvider(),
-  elevationProvider: lunarElevationProvider(),
-  surfaceModel: MOON_SURFACE_MODEL,
+  surface: moonSource,
   initialView: {
     latitudeDegrees: initialLocation.latitudeDegrees,
     longitudeDegrees: initialLocation.longitudeDegrees,
@@ -730,31 +730,59 @@ const moonTerrain = new TerrainSurface({
     focalLengthPixels: 1_000,
   },
 });
-moonRoot.add(moonTerrain.group);
+const moonRoot = moonWorld.object3d;
+const moonTerrain = moonWorld.surface;
+worldRuntimes.push(moonWorld);
+scene.add(moonRoot);
+
+function focusedTerrain(): TerrainSurface {
+  return focusBodyId === "moon" ? moonTerrain : terrain;
+}
+
+let creditedBodyId: SolarSystemBodyId | undefined;
+function updateWorldCredits(): void {
+  if (creditedBodyId === focusBodyId) return;
+  creditedBodyId = focusBodyId;
+  const provider = focusBodyId === "moon" ? moonSource.imageryProvider : photographicImageryProvider;
+  document.body.dataset.imageryProvider = provider?.id ??
+    (focusBodyId === "moon" ? "lroc-color-2k" : "blue-marble");
+  document.body.dataset.imageryTileSize = String(provider?.tileSize ?? 0);
+  if (focusBodyId === "moon") {
+    terrainCredit.textContent = import.meta.env.PAS_DE_GEANT_LUNAR_ELEVATION_CONFIGURED
+      ? "Terrain: NASA LRO / LOLA"
+      : "Terrain: lunar reference sphere · no elevation data";
+    imageryCredit.textContent = "Imagery: NASA LRO / LROC";
+  } else {
+    terrainCredit.innerHTML = earthTerrainCredit;
+    imageryCredit.innerHTML = earthImageryCredit;
+    if (photographicImageryProvider) {
+      element<HTMLElement>("imagery-attribution").textContent = ` + ${photographicImageryProvider.attribution}`;
+    }
+  }
+}
 
 const placeholderRoots = new Map<SolarSystemBodyId, THREE.Group>();
 for (const body of SOLAR_SYSTEM_BODIES) {
   if (body.id === "earth" || body.id === "moon") continue;
-  const root = new THREE.Group();
-  root.name = `${body.id}-root`;
-  const geometry = new THREE.SphereGeometry(1, 48, 24);
-  const material = new THREE.MeshStandardMaterial({
-    color: body.placeholderColor,
-    roughness: 0.88,
-    emissive: body.id === "sun" ? body.placeholderColor : 0x000000,
-    emissiveIntensity: body.id === "sun" ? 1 : 0,
+  const world = createWorldRuntime({
+    body,
+    renderer,
+    initialView: {
+      latitudeDegrees: 0, longitudeDegrees: 0,
+      displayRadiusM: displayRadiusForScale(body.id, scaleDenominator),
+      terrainMultiplier: 1, observerHeightWorldM: 1.65, focalLengthPixels: 1_000,
+    },
   });
-  root.add(new THREE.Mesh(geometry, material));
-  placeholderRoots.set(body.id, root);
-  scene.add(root);
+  worldRuntimes.push(world);
+  placeholderRoots.set(body.id, world.object3d);
+  scene.add(world.object3d);
 }
 const shadowCones = new RetainedShadowCones();
 shadowCones.group.visible = false;
 scene.add(shadowCones.group);
 scene.add(new THREE.AmbientLight(0x8793a8, 0.65));
 scene.onBeforeRender = (_renderer, _scene, renderCamera): void => {
-  terrain.updateRenderVisibility(renderCamera);
-  moonTerrain.updateRenderVisibility(renderCamera);
+  for (const world of worldRuntimes) world.beforeRender(renderCamera);
 };
 const aircraftLayer = new AircraftLayer((latitudeDegrees, longitudeDegrees) =>
   terrain.sampleElevationMetres(latitudeDegrees, longitudeDegrees)
@@ -796,7 +824,7 @@ if (window.__PAS_DE_GEANT_ENABLE_TEST_HOOKS__) {
     updatePresentation();
   };
   window.__PAS_DE_GEANT_TEST_GET_TERRAIN_METRICS__ = () =>
-    terrain.getMetrics();
+    focusedTerrain().getMetrics();
 }
 const initialCoordinates = coordinatesForFrame(state.contact);
 const initialHandPanelStatus = handPanelStatus(
@@ -2300,12 +2328,6 @@ function focusDistanceHeadsetM(): number {
 
 const terrainEyeWorldPosition = new THREE.Vector3();
 const terrainDrawingBufferSize = new THREE.Vector2();
-const surfaceEast = new THREE.Vector3();
-const surfaceUp = new THREE.Vector3();
-const surfaceSouth = new THREE.Vector3();
-const surfaceBasis = new THREE.Matrix4();
-const surfaceQuaternion = new THREE.Quaternion();
-const surfacePoint = new THREE.Vector3();
 const systemBodyAttitudeQuaternion = new THREE.Quaternion();
 
 function bodyAttitudeJ2000(
@@ -2469,31 +2491,6 @@ function enforceOrbitSurfaceFloor(): void {
   ));
 }
 
-function applySphericalSurfacePose(
-  root: THREE.Object3D,
-  latitudeDegrees: number,
-  longitudeDegrees: number,
-  displayRadiusM: number,
-): void {
-  const latitude = THREE.MathUtils.degToRad(latitudeDegrees);
-  const longitude = THREE.MathUtils.degToRad(longitudeDegrees);
-  surfaceUp.set(
-    Math.cos(latitude) * Math.cos(longitude),
-    Math.sin(latitude),
-    -Math.cos(latitude) * Math.sin(longitude),
-  );
-  surfaceEast.set(-Math.sin(longitude), 0, -Math.cos(longitude));
-  surfaceSouth.crossVectors(surfaceEast, surfaceUp).normalize();
-  surfaceBasis.makeBasis(surfaceEast, surfaceUp, surfaceSouth).transpose();
-  surfaceQuaternion.setFromRotationMatrix(surfaceBasis);
-  root.quaternion.copy(surfaceQuaternion);
-  surfacePoint.copy(surfaceUp).multiplyScalar(displayRadiusM)
-    .applyQuaternion(surfaceQuaternion);
-  root.position.set(headsetFloorPosition.x, 0, headsetFloorPosition.y)
-    .sub(surfacePoint);
-  root.scale.setScalar(displayRadiusM);
-}
-
 function systemObserverForFocus(
   focusPosition: Vector3d,
   focusRadiusM: number,
@@ -2590,39 +2587,18 @@ function updateSystemPresentation(when: Date): SystemPresentationFrame {
 
 function updateSurfaceSystemPresentation(
   when: Date,
-  coordinates: { latitudeDegrees: number; longitudeDegrees: number },
-  pose: ReturnType<typeof solvePlanetPose>,
+  pose: ReturnType<typeof solveBodySurfacePose>,
 ): SystemPresentationFrame {
-  const earthDisplayRadiusM = displayRadiusForScale("earth", scaleDenominator);
-  const moonDisplayRadiusM = displayRadiusForScale("moon", scaleDenominator);
   for (const root of placeholderRoots.values()) root.visible = false;
   planetRoot.visible = true;
   moonRoot.visible = true;
-  if (focusBodyId === "moon") {
-    applySphericalSurfacePose(
-      moonRoot,
-      coordinates.latitudeDegrees,
-      coordinates.longitudeDegrees,
-      moonDisplayRadiusM,
-    );
-    moonRoot.quaternion.premultiply(worldRotationQuaternion);
-    moonRoot.position
-      .sub(worldRotationPivot)
-      .applyQuaternion(worldRotationQuaternion)
-      .add(worldRotationPivot);
-  } else {
-    planetRoot.quaternion
-      .copy(pose.earthToWorld)
-      .premultiply(worldRotationQuaternion);
-    planetRoot.position
-      .copy(pose.centre)
-      .sub(worldRotationPivot)
-      .applyQuaternion(worldRotationQuaternion)
-      .add(worldRotationPivot);
-    planetRoot.scale.setScalar(earthDisplayRadiusM);
-  }
-
   const focusRoot = focusBodyId === "moon" ? moonRoot : planetRoot;
+  focusRoot.quaternion.copy(pose.bodyToWorld).premultiply(worldRotationQuaternion);
+  focusRoot.position.copy(pose.centre)
+    .sub(worldRotationPivot)
+    .applyQuaternion(worldRotationQuaternion)
+    .add(worldRotationPivot);
+  focusRoot.scale.setScalar(focusedDisplayRadiusM());
   const focusAttitude = bodyAttitudeJ2000(focusBodyId, when);
   const frame: SystemPresentationFrame = {
     originJ2000M: bodyPositionJ2000M(focusBodyId, when),
@@ -2731,9 +2707,9 @@ function updatePresentation(when = presentationDate()): void {
   );
   document.body.dataset.navigationMode = navigationMode;
   document.body.dataset.focusBody = focusBodyId;
+  updateWorldCredits();
   const earthDisplayRadiusM = displayRadiusForScale("earth", scaleDenominator);
   const moonDisplayRadiusM = displayRadiusForScale("moon", scaleDenominator);
-  const pose = solvePlanetPose(state, headsetFloorPosition, earthDisplayRadiusM);
   let systemFrame: SystemPresentationFrame;
   if (navigationMode !== "surface") {
     systemFrame = updateSystemPresentation(when);
@@ -2741,8 +2717,10 @@ function updatePresentation(when = presentationDate()): void {
   } else {
     systemFrame = updateSurfaceSystemPresentation(
       when,
-      coordinates,
-      pose,
+      solveBodySurfacePose(
+        state, headsetFloorPosition, focusedDisplayRadiusM(),
+        focusBodyId === "moon" ? moonWorld.surfaceModel : earthWorld.surfaceModel,
+      ),
     );
   }
   lastSystemPresentationFrame = systemFrame;
@@ -2771,7 +2749,7 @@ function updatePresentation(when = presentationDate()): void {
     };
   }
   document.body.dataset.scaleDenominator = String(scaleDenominator);
-  terrain.update({
+  earthWorld.update({
     latitudeDegrees:
       earthOrbitalView?.latitudeDegrees ?? coordinates.latitudeDegrees,
     longitudeDegrees:
@@ -2782,7 +2760,7 @@ function updatePresentation(when = presentationDate()): void {
       earthOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
     focalLengthPixels: view.focalLengthPixels,
   });
-  moonTerrain.update({
+  moonWorld.update({
     latitudeDegrees:
       moonOrbitalView?.latitudeDegrees ?? coordinates.latitudeDegrees,
     longitudeDegrees:
@@ -2805,7 +2783,7 @@ function handPanelStatus(
   _latitudeDegrees: number,
   _longitudeDegrees: number,
 ): HandPanelStatus {
-  const lod = terrain.getLodStatus();
+  const lod = focusedTerrain().getLodStatus();
   return {
     scaleDenominator,
     terrainMultiplier: state.terrainMultiplier,
@@ -3137,26 +3115,26 @@ const voiceAgent = new RealtimeVoiceAgent({
       return setAircraftDisplay(display.target, display.enabled);
     },
     get_tile_debug_controls() {
-      return terrain.getTileDebugControls();
+      return focusedTerrain().getTileDebugControls();
     },
     get_tile_planner_state() {
-      return terrain.getTilePlannerState();
+      return focusedTerrain().getTilePlannerState();
     },
     set_tile_pixel_ratio(argumentsValue) {
       requireJourneyUnlocked();
-      return terrain.setTilePixelRatio(
+      return focusedTerrain().setTilePixelRatio(
         parseTilePixelRatioArguments(argumentsValue),
       );
     },
     set_tile_max_zoom(argumentsValue) {
       requireJourneyUnlocked();
-      return terrain.setTileMaxZoom(
+      return focusedTerrain().setTileMaxZoom(
         parseTileMaxZoomArguments(argumentsValue),
       );
     },
     set_tile_recalculation(argumentsValue) {
       requireJourneyUnlocked();
-      return terrain.setTileRecalculation(
+      return focusedTerrain().setTileRecalculation(
         parseTileRecalculationArguments(argumentsValue),
       );
     },
@@ -4033,20 +4011,20 @@ function debugControlState(): Record<string, unknown> {
         worldRotationRadians * 180 / Math.PI,
       ),
     },
-    tileControls: terrain.getTileDebugControls(),
+    tileControls: focusedTerrain().getTileDebugControls(),
     overlays: {
       terrain: tileOverlayVisible,
       textures: textureTileOverlayVisible,
     },
     renderingEnabled,
-    terrainRenderCullingEnabled: terrain.renderCullingEnabled,
+    terrainRenderCullingEnabled: focusedTerrain().renderCullingEnabled,
     simulationInputEnabled,
     benchmarkActive: benchmarkRestoreState !== undefined,
     foveation: renderer.xr.getFoveation() ?? null,
     xrFramebufferScaleFactor,
     desktopPixelRatio: renderer.getPixelRatio(),
     layers: {
-      terrain: terrain.group.visible,
+      terrain: focusedTerrain().group.visible,
       atmosphere: atmosphere.mesh.visible,
       stars: spatialStarPass.scene.visible,
       aircraft: aircraftLayer.group.visible,
@@ -4144,16 +4122,16 @@ function debugSnapshot(): Record<string, unknown> {
         : lastKnownXrFrameRate,
     ),
     renderer: debugRendererSnapshot(),
-    terrain: terrain.getMetrics(),
-    planner: terrain.getTilePlannerState(),
+    terrain: focusedTerrain().getMetrics(),
+    planner: focusedTerrain().getTilePlannerState(),
     resourcesByHostLast30Seconds: summarizeResourceTimings(
       performance.getEntriesByType("resource") as PerformanceResourceTiming[],
       performance.now(),
     ),
     browser: debugBrowserSnapshot(),
     imagery: {
-      provider: photographicImageryProvider?.id ?? "blue-marble",
-      tileSize: photographicImageryProvider?.tileSize ?? 0,
+      provider: document.body.dataset.imageryProvider,
+      tileSize: Number(document.body.dataset.imageryTileSize),
     },
   };
 }
@@ -4166,15 +4144,15 @@ function captureBenchmarkRestoreState(): BenchmarkRestoreState {
     pitchRadians: pitch,
     yawRadians: yaw,
     worldRotationRadians,
-    tileControls: terrain.getTileDebugControls(),
+    tileControls: focusedTerrain().getTileDebugControls(),
     tileOverlayVisible,
     textureTileOverlayVisible,
     renderingEnabled,
-    terrainRenderCullingEnabled: terrain.renderCullingEnabled,
+    terrainRenderCullingEnabled: focusedTerrain().renderCullingEnabled,
     simulationInputEnabled,
     foveation: renderer.xr.getFoveation(),
     layers: {
-      terrain: terrain.group.visible,
+      terrain: focusedTerrain().group.visible,
       atmosphere: atmosphere.mesh.visible,
       stars: spatialStarPass.scene.visible,
       aircraft: aircraftLayer.group.visible,
@@ -4194,30 +4172,30 @@ function setSimulationInputEnabled(enabled: boolean): void {
 }
 
 function applyTileControlReadback(controls: TileDebugControlsReadback): void {
-  terrain.setTileRecalculation({ target: "both", enabled: false });
-  terrain.setTilePixelRatio({
+  focusedTerrain().setTileRecalculation({ target: "both", enabled: false });
+  focusedTerrain().setTilePixelRatio({
     target: "terrain",
     screenPixelsPerSourcePixel:
       controls.terrain.screen_pixels_per_source_pixel,
   });
-  terrain.setTilePixelRatio({
+  focusedTerrain().setTilePixelRatio({
     target: "textures",
     screenPixelsPerSourcePixel:
       controls.textures.screen_pixels_per_source_pixel,
   });
-  terrain.setTileMaxZoom({
+  focusedTerrain().setTileMaxZoom({
     target: "terrain",
     value: controls.terrain.max_zoom,
   });
-  terrain.setTileMaxZoom({
+  focusedTerrain().setTileMaxZoom({
     target: "textures",
     value: controls.textures.max_zoom,
   });
-  terrain.setTileRecalculation({
+  focusedTerrain().setTileRecalculation({
     target: "terrain",
     enabled: controls.terrain.recalculation_enabled,
   });
-  terrain.setTileRecalculation({
+  focusedTerrain().setTileRecalculation({
     target: "textures",
     enabled: controls.textures.recalculation_enabled,
   });
@@ -4248,7 +4226,7 @@ const debugApi: PasDeGeantDebugApi = {
   },
   clearMetrics() {
     frameTelemetry.clear();
-    terrain.clearRenderVisibilityMetrics();
+    focusedTerrain().clearRenderVisibilityMetrics();
     performance.clearResourceTimings();
     debugMarks.clear();
   },
@@ -4275,7 +4253,7 @@ const debugApi: PasDeGeantDebugApi = {
     }
     benchmarkRestoreState ??= captureBenchmarkRestoreState();
     setSimulationInputEnabled(false);
-    terrain.setTileRecalculation({ target: "both", enabled: false });
+    focusedTerrain().setTileRecalculation({ target: "both", enabled: false });
     setUserLocation(latitudeDegrees, longitudeDegrees);
     commitScaleDenominator(benchmarkScaleDenominator);
     state.terrainMultiplier = terrainMultiplier;
@@ -4284,29 +4262,29 @@ const debugApi: PasDeGeantDebugApi = {
     worldRotationRadians = 0;
     headingTransition = undefined;
     camera.rotation.set(0, 0, 0);
-    terrain.setTilePixelRatio({
+    focusedTerrain().setTilePixelRatio({
       target: "terrain",
       screenPixelsPerSourcePixel: 2,
     });
-    terrain.setTilePixelRatio({
+    focusedTerrain().setTilePixelRatio({
       target: "textures",
       screenPixelsPerSourcePixel: 1,
     });
-    terrain.setTileMaxZoom({ target: "both", value: null });
+    focusedTerrain().setTileMaxZoom({ target: "both", value: null });
     setTileOverlayVisible(false);
     setTextureTileOverlayVisible(false);
-    terrain.setRenderCullingEnabled(true);
+    focusedTerrain().setRenderCullingEnabled(true);
     renderingEnabled = true;
-    terrain.group.visible = true;
+    focusedTerrain().group.visible = true;
     spatialStarPass.scene.visible = true;
     aircraftLayer.group.visible = false;
     handPanelVisible = false;
     handPanel.enabled = false;
     renderer.xr.setFoveation(1);
     updatePresentation();
-    terrain.setTileRecalculation({ target: "both", enabled: true });
+    focusedTerrain().setTileRecalculation({ target: "both", enabled: true });
     frameTelemetry.clear();
-    terrain.clearRenderVisibilityMetrics();
+    focusedTerrain().clearRenderVisibilityMetrics();
     performance.clearResourceTimings();
     debugMarks.clear();
     return {
@@ -4319,7 +4297,7 @@ const debugApi: PasDeGeantDebugApi = {
     if (!restore) return debugControlState();
     benchmarkRestoreState = undefined;
     simulationInputEnabled = false;
-    terrain.setTileRecalculation({ target: "both", enabled: false });
+    focusedTerrain().setTileRecalculation({ target: "both", enabled: false });
     setUserLocation(
       restore.coordinates.latitudeDegrees,
       restore.coordinates.longitudeDegrees,
@@ -4335,8 +4313,8 @@ const debugApi: PasDeGeantDebugApi = {
     setTileOverlayVisible(restore.tileOverlayVisible);
     setTextureTileOverlayVisible(restore.textureTileOverlayVisible);
     renderingEnabled = restore.renderingEnabled;
-    terrain.setRenderCullingEnabled(restore.terrainRenderCullingEnabled);
-    terrain.group.visible = restore.layers.terrain;
+    focusedTerrain().setRenderCullingEnabled(restore.terrainRenderCullingEnabled);
+    focusedTerrain().group.visible = restore.layers.terrain;
     atmosphere.mesh.visible = restore.layers.atmosphere;
     spatialStarPass.scene.visible = restore.layers.stars;
     aircraftLayer.group.visible = restore.layers.aircraft;
@@ -4346,7 +4324,7 @@ const debugApi: PasDeGeantDebugApi = {
     }
     setSimulationInputEnabled(restore.simulationInputEnabled);
     frameTelemetry.clear();
-    terrain.clearRenderVisibilityMetrics();
+    focusedTerrain().clearRenderVisibilityMetrics();
     return debugControlState();
   },
   reset() {
@@ -4384,7 +4362,7 @@ const debugApi: PasDeGeantDebugApi = {
   setTilePixelRatio(target, ratio) {
     const value = finiteDebugNumber(ratio, "ratio");
     if (value <= 0) throw new Error("ratio must be positive.");
-    return terrain.setTilePixelRatio({
+    return focusedTerrain().setTilePixelRatio({
       target: debugTileTarget(target),
       screenPixelsPerSourcePixel: value,
     });
@@ -4393,10 +4371,10 @@ const debugApi: PasDeGeantDebugApi = {
     if (zoom !== null && (!Number.isInteger(zoom) || zoom < 0)) {
       throw new Error("zoom must be a nonnegative integer or null.");
     }
-    return terrain.setTileMaxZoom({ target: debugTileTarget(target), value: zoom });
+    return focusedTerrain().setTileMaxZoom({ target: debugTileTarget(target), value: zoom });
   },
   setTileRecalculation(target, enabled) {
-    return terrain.setTileRecalculation({
+    return focusedTerrain().setTileRecalculation({
       target: debugTileTarget(target),
       enabled,
     });
@@ -4416,9 +4394,9 @@ const debugApi: PasDeGeantDebugApi = {
     return debugControlState();
   },
   setTerrainRenderCulling(enabled) {
-    terrain.setRenderCullingEnabled(enabled);
+    focusedTerrain().setRenderCullingEnabled(enabled);
     frameTelemetry.clear();
-    terrain.clearRenderVisibilityMetrics();
+    focusedTerrain().clearRenderVisibilityMetrics();
     return debugControlState();
   },
   setInputEnabled(enabled) {
@@ -4457,7 +4435,7 @@ const debugApi: PasDeGeantDebugApi = {
   setLayerVisibility(layer, visible) {
     switch (layer) {
       case "terrain":
-        terrain.group.visible = visible;
+        focusedTerrain().group.visible = visible;
         break;
       case "atmosphere":
         atmosphere.mesh.visible = visible;
@@ -4518,6 +4496,7 @@ function render(nowMs: number): void {
   }
   updatePresentation(when);
   applyJourneyVisualOpacity();
+  for (const world of worldRuntimes) world.processFrame();
   const pinCoordinates = coordinatesForFrame(state.contact);
   locationPinLayer.update({
     pinState: locationPinStore.snapshot(),
@@ -4628,7 +4607,7 @@ window.addEventListener("beforeunload", () => {
   stopAircraftStream();
   for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
   amazonForestOutlines.dispose();
-  terrain.dispose();
+  for (const world of worldRuntimes) world.dispose();
   journeyEarthGlobe.geometry.dispose();
   journeyEarthGlobeMaterial.dispose();
   locationPinLayer.dispose();
@@ -4643,7 +4622,7 @@ window.addEventListener("beforeunload", () => {
 const benchmarkMetricsTimer = benchmarkParameters.get("benchmarkMetrics") === "1"
   ? window.setInterval(() => {
       document.body.dataset.terrainMetrics = JSON.stringify(
-        terrain.getMetrics(),
+        focusedTerrain().getMetrics(),
       );
     }, 1_000)
   : undefined;

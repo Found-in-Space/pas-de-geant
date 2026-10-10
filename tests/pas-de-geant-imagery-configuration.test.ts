@@ -3,7 +3,7 @@ import {
   selectedMapTilerImageryVariant,
   selectImageryVariant,
 } from "../apps/pas-de-geant/src/imagery-variants.js";
-import type { XyzImageryConfiguration } from "../apps/pas-de-geant/src/imagery-provider.js";
+import type { XyzImageryConfiguration } from "@found-in-space/worlds/imagery-provider";
 
 const configuredMapTiler: XyzImageryConfiguration = {
   id: "maptiler-satellite-v2",

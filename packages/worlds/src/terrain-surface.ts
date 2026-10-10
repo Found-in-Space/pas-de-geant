@@ -241,6 +241,7 @@ export function terrainTargetForView(
   } = {},
 ): TileLayoutTarget {
   const selectedZoom = observerTileZoom({
+    projection: options.projection ?? view.projection,
     observerHeightWorldM: view.observerHeightWorldM,
     displayRadiusM: view.displayRadiusM,
     latitudeDegrees: view.latitudeDegrees,
@@ -257,7 +258,7 @@ export function terrainTargetForView(
     maxZoom: selectedZoom,
     latitudeDegrees: view.latitudeDegrees,
     longitudeDegrees: view.longitudeDegrees,
-    projection: options.projection,
+    projection: options.projection ?? view.projection,
   });
 }
 
@@ -928,6 +929,10 @@ export class TerrainSurface {
 
   get hasCompleteImagery(): boolean {
     return this.imagery.hasCompleteImagery;
+  }
+
+  get hasImageryFailure(): boolean {
+    return this.imagery.hasFailure;
   }
 
   /** Advances bounded imagery publication while the camera remains still. */

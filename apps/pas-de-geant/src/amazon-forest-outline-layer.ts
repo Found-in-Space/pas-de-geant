@@ -3,7 +3,7 @@ import {
   amazonForestOutlineColor,
   normalizeAmazonForestOutlineYears,
 } from "./amazon-forest-outline-control.js";
-import { EARTH_MEAN_RADIUS_KM } from "./planet-state.js";
+import { EARTH_MEAN_RADIUS_KM } from "@found-in-space/worlds/planet-state";
 import {
   decodeSurfacePolylines,
   type SurfacePolylineData,

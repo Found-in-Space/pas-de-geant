@@ -1,5 +1,5 @@
-import type { SolarSystemBodyId } from "./solar-system.js";
-import type { NavigationMode } from "./world-navigation.js";
+import type { SolarSystemBodyId } from "@found-in-space/worlds/solar-system";
+import type { NavigationMode } from "@found-in-space/worlds/world-navigation";
 import type { AircraftDisplayTarget } from "./aircraft-lifecycle.js";
 import type { SatelliteToolGroup } from "./satellite-groups.js";
 import type { AmazonForestOutlineControlState } from "./amazon-forest-outline-control.js";
@@ -7,7 +7,7 @@ import {
   parseLocationPin,
   type LocationPin,
 } from "./location-pin.js";
-import { validScaleDenominator } from "./world-scale.js";
+import { validScaleDenominator } from "@found-in-space/worlds/world-scale";
 import {
   EARTH_TO_GAIA_DURATION_MS,
   EARTH_TO_GAIA_JOURNEY_ID,

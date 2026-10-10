@@ -12,13 +12,13 @@ import {
   orbitalDragRadiansPerPixel,
   orbitalLogarithmicValue,
   shapedOrbitalAxis,
-} from "../apps/pas-de-geant/src/world-navigation.js";
+} from "@found-in-space/worlds/world-navigation";
 import {
   applyTerrainMultiplierRate,
-} from "../apps/pas-de-geant/src/planet-state.js";
+} from "@found-in-space/worlds/planet-state";
 import {
   scaleDenominatorAfterInput,
-} from "../apps/pas-de-geant/src/world-scale.js";
+} from "@found-in-space/worlds/world-scale";
 
 describe("Pas de Géant controller regressions", () => {
   it("distinguishes controller input from articulated hand tracking", () => {

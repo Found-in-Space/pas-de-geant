@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { summarizeTilePlannerSnapshot } from "../apps/pas-de-geant/src/tile-planner-state.js";
-import type { SchedulerSnapshot } from "../apps/pas-de-geant/src/tile-transition-scheduler.js";
-import type { TileLayoutTarget } from "../apps/pas-de-geant/src/tile-layout-source.js";
+import { summarizeTilePlannerSnapshot } from "@found-in-space/worlds/tile-planner-state";
+import type { SchedulerSnapshot } from "@found-in-space/worlds/tile-transition-scheduler";
+import type { TileLayoutTarget } from "@found-in-space/worlds/tile-layout-source";
 
 const target = {
   maxZoom: 1,
