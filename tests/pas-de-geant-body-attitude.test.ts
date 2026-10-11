@@ -1,13 +1,30 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { bodyFixedToRenderQuaternion } from
-  "../apps/pas-de-geant/src/body-attitude.js";
+import { bodyFixedToIcrsQuaternion, bodyFixedToRenderQuaternion } from
+  "@found-in-space/worlds/body-attitude";
 import {
   bodyRotation,
   SOLAR_SYSTEM_BODIES,
-} from "../apps/pas-de-geant/src/solar-system.js";
+} from "@found-in-space/worlds/solar-system";
 
 describe("rendered body attitude", () => {
+  it("maps body-fixed north onto raw ICRS axes for Skykit", () => {
+    const at = new Date("2026-08-23T12:00:00Z");
+    for (const body of SOLAR_SYSTEM_BODIES) {
+      const rotation = bodyRotation(body.id, at);
+      const alpha = THREE.MathUtils.degToRad(rotation.poleRightAscensionDegrees);
+      const delta = THREE.MathUtils.degToRad(rotation.poleDeclinationDegrees);
+      const expectedPole = new THREE.Vector3(
+        Math.cos(alpha) * Math.cos(delta),
+        Math.sin(alpha) * Math.cos(delta),
+        Math.sin(delta),
+      );
+      const north = new THREE.Vector3(0, 1, 0)
+        .applyQuaternion(bodyFixedToIcrsQuaternion(rotation));
+      expect(north.distanceTo(expectedPole)).toBeLessThan(1e-10);
+    }
+  });
+
   it("maps body-fixed north onto the J2000 pole in render axes", () => {
     const rotation = bodyRotation("earth", new Date("2026-08-23T12:00:00Z"));
     const alpha = THREE.MathUtils.degToRad(rotation.poleRightAscensionDegrees);

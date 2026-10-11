@@ -4,12 +4,12 @@ import {
   ImageTileProvider,
   TileContentError,
   type ImageTileResource,
-} from "../apps/pas-de-geant/src/image-tile-provider.js";
-import { tileIdentityKey } from "../apps/pas-de-geant/src/tile-transition-planner.js";
+} from "@found-in-space/worlds/image-tile-provider";
+import { tileIdentityKey } from "@found-in-space/worlds/tile-transition-planner";
 import type {
   TileProviderResult,
   TileRequestHandle,
-} from "../apps/pas-de-geant/src/tile-provider.js";
+} from "@found-in-space/worlds/tile-provider";
 
 describe("Image tile provider", () => {
   it("starts every acquisition while limiting source processing", async () => {

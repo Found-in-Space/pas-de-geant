@@ -7,8 +7,10 @@ your feet. Walk through the room or use a controller to roll the world through
 the floor contact point, changing planetary scale while the terrain,
 atmosphere, sky, and optional live aircraft move with it.
 
-The current world is Earth. Its architecture is intended to support the Moon,
-Mars, and smaller bodies as the project grows.
+Earth and Moon have streamed ground surfaces, and the other registered major
+Solar System bodies have plain globes for orbit and free navigation. All use
+the shared [`@found-in-space/worlds` package](packages/worlds/README.md), which
+also provides a public Skykit lifecycle adapter for other Found in Space hosts.
 
 Part of [Found in Space](https://foundin.space/), a project that turns real
 astronomical measurements into interactive explorations.
@@ -25,6 +27,12 @@ npm run dev -- --port 4197
 Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel, Z/X to
 change planet scale, C/V to change the terrain multiplier, and Backspace to
 reset.
+
+Open `http://127.0.0.1:4197/moon/` for the focused Moon viewer. Its imagery,
+elevation, and display configuration are shared with the main experience.
+Open `http://127.0.0.1:4197/?world=moon` to start the walking experience on the
+Moon. In a headset, select **Enter VR** and use the same room-scale walking and
+controller controls as Earth.
 
 WebXR requires a secure context. A USB-connected Quest can use an Android
 reverse tunnel so its browser sees the local server as device-local:
@@ -76,6 +84,9 @@ npm run test:browser       # Pas de Géant browser suite
 ```
 
 The production application is written to `dist/pas-de-geant`.
+The reusable package is built to `packages/worlds/dist`. When editing its source
+with the app already running, use `npm run dev --workspace @found-in-space/worlds`
+in another terminal to rebuild it as files change.
 
 ## Data, licences, and limitations
 

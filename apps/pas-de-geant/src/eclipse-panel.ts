@@ -9,7 +9,7 @@ import {
   type RuntimeOutput,
 } from "@found-in-space/touch-os";
 import type { RealtimeAgentState } from "./realtime-agent.js";
-import { formatScaleRatio } from "./world-scale.js";
+import { formatScaleRatio } from "@found-in-space/worlds/world-scale";
 import {
   HAND_PANEL_SURFACE,
   HAND_PANEL_THEME,

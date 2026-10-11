@@ -37,7 +37,7 @@ import type {
 import {
   formatScaleRatio,
   scaleDenominatorForDisplay,
-} from "./world-scale.js";
+} from "@found-in-space/worlds/world-scale";
 import {
   ECLIPSE_PLAYBACK_SCALE,
   MAIN_WORLD_FEATURED_ECLIPSE_EVENT_ID,

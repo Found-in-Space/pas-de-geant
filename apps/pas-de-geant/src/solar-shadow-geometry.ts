@@ -10,7 +10,7 @@ import {
   subtractVector3d,
   vector3dLength,
   type Vector3d,
-} from "./solar-system.js";
+} from "@found-in-space/worlds/solar-system";
 
 const METRES_PER_KILOMETRE = 1_000;
 

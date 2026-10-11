@@ -14,7 +14,7 @@ import {
   parseAircraftDisplayArguments,
   shouldStreamAircraft,
 } from "../apps/pas-de-geant/src/aircraft-lifecycle.js";
-import { EARTH_SURFACE_MODEL } from "../apps/pas-de-geant/src/surface-model.js";
+import { EARTH_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
 
 function flightFollowerTrack(
   id = "484abc",

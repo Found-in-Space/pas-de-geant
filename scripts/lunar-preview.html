@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lunar imagery — Pas de Géant</title>
+  <style>
+    :root { color-scheme: dark; font: 14px/1.5 system-ui, sans-serif; color: #e8edf3; background: #10161e; }
+    * { box-sizing: border-box; }
+    body { margin: 0; height: 100dvh; display: flex; flex-direction: column; }
+    header { padding: 20px 24px 16px; border-bottom: 1px solid #2a3442; }
+    .eyebrow { text-transform: uppercase; font-size: 10px; letter-spacing: .18em; color: #92b3c8; }
+    h1 { font-size: 25px; font-weight: 550; letter-spacing: -.03em; margin: 4px 0; }
+    .subtitle { color: #9daab9; font-size: 12px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    button, select { font: inherit; font-size: 12px; border: 1px solid #415164; border-radius: 6px; background: #1c2835; color: #edf4fb; padding: 7px 11px; cursor: pointer; }
+    button:hover { background: #2c4053; }
+    button:focus-visible, select:focus-visible, canvas:focus-visible { outline: 2px solid #a2d2ff; outline-offset: 2px; }
+    .hint { margin-left: auto; font-size: 11px; color: #9daab9; }
+    main { display: grid; grid-template-columns: 1fr 1fr; flex: 1; min-height: 240px; gap: 1px; background: #344050; }
+    .panel { background: #10161e; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    .panel-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; min-height: 64px; }
+    .panel-head select { max-width: 68%; }
+    .resolution { margin-left: auto; text-align: right; font-size: 12px; color: #bcd3e5; white-space: nowrap; }
+    .dimensions { display: block; font-size: 10px; color: #8495a7; }
+    .viewport { position: relative; flex: 1; min-height: 150px; overflow: hidden; background: #000; }
+    canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+    canvas:active { cursor: grabbing; }
+    .status { position: absolute; left: 12px; top: 12px; pointer-events: none; border-radius: 4px; background: #10161ede; padding: 5px 8px; font-size: 11px; color: #d1dfeb; }
+    .scale { position: absolute; left: 16px; bottom: 16px; font-size: 10px; text-shadow: 0 1px 3px #000; pointer-events: none; }
+    .scale i { display: block; height: 6px; border: 1px solid white; border-top: 0; }
+    .panel-foot { padding: 10px 16px; color: #8495a7; font-size: 10px; display: flex; align-items: center; gap: 12px; }
+    .panel-foot .credit { margin-right: auto; }
+    a { color: #a2c9ea; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    footer { padding: 12px 24px; font-size: 11px; color: #95a4b5; border-top: 1px solid #2a3442; }
+    footer p { margin: 0; }
+    details { margin-top: 4px; }
+    summary { cursor: pointer; color: #b6c3d0; }
+    details p { padding-top: 6px; max-width: 1100px; }
+    #position { font-variant-numeric: tabular-nums; color: #c3d3e1; margin-right: 16px; }
+    #error { color: #ffb4a2; }
+    @media (max-width: 700px) {
+      header { padding: 12px; } h1 { font-size: 20px; }
+      .hint { display: none; } .panel-head { padding: 8px; flex-wrap: wrap; }
+      .panel-head select { max-width: 100%; width: 100%; }
+      .resolution { text-align: left; margin: 0; } .dimensions { display: inline; margin-left: 6px; }
+      .panel-foot { flex-wrap: wrap; padding: 8px; } .credit { width: 100%; }
+      footer { padding: 10px 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">Pas de Géant / Lunar imagery studies</div>
+    <h1>Lunar detail &amp; tile joins.</h1>
+    <div class="subtitle">Loading study…</div>
+    <div class="toolbar">
+      <select id="scene" aria-label="Study area"></select>
+      <button id="fit">Fit area</button>
+      <button id="native-left">1:1 pixels · left</button>
+      <button id="native-right">1:1 pixels · right</button>
+      <button id="zoom-out" aria-label="Zoom out">−</button>
+      <button id="zoom-in" aria-label="Zoom in">+</button>
+      <label><input type="checkbox" id="boundaries"> Join lines</label>
+      <select id="brightness" aria-label="Shared brightness" title="Display brightness applied equally to both panels">
+        <option value="1">Brightness 1×</option><option value="2">Brightness 2×</option><option value="4">Brightness 4×</option><option value="8">Brightness 8×</option>
+      </select>
+      <span class="hint">Drag to pan · Scroll to zoom · Views stay aligned</span>
+    </div>
+  </header>
+  <main>
+    <section class="panel" data-pane="0">
+      <div class="panel-head"><select aria-label="Left dataset"></select><div class="resolution"></div></div>
+      <div class="viewport"><canvas tabindex="0" aria-label="Left lunar imagery; arrow keys pan, plus and minus zoom"></canvas><div class="status"></div><div class="scale"><span></span><i></i></div></div>
+      <div class="panel-foot"><span class="credit"></span><a class="source" target="_blank">Source</a><a class="raw" download>GeoTIFF</a><a class="crop" target="_blank">Native crop</a></div>
+    </section>
+    <section class="panel" data-pane="1">
+      <div class="panel-head"><select aria-label="Right dataset"></select><div class="resolution"></div></div>
+      <div class="viewport"><canvas tabindex="0" aria-label="Right lunar imagery; arrow keys pan, plus and minus zoom"></canvas><div class="status"></div><div class="scale"><span></span><i></i></div></div>
+      <div class="panel-foot"><span class="credit"></span><a class="source" target="_blank">Source</a><a class="raw" download>GeoTIFF</a><a class="crop" target="_blank">Native crop</a></div>
+    </section>
+  </main>
+  <footer>
+    <p><span id="position"></span><span id="tone">Loading source metadata…</span><span id="error" role="alert"></span></p>
+    <details><summary>Resolution, contrast &amp; provenance</summary><p id="method"></p>
+      <p id="study-notes"></p>
+      <p>The preview is opaque. Clipped dark pixels display as black and clipped bright pixels as white. Blank source data and the area outside each crop also display as black; no terrain detail is invented or filled from another dataset. Downloadable GeoTIFFs retain their scientific validity masks. Grid spacing describes sampling, not guaranteed optical resolution. These selected areas are samples, not a global coverage audit.</p>
+      <p>1:1 maps one compiled image pixel to one physical display pixel. Equatorial images retain native sampling; polar images are reprojected to a common 10 m grid. Zooming farther adds no detail. Modified locally by Found in Space for this comparison.</p>
+    </details>
+  </footer>
+  <script type="module">
+    const catalogue = await fetch('./scenes.json').then(r => r.ok ? r.json() : [{id:'original',name:'Original equatorial tile',manifest:'manifest.json'}]);
+    let manifest, products, scene;
+    async function readManifest(path) { return fetch(path).then(r => {
+      if (!r.ok) throw new Error(`Metadata request failed: ${r.status}`);
+      return r.json();
+    }).catch(error => { document.querySelector('#error').textContent = error.message; throw error; }); }
+    const metresPerDegree = Math.PI * 1737400 / 180;
+    const view = { x: 0, y: 0, scale: 1 };
+    const images = new Map();
+    let queued = false;
+    let imageErrors = 0;
+    const panes = [...document.querySelectorAll('.panel')].map((element, index) => ({
+      element, canvas: element.querySelector('canvas'), product: null,
+      context: element.querySelector('canvas').getContext('2d'),
+    }));
+    function schedule() {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; if (panes.every(p => p.product)) panes.forEach(draw); });
+    }
+    function getImage(url) {
+      let item = images.get(url);
+      if (!item) {
+        item = new Image();
+        item.onload = schedule;
+        item.onerror = () => {
+          imageErrors++;
+          document.querySelector('#error').textContent = `${imageErrors} image request(s) failed. Reload to retry.`;
+        };
+        item.src = url;
+        images.set(url, item);
+      }
+      return item.complete && item.naturalWidth ? item : null;
+    }
+    function draw(pane) {
+      const { canvas, context: ctx, product: p, element } = pane;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+        canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      const pixelSize = p.step * view.scale;
+      const left = w / 2 + (p.left - view.x) * view.scale;
+      const top = h / 2 + (view.y - p.top) * view.scale;
+      const overview = getImage(p.overview);
+      if (overview) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(overview, left, top, p.width * pixelSize, p.height * pixelSize);
+      }
+      const levelIndex = Math.max(0, Math.min(p.levels.length - 1, Math.floor(Math.log2(1 / (pixelSize * dpr)))));
+      const level = p.levels[levelIndex];
+      const sx = pixelSize * p.width / level.width;
+      const sy = pixelSize * p.height / level.height;
+      const tile = manifest.tileSize;
+      const firstX = Math.max(0, Math.floor(-left / (tile * sx)));
+      const firstY = Math.max(0, Math.floor(-top / (tile * sy)));
+      const lastX = Math.min(Math.ceil(level.width / tile) - 1, Math.floor((w - left) / (tile * sx)));
+      const lastY = Math.min(Math.ceil(level.height / tile) - 1, Math.floor((h - top) / (tile * sy)));
+      ctx.imageSmoothingEnabled = pixelSize * dpr < 1;
+      let waiting = 0;
+      for (let y = firstY; y <= lastY; y++) {
+        for (let x = firstX; x <= lastX; x++) {
+          const image = getImage(`${p.id}/tiles/${levelIndex}/${x}_${y}.png`);
+          if (image) {
+            const dx = left + x * tile * sx, dy = top + y * tile * sy;
+            ctx.clearRect(dx, dy, image.width * sx, image.height * sy);
+            ctx.drawImage(image, dx, dy, image.width * sx, image.height * sy);
+          }
+          else waiting++;
+        }
+      }
+      const percent = pixelSize * dpr * 100;
+      element.querySelector('.status').textContent = `${percent.toFixed(percent < 10 ? 1 : 0)}% of ${p.resampled ? '10 m output' : 'native'} pixels${waiting ? ' · loading detail…' : ''}`;
+      const wantedMetres = 90 / view.scale;
+      const magnitude = 10 ** Math.floor(Math.log10(wantedMetres));
+      const distance = [1, 2, 5].map(n => n * magnitude).filter(n => n <= wantedMetres).pop();
+      element.querySelector('.scale i').style.width = `${distance * view.scale}px`;
+      element.querySelector('.scale span').textContent = distance >= 1000 ? `${distance / 1000} km` : `${distance} m`;
+      ctx.strokeStyle = '#e3effa70'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(w / 2 - 7, h / 2); ctx.lineTo(w / 2 + 7, h / 2);
+      ctx.moveTo(w / 2, h / 2 - 7); ctx.lineTo(w / 2, h / 2 + 7); ctx.stroke();
+      if (document.querySelector('#boundaries').checked) {
+        ctx.strokeStyle = '#ffbb5edd'; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+        for (const line of p.seams ?? []) {
+          ctx.beginPath();
+          line.forEach(([x, y], i) => {
+            const dx = w / 2 + (x - view.x) * view.scale, dy = h / 2 + (view.y - y) * view.scale;
+            i ? ctx.lineTo(dx, dy) : ctx.moveTo(dx, dy);
+          });
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+      let latitude = view.y / metresPerDegree, longitude = view.x / metresPerDegree;
+      if (scene.projection === 'polar') {
+        latitude = scene.hemisphere * (90 - 2 * Math.atan(Math.hypot(view.x, view.y) / (2 * manifest.radiusMetres)) * 180 / Math.PI);
+        longitude = Math.atan2(view.x, -scene.hemisphere * view.y) * 180 / Math.PI;
+      }
+      document.querySelector('#position').textContent = `Centre ${Math.abs(latitude).toFixed(5)}° ${latitude < 0 ? 'S' : 'N'} · ${Math.abs(longitude).toFixed(5)}° ${longitude < 0 ? 'W' : 'E'}`;
+    }
+    function select(pane, id) {
+      pane.product = products.find(p => p.id === id);
+      const p = pane.product;
+      pane.element.querySelector('.resolution').innerHTML = `${p.metresPerPixel.toFixed(2)} m / pixel<span class="dimensions">${p.width.toLocaleString()} × ${p.height.toLocaleString()}</span>`;
+      pane.element.querySelector('.credit').textContent = p.attribution;
+      pane.element.querySelector('.source').href = p.sourceUrl;
+      pane.element.querySelector('.raw').href = p.raw;
+      pane.element.querySelector('.crop').href = p.crop;
+      pane.element.querySelector('.crop').textContent = p.resampled ? '10 m crop' : 'Native crop';
+      document.querySelector('#tone').textContent = panes.some(pane => pane.product?.id === 'wac')
+        ? 'Shared Kaguya contrast · WAC contrast adjusted separately'
+        : 'Shared reflectance-to-grey curve · Opaque surface';
+      schedule();
+    }
+    function zoom(factor, pane, x, y) {
+      const dx = x - pane.canvas.clientWidth / 2, dy = y - pane.canvas.clientHeight / 2;
+      const before = view.scale;
+      view.scale *= factor;
+      view.x += dx / before - dx / view.scale;
+      view.y -= dy / before - dy / view.scale;
+      schedule();
+    }
+    for (const pane of panes) {
+      const selectElement = pane.element.querySelector('select');
+
+      selectElement.addEventListener('change', () => select(pane, selectElement.value));
+
+      pane.canvas.addEventListener('wheel', event => {
+        event.preventDefault();
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? pane.canvas.clientHeight : 1;
+        zoom(Math.exp(-event.deltaY * unit * .0015), pane, event.offsetX, event.offsetY);
+      }, { passive: false });
+      let pointer;
+      pane.canvas.addEventListener('pointerdown', event => {
+        pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
+        pane.canvas.setPointerCapture(event.pointerId);
+      });
+      pane.canvas.addEventListener('pointermove', event => {
+        if (!pointer || pointer.id !== event.pointerId) return;
+        view.x -= (event.clientX - pointer.x) / view.scale;
+        view.y += (event.clientY - pointer.y) / view.scale;
+        pointer.x = event.clientX; pointer.y = event.clientY;
+        schedule();
+      });
+      pane.canvas.addEventListener('lostpointercapture', () => { pointer = null; });
+      pane.canvas.addEventListener('keydown', event => {
+        const actions = {
+          ArrowLeft: () => { view.x -= 60 / view.scale; },
+          ArrowRight: () => { view.x += 60 / view.scale; },
+          ArrowUp: () => { view.y += 60 / view.scale; },
+          ArrowDown: () => { view.y -= 60 / view.scale; },
+          '+': () => { view.scale *= 2; }, '=': () => { view.scale *= 2; },
+          '-': () => { view.scale /= 2; },
+        };
+        if (actions[event.key]) { event.preventDefault(); actions[event.key](); schedule(); }
+      });
+      new ResizeObserver(schedule).observe(pane.canvas);
+    }
+    function fit() {
+      [view.x, view.y] = scene.centre;
+      const [x0, y0, x1, y1] = scene.bounds;
+      view.scale = Math.min(...panes.flatMap(p => [p.canvas.clientWidth / (x1 - x0), p.canvas.clientHeight / (y1 - y0)])) * .96;
+      schedule();
+    }
+    document.querySelector('#fit').onclick = fit;
+    document.querySelector('#native-left').onclick = () => { view.scale = 1 / (panes[0].product.step * devicePixelRatio); schedule(); };
+    document.querySelector('#native-right').onclick = () => { view.scale = 1 / (panes[1].product.step * devicePixelRatio); schedule(); };
+    document.querySelector('#zoom-in').onclick = () => { view.scale *= 2; schedule(); };
+    document.querySelector('#zoom-out').onclick = () => { view.scale /= 2; schedule(); };
+    document.querySelector('#boundaries').onchange = schedule;
+    document.querySelector('#brightness').onchange = event => {
+      panes.forEach(p => { p.canvas.style.filter = `brightness(${event.target.value})`; });
+    };
+    const area = document.querySelector('#scene');
+    catalogue.forEach(item => area.add(new Option(item.name, item.id)));
+    let requested = 0;
+    async function loadStudy(id) {
+      const request = ++requested;
+      const entry = catalogue.find(item => item.id === id);
+      const data = await readManifest(entry.manifest);
+      if (request !== requested) return;
+      manifest = data;
+      products = data.products.map(p => data.coordinateUnits === 'metres' ? p : ({...p, left:p.left * metresPerDegree, top:p.top * metresPerDegree, step:p.step * metresPerDegree}));
+      scene = data.scene ?? {projection:'eqc', centre:[1.5 * metresPerDegree,1.5 * metresPerDegree], bounds:[0,0,3 * metresPerDegree,3 * metresPerDegree], description:'Original 0–3° N, 0–3° E tile · approximately 91 × 91 km'};
+      panes.forEach((pane, i) => {
+        const control = pane.element.querySelector('select');
+        control.replaceChildren(...products.map(p => new Option(p.name, p.id)));
+        control.value = products[i].id;
+        select(pane, products[i].id);
+      });
+      document.querySelector('.subtitle').textContent = entry.name + (scene.projection === 'polar' ? ' · Common 10 m polar projection' : ' · Native source grids');
+      document.querySelector('#study-notes').textContent = scene.description;
+      document.querySelector('#method').textContent = manifest.modification;
+      area.value = id;
+      history.replaceState(null, '', '#' + id);
+      fit();
+    }
+    area.onchange = () => loadStudy(area.value);
+    const initial = location.hash.slice(1);
+    await loadStudy(catalogue.some(item => item.id === initial) ? initial : catalogue[0].id);
+  </script>
+</body>
+</html>

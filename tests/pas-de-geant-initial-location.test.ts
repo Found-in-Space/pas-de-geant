@@ -2,10 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import {
   GLOBAL_FALLBACK_LOCATION,
   locateByIp,
+  LUNAR_START_LOCATION,
   resolveInitialLocation,
+  resolveInitialWorldLocation,
 } from "../apps/pas-de-geant/src/initial-location.js";
 
 describe("Pas de Géant initial-location regressions", () => {
+  it("starts on lunar terrain without asking for an Earth position", async () => {
+    const geolocation = { getCurrentPosition: vi.fn() };
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(resolveInitialWorldLocation("moon", { geolocation, fetcher }))
+      .resolves.toEqual(LUNAR_START_LOCATION);
+    expect(geolocation.getCurrentPosition).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("prefers a valid device location without making an IP request", async () => {
     const geolocation = {
       getCurrentPosition: (
@@ -20,7 +31,7 @@ describe("Pas de Géant initial-location regressions", () => {
     const fetcher = vi.fn<typeof fetch>();
 
     await expect(
-      resolveInitialLocation({ geolocation, fetcher }),
+      resolveInitialWorldLocation("earth", { geolocation, fetcher }),
     ).resolves.toEqual({
       latitudeDegrees: -33.8688,
       longitudeDegrees: 151.2093,

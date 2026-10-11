@@ -1,4 +1,5 @@
 import "./eclipse.css";
+import { earthBaseTextureUrl, lunarBaseTextureUrl } from "./world-assets.js";
 
 import {
   createRuntime,
@@ -57,7 +58,7 @@ import {
 } from "./eclipse-rendering.js";
 import {
   configuredXyzImageryProvider,
-} from "./imagery-provider.js";
+} from "@found-in-space/worlds/imagery-provider";
 import {
   imageryConfiguration,
 } from "./imagery-configuration.js";
@@ -122,14 +123,15 @@ import type {
   SupervisionConnectionStatus,
 } from "./supervision-client.js";
 import { idleJourneyState } from "./earth-to-gaia-journey.js";
-import { TerrainSurface, type TerrainSurfaceView } from "./terrain-surface.js";
-import { proxiedTileConfiguration } from "./tile-proxy.js";
+import { TerrainSurface, type TerrainSurfaceView } from "@found-in-space/worlds/terrain-surface";
+import { proxiedTileConfiguration } from "@found-in-space/worlds/tile-proxy";
 import {
   displayRadiusMetres,
   formatScaleRatio,
   headsetMetresForPhysicalMetres,
   validScaleDenominator,
-} from "./world-scale.js";
+} from "@found-in-space/worlds/world-scale";
+import { orbitalDragRadiansPerPixel } from "@found-in-space/worlds/world-navigation";
 
 const DEFAULT_EVENT_ID = "solar-2026-08-12-total";
 const GEOMETRY_INTERVAL_MS = 160;
@@ -212,8 +214,8 @@ scene.add(visibleSun.object);
 
 const textureLoader = new THREE.TextureLoader();
 const [earthTexture, moonTexture] = await Promise.all([
-  textureLoader.loadAsync(`${import.meta.env.BASE_URL}bluemarble-2048.png`),
-  textureLoader.loadAsync(`${import.meta.env.BASE_URL}lroc-color-2k.jpg`),
+  textureLoader.loadAsync(earthBaseTextureUrl),
+  textureLoader.loadAsync(lunarBaseTextureUrl),
 ]);
 earthTexture.colorSpace = THREE.SRGBColorSpace;
 earthTexture.flipY = false;
@@ -1449,13 +1451,23 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
 renderer.domElement.addEventListener("pointermove", (event) => {
   if (!pointerActive || renderer.xr.isPresenting) return;
   eclipseHeadWorldPose(camera, desktopHeadPosition, observerViewQuaternion);
+  const earthCentre = earthCentreWorld();
+  const radiansPerPixel = orbitalDragRadiansPerPixel(
+    desktopHeadPosition.distanceTo(earthCentre),
+    displayRadiusMetres(
+      EARTH_REFERENCE_RADIUS_M,
+      state.stage.scaleDenominator,
+    ),
+    terrainFocalLengthPixels(camera),
+    0.004,
+  );
   commitObserverRigTransform(updateObserverEarthOrbit(
     state.observerRigTransform,
     desktopHeadPosition,
     observerViewQuaternion,
-    earthCentreWorld(),
-    -(event.clientX - pointerX) * 0.004,
-    (event.clientY - pointerY) * 0.004,
+    earthCentre,
+    -(event.clientX - pointerX) * radiansPerPixel,
+    (event.clientY - pointerY) * radiansPerPixel,
   ));
   enforceTopographicFloor(camera);
   pointerX = event.clientX;

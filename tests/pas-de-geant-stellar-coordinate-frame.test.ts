@@ -5,8 +5,8 @@ import {
   j2000ToWorldQuaternion,
   j2000VectorToRenderAxes,
   trackingRoomOffsetWorld,
-} from "../apps/pas-de-geant/src/stellar-coordinate-frame.js";
-import { relativeJ2000MetresToRender } from "../apps/pas-de-geant/src/world-navigation.js";
+} from "@found-in-space/worlds/stellar-coordinate-frame";
+import { relativeJ2000MetresToRender } from "@found-in-space/worlds/world-navigation";
 
 describe("stellar J2000 coordinate frame", () => {
   it("uses the same x,z,-y mapping as Solar System body placement", () => {

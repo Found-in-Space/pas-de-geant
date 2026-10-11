@@ -1,18 +1,14 @@
 import * as THREE from "three";
 import type { ElevationProviderMetadata } from "./image-tile-provider.js";
 import {
-  EARTH_MEAN_RADIUS_KM,
-  WGS84_A_KM,
-  WGS84_B_KM,
-} from "./planet-state.js";
-import {
   tileBounds,
   type TileBounds,
   type TileProjection,
 } from "./tile-onion-core.js";
 import type { TileIdentity } from "./tile-transition-planner.js";
+import { celestialBody, type CelestialBodyDefinition } from "./solar-system.js";
 
-export type SurfaceModelId = "earth" | "moon";
+export type SurfaceModelId = string;
 export type HeightEncoding =
   | { readonly kind: "terrarium" }
   | { readonly kind: "rg16"; readonly scaleM: number; readonly offsetM: number };
@@ -21,6 +17,8 @@ export interface SurfaceModel {
   readonly id: SurfaceModelId;
   readonly referenceRadiusM: number;
   readonly projection: TileProjection;
+  /** Minimum mesh subdivisions across either full projected world axis. */
+  readonly minimumProjectedWorldSegments: number;
   readonly minimumNormalizedSurfaceRadius: number;
   readonly heightEncoding: HeightEncoding;
   readonly elevationMetadata: ElevationProviderMetadata;
@@ -61,11 +59,53 @@ function sphericalPositionAndNormal(
   return { position: normal.clone(), normal };
 }
 
-export const EARTH_SURFACE_MODEL: SurfaceModel = Object.freeze({
-  id: "earth",
-  referenceRadiusM: EARTH_MEAN_RADIUS_KM * 1_000,
+/** Geometry comes from the body; grid and height encoding come from its admitted data source. */
+export function createBodySurfaceModel(
+  body: Pick<CelestialBodyDefinition, "id" | "referenceRadiusM" | "shape">,
+  source: Partial<Pick<SurfaceModel,
+    "projection" | "heightEncoding" | "elevationMetadata" |
+    "minimumProjectedWorldSegments" | "hasPolarCaps" | "nightAmbient"
+  >> = {},
+): SurfaceModel {
+  const projection = source.projection ?? "geographic";
+  const shape = body.shape;
+  return Object.freeze({
+    id: body.id,
+    referenceRadiusM: body.referenceRadiusM,
+    projection,
+    minimumProjectedWorldSegments: source.minimumProjectedWorldSegments ?? 64,
+    minimumNormalizedSurfaceRadius: shape.kind === "sphere"
+      ? shape.radiusM / body.referenceRadiusM
+      : shape.polarRadiusM / body.referenceRadiusM,
+    heightEncoding: source.heightEncoding ?? { kind: "terrarium" },
+    elevationMetadata: source.elevationMetadata ?? {
+      tilePixels: 512, maxSourceZoom: 0, attribution: "Reference surface · no elevation source",
+    },
+    hasPolarCaps: source.hasPolarCaps ?? false,
+    nightAmbient: source.nightAmbient ?? new THREE.Color(0x010101),
+    tileBounds: (tile: TileIdentity) => tileBounds(tile, projection),
+    positionAndNormal(latitudeDegrees: number, longitudeDegrees: number) {
+      const vertex = sphericalPositionAndNormal(latitudeDegrees, longitudeDegrees);
+      if (shape.kind === "sphere") {
+        vertex.position.multiplyScalar(shape.radiusM / body.referenceRadiusM);
+      } else {
+        const a = shape.equatorialRadiusM;
+        const b = shape.polarRadiusM;
+        const e2 = 1 - b * b / (a * a);
+        const n = a / Math.sqrt(1 - e2 * vertex.normal.y ** 2);
+        vertex.position.set(
+          n * vertex.normal.x, n * (1 - e2) * vertex.normal.y, n * vertex.normal.z,
+        ).multiplyScalar(1 / body.referenceRadiusM);
+      }
+      return vertex;
+    },
+    baseTextureUv: equirectangularUv,
+  });
+}
+
+export const EARTH_SURFACE_MODEL: SurfaceModel = createBodySurfaceModel(celestialBody("earth"), {
   projection: "web-mercator",
-  minimumNormalizedSurfaceRadius: WGS84_B_KM / EARTH_MEAN_RADIUS_KM,
+  minimumProjectedWorldSegments: 16,
   heightEncoding: Object.freeze({ kind: "terrarium" }),
   elevationMetadata: Object.freeze({
     tilePixels: 512,
@@ -78,37 +118,11 @@ export const EARTH_SURFACE_MODEL: SurfaceModel = Object.freeze({
   }),
   hasPolarCaps: true,
   nightAmbient: new THREE.Color(0x07111a),
-  tileBounds: (tile: TileIdentity) => tileBounds(tile, "web-mercator"),
-  positionAndNormal(latitudeDegrees: number, longitudeDegrees: number) {
-    const latitude = THREE.MathUtils.degToRad(latitudeDegrees);
-    const longitude = THREE.MathUtils.degToRad(longitudeDegrees);
-    const sineLatitude = Math.sin(latitude);
-    const cosineLatitude = Math.cos(latitude);
-    const eccentricitySquared =
-      1 - (WGS84_B_KM * WGS84_B_KM) / (WGS84_A_KM * WGS84_A_KM);
-    const primeVerticalRadius = WGS84_A_KM /
-      Math.sqrt(1 - eccentricitySquared * sineLatitude * sineLatitude);
-    return {
-      position: new THREE.Vector3(
-        primeVerticalRadius * cosineLatitude * Math.cos(longitude),
-        primeVerticalRadius * (1 - eccentricitySquared) * sineLatitude,
-        -primeVerticalRadius * cosineLatitude * Math.sin(longitude),
-      ).multiplyScalar(1 / EARTH_MEAN_RADIUS_KM),
-      normal: new THREE.Vector3(
-        cosineLatitude * Math.cos(longitude),
-        sineLatitude,
-        -cosineLatitude * Math.sin(longitude),
-      ).normalize(),
-    };
-  },
-  baseTextureUv: equirectangularUv,
 });
 
-export const MOON_SURFACE_MODEL: SurfaceModel = Object.freeze({
-  id: "moon",
-  referenceRadiusM: 1_737_400,
+export const MOON_SURFACE_MODEL: SurfaceModel = createBodySurfaceModel(celestialBody("moon"), {
   projection: "geographic",
-  minimumNormalizedSurfaceRadius: 1,
+  minimumProjectedWorldSegments: 64,
   heightEncoding: Object.freeze({
     kind: "rg16",
     scaleM: 0.5,
@@ -122,9 +136,6 @@ export const MOON_SURFACE_MODEL: SurfaceModel = Object.freeze({
   }),
   hasPolarCaps: false,
   nightAmbient: new THREE.Color(0x010101),
-  tileBounds: (tile: TileIdentity) => tileBounds(tile, "geographic"),
-  positionAndNormal: sphericalPositionAndNormal,
-  baseTextureUv: equirectangularUv,
 });
 
 export function decodeHeightMetres(

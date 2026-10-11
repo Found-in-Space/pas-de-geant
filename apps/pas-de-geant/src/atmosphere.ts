@@ -4,8 +4,8 @@ import {
   contactFrame,
   geodeticSurfaceEcefKm,
   normalizedBodyLocalPhysicalOffset,
-} from "./planet-state.js";
-import { EARTH_SURFACE_MODEL } from "./surface-model.js";
+} from "@found-in-space/worlds/planet-state";
+import { EARTH_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
 
 export const ATMOSPHERE_TOP_KM = 100;
 

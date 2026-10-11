@@ -1,5 +1,6 @@
 import type { TileIdentity } from "./tile-transition-planner.js";
 import type { TileProjection } from "./tile-onion-core.js";
+import { projectedTileSpanM } from "./projected-tile-span.js";
 import {
   selectZoomWithVerticalHysteresis,
 } from "./observer-tile-zoom.js";
@@ -73,6 +74,7 @@ export function renderedImageryTileWidthM(
   latitudeDegrees: number,
   displayRadiusM: number,
   zoom: number,
+  projection: TileProjection = "web-mercator",
 ): number {
   const latitude =
     Math.max(
@@ -81,13 +83,41 @@ export function renderedImageryTileWidthM(
     ) *
     Math.PI /
     180;
-  return (
-    2 *
-    Math.PI *
-    Math.max(0.001, displayRadiusM) *
-    Math.max(1e-6, Math.cos(latitude)) /
-    2 ** Math.max(0, Math.floor(zoom))
+  return projectedTileSpanM(
+    projection === "geographic" ? latitudeDegrees : latitude * 180 / Math.PI,
+    Math.max(0.001, displayRadiusM),
+    Math.max(0, Math.floor(zoom)),
+    projection,
   );
+}
+
+/** Eye height where one source texel at a zoom occupies one screen pixel. */
+export function observerHeightForImageryZoom(options: {
+  readonly projection?: TileProjection;
+  readonly displayRadiusM: number;
+  readonly latitudeDegrees: number;
+  readonly focalLengthPixels: number;
+  readonly tilePixels: number;
+  readonly zoom: number;
+  readonly targetScreenPixelsPerSourcePixel?: number;
+}): number {
+  const focalLengthPixels = Math.max(1, options.focalLengthPixels);
+  const tilePixels = Math.max(1, options.tilePixels);
+  const targetScreenPixelsPerSourcePixel =
+    options.targetScreenPixelsPerSourcePixel ?? 1;
+  if (
+    !Number.isFinite(targetScreenPixelsPerSourcePixel) ||
+    targetScreenPixelsPerSourcePixel <= 0
+  ) {
+    throw new RangeError("Target screen/source density must be positive.");
+  }
+  return renderedImageryTileWidthM(
+    options.latitudeDegrees,
+    options.displayRadiusM,
+    options.zoom,
+    options.projection,
+  ) * focalLengthPixels /
+    (tilePixels * targetScreenPixelsPerSourcePixel);
 }
 
 export function selectImageryZoom(options: ImageryZoomOptions): number {
@@ -98,6 +128,7 @@ export function selectImageryZoom(options: ImageryZoomOptions): number {
     options.latitudeDegrees,
     options.displayRadiusM,
     0,
+    options.projection,
   );
   const nativeDensityTargetWidth =
     Math.max(1, options.tilePixels) * IMAGERY_TARGET_METRES_PER_TEXEL *
@@ -140,6 +171,7 @@ export function selectImageryZoom(options: ImageryZoomOptions): number {
     options.latitudeDegrees,
     options.displayRadiusM,
     zoom,
+    options.projection,
   );
   while (width > targetWidth * IMAGERY_REFINE_FACTOR) {
     zoom += 1;

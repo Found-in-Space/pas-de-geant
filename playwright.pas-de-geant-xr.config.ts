@@ -7,7 +7,7 @@ const viewportHeight = Number(process.env.PAS_DE_GEANT_XR_VIEWPORT_HEIGHT ?? "45
 
 export default defineConfig({
   testDir: "tests/browser",
-  testMatch: "pas-de-geant.xr-emulator.spec.ts",
+  testMatch: ["pas-de-geant.xr-emulator.spec.ts", "pas-de-geant.moon-xr.spec.ts"],
   timeout: 600_000,
   expect: {
     timeout: 20_000,

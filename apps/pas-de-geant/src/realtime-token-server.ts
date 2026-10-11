@@ -32,6 +32,9 @@ export function isAllowedConnectionHostname(hostname: string): boolean {
   if (normalized === "k-si.com" || normalized.endsWith(".k-si.com")) {
     return true;
   }
+  const additionalHostname = process.env.__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
+    ?.trim().toLowerCase().replace(/\.$/, "");
+  if (additionalHostname && normalized === additionalHostname) return true;
   const address = normalized.startsWith("[") && normalized.endsWith("]")
     ? normalized.slice(1, -1)
     : normalized;

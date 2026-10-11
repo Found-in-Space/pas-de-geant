@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createTerrainRenderVisibilityEntry,
   TerrainRenderVisibility,
-} from "../apps/pas-de-geant/src/terrain-render-visibility.js";
+} from "@found-in-space/worlds/terrain-render-visibility";
 
 function meshEntry(
   center: THREE.Vector3,

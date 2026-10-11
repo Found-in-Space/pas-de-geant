@@ -1,4 +1,5 @@
 import { Matrix4, Quaternion, Vector2, Vector3 } from "three";
+import type { SurfaceModel } from "./surface-model.js";
 
 export const EARTH_MEAN_RADIUS_KM = 6371.0088;
 export const WGS84_A_KM = 6378.137;
@@ -8,8 +9,6 @@ const rotation = new Quaternion();
 const movementAxis = new Vector3();
 const tangent = new Vector3();
 const matrix = new Matrix4();
-const surfacePoint = new Vector3();
-const rotatedSurface = new Vector3();
 
 export interface ContactFrame {
   upEcef: Vector3;
@@ -25,6 +24,29 @@ export interface PlanetState {
 export interface PlanetPose {
   earthToWorld: Quaternion;
   centre: Vector3;
+}
+
+export interface BodySurfacePose {
+  bodyToWorld: Quaternion;
+  centre: Vector3;
+}
+
+/** Pins any body's reference surface while preserving the transported tangent frame. */
+export function solveBodySurfacePose(
+  state: PlanetState,
+  headsetFloorPosition: Vector2,
+  displayRadiusM: number,
+  geometry: Pick<SurfaceModel, "positionAndNormal">,
+): BodySurfacePose {
+  const coordinates = coordinatesForFrame(state.contact);
+  const bodyToWorld = earthToWorldQuaternion(state.contact);
+  const point = geometry.positionAndNormal(
+    coordinates.latitudeDegrees, coordinates.longitudeDegrees,
+  ).position.multiplyScalar(displayRadiusM).applyQuaternion(bodyToWorld);
+  return {
+    bodyToWorld,
+    centre: new Vector3(headsetFloorPosition.x, 0, headsetFloorPosition.y).sub(point),
+  };
 }
 
 export function contactFrame(
@@ -156,25 +178,16 @@ export function solvePlanetPose(
   headsetFloorPosition: Vector2,
   displayRadiusM: number,
 ): PlanetPose {
-  const coordinates = coordinatesForFrame(state.contact);
-  const earthToWorld = earthToWorldQuaternion(state.contact);
-  surfacePoint
-    .copy(
-      geodeticSurfaceEcefKm(
-        coordinates.latitudeDegrees,
-        coordinates.longitudeDegrees,
-      ),
-    )
-    .multiplyScalar(displayRadiusM / EARTH_MEAN_RADIUS_KM);
-  rotatedSurface.copy(surfacePoint).applyQuaternion(earthToWorld);
-  return {
-    earthToWorld,
-    centre: new Vector3(
-      headsetFloorPosition.x - rotatedSurface.x,
-      -rotatedSurface.y,
-      headsetFloorPosition.y - rotatedSurface.z,
-    ),
-  };
+  const pose = solveBodySurfacePose(state, headsetFloorPosition, displayRadiusM, {
+    positionAndNormal(latitudeDegrees, longitudeDegrees) {
+      return {
+        position: geodeticSurfaceEcefKm(latitudeDegrees, longitudeDegrees)
+          .multiplyScalar(1 / EARTH_MEAN_RADIUS_KM),
+        normal: state.contact.upEcef,
+      };
+    },
+  });
+  return { earthToWorld: pose.bodyToWorld, centre: pose.centre };
 }
 
 /**

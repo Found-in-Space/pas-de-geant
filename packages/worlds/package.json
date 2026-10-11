@@ -1,0 +1,53 @@
+{
+  "name": "@found-in-space/worlds",
+  "version": "0.1.0-alpha.0",
+  "description": "Reusable body geometry, streamed surfaces, and Solar System coordinates",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Found-in-Space/pas-de-geant",
+    "directory": "packages/worlds"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./skykit": {
+      "types": "./dist/skykit.d.ts",
+      "default": "./dist/skykit.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "astronomy-engine": "2.1.19",
+    "@found-in-space/spatial": "0.2.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.170.0 <1",
+    "@found-in-space/skykit": ">=0.2.0 <1"
+  },
+  "peerDependenciesMeta": {
+    "@found-in-space/skykit": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/three": "0.185.1",
+    "@found-in-space/skykit": "0.2.0"
+  }
+}

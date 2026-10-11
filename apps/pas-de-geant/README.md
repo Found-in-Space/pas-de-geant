@@ -9,6 +9,12 @@ metres in Float64 data, with one `1:N` conversion to headset metres applied only
 render boundary. This keeps the same architecture usable from a one-metre toy
 planet to a hundred-metre exploration globe and across interplanetary distance.
 
+Shared geometry, ephemerides, surface streaming, and navigation frames live in
+[`@found-in-space/worlds`](../../packages/worlds/README.md). Earth, Moon, and
+plain planetary globes use `createWorldRuntime`; the Eclipse Observatory uses
+the package's terrain capability. The optional `/skykit` adapter lets another
+Found in Space host use this runtime through Skykit's public lifecycle.
+
 ## Run locally
 
 From the repository root:
@@ -22,6 +28,20 @@ Z/X to change planet scale, C/V to change orbital altitude or terrain
 exaggeration, and Backspace to reset.
 Use the World and Navigation selectors for Earth/Moon ground mode and any-body
 orbit/free mode. M cycles navigation modes and N switches Earth/Moon.
+
+The focused desktop Moon viewer is at `http://127.0.0.1:4197/moon/`. Drag to
+orbit, scroll or pinch to approach the surface, and use the on-screen controls
+or +/− keys to change distance.
+
+For walking on the Moon, open `http://127.0.0.1:4197/?world=moon`, or use
+**Walk on the Moon in VR** from either page. The launch starts in lunar ground
+mode at 18° N, 24° W without requesting Earth geolocation. In the headset,
+select **Enter VR**, then walk through your room or use the left stick to travel.
+The right stick changes world scale vertically and relief exaggeration
+horizontally; hold B to reset. This uses the same WebXR camera, controllers,
+contact-frame transport, terrain runtime, and wrist panel as Earth. Moon terrain
+readouts and debug controls refer to the lunar surface. Without a configured
+LOLA source it renders the reference sphere with the bundled lunar imagery.
 
 The standalone Eclipse Observatory is at
 `http://127.0.0.1:4197/eclipse/`. Earth, Moon, shadow cones, and the apparent
@@ -92,6 +112,11 @@ public browser host with the Vite process's internal host, so it also works
 behind a reverse proxy. Both servers listen on all local interfaces so a device
 on the private subnet can connect directly.
 
+For an additional development hostname, set
+`__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` to that exact hostname in the server
+process environment. Vite host checks, local HTTP APIs, and the supervision
+origin checks honor the same setting, including private Tailscale HTTPS names.
+
 WebXR requires a secure context. A USB-connected Quest can use an Android
 reverse tunnel:
 
@@ -105,6 +130,7 @@ adb reverse tcp:4197 tcp:4197
 ```
 
 Then open `http://localhost:4197` in the headset.
+Use `http://localhost:4197/?world=moon` for the lunar walking launch.
 
 ### Quest runtime diagnostics
 
@@ -241,6 +267,43 @@ PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE='https://tiles.example/m
 PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE='https://tiles.example/moon/elevation/{z}/{x}/{y}.png'
 ```
 
+For local acceptance of a controlled texture-pipeline output, point the app at
+the product's `imagery` directory and open the dedicated viewer:
+
+```sh
+PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY=/path/to/product/output/imagery \
+PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY=/path/to/product/output/elevation \
+  npm run dev -- --port 4197
+```
+
+The current LROC WAC product reaches zoom 8. Override
+`PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM` only when testing another admitted
+product contract.
+
+For a static deployment, set `PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE` to the
+public immutable CDN template at build time. Both the whole-globe base and
+detail imagery use it directly; the tile host must allow browser CORS requests.
+The template is public configuration and must not contain credentials. For
+the `20261011.1` release it is:
+
+```sh
+PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE='https://data.foundin.space/textures/moon/lroc-wac-global-100m/20261011.1/imagery/{z}/{x}/{y}.png'
+```
+
+The GitHub Pages build supplies this template. Without a public template,
+the configured development proxy or local imagery directory still applies.
+
+The main experience and dedicated Moon viewer share one source loader and use
+the configured product's zoom-0 tile as their whole-globe base. The focused
+viewer waits for the complete visible imagery cut, or a committed surface with
+a usable base after an imagery failure, before dismissing its loading state.
+GPU publication advances even while the camera is still. Both views apply one
+source-wide linear-light tone exponent of `0.55` to the base and every detail
+tile. This is a runtime presentation choice; it does not alter the controlled
+payload or normalize individual tiles. Geographic detail calculations retain
+the north/south tile span at the poles rather than using Mercator's latitude
+scale factor.
+
 Elevation PNGs store the source unsigned 16-bit LOLA value in the red and
 green channels. Runtime height is `value × 0.5 − 10,000 m`, relative to the
 1,737.4 km lunar reference sphere. The renderer streams both datasets and
@@ -258,6 +321,68 @@ npm run lunar:tiles -- \
 
 It produces `imagery/{z}/{x}/{y}.png` and
 `elevation/{z}/{x}/{y}.png`, ready for any static object store or local server.
+Either source argument may be omitted when rebuilding only one pyramid.
+
+### Compare native lunar imagery locally
+
+The dataset preview downloads the 0–3° N, 0–3° E Kaguya seamless and standard
+ortho tiles, plus the corresponding native LROC WAC source strip. It creates
+a synchronized pan/zoom comparison, losslessly encoded PNG display tiles,
+and GeoTIFFs preserving the original values and lunar coordinates. Kaguya's
+8.42 m and 7.40 m grids remain at their original 10,800² and 12,288² dimensions;
+WAC remains at 100 m/pixel. Select either dataset in either panel and use its
+1:1 button to inspect one source pixel per physical display pixel.
+
+Run from the repository root with a Python interpreter containing GDAL and
+NumPy (the development Mac's Homebrew GDAL uses the interpreter below):
+
+```sh
+/opt/homebrew/opt/python@3.14/bin/python3.14 scripts/build-lunar-preview.py --download
+python3 -m http.server 4198 --bind 127.0.0.1 --directory .cache/lunar-preview/site
+```
+
+Open `http://127.0.0.1:4198/`. Omit `--download` to rebuild from cached sources.
+The approximately 635 MB of sources and 550 MB of compiled previews stay in
+the ignored `.cache/lunar-preview/` directory. This preview is independent of
+the application development server and does not configure the globe's imagery.
+
+Both Kaguya images use a shared 0.5–99.5 percentile display stretch after
+applying their respective PDS scale/offset values. WAC uses its own stretch
+and has different illumination. PNG display values are 8-bit; the GeoTIFFs
+retain the source precision and validity masks. Highest-resolution tiles are
+pixel copies of the tone-mapped source; lower levels use area averaging.
+No sharpening is applied. This one patch does not assess neighboring joins,
+polar coverage, or the optional NASA colour composite. Provenance, exact grid
+dimensions, scales, and display intervals are recorded in `manifest.json`.
+
+The join study extends that same viewer with a four-tile junction at 3° N,
+3° E, transitions at 84° N/S, and polar tile joins at 88° N/S along the prime
+meridian. Run this after building the original comparison:
+
+```sh
+/opt/homebrew/opt/python@3.14/bin/python3.14 scripts/build-lunar-join-preview.py --download --build
+```
+
+It reuses the existing preview server. Select a **Study area**, toggle **Join
+lines**, and use **1:1 pixels** to inspect the assembled image. Equatorial
+samples preserve each product's native grid. Polar samples use the same lunar
+stereographic projection at 10 m/pixel, with bilinear resampling; these are
+compiled output pixels rather than untouched cylindrical source pixels. The
+seamless polar transition is a deliberate hard switch at 84° latitude, with
+no blending or fallback fill to hide a mismatch. The preview is opaque: low
+saturation displays as black, high saturation as white, and blank data as
+black. Saturation categories use nearest-neighbour reprojection separately
+from the calibrated values. Scientific GeoTIFFs retain their validity masks.
+The area outside each cropped sample also displays as black.
+
+The study covers representative polar-region joins, not the complete caps at
+90°. JAXA's host ignores byte-range requests; the downloader reads a normal
+source stream through its last needed row, preserving those original bytes
+and the detached label in `.cache/lunar-preview/join-sources/`. Cached complete
+images are reused. Scene JSON files record source windows, radiometric scales,
+output grids, and valid-pixel fractions. Derived GeoTIFFs contain calibrated
+Float32 samples. Both products and all joins within a scene share one display
+stretch. Use `--build` without `--download` to rebuild entirely from the cache.
 
 ## Terrain and imagery library
 
@@ -373,8 +498,11 @@ PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_TEMPLATE=https://tiles.mapterhorn.com
 PAS_DE_GEANT_TILE_PROXY_ELEVATION_SCHEME=xyz
 PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE=
 PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_SCHEME=xyz
+PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM=8
+PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY=
 PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE=
 PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_SCHEME=xyz
+PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY=
 PAS_DE_GEANT_TILE_PROXY_UPSTREAM_HEADERS_JSON={}
 PAS_DE_GEANT_TILE_PROXY_FORWARD_REQUEST_HEADERS=origin,referer,user-agent
 PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_HEADERS_JSON=

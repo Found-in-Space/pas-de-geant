@@ -1,6 +1,6 @@
 export const GEO_IP_ENDPOINT = "https://get.geojs.io/v1/ip/geo.json";
 
-export type InitialLocationSource = "device" | "ip" | "fallback";
+export type InitialLocationSource = "device" | "ip" | "fallback" | "preset";
 
 export interface InitialLocation {
   latitudeDegrees: number;
@@ -20,6 +20,22 @@ export const GLOBAL_FALLBACK_LOCATION: InitialLocation = {
   longitudeDegrees: 0,
   source: "fallback",
 };
+
+export const LUNAR_START_LOCATION: InitialLocation = {
+  latitudeDegrees: 18,
+  longitudeDegrees: -24,
+  source: "preset",
+};
+
+/** Lunar coordinates are a chosen starting point, independent of Earth geolocation. */
+export function resolveInitialWorldLocation(
+  body: "earth" | "moon",
+  dependencies: InitialLocationDependencies = {},
+): Promise<InitialLocation> {
+  return body === "moon"
+    ? Promise.resolve({ ...LUNAR_START_LOCATION })
+    : resolveInitialLocation(dependencies);
+}
 
 function finiteCoordinate(value: unknown): number | undefined {
   if (

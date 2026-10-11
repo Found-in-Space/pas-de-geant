@@ -1,3 +1,6 @@
+import { projectedTileSpanM } from "./projected-tile-span.js";
+import type { TileProjection } from "./tile-onion-core.js";
+
 export const DEFAULT_VERTICAL_LOD_HYSTERESIS_WORLD_M = 0.2;
 
 export interface VerticalZoomHysteresisOptions {
@@ -13,6 +16,7 @@ export interface VerticalZoomHysteresisOptions {
 }
 
 export interface ObserverTileZoomOptions {
+  readonly projection?: TileProjection;
   readonly observerHeightWorldM: number;
   readonly displayRadiusM: number;
   readonly latitudeDegrees: number;
@@ -153,12 +157,10 @@ export function observerTileZoom(
   if (!Number.isFinite(options.latitudeDegrees)) {
     throw new RangeError("Latitude must be finite.");
   }
-  const latitudeRadians = Math.max(
-    -Math.PI / 2,
-    Math.min(Math.PI / 2, options.latitudeDegrees * Math.PI / 180),
-  );
   const continuousZoom = Math.log2(
-    2 * Math.PI * Math.cos(latitudeRadians) * options.displayRadiusM *
+    projectedTileSpanM(
+      options.latitudeDegrees, options.displayRadiusM, 0, options.projection,
+    ) *
       options.projectedFocalLengthPixels /
       (options.tilePixels * options.observerHeightWorldM *
         targetScreenPixelsPerSourcePixel),

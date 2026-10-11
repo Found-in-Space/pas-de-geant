@@ -109,15 +109,23 @@ export function normalizeTerrainLodOptions(
 export function terrainSegmentsForZoom(
   zoom: number,
   tiers: readonly TerrainSegmentTier[] = DEFAULT_TERRAIN_SEGMENT_TIERS,
+  minimumProjectedWorldSegments = 0,
 ): number {
   const normalizedZoom = nonnegativeInteger(zoom, "Terrain geometry zoom");
+  const minimumWorldSegments = nonnegativeInteger(
+    minimumProjectedWorldSegments,
+    "Minimum projected-world terrain segments",
+  );
   let selected = tiers[0];
   if (!selected) throw new RangeError("Terrain segment tiers must not be empty.");
   for (const tier of tiers) {
     if (tier.minZoom > normalizedZoom) break;
     selected = tier;
   }
-  return selected.segments;
+  return Math.max(
+    selected.segments,
+    Math.ceil(minimumWorldSegments / 2 ** normalizedZoom),
+  );
 }
 
 export function elevationSourceZoomForTile(

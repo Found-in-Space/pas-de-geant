@@ -13,7 +13,7 @@ import {
   SatelliteLayer,
   satelliteNormalizedPosition,
 } from "../apps/pas-de-geant/src/satellite-layer.js";
-import { EARTH_MEAN_RADIUS_KM } from "../apps/pas-de-geant/src/planet-state.js";
+import { EARTH_MEAN_RADIUS_KM } from "@found-in-space/worlds/planet-state";
 
 type OmmSatellite = Parameters<SatelliteLayer["setSatellites"]>[1][number];
 

@@ -3,7 +3,7 @@ import {
   observerTileZoom,
   projectedFocalLengthPixels,
   selectZoomWithVerticalHysteresis,
-} from "../apps/pas-de-geant/src/observer-tile-zoom.js";
+} from "@found-in-space/worlds/observer-tile-zoom";
 
 function observerAtBoundary(
   boundaryHeightWorldM: number,

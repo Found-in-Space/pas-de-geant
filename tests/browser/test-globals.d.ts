@@ -1,7 +1,7 @@
 import type {
   ImageryProvider,
   XyzImageryConfiguration,
-} from "../../apps/pas-de-geant/src/imagery-provider.js";
+} from "@found-in-space/worlds/imagery-provider";
 import type {
   PasDeGeantXrEmulatorApi,
 } from "../../apps/pas-de-geant/src/bootstrap.js";

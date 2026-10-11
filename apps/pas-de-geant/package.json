@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite --host 0.0.0.0",
+    "dev": "npm run build --workspace @found-in-space/worlds && vite --host 0.0.0.0",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --project tsconfig.json --pretty false"
   },
@@ -20,7 +20,8 @@
     "@found-in-space/touch-os": "0.3.0",
     "astronomy-engine": "2.1.19",
     "satellite.js": "^6.0.1",
-    "three": "0.185.1"
+    "three": "0.185.1",
+    "@found-in-space/worlds": "0.1.0-alpha.0"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.22",

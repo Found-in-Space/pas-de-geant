@@ -4,15 +4,15 @@ import {
   sampleTerrariumElevationMetres,
   sourceUvForTilePoint,
   terrainTargetForView,
-} from "../apps/pas-de-geant/src/terrain-surface.js";
+} from "@found-in-space/worlds/terrain-surface";
 import {
   decodeHeightMetres,
   EARTH_SURFACE_MODEL,
   MOON_SURFACE_MODEL,
-} from "../apps/pas-de-geant/src/surface-model.js";
+} from "@found-in-space/worlds/surface-model";
 import {
   elevationSourceZoomForTile,
-} from "../apps/pas-de-geant/src/terrain-lod.js";
+} from "@found-in-space/worlds/terrain-lod";
 
 describe("Terrain surface composition", () => {
   it("maps adjacent overzoom children to the same source coordinate at their join", () => {

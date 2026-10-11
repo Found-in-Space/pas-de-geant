@@ -6,8 +6,8 @@ import {
   tilesTouch,
   type ReplacementGroup,
   type TileIdentity,
-} from "../apps/pas-de-geant/src/tile-transition-planner.js";
-import { calculateTileOnionPlan } from "../apps/pas-de-geant/src/tile-onion-core.js";
+} from "@found-in-space/worlds/tile-transition-planner";
+import { calculateTileOnionPlan } from "@found-in-space/worlds/tile-onion-core";
 
 function labels(tiles: readonly TileIdentity[]): string[] {
   return tiles.map(tileIdentityKey);

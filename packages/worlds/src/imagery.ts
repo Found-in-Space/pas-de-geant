@@ -386,6 +386,7 @@ export class ScheduledImageryProvider
   }
 
   get metrics(): {
+    failureTotal: number;
     requestTotal: number;
     sourceLoadTotal: number;
     cacheLookupTotal: number;
@@ -401,6 +402,7 @@ export class ScheduledImageryProvider
   } {
     const metrics = this.queue.metrics;
     return {
+      failureTotal: metrics.failureTotal,
       requestTotal: metrics.requestTotal,
       sourceLoadTotal: metrics.sourceLoadTotal,
       cacheLookupTotal: metrics.cacheLookupTotal,
@@ -540,7 +542,7 @@ export class ImageryWorkerClient {
   constructor(worker?: ImageryWorkerPort) {
     this.worker =
       worker ??
-      new Worker(new URL("./imagery-decoder.worker.ts", import.meta.url), {
+      new Worker(new URL("./imagery-decoder.worker.js", import.meta.url), {
         type: "module",
       });
     this.worker.onmessage = ({ data }) => {
@@ -1181,6 +1183,29 @@ export class ImageryVirtualTexture {
 
   getTargetZoom(): number {
     return this.target.maxZoom;
+  }
+
+  get hasCompleteImagery(): boolean {
+    if (!this.scheduler || this.migration !== undefined) return false;
+    const scheduling = this.scheduler.debugState;
+    if (
+      scheduling.planner_requests.total_outstanding > 0 ||
+      scheduling.target_submission.pending ||
+      scheduling.target_submission.in_flight ||
+      this.desiredSourceKeys.size === 0
+    ) return false;
+    return [...this.desiredSourceKeys].every((key) =>
+      this.committedSourceKeys.has(key)
+    );
+  }
+
+  get hasFailure(): boolean {
+    return (this.provider?.metrics.failureTotal ?? 0) > 0;
+  }
+
+  /** Advances bounded GPU upload work without recalculating the view target. */
+  processFrame(): void {
+    if (!this.loadingSuspended) this.processUploads();
   }
 
   getPlannerState() {

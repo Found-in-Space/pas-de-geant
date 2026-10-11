@@ -155,6 +155,34 @@ export function orbitalAngularStepRadians(
     Math.max(0, deltaSeconds) * (boosted ? 2 : 1);
 }
 
+/**
+ * Maps one pointer pixel to a target-centred orbit angle. Near the surface the
+ * same screen drag covers a smaller physical arc; far away it retains the
+ * established maximum angular response.
+ */
+export function orbitalDragRadiansPerPixel(
+  focusDistanceM: number,
+  displayRadiusM: number,
+  focalLengthPixels: number,
+  maximumRadiansPerPixel: number,
+): number {
+  for (const [name, value] of [
+    ["Focus distance", focusDistanceM],
+    ["Display radius", displayRadiusM],
+    ["Focal length", focalLengthPixels],
+    ["Maximum drag rate", maximumRadiansPerPixel],
+  ] as const) {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new RangeError(`${name} must be positive and finite.`);
+    }
+  }
+  const observerHeightM = Math.max(0, focusDistanceM - displayRadiusM);
+  return Math.min(
+    maximumRadiansPerPixel,
+    observerHeightM / (displayRadiusM * focalLengthPixels),
+  );
+}
+
 /** Unbounded proportional altitude/scale response: full input doubles in 4 s. */
 export function orbitalLogarithmicValue(
   value: number,

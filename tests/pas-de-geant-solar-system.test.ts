@@ -5,7 +5,7 @@ import {
   SOLAR_SYSTEM_BODIES,
   subtractVector3d,
   vector3dLength,
-} from "../apps/pas-de-geant/src/solar-system.js";
+} from "@found-in-space/worlds/solar-system";
 import {
   displayRadiusForScale,
   relativeJ2000MetresToRender,
@@ -13,7 +13,7 @@ import {
   translatedObserverJ2000M,
   withNavigationTarget,
   type WorldNavigationState,
-} from "../apps/pas-de-geant/src/world-navigation.js";
+} from "@found-in-space/worlds/world-navigation";
 
 describe("solar-system coordinate foundation", () => {
   it("uses one scale for every body", () => {
