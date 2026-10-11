@@ -280,6 +280,19 @@ The current LROC WAC product reaches zoom 8. Override
 `PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM` only when testing another admitted
 product contract.
 
+For a static deployment, set `PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE` to the
+public immutable CDN template at build time. Both the whole-globe base and
+detail imagery use it directly; the tile host must allow browser CORS requests.
+The template is public configuration and must not contain credentials. For
+the `20261011.1` release it is:
+
+```sh
+PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE='https://data.foundin.space/textures/moon/lroc-wac-global-100m/20261011.1/imagery/{z}/{x}/{y}.png'
+```
+
+The GitHub Pages build supplies this template. Without a public template,
+the configured development proxy or local imagery directory still applies.
+
 The main experience and dedicated Moon viewer share one source loader and use
 the configured product's zoom-0 tile as their whole-globe base. The focused
 viewer waits for the complete visible imagery cut, or a committed surface with

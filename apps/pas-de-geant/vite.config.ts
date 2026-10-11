@@ -210,6 +210,8 @@ export default defineConfig(({ mode }) => {
   const lunarImageryUrlTemplate =
     serverEnvironment
       .PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE;
+  const publicLunarImageryUrlTemplate =
+    serverEnvironment.PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE;
   const lunarImageryDirectory =
     serverEnvironment.PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY;
   const lunarImageryMaximumZoom = optionalNumber(
@@ -374,7 +376,10 @@ export default defineConfig(({ mode }) => {
         Boolean(textureUrlTemplate),
       ),
       "import.meta.env.PAS_DE_GEANT_LUNAR_IMAGERY_CONFIGURED": JSON.stringify(
-        Boolean(lunarImageryUrlTemplate || lunarImageryDirectory),
+        Boolean(publicLunarImageryUrlTemplate || lunarImageryUrlTemplate || lunarImageryDirectory),
+      ),
+      "import.meta.env.PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE": JSON.stringify(
+        publicLunarImageryUrlTemplate || "",
       ),
       "import.meta.env.PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM": JSON.stringify(
         lunarImageryMaximumZoom,

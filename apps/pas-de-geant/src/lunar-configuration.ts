@@ -13,7 +13,7 @@ import {
   type XyzImageryConfiguration,
 } from "@found-in-space/worlds/imagery-provider";
 import { MOON_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
-import { tileProxyUrl, tileProxyUrlTemplate } from "@found-in-space/worlds/tile-proxy";
+import { tileProxyUrlTemplate } from "@found-in-space/worlds/tile-proxy";
 import { loadWorldBaseTexture, type WorldSurfaceSource } from "@found-in-space/worlds";
 import type * as THREE from "three";
 import { lunarBaseTextureUrl } from "./world-assets.js";
@@ -21,11 +21,19 @@ import { lunarBaseTextureUrl } from "./world-assets.js";
 /** Source-wide linear-light curve used to keep WAC morphology legible. */
 export const LUNAR_DISPLAY_TONE_EXPONENT = 0.55;
 
+/** Public CDN configuration also works when deployed without the Vite proxy. */
+export function lunarImageryUrlTemplate(): string {
+  return import.meta.env.PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE ||
+    tileProxyUrlTemplate("lunar-imagery");
+}
+
 /** The main experience and the Moon demo use the same source and display choices. */
 export async function lunarSurfaceSource(renderer: THREE.WebGLRenderer): Promise<WorldSurfaceSource> {
   const imageryProvider = lunarImageryProvider();
   const base = await loadWorldBaseTexture({
-    sourceUrl: imageryProvider ? tileProxyUrl("lunar-imagery", { z: 0, x: 0, y: 0 }) : undefined,
+    sourceUrl: imageryProvider
+      ? lunarImageryUrlTemplate().replaceAll("{z}", "0").replaceAll("{x}", "0").replaceAll("{y}", "0")
+      : undefined,
     fallbackUrl: lunarBaseTextureUrl,
   });
   base.texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -47,8 +55,8 @@ export function lunarImageryProvider(): ImageryProvider | undefined {
   );
   const configuration: XyzImageryConfiguration = {
     id: "lro-lunar-imagery",
-    urlTemplate: tileProxyUrlTemplate("lunar-imagery"),
-    attribution: "NASA LRO / LROC",
+    urlTemplate: lunarImageryUrlTemplate(),
+    attribution: "NASA/GSFC/Arizona State University; USGS Astrogeology",
     tileSize: 512,
     minZoom: 0,
     maxZoom: Number.isSafeInteger(configuredMaximumZoom) &&
