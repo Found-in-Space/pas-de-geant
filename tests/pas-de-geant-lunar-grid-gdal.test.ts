@@ -38,7 +38,8 @@ it.skipIf(!tools.every(installed))("round-trips real GDAL XYZ heights, including
     expect(source.metadata.maxSourceZoom).toBe(1);
     for (let ty = 0; ty < 2; ty++) for (let tx = 0; tx < 2; tx++) {
       const tile = join(output, `elevation/1/${tx}/${ty}.png`), bands = join(root, `bands-${tx}-${ty}.raw`);
-      run("gdal_translate", ["-of", "ENVI", "-b", "1", "-b", "2", tile, bands]);
+      // The byte assertions below read whole bands; do not inherit PNG pixel interleaving.
+      run("gdal_translate", ["-of", "ENVI", "-co", "INTERLEAVE=BSQ", "-b", "1", "-b", "2", tile, bands]);
       const bytes = readFileSync(bands);
       expect(bytes.length).toBe(2 * 512 * 512);
       for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
@@ -87,7 +88,7 @@ it.skipIf(!tools.every(installed))("samples the documented geographic height sur
     const output = join(root, "product");
     run(process.execPath, ["scripts/build-lunar-tiles.mjs", "--elevation", join(root, "source.vrt"), "--output", output, "--max-zoom", "1"]);
     const raw = join(root, "decoded.raw");
-    run("gdal_translate", ["-of", "ENVI", "-b", "1", "-b", "2", join(output, "elevation/1/0/0.png"), raw]);
+    run("gdal_translate", ["-of", "ENVI", "-co", "INTERLEAVE=BSQ", "-b", "1", "-b", "2", join(output, "elevation/1/0/0.png"), raw]);
     const pixels = readFileSync(raw);
     for (const py of [3, 100, 256, 400, 511]) for (const px of [0, 1, 100, 256, 510]) {
       const longitude = -180 + (px + 0.5) / 512 / 2 * 360;
