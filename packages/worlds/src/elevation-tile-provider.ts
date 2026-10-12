@@ -47,7 +47,8 @@ export class ElevationTileProvider<TPayload = unknown>
   private nextRequestId = 1;
   private readonly active = new Map<number, ActiveRequest>();
 
-  constructor(private readonly elevationProvider: ImageTileProvider<TPayload>) {
+  constructor(private readonly elevationProvider: ImageTileProvider<TPayload>,
+    private readonly options: { readonly missingTile?: "flat" | "failure" } = {}) {
     this.tilePixels = elevationProvider.tilePixels;
   }
 
@@ -87,7 +88,7 @@ export class ElevationTileProvider<TPayload = unknown>
       } else if (result.phase === "failure") {
         // Mapterhorn's 404 is an expected no-data result: topology can use a
         // flat tile while all other elevation failures remain retryable.
-        if (result.status === 404) {
+        if (result.status === 404 && this.options.missingTile !== "failure") {
           this.complete(tile, request);
         } else {
           request.active = false;

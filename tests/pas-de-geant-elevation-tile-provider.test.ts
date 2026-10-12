@@ -108,6 +108,15 @@ describe("Elevation tile provider", () => {
     ]);
   });
 
+  it("keeps a missing declared scientific tile as a failure", () => {
+    const elevation = provider();
+    const surface = new ElevationTileProvider(elevation as unknown as ImageTileProvider, { missingTile: "failure" });
+    const results: TileProviderResult<unknown>[] = [];
+    surface.request({ z: 14, x: 8975, y: 8001 }, (result) => results.push(result));
+    elevation.deliver({ phase: "failure", reason: "declared tile missing", status: 404 });
+    expect(results).toEqual([{ phase: "failure", reason: "declared tile missing", status: 404 }]);
+  });
+
   it("lets an atomic sibling group commit when one elevation cell is a 404", () => {
     let nextRequestId = 1;
     const observers = new Map<

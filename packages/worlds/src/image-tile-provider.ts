@@ -3,9 +3,11 @@ import {
   loadElevationFromNetwork,
   lookupCachedElevation,
   type ElevationCacheOptions,
+  type ElevationCacheStorage,
   type ElevationCacheStatus,
   type ElevationPayload,
 } from "./elevation-cache.js";
+import { availableElevationAncestor, type ElevationAvailability } from "./elevation-availability.js";
 import {
   tileIdentityKey,
   type TileIdentity,
@@ -38,6 +40,9 @@ export interface ElevationProviderMetadata extends ElevationSourceConstraints {
 export interface XyzElevationConfiguration {
   readonly urlTemplate: string;
   readonly headers?: Readonly<Record<string, string>>;
+  readonly availability?: ElevationAvailability;
+  readonly cacheStorage?: ElevationCacheStorage | null;
+  readonly fetcher?: typeof fetch;
 }
 
 export const MAPTERHORN_ELEVATION_PROVIDER_METADATA:
@@ -157,26 +162,14 @@ function sourceMapping(
   });
 }
 
-function ancestorAtZoom(tile: TileIdentity, zoom: number): TileIdentity {
-  const sourceZoom = Math.max(0, Math.min(tile.z, Math.floor(zoom)));
-  const divisor = 2 ** (tile.z - sourceZoom);
-  return {
-    z: sourceZoom,
-    x: Math.floor(tile.x / divisor),
-    y: Math.floor(tile.y / divisor),
-  };
-}
-
 export function elevationSourceMapping(
   tile: TileIdentity,
   maxElevationSourceZoom: number,
+  availability?: ElevationAvailability,
 ): SourceMapping {
   return sourceMapping(
     tile,
-    ancestorAtZoom(
-      tile,
-      elevationSourceZoomForTile(tile, maxElevationSourceZoom),
-    ),
+    availableElevationAncestor(tile, elevationSourceZoomForTile(tile, maxElevationSourceZoom), availability),
   );
 }
 
@@ -575,7 +568,7 @@ async function decodeElevationSource(
 export function createElevationTileProvider(
   metadata: ElevationProviderMetadata,
   maxElevationSourceZoom: number,
-  options: ElevationCacheOptions = {},
+  options: ElevationCacheOptions & { readonly availability?: ElevationAvailability } = {},
 ): ImageTileProvider<ElevationPayload> {
   return new ImageTileProvider({
     mode: "terrain",
@@ -583,7 +576,7 @@ export function createElevationTileProvider(
     attribution: metadata.attribution,
     processingConcurrency: 4,
     resolveSource: (tile) =>
-      elevationSourceMapping(tile, maxElevationSourceZoom),
+      elevationSourceMapping(tile, maxElevationSourceZoom, options.availability),
     loadFromCache: async (source, signal) => {
       return await lookupCachedElevation(source, signal, options.cacheStorage, true, options.urlTemplate);
     },
@@ -609,51 +602,21 @@ export function createElevationTileProvider(
   });
 }
 
-interface XyzElevationPayload {
-  readonly blob: Blob;
-  readonly byteLength: number;
-  readonly cacheStatus: "provider";
-}
-
 /** Provider-neutral XYZ height source used by preprocessed planetary datasets. */
 export function createXyzElevationTileProvider(
   metadata: ElevationProviderMetadata,
   maxElevationSourceZoom: number,
   configuration: XyzElevationConfiguration,
-): ImageTileProvider<XyzElevationPayload> {
-  return new ImageTileProvider<XyzElevationPayload>({
-    mode: "terrain",
-    tilePixels: metadata.tilePixels,
-    attribution: metadata.attribution,
-    processingConcurrency: 4,
-    resolveSource: (tile) =>
-      elevationSourceMapping(tile, maxElevationSourceZoom),
-    loadSource: async (source, signal) => {
-      const url = configuration.urlTemplate
-        .replaceAll("{z}", String(source.z))
-        .replaceAll("{x}", String(source.x))
-        .replaceAll("{y}", String(source.y));
-      const response = await fetch(url, {
-        signal,
-        headers: configuration.headers,
-      });
-      if (!response.ok) {
-        throw new HttpTileError(
-          response.status,
-          `Elevation tile ${tileIdentityKey(source)} failed with ${response.status}.`,
-        );
-      }
-      const blob = await response.blob();
-      return {
-        blob,
-        byteLength: blob.size,
-        cacheStatus: "provider",
-      };
-    },
-    processSource: async (_source, payload, signal) => ({
-      image: await decodeBlobImage(payload.blob, metadata.tilePixels, signal),
-      byteLength: payload.byteLength,
-      cacheStatus: payload.cacheStatus,
-    }),
+): ImageTileProvider<ElevationPayload> {
+  const fetcher = configuration.fetcher ?? fetch;
+  return createElevationTileProvider(metadata, maxElevationSourceZoom, {
+    urlTemplate: configuration.urlTemplate,
+    availability: configuration.availability,
+    cacheStorage: configuration.cacheStorage,
+    fetcher: configuration.headers ? (input, init) => {
+      const headers = new Headers(init?.headers);
+      for (const [name, value] of Object.entries(configuration.headers!)) headers.set(name, value);
+      return fetcher(input, { ...init, headers });
+    } : fetcher,
   });
 }

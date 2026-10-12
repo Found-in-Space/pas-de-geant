@@ -120,6 +120,7 @@ export function lunarElevationProvider(source?: ElevationSource): TerrainElevati
   }
   const configuration: XyzElevationConfiguration = {
     urlTemplate: surfaceSourceUrl(import.meta.env.PAS_DE_GEANT_LUNAR_ELEVATION_URL_TEMPLATE || tileProxyUrlTemplate("lunar-elevation"), source.grid, source.identity),
+    availability: source.availability,
   };
   assertDevelopmentTileSource(configuration.urlTemplate, { development: import.meta.env.DEV, allowDirectMapTiler: import.meta.env.PAS_DE_GEANT_DIRECT_MAPTILER_ALLOWED === true });
   return new ElevationTileProvider(
@@ -128,5 +129,6 @@ export function lunarElevationProvider(source?: ElevationSource): TerrainElevati
       source.metadata.maxSourceZoom,
       configuration,
     ),
+    { missingTile: "failure" },
   );
 }

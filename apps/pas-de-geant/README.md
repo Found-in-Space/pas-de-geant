@@ -342,6 +342,28 @@ samples. Browser request URLs and provider identities include grid/product
 identity so switching a local dataset cannot reuse old geographic cache bytes.
 Published migrations require new immutable prefixes.
 
+The sibling `terrain-pipeline` produces controlled height products for all six
+Apollo landing sites. Its initial recipe composes global LOLA, regional
+SLDEM2015 and local LROC NAC DTMs on this same Mercator grid. It converts native
+units to scalar metres, retains nodata masks and declares 128 m transitions
+inside overlay edges before Terrarium encoding. Terrarium decodes as
+`R × 256 + G + B / 256 − 32768` metres, with at most 1/512 m encoding error.
+Source spacing and stereo uncertainty remain distinct from that encoding error.
+
+Prepared height descriptors may carry `availability`, with a complete global
+maximum zoom and inclusive `[z, minX, minY, maxX, maxY]` detail ranges. The shared
+height provider selects the finest available ancestor; its existing crop UVs
+serve finer mesh patches. Outside local coverage it selects regional or global
+heights. A missing declared tile remains a failure, so incomplete products
+cannot become flat terrain. Prepared PNGs use the same indefinite browser
+elevation cache, scoped by the grid and product identity in their URLs.
+
+Build and validate the independent terrain product, then set
+`PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY` to its `elevation` directory. No special
+Apollo renderer, mesh pipeline or imagery change is required. Keep a rollback
+configuration for the previous product. Initial producer outputs are scratch;
+desktop/Quest visual acceptance and catalog publication are separate steps.
+
 The GDAL helper produces small display fixtures or scratch elevation migration
 outputs; controlled publication imagery belongs to the sibling texture
 pipeline. The helper requires an embedded or explicitly reviewed lunar source

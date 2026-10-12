@@ -69,6 +69,16 @@ by filename alone.
 
 ## Measured elevation refinement
 
+Prepared terrain detail now uses the sibling `terrain-pipeline` contract.
+Terrarium scalar heights and optional sparse `availability` are admitted by the
+shared source loader. The height provider resolves the finest available ancestor
+and uses ordinary XYZ crop UVs. The Apollo example composes LOLA, SLDEM2015 and
+six local LROC DTMs, with explicit conversions, valid masks and transition
+widths. Numeric source preservation and encoding validation belong to that
+producer. The shared renderer and topology planner handle the resulting pages.
+Declared missing pages fail instead of flattening; source/grid identity scopes
+the existing indefinite browser elevation cache.
+
 The elevation crop scan and cache lifecycle adapt commit
 `34c4e339fcc2dc2c5e6167a4e6251818730f2ca2` from the Mac worktree. The same helper
 decodes Earth Terrarium and Moon RG16, includes contributing bilinear edge

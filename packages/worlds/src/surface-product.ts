@@ -2,6 +2,7 @@ import type { CelestialBodyDefinition } from "./solar-system.js";
 import { productTileGrid, sameTileGrid, type TileGrid } from "./tile-grid.js";
 import type { HeightEncoding } from "./surface-model.js";
 import type { ElevationProviderMetadata } from "./image-tile-provider.js";
+import { elevationAvailability, type ElevationAvailability } from "./elevation-availability.js";
 
 type ProductBody = Pick<CelestialBodyDefinition, "id" | "referenceRadiusM" | "shape">;
 const bodyGridRadius = (body: ProductBody): number => body.shape.kind === "sphere"
@@ -19,6 +20,7 @@ export interface ElevationSource {
   readonly grid: TileGrid;
   readonly heightEncoding: HeightEncoding;
   readonly metadata: ElevationProviderMetadata;
+  readonly availability?: ElevationAvailability;
 }
 
 /** Admit the producer's display contract, including explicit legacy semantics. */
@@ -49,8 +51,8 @@ export function elevationSource(value: unknown, body: ProductBody): ElevationSou
   if (!product || product.kind !== "elevation-xyz" || product.formatVersion !== 2 ||
     product.target !== body.id || product.units !== "metres" ||
     product.verticalDatum?.kind !== "reference-surface" || product.verticalDatum.radiusMetres !== bodyGridRadius(body) ||
-    product.encoding?.kind !== "rg16" || typeof product.encoding.scaleM !== "number" || product.encoding.scaleM <= 0 ||
-    !Number.isFinite(product.encoding.scaleM) || !Number.isFinite(product.encoding.offsetM) ||
+    !((product.encoding?.kind === "rg16" && Number.isFinite(product.encoding.scaleM) && product.encoding.scaleM > 0 &&
+       Number.isFinite(product.encoding.offsetM)) || product.encoding?.kind === "terrarium") ||
     !Number.isSafeInteger(product.tileSize) || product.tileSize <= 0 ||
     !Number.isSafeInteger(product.maximumZoom) || product.maximumZoom < 0 ||
     !Number.isFinite(product.elevationBoundsMetres?.minimum) || !Number.isFinite(product.elevationBoundsMetres?.maximum) ||
@@ -59,7 +61,9 @@ export function elevationSource(value: unknown, body: ProductBody): ElevationSou
     throw new Error("Incomplete or unsupported elevation source descriptor.");
   }
   return { identity: product.identity, grid: productTileGrid(2, product.grid, bodyGridRadius(body)),
-    heightEncoding: { kind: "rg16", scaleM: product.encoding.scaleM, offsetM: product.encoding.offsetM },
+    heightEncoding: product.encoding.kind === "terrarium" ? { kind: "terrarium" }
+      : { kind: "rg16", scaleM: product.encoding.scaleM, offsetM: product.encoding.offsetM },
+    ...(product.availability === undefined ? {} : { availability: elevationAvailability(product.availability, product.maximumZoom) }),
     metadata: { tilePixels: product.tileSize, maxSourceZoom: product.maximumZoom,
       elevationBoundsMetres: product.elevationBoundsMetres, attribution: product.attribution ?? "Elevation source" } };
 }
