@@ -58,7 +58,9 @@ texture to use the same streamed-surface implementation on another body;
 shape and radius. Omitting an elevation provider gives a flat reference surface
 without contacting an Earth service. The Earth application explicitly supplies
 its Mapterhorn provider and WGS84/Mercator model. The lunar source uses its
-reference sphere, geographic grid, and LOLA red/green height encoding.
+reference sphere, the same Mercator scheme as Earth, and LOLA red/green height
+encoding. `MOON_GEOGRAPHIC_SURFACE_MODEL` is the explicit compatibility model
+for existing geographic products.
 
 `WorldSurfaceSource` supplies source-specific projection, height decoding,
 attribution, bounds, imagery, and display choices through the surface model and
@@ -68,9 +70,61 @@ The texture pipeline remains the display-texture producer, with scientific
 elevation following its own contract. Relief exaggeration and the lunar tone
 curve are presentation choices, not measurements or changes to source data.
 
+`SparseImageryProvider` selects one available opaque tile from providers sharing
+the same XYZ grid and tile size. Source indexes declare exact coverage; the best
+available resolution wins, with priority deciding ties. Its `resolveSource`
+hook runs before the shared source queue so requests above a local resolution
+cap share the same parent acquisition and decode. The texture tree and shader
+sample that parent normally. Reprojection and masked compositing belong in the
+producer, before the tiles enter this runtime.
+
+Rendering and resource admission share `surfaceModel.visibilityGeometry` and
+`surfaceDisplacementBounds`. Body-local coordinates are physical metres divided
+by the body's reference radius; the geometry normalizes the actual sphere or
+ellipsoid rather than assuming WGS84. Elevation bounds are decoded metres,
+scaled by the terrain multiplier; skirts use render metres. The conservative
+inner occluding shell accounts for negative elevation and mesh chord error,
+while the outer shell includes raised terrain and temporarily flat meshes.
+Unknown bounds retain planner candidates conservatively. These are geometric
+bounds, not a measured terrain horizon.
+
+`world.beforeRender(camera)` supplies actual body-local eye positions to both
+terrain and imagery admission, enclosing the XR eyes in an observer sphere. Head direction
+and frusta affect only render visibility. Admission hydrates the existing
+complete planner cut and replacement dependencies; it does not create tiles or
+change the planner's grid or LOD. In surface mode, eye height is measured above
+the terrain contact pinned to the host floor.
+
+`TileGrid` identifies projection, version and reference radius. Display format
+2 products must declare it; `displayTextureSource` admits their opaque XYZ
+metadata and separate authenticated equirectangular `base.png`. Format 1 lunar
+products retain geographic interpretation and their zoom-0 base. Scientific
+heights use the separate `elevationSource` contract (metres, reference surface,
+encoding, global bounds). `requireCompatibleSurfaceSources` rejects mixing
+grids. Provider identities include product/grid identity; migration requires new
+payload paths. Mercator covers ±85.05112878°; the shared polar caps use the
+equirectangular base and flat reference height beyond that limit.
+
+Mesh elevation UVs and CPU ground sampling both use projected coordinates,
+matching imagery. The mesh layout and height shader remain shared across bodies.
+
+Render visibility scans the texels that contribute to each decoded elevation
+crop, including its bilinear halo, using the surface's height encoding. Bounds
+are cached by image and crop; buffers used only for bounds are released after
+the turn. Ground-sampling buffers remain reusable. Measured extrema tighten
+each mesh's frustum and target-horizon bounds, while the occluding shell and
+resource admission retain the provider's conservative global envelope. Pending
+sources use that envelope; confirmed flat meshes use zero heights. Runtime
+metrics report measured and provider-fallback bound counts. This refinement
+adapts the measured-bounds work from commit `34c4e339fcc2dc2c5e6167a4e6251818730f2ca2`
+to both Terrarium and RG16 surfaces.
+
 For a surface beneath an observer, use `solveBodySurfacePose` with the runtime's
-`surfaceModel`. It preserves the transported contact frame used for travel, on
-spherical and ellipsoidal bodies. `solvePlanetPose` remains the legacy WGS84
+`surfaceModel` and the loaded `surface.sampleElevationMetres(latitude, longitude)`
+as its fifth argument. The solver applies the state's terrain multiplier and
+pins that displaced contact to the host floor; with no elevation argument it
+pins the reference surface. It preserves the transported contact frame used for
+travel, on spherical and ellipsoidal bodies. `solvePlanetPose` remains the legacy WGS84
 wrapper. Physical positions and reference radii are metres; display radii and
 observer heights use the host's render units. Body-fixed axes are X at latitude
 0/longitude 0, Y north, and negative Z east.
@@ -169,3 +223,13 @@ Use the root entry point for runtime composition. Subpaths such as
 and `/tile-debug-controls` expose the existing lower-level capabilities used
 by the applications, diagnostics, and tests. These alpha contracts may evolve
 together; implementation changes should preserve the Earth and Moon regressions.
+
+## Persistent tile caching
+
+Configured imagery and Earth elevation use browser Cache Storage before network
+work, including same-origin `/api/tiles` URLs. Good responses remain reusable
+indefinitely, independent of HTTP freshness headers; browser storage eviction
+and explicit invalidation still apply. Legacy synthetic fallback responses are
+rejected and retried rather than retained as imagery or elevation. Source URLs
+(including product/grid identity) distinguish versions; change that identity
+or explicitly invalidate retained entries when replacing source content.

@@ -100,7 +100,7 @@ import {
   MAPTILER_IMAGERY_VARIANT_PARAMETER,
   selectImageryVariant,
 } from "./imagery-variants.js";
-import { proxiedTileConfiguration } from "@found-in-space/worlds/tile-proxy";
+import { elevationSourceOptions } from "./elevation-configuration.js";
 import {
   applyTerrainMultiplierRate,
   contactFrame,
@@ -114,6 +114,8 @@ import {
   type PlanetState,
 } from "@found-in-space/worlds/planet-state";
 import { resolveInitialWorldLocation } from "./initial-location.js";
+import { worldLaunchFromQuery } from "./world-launch.js";
+import { observeBodySurface, type BodySurfaceView } from "./body-surface-view.js";
 import {
   greatCircleDistanceKm,
   LocationPinStore,
@@ -321,7 +323,8 @@ const element = <T extends HTMLElement>(id: string): T => {
 
 const sceneRoot = element<HTMLDivElement>("scene-root");
 const benchmarkParameters = new URLSearchParams(window.location.search);
-const initialFocusBodyId = benchmarkParameters.get("world") === "moon" ? "moon" : "earth";
+const worldLaunch = worldLaunchFromQuery(benchmarkParameters);
+const initialFocusBodyId = worldLaunch.body;
 const vrSlot = element<HTMLDivElement>("vr-slot");
 const worldCheck = element<HTMLLIElement>("world-check");
 const worldCheckStatus = element<HTMLSpanElement>("world-check-status");
@@ -340,12 +343,16 @@ const earthImageryCredit = imageryCredit.innerHTML;
 const researchRegion = element<HTMLElement>("research-region");
 const researchAnswer = element<HTMLParagraphElement>("research-answer");
 const researchSources = element<HTMLUListElement>("research-sources");
-const initialLocationPromise = resolveInitialWorldLocation(initialFocusBodyId);
+const initialLocationPromise = worldLaunch.location ? Promise.resolve(worldLaunch.location) : resolveInitialWorldLocation(initialFocusBodyId);
 if (initialFocusBodyId === "moon") {
   document.title = "Walk on the Moon — Pas de Géant";
   element<HTMLElement>("preflight-title").textContent = "Walk on the Moon";
   worldCheck.querySelector("strong")!.textContent = "Lunar surface";
   locationCheckStatus.textContent = "Choosing lunar starting point";
+  if (worldLaunch.label) {
+    document.title = `${worldLaunch.label} — Pas de Géant`;
+    element<HTMLElement>("preflight-title").textContent = `${worldLaunch.label} · 1:${worldLaunch.scaleDenominator}`;
+  }
 }
 
 type PreflightState = "pending" | "ready" | "failed";
@@ -499,7 +506,7 @@ celestialSphere.setVisibility("planets", false);
 scene.add(celestialSphere.object3d);
 const textureLoader = new THREE.TextureLoader();
 const worldRuntimes: WorldRuntime[] = [];
-const lunarSurfacePromise = lunarSurfaceSource(renderer);
+const lunarSurfacePromise = lunarSurfaceSource(renderer, { preview: worldLaunch.lunarPreview });
 void lunarSurfacePromise.then(
   (source) => {
     const texture = source.baseTexture.clone();
@@ -539,16 +546,8 @@ const selectedImageryConfiguration = baseImageryConfiguration
       benchmarkParameters.get(MAPTILER_IMAGERY_VARIANT_PARAMETER),
     )
   : undefined;
-const runtimeImageryConfiguration = selectedImageryConfiguration
-  ? proxiedTileConfiguration(
-      selectedImageryConfiguration,
-      selectedImageryConfiguration === baseImageryConfiguration
-        ? "textures-source"
-        : "textures",
-    )
-  : undefined;
 const photographicImageryProvider =
-  configuredXyzImageryProvider(runtimeImageryConfiguration);
+  configuredXyzImageryProvider(selectedImageryConfiguration);
 document.body.dataset.imageryProvider =
   photographicImageryProvider?.id ?? "blue-marble";
 document.body.dataset.imageryTileSize = String(
@@ -599,7 +598,8 @@ let scaleTransition: TimedTransition<number> | undefined;
 let headingTransition: TimedTransition<number> | undefined;
 let navigationMode: NavigationMode = "surface";
 let focusBodyId: SolarSystemBodyId = initialFocusBodyId;
-let scaleDenominator = DEFAULT_SCALE_DENOMINATOR;
+const launchScaleDenominator = worldLaunch.scaleDenominator ?? DEFAULT_SCALE_DENOMINATOR;
+let scaleDenominator = launchScaleDenominator;
 let freeObserverJ2000M: Vector3d | undefined;
 let navigationRealm: "solar_system" | "stellar" = "solar_system";
 let activeJourneySample: EarthToGaiaTimelineSample | null = null;
@@ -624,7 +624,7 @@ let freeNavigationFrame: FreeNavigationFrame | undefined;
 const benchmarkScaleDenominator = Number(
   benchmarkParameters.get("benchmarkScaleDenominator"),
 );
-if (Number.isFinite(benchmarkScaleDenominator) && benchmarkScaleDenominator > 0) {
+if (worldLaunch.scaleDenominator === undefined && Number.isFinite(benchmarkScaleDenominator) && benchmarkScaleDenominator > 0) {
   scaleDenominator = benchmarkScaleDenominator;
 }
 
@@ -668,6 +668,7 @@ const earthWorld = createWorldRuntime({
     elevationProvider: new ElevationTileProvider(createElevationTileProvider(
       EARTH_SURFACE_MODEL.elevationMetadata,
       EARTH_SURFACE_MODEL.elevationMetadata.maxSourceZoom,
+      elevationSourceOptions(),
     )),
   },
   initialView: {
@@ -758,7 +759,7 @@ function updateWorldCredits(): void {
     terrainCredit.textContent = import.meta.env.PAS_DE_GEANT_LUNAR_ELEVATION_CONFIGURED
       ? "Terrain: NASA LRO / LOLA"
       : "Terrain: lunar reference sphere · no elevation data";
-    imageryCredit.textContent = "Imagery: NASA LRO / LROC";
+    imageryCredit.textContent = `Imagery: ${provider?.attribution ?? "NASA LRO / LROC"}`;
   } else {
     terrainCredit.innerHTML = earthTerrainCredit;
     imageryCredit.innerHTML = earthImageryCredit;
@@ -1267,7 +1268,7 @@ function resetPlanet(): void {
     simulationClock: state.simulationClock,
     eclipse: state.eclipse,
   };
-  scaleDenominator = DEFAULT_SCALE_DENOMINATOR;
+  scaleDenominator = launchScaleDenominator;
   previousXrHead = null;
   freeObserverJ2000M = undefined;
   if (navigationMode === "free") {
@@ -2355,9 +2356,13 @@ function terrainViewMetrics(): {
   const viewCamera = currentViewCamera();
   viewCamera.updateWorldMatrix(true, false);
   viewCamera.getWorldPosition(terrainEyeWorldPosition);
-  // The local-floor reference space measures eye height from world y=0,
-  // which is the un-displaced flat base surface used for terrain LOD.
-  const eyeHeightWorldM = Math.max(0.001, terrainEyeWorldPosition.y);
+  // Measure the posed surface, so LOD follows the same elevation as rendering.
+  const eyeHeightWorldM = navigationMode === "surface"
+    ? bodySurfaceView(
+        focusBodyId === "moon" ? "moon" : "earth",
+        focusBodyId === "moon" ? moonRoot : planetRoot,
+      ).observerHeightWorldM
+    : Math.max(0.001, terrainEyeWorldPosition.y);
   let focalLengthPixels = 1;
   if (renderer.xr.isPresenting) {
     const xrCamera = renderer.xr.getCamera();
@@ -2384,52 +2389,15 @@ function terrainViewMetrics(): {
   };
 }
 
-interface BodySurfaceView {
-  latitudeDegrees: number;
-  longitudeDegrees: number;
-  observerHeightWorldM: number;
-  displayRadiusM: number;
-}
-
 function bodySurfaceView(
   bodyId: "earth" | "moon",
   root: THREE.Object3D,
 ): BodySurfaceView {
-  const viewCamera = currentViewCamera();
-  viewCamera.updateWorldMatrix(true, false);
-  root.updateWorldMatrix(true, false);
-  const headLocal = viewCamera.getWorldPosition(new THREE.Vector3());
-  root.worldToLocal(headLocal);
-  const displayRadiusM = root.getWorldScale(new THREE.Vector3()).x;
-  if (bodyId === "earth") {
-    const earthReferenceRadiusM = celestialBody("earth").referenceRadiusM;
-    const observation = eclipseEarthSurfaceObservation(
-      headLocal.multiplyScalar(earthReferenceRadiusM),
-    );
-    return {
-      latitudeDegrees: observation.latitudeDegrees,
-      longitudeDegrees: observation.longitudeDegrees,
-      observerHeightWorldM: Math.max(
-        0.001,
-        headsetMetresForPhysicalMetres(
-          observation.headDistancePhysicalM,
-          scaleDenominator,
-        ),
-      ),
-      displayRadiusM,
-    };
-  }
-  const distance = Math.max(Number.EPSILON, headLocal.length());
-  return {
-    latitudeDegrees: THREE.MathUtils.radToDeg(Math.asin(
-      THREE.MathUtils.clamp(headLocal.y / distance, -1, 1),
-    )),
-    longitudeDegrees: THREE.MathUtils.radToDeg(
-      Math.atan2(-headLocal.z, headLocal.x),
-    ),
-    observerHeightWorldM: Math.max(0.001, (distance - 1) * displayRadiusM),
-    displayRadiusM,
-  };
+  return observeBodySurface({
+    bodyId, root, camera: currentViewCamera(),
+    surface: bodyId === "moon" ? moonTerrain : terrain,
+    terrainMultiplier: state.terrainMultiplier,
+  });
 }
 
 function focusSurfaceAltitudePhysicalM(): number | undefined {
@@ -2727,6 +2695,9 @@ function updatePresentation(when = presentationDate()): void {
       solveBodySurfacePose(
         state, headsetFloorPosition, focusedDisplayRadiusM(),
         focusBodyId === "moon" ? moonWorld.surfaceModel : earthWorld.surfaceModel,
+        focusedTerrain().sampleElevationMetres(
+          coordinates.latitudeDegrees, coordinates.longitudeDegrees,
+        ),
       ),
     );
   }
@@ -2777,7 +2748,6 @@ function updatePresentation(when = presentationDate()): void {
     observerHeightWorldM:
       moonOrbitalView?.observerHeightWorldM ?? view.eyeHeightWorldM,
     focalLengthPixels: view.focalLengthPixels,
-    projection: "geographic",
   });
   atmosphere.update({
     displayRadiusM: earthOrbitalView?.displayRadiusM ?? earthDisplayRadiusM,
@@ -4010,6 +3980,9 @@ function debugControlState(): Record<string, unknown> {
     scaleDenominator,
     focusedBodyDisplayRadiusM: focusedDisplayRadiusM(),
     terrainMultiplier: state.terrainMultiplier,
+    surfaceView: focusBodyId === "earth" || focusBodyId === "moon"
+      ? bodySurfaceView(focusBodyId, focusBodyId === "moon" ? moonRoot : planetRoot)
+      : null,
     view: {
       pitchRadians: pitch,
       yawRadians: yaw,
@@ -4501,9 +4474,10 @@ function render(nowMs: number): void {
       updateDesktopControls(deltaSeconds);
     }
   }
+  // Publish loaded tiles before anchoring and measuring this frame's ground.
+  for (const world of worldRuntimes) world.processFrame();
   updatePresentation(when);
   applyJourneyVisualOpacity();
-  for (const world of worldRuntimes) world.processFrame();
   const pinCoordinates = coordinatesForFrame(state.contact);
   locationPinLayer.update({
     pinState: locationPinStore.snapshot(),

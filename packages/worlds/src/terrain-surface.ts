@@ -48,6 +48,7 @@ import {
 } from "./tile-debug-controls.js";
 import {
   TileHorizonCulling,
+  plannerHorizonCandidates,
   type TileHorizonView,
 } from "./tile-horizon-culling.js";
 import {
@@ -67,9 +68,14 @@ import {
   EARTH_SURFACE_MODEL,
   type SurfaceModel,
 } from "./surface-model.js";
+import {
+  meshCellAngularRadius,
+  surfaceDisplacementBounds,
+  TERRAIN_SKIRT_DEPTH_WORLD_METRES,
+} from "./surface-visibility-geometry.js";
 
 const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
-const SKIRT_DEPTH_WORLD_METRES = 0.02;
+const SKIRT_DEPTH_WORLD_METRES = TERRAIN_SKIRT_DEPTH_WORLD_METRES;
 const TRANSIENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
 /** Geometry LOD density; deliberately independent from imagery texel density. */
 export const TERRAIN_TARGET_SCREEN_PIXELS_PER_ELEVATION_PIXEL =
@@ -80,7 +86,7 @@ export interface TerrainSurfaceView {
   readonly longitudeDegrees: number;
   readonly displayRadiusM: number;
   readonly terrainMultiplier: number;
-  /** Eye height above the un-displaced, flat local surface in render metres. */
+  /** Eye height above the local terrain contact in render metres. */
   readonly observerHeightWorldM: number;
   readonly focalLengthPixels: number;
   readonly projection?: "web-mercator" | "geographic";
@@ -118,6 +124,7 @@ interface SurfaceMesh {
   readonly tile: TileIdentity;
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   readonly visibilityEntry: TerrainRenderVisibilityEntry;
+  elevationResource?: ElevationTileResource;
   elevation?: ImageTileResource;
   elevationTexture?: THREE.Texture;
 }
@@ -190,7 +197,7 @@ export function sampleTerrariumElevationMetres(
   );
 }
 
-function sampleEncodedElevationMetres(
+export function sampleEncodedElevationMetres(
   pixels: Uint8ClampedArray,
   width: number,
   height: number,
@@ -227,6 +234,67 @@ function sampleEncodedElevationMetres(
     amountX,
   );
   return THREE.MathUtils.lerp(northElevation, southElevation, amountY);
+}
+
+function bilinearTexelRange(
+  offset: number,
+  scale: number,
+  size: number,
+): { readonly first: number; readonly last: number } {
+  const firstSample = Math.max(
+    0,
+    Math.min(size - 1, offset / scale * size - 0.5),
+  );
+  const lastSample = Math.max(
+    0,
+    Math.min(size - 1, (offset + 1) / scale * size - 0.5),
+  );
+  return {
+    first: Math.floor(firstSample),
+    last: Math.ceil(lastSample),
+  };
+}
+
+/**
+ * Conservative extrema for every source texel that can contribute to the
+ * tile's manually bilinear shader samples, including overzoom crop edges.
+ */
+export function elevationBoundsForTile(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  resource: Pick<
+    ImageTileResource,
+    "sourceScale" | "sourceOffsetX" | "sourceOffsetY"
+  >,
+  encoding: SurfaceModel["heightEncoding"],
+): { readonly minimum: number; readonly maximum: number } {
+  const columns = bilinearTexelRange(
+    resource.sourceOffsetX,
+    resource.sourceScale,
+    width,
+  );
+  const rows = bilinearTexelRange(
+    resource.sourceOffsetY,
+    resource.sourceScale,
+    height,
+  );
+  let minimum = Number.POSITIVE_INFINITY;
+  let maximum = Number.NEGATIVE_INFINITY;
+  for (let y = rows.first; y <= rows.last; y += 1) {
+    for (let x = columns.first; x <= columns.last; x += 1) {
+      const offset = (y * width + x) * 4;
+      const elevation = decodeHeightMetres(
+        encoding,
+        pixels[offset]!,
+        pixels[offset + 1]!,
+        pixels[offset + 2]!,
+      );
+      minimum = Math.min(minimum, elevation);
+      maximum = Math.max(maximum, elevation);
+    }
+  }
+  return Object.freeze({ minimum, maximum });
 }
 
 export function terrainTargetForView(
@@ -275,7 +343,7 @@ function sameCut(
   return true;
 }
 
-function patchGeometry(
+export function terrainPatchGeometry(
   bounds: { west: number; east: number; north: number; south: number },
   columns: number,
   rows: number,
@@ -294,8 +362,6 @@ function patchGeometry(
   const appendVertex = (
     latitude: number,
     longitude: number,
-    tileU: number,
-    tileV: number,
     skirt: number,
   ): number => {
     const vertex = surfaceModel.positionAndNormal(latitude, longitude);
@@ -303,13 +369,15 @@ function patchGeometry(
     normals.push(vertex.normal.x, vertex.normal.y, vertex.normal.z);
     const baseUv = surfaceModel.baseTextureUv(latitude, longitude);
     baseUvs.push(baseUv.u, baseUv.v);
-    tileUvs.push(tileU, tileV);
     const imageryUv = imageryUvForGeographicPoint(
       bounds,
       latitude,
       longitude,
       surfaceModel.projection,
     );
+    // Elevation and imagery share a grid. Mesh rows are uniform in latitude,
+    // so Mercator elevation UVs must also use projected Y, as CPU sampling does.
+    tileUvs.push(imageryUv.u, 1 - imageryUv.v);
     imageryUvs.push(imageryUv.u, imageryUv.v);
     skirts.push(skirt);
     return positions.length / 3 - 1;
@@ -327,8 +395,6 @@ function patchGeometry(
       appendVertex(
         latitude,
         THREE.MathUtils.lerp(bounds.west, bounds.east, columnFraction),
-        columnFraction,
-        1 - rowFraction,
         0,
       );
     }
@@ -421,6 +487,28 @@ function patchGeometry(
 
 function tileTint(zoom: number): THREE.Color {
   return new THREE.Color().setHSL((((zoom * 0.137) % 1) + 1) % 1, 0.7, 0.48);
+}
+
+/** Bounds the chord error of the complete committed and incoming mesh cut. */
+export function terrainMeshAngularMargin(
+  model: SurfaceModel,
+  tiles: readonly TileIdentity[],
+  lod: NormalizedTerrainLodOptions,
+): number {
+  let margin = 0;
+  const candidates = tiles.length > 0 ? tiles : [{ z: 0, x: 0, y: 0 }];
+  for (const tile of candidates) {
+    margin = Math.max(margin, meshCellAngularRadius(
+      model.visibilityGeometry, model.tileBounds(tile),
+      terrainSegmentsForZoom(tile.z, lod.segmentTiers, model.minimumProjectedWorldSegments),
+    ));
+  }
+  if (model.hasPolarCaps) {
+    margin = Math.max(margin, meshCellAngularRadius(model.visibilityGeometry, {
+      west: -180, east: 180, north: 90, south: WEB_MERCATOR_MAX_LATITUDE,
+    }, 128, 8));
+  }
+  return margin;
 }
 
 const VERTEX_SHADER = `
@@ -629,6 +717,10 @@ export class TerrainSurface {
   >();
   private readonly stagedElevations = new Map<string, HTMLImageElement>();
   private readonly elevationPixels = new WeakMap<HTMLImageElement, ImageData>();
+  private readonly transientElevationPixels = new WeakMap<HTMLImageElement, ImageData>();
+  private readonly transientPixelReleases = new WeakSet<HTMLImageElement>();
+  private readonly elevationBoundsByImage = new WeakMap<HTMLImageElement,
+    Map<string, { readonly minimum: number; readonly maximum: number }>>();
   private readonly elevationSamplingCanvas: HTMLCanvasElement;
   private readonly elevationSamplingContext: CanvasRenderingContext2D;
   private readonly renderer: THREE.WebGLRenderer;
@@ -641,8 +733,16 @@ export class TerrainSurface {
   private snapshot: SchedulerSnapshot<TileLayoutTarget>;
   private currentTarget: TileLayoutTarget;
   private desiredZoom: number | undefined;
+  private maximumMeshZoom = 0;
   private readonly horizonCulling = new TileHorizonCulling();
   private horizonView: TileHorizonView;
+  private meshAngularMargin: number;
+  private resourceCamera: THREE.Camera | undefined;
+  private readonly resourceObserverPositions: THREE.Vector3[] = [];
+  private readonly resourceTerrainWorldInverse = new THREE.Matrix4();
+  private readonly resourceObserverPosition = new THREE.Vector3();
+  private readonly resourceEyePositions: THREE.Vector3[] = [];
+  private resourceObserverRadius = 0;
   private debugControls: TileDebugControls = createTileDebugControls();
   private latestView: TerrainSurfaceView;
 
@@ -661,16 +761,19 @@ export class TerrainSurface {
       this.surfaceModel.elevationMetadata,
       options.terrainLod,
     );
+    this.meshAngularMargin = terrainMeshAngularMargin(this.surfaceModel, [], this.terrainLod);
+    this.latestView = initialView;
     this.renderVisibility = new TerrainRenderVisibility(
       this.group,
       this.surfaceModel.elevationMetadata.elevationBoundsMetres,
-      this.surfaceModel.referenceRadiusM,
+      this.surfaceModel.visibilityGeometry,
     );
     this.renderVisibility.updateDisplacement(
       initialView.terrainMultiplier,
       initialView.displayRadiusM,
+      Math.cos(this.meshAngularMargin),
     );
-    this.latestView = initialView;
+    this.horizonView = this.createHorizonView(initialView);
     this.elevationSamplingCanvas = document.createElement("canvas");
     const elevationSamplingContext = this.elevationSamplingCanvas.getContext(
       "2d",
@@ -696,6 +799,7 @@ export class TerrainSurface {
       options.baseTexture,
       options.imageryProvider,
       initialView,
+      this.horizonView,
     );
     this.provider = elevationProvider;
     this.currentTarget = terrainTargetForView(
@@ -709,12 +813,6 @@ export class TerrainSurface {
       },
     );
     this.desiredZoom = this.currentTarget.maxZoom;
-    this.horizonView = {
-      ...initialView,
-      projection: this.surfaceModel.projection,
-      minimumNormalizedSurfaceRadius:
-        this.surfaceModel.minimumNormalizedSurfaceRadius,
-    };
     this.scheduler = new TileWorkerScheduler(this.currentTarget, {
       provider: this.provider,
       retryDelayMs: 5_000,
@@ -766,6 +864,7 @@ export class TerrainSurface {
       const committedChanged =
         !event && !sameCut(this.snapshot.committedCut, snapshot.committedCut);
       this.snapshot = snapshot;
+      this.refreshSurfaceBounds();
       this.applyHorizonCulling();
       if (
         event?.kind === "atomic-swap" ||
@@ -795,13 +894,10 @@ export class TerrainSurface {
     this.renderVisibility.updateDisplacement(
       view.terrainMultiplier,
       view.displayRadiusM,
+      Math.cos(this.meshAngularMargin),
     );
-    this.horizonView = {
-      ...view,
-      projection: this.surfaceModel.projection,
-      minimumNormalizedSurfaceRadius:
-        this.surfaceModel.minimumNormalizedSurfaceRadius,
-    };
+    if (this.resourceCamera) this.captureObserverPositions(this.resourceCamera);
+    this.horizonView = this.createHorizonView(view);
     if (this.loadingSuspended) return;
     this.imagery.update(view, this.horizonView, {
       recalculateTopology: this.debugControls.textures.recalculationEnabled,
@@ -830,7 +926,8 @@ export class TerrainSurface {
       this.surfaceModel.projection === "web-mercator" &&
       Math.abs(latitudeDegrees) > WEB_MERCATOR_MAX_LATITUDE
     ) return 0;
-    for (let zoom = this.currentTarget.maxZoom; zoom >= 0; zoom -= 1) {
+    // A coarser target may still be transitioning from finer visible meshes.
+    for (let zoom = this.maximumMeshZoom; zoom >= 0; zoom -= 1) {
       const width = 2 ** zoom;
       const projected = projectedTilePoint(
         latitudeDegrees,
@@ -960,7 +1057,71 @@ export class TerrainSurface {
 
   updateRenderVisibility(camera: THREE.Camera): void {
     if (!this.group.visible) return;
+    this.resourceCamera = camera;
+    if (this.captureObserverPositions(camera)) {
+      this.horizonView = this.createHorizonView(this.latestView);
+      if (!this.loadingSuspended) {
+        this.imagery.updateHorizonView(this.horizonView);
+        this.applyHorizonCulling();
+      }
+    }
     this.renderVisibility.update(camera);
+  }
+
+  private captureObserverPositions(camera: THREE.Camera): boolean {
+    this.group.updateWorldMatrix(true, false);
+    this.resourceTerrainWorldInverse.copy(this.group.matrixWorld).invert();
+    const eyes = camera instanceof THREE.ArrayCamera && camera.cameras.length > 0
+      ? camera.cameras : [camera];
+    const centre = this.resourceObserverPosition.set(0, 0, 0);
+    this.resourceEyePositions.length = eyes.length;
+    for (let index = 0; index < eyes.length; index += 1) {
+      const position = this.resourceEyePositions[index] ??= new THREE.Vector3();
+      position
+        .setFromMatrixPosition(eyes[index]!.matrixWorld)
+        .applyMatrix4(this.resourceTerrainWorldInverse);
+      centre.add(position);
+    }
+    centre.multiplyScalar(1 / eyes.length);
+    let radius = 0;
+    for (const eye of this.resourceEyePositions) radius = Math.max(radius, centre.distanceTo(eye));
+    const previous = this.resourceObserverPositions[0];
+    const changed = !previous || !previous.equals(centre) || radius !== this.resourceObserverRadius;
+    if (previous) previous.copy(centre);
+    else this.resourceObserverPositions.push(centre.clone());
+    this.resourceObserverRadius = radius;
+    return changed;
+  }
+
+  private createHorizonView(view: TerrainSurfaceView): TileHorizonView {
+    return {
+      ...view,
+      projection: this.surfaceModel.projection,
+      surfaceGeometry: this.surfaceModel.visibilityGeometry,
+      displacementBounds: surfaceDisplacementBounds(
+        this.surfaceModel.visibilityGeometry,
+        this.surfaceModel.elevationMetadata.elevationBoundsMetres,
+        view.terrainMultiplier, view.displayRadiusM,
+        Math.cos(this.meshAngularMargin),
+      ),
+      meshAngularMargin: this.meshAngularMargin,
+      observerPositions: this.resourceObserverPositions.length > 0
+        ? this.resourceObserverPositions : undefined,
+      observerRadius: this.resourceObserverRadius,
+    };
+  }
+
+  private refreshSurfaceBounds(): void {
+    this.meshAngularMargin = terrainMeshAngularMargin(this.surfaceModel,
+      plannerHorizonCandidates(this.snapshot.committedCut, this.snapshot.graph.groups),
+      this.terrainLod,
+    );
+    const view = this.latestView;
+    this.renderVisibility.updateDisplacement(
+      view.terrainMultiplier, view.displayRadiusM, Math.cos(this.meshAngularMargin),
+    );
+    this.horizonView = this.createHorizonView(view);
+    this.imagery.updateHorizonView(this.horizonView);
   }
 
   setRenderCullingEnabled(enabled: boolean): boolean {
@@ -1066,11 +1227,13 @@ export class TerrainSurface {
   }
 
   private syncMeshes(): void {
+    this.maximumMeshZoom = 0;
     const retained = new Set(
       this.snapshot.committedCut.map((tile) => tileIdentityKey(tile)),
     );
     const obsolete = [...this.meshes].filter(([key]) => !retained.has(key));
     for (const tile of this.snapshot.committedCut) {
+      this.maximumMeshZoom = Math.max(this.maximumMeshZoom, tile.z);
       const key = tileIdentityKey(tile);
       const current = this.meshes.get(key);
       if (current) {
@@ -1104,7 +1267,17 @@ export class TerrainSurface {
     if (retainedTiles) {
       this.scheduler.updateHorizonCulling(retainedTiles);
     }
+    this.refreshMissingElevationBounds();
     this.provider.retainSourceTiles(this.scheduler.workingSetTiles);
+  }
+
+  private refreshMissingElevationBounds(): void {
+    const workingSet = new Set(this.scheduler.workingSetTiles.map(tileIdentityKey));
+    for (const [key, entry] of this.meshes) {
+      if (entry.elevation || entry.elevationResource) continue;
+      this.renderVisibility.setElevationBounds(entry.visibilityEntry,
+        workingSet.has(key) ? undefined : { minimum: 0, maximum: 0 });
+    }
   }
 
   private setDebugControls(
@@ -1133,7 +1306,7 @@ export class TerrainSurface {
       bounds,
       this.surfaceModel.projection,
     );
-    const geometry = patchGeometry(
+    const geometry = terrainPatchGeometry(
       bounds,
       segments,
       segments,
@@ -1156,7 +1329,7 @@ export class TerrainSurface {
     return {
       tile: Object.freeze({ ...tile }),
       mesh,
-      visibilityEntry: createTerrainRenderVisibilityEntry(mesh, true),
+      visibilityEntry: createTerrainRenderVisibilityEntry(mesh, true, this.surfaceModel.visibilityGeometry),
     };
   }
 
@@ -1166,7 +1339,7 @@ export class TerrainSurface {
       { west: -180, east: 180, north: -WEB_MERCATOR_MAX_LATITUDE, south: -90 },
     ]) {
       const mesh = new THREE.Mesh(
-        patchGeometry(bounds, 128, 8, false, this.surfaceModel),
+        terrainPatchGeometry(bounds, 128, 8, false, this.surfaceModel),
         this.surfaceMaterial({
           elevationMap: this.emptyTexture,
           elevationEnabled: 0,
@@ -1178,7 +1351,7 @@ export class TerrainSurface {
       mesh.frustumCulled = false;
       this.group.add(mesh);
       this.polarVisibilityEntries.push(
-        createTerrainRenderVisibilityEntry(mesh, false),
+        createTerrainRenderVisibilityEntry(mesh, false, this.surfaceModel.visibilityGeometry),
       );
     }
   }
@@ -1239,6 +1412,29 @@ export class TerrainSurface {
   private pixelsForElevation(image: HTMLImageElement): ImageData {
     const existing = this.elevationPixels.get(image);
     if (existing) return existing;
+    const pixels = this.readElevationPixels(image);
+    this.elevationPixels.set(image, pixels);
+    return pixels;
+  }
+
+  private pixelsForElevationBounds(image: HTMLImageElement): ImageData {
+    const persistent = this.elevationPixels.get(image);
+    if (persistent) return persistent;
+    const existing = this.transientElevationPixels.get(image);
+    if (existing) return existing;
+    const pixels = this.readElevationPixels(image);
+    this.transientElevationPixels.set(image, pixels);
+    if (!this.transientPixelReleases.has(image)) {
+      this.transientPixelReleases.add(image);
+      queueMicrotask(() => {
+        this.transientElevationPixels.delete(image);
+        this.transientPixelReleases.delete(image);
+      });
+    }
+    return pixels;
+  }
+
+  private readElevationPixels(image: HTMLImageElement): ImageData {
     this.elevationSamplingCanvas.width = image.naturalWidth;
     this.elevationSamplingCanvas.height = image.naturalHeight;
     this.elevationSamplingContext.clearRect(
@@ -1254,8 +1450,23 @@ export class TerrainSurface {
       image.naturalWidth,
       image.naturalHeight,
     );
-    this.elevationPixels.set(image, pixels);
     return pixels;
+  }
+
+  private boundsForElevation(elevation: ImageTileResource): { readonly minimum: number; readonly maximum: number } {
+    let boundsByCrop = this.elevationBoundsByImage.get(elevation.image);
+    if (!boundsByCrop) {
+      boundsByCrop = new Map();
+      this.elevationBoundsByImage.set(elevation.image, boundsByCrop);
+    }
+    const cropKey = [elevation.sourceScale, elevation.sourceOffsetX, elevation.sourceOffsetY].join("/");
+    const existing = boundsByCrop.get(cropKey);
+    if (existing) return existing;
+    const pixels = this.pixelsForElevationBounds(elevation.image);
+    const bounds = elevationBoundsForTile(pixels.data, pixels.width, pixels.height,
+      elevation, this.surfaceModel.heightEncoding);
+    boundsByCrop.set(cropKey, bounds);
+    return bounds;
   }
 
   private stageElevation(
@@ -1310,11 +1521,12 @@ export class TerrainSurface {
     resource: ElevationTileResource | undefined,
   ): void {
     const elevation = resource?.elevation;
-    if (entry.elevation === elevation) {
+    if (entry.elevationResource === resource) {
       this.consumeStagedElevation(entry.tile);
       return;
     }
     this.releaseTexture(this.elevationTextures, entry.elevation?.image);
+    entry.elevationResource = resource;
     entry.elevation = elevation;
     entry.elevationTexture = elevation
       ? this.textureForElevation(elevation)
@@ -1326,6 +1538,10 @@ export class TerrainSurface {
     entry.mesh.material.uniforms.elevationUvTransform!.value = elevation
       ? this.sourceTransform(elevation)
       : new THREE.Vector4(1, 1, 0, 0);
+    const workingSet = this.scheduler.workingSetTiles.some((tile) => tileIdentityKey(tile) === tileIdentityKey(entry.tile));
+    this.renderVisibility.setElevationBounds(entry.visibilityEntry,
+      elevation ? this.boundsForElevation(elevation) : resource || !workingSet
+        ? { minimum: 0, maximum: 0 } : undefined);
   }
 
   private releaseTexture(

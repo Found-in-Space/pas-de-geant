@@ -1,18 +1,16 @@
 import * as THREE from "three";
+import { EARTH_SURFACE_MODEL } from "./surface-model.js";
 import {
-  EARTH_MEAN_RADIUS_KM,
-  WGS84_A_KM,
-  WGS84_B_KM,
-} from "./planet-state.js";
-
-const ELLIPSOID_XZ_SCALE = EARTH_MEAN_RADIUS_KM / WGS84_A_KM;
-const ELLIPSOID_Y_SCALE = EARTH_MEAN_RADIUS_KM / WGS84_B_KM;
-const MAXIMUM_ELLIPSOID_SCALE = Math.max(
-  ELLIPSOID_XZ_SCALE,
-  ELLIPSOID_Y_SCALE,
-);
+  surfaceDisplacementBounds,
+  surfaceVisibilityHorizonRadians,
+  surfaceTargetHorizonRadians,
+  type ElevationBoundsMetres,
+  type SurfaceDisplacementBounds,
+  type SurfaceVisibilityGeometry,
+} from "./surface-visibility-geometry.js";
+export type { ElevationBoundsMetres } from "./surface-visibility-geometry.js";
 const TIMING_SAMPLE_CAPACITY = 900;
-const PACKED_ENTRY_STRIDE = 9;
+const PACKED_ENTRY_STRIDE = 13;
 const PACKED_CENTER_X = 0;
 const PACKED_CENTER_Y = 1;
 const PACKED_CENTER_Z = 2;
@@ -22,11 +20,10 @@ const PACKED_CONE_AXIS_Y = 5;
 const PACKED_CONE_AXIS_Z = 6;
 const PACKED_CONE_COSINE = 7;
 const PACKED_CONE_SINE = 8;
-
-export interface ElevationBoundsMetres {
-  readonly minimum: number;
-  readonly maximum: number;
-}
+const PACKED_SPHERE_EXPANSION = 9;
+const PACKED_HORIZON_DELTA_COSINE = 10;
+const PACKED_HORIZON_DELTA_SINE = 11;
+const PACKED_BOUNDS_FINITE = 12;
 
 export interface TerrainRenderVisibilityEntry {
   readonly mesh: THREE.Mesh;
@@ -40,6 +37,8 @@ export interface TerrainRenderVisibilityEntry {
 export interface TerrainRenderVisibilityMetrics {
   readonly enabled: boolean;
   readonly candidateMeshCount: number;
+  readonly measuredElevationBoundCount: number;
+  readonly providerFallbackElevationBoundCount: number;
   readonly leftEyeVisibleCount: number;
   readonly rightEyeVisibleCount: number;
   readonly stereoUnionVisibleCount: number;
@@ -65,20 +64,6 @@ interface EyeVisibilityState {
   horizonCertain: boolean;
   flatHorizonCosine: number;
   flatHorizonSine: number;
-  elevatedHorizonCosine: number;
-  elevatedHorizonSine: number;
-}
-
-function finiteElevationBounds(
-  bounds: ElevationBoundsMetres | undefined,
-): ElevationBoundsMetres | undefined {
-  if (
-    !bounds ||
-    !Number.isFinite(bounds.minimum) ||
-    !Number.isFinite(bounds.maximum) ||
-    bounds.minimum > bounds.maximum
-  ) return undefined;
-  return bounds;
 }
 
 function percentile(sorted: readonly number[], amount: number): number {
@@ -100,8 +85,6 @@ function eyeVisibilityState(): EyeVisibilityState {
     horizonCertain: false,
     flatHorizonCosine: 1,
     flatHorizonSine: 0,
-    elevatedHorizonCosine: 1,
-    elevatedHorizonSine: 0,
   };
 }
 
@@ -112,6 +95,7 @@ function eyeVisibilityState(): EyeVisibilityState {
 export function createTerrainRenderVisibilityEntry(
   mesh: THREE.Mesh<THREE.BufferGeometry>,
   usesElevationBounds: boolean,
+  bodyGeometry: SurfaceVisibilityGeometry = EARTH_SURFACE_MODEL.visibilityGeometry,
 ): TerrainRenderVisibilityEntry {
   const geometry = mesh.geometry;
   if (geometry.boundingSphere === null) geometry.computeBoundingSphere();
@@ -121,12 +105,12 @@ export function createTerrainRenderVisibilityEntry(
   }
 
   const coneAxis = boundingSphere.center.clone().set(
-    boundingSphere.center.x * ELLIPSOID_XZ_SCALE,
-    boundingSphere.center.y * ELLIPSOID_Y_SCALE,
-    boundingSphere.center.z * ELLIPSOID_XZ_SCALE,
+    boundingSphere.center.x * bodyGeometry.xzScale,
+    boundingSphere.center.y * bodyGeometry.yScale,
+    boundingSphere.center.z * bodyGeometry.xzScale,
   );
   const coneCentreDistance = coneAxis.length();
-  const coneRadius = boundingSphere.radius * MAXIMUM_ELLIPSOID_SCALE;
+  const coneRadius = boundingSphere.radius * bodyGeometry.maximumScale;
   if (
     !Number.isFinite(coneCentreDistance) ||
     !Number.isFinite(coneRadius) ||
@@ -171,13 +155,13 @@ export class TerrainRenderVisibility {
   private readonly expandedSphere = new THREE.Sphere();
   private readonly timingSamples = new Float64Array(TIMING_SAMPLE_CAPACITY);
   private readonly elevationBounds: ElevationBoundsMetres | undefined;
+  private readonly measuredBounds = new WeakMap<TerrainRenderVisibilityEntry, ElevationBoundsMetres>();
+  private readonly entryIndices = new WeakMap<TerrainRenderVisibilityEntry, number>();
   private enabledValue = true;
   private terrainMultiplier = Number.NaN;
   private displayRadiusM = Number.NaN;
-  private sphereExpansion = Number.POSITIVE_INFINITY;
-  private elevationHorizonCertain = false;
-  private displacementHorizonCosine = 1;
-  private displacementHorizonSine = 0;
+  private minimumMeshRadius = Number.NaN;
+  private displacementBounds: SurfaceDisplacementBounds | undefined;
   private timingSampleCount = 0;
   private timingSampleIndex = 0;
   private classificationTotal = 0;
@@ -194,9 +178,9 @@ export class TerrainRenderVisibility {
   constructor(
     private readonly terrainGroup: THREE.Object3D,
     elevationBounds: ElevationBoundsMetres | undefined,
-    private readonly referenceRadiusM = EARTH_MEAN_RADIUS_KM * 1_000,
+    private readonly bodyGeometry: SurfaceVisibilityGeometry = EARTH_SURFACE_MODEL.visibilityGeometry,
   ) {
-    this.elevationBounds = finiteElevationBounds(elevationBounds);
+    this.elevationBounds = elevationBounds;
   }
 
   get enabled(): boolean {
@@ -214,6 +198,8 @@ export class TerrainRenderVisibility {
     return {
       enabled: this.enabledValue,
       candidateMeshCount: this.entries.length,
+      measuredElevationBoundCount: this.entries.filter((entry) => entry.usesElevationBounds && this.measuredBounds.has(entry)).length,
+      providerFallbackElevationBoundCount: this.entries.filter((entry) => entry.usesElevationBounds && !this.measuredBounds.has(entry)).length,
       leftEyeVisibleCount: this.leftEyeVisibleCount,
       rightEyeVisibleCount: this.rightEyeVisibleCount,
       stereoUnionVisibleCount: this.stereoUnionVisibleCount,
@@ -242,6 +228,7 @@ export class TerrainRenderVisibility {
     for (let index = 0; index < entries.length; index += 1) {
       const entry = entries[index]!;
       this.entries.push(entry);
+      this.entryIndices.set(entry, index);
       const packedIndex = index * PACKED_ENTRY_STRIDE;
       this.packedEntries[packedIndex + PACKED_CENTER_X] =
         entry.baseSphere.center.x;
@@ -261,59 +248,52 @@ export class TerrainRenderVisibility {
       this.packedEntries[packedIndex + PACKED_CONE_SINE] =
         entry.ellipsoidConeSine;
       this.elevationBoundFlags[index] = entry.usesElevationBounds ? 1 : 0;
+      this.packElevationBounds(entry, index);
     }
     if (!this.enabledValue) this.showAll();
   }
 
-  updateDisplacement(terrainMultiplier: number, displayRadiusM: number): void {
+  updateDisplacement(
+    terrainMultiplier: number,
+    displayRadiusM: number,
+    minimumMeshRadius = 1,
+  ): void {
     if (
       this.terrainMultiplier === terrainMultiplier &&
-      this.displayRadiusM === displayRadiusM
+      this.displayRadiusM === displayRadiusM &&
+      this.minimumMeshRadius === minimumMeshRadius
     ) return;
     this.terrainMultiplier = terrainMultiplier;
     this.displayRadiusM = displayRadiusM;
-    const bounds = this.elevationBounds;
-    const displacementIsFinite =
-      Boolean(bounds) &&
-      Number.isFinite(terrainMultiplier) &&
-      terrainMultiplier >= 0 &&
-      Number.isFinite(displayRadiusM) &&
-      displayRadiusM > 0;
-    if (!bounds || !displacementIsFinite) {
-      this.sphereExpansion = Number.POSITIVE_INFINITY;
-      this.elevationHorizonCertain = false;
-      return;
-    }
+    this.minimumMeshRadius = minimumMeshRadius;
+    this.displacementBounds = surfaceDisplacementBounds(
+      this.bodyGeometry, this.elevationBounds,
+      terrainMultiplier, displayRadiusM, minimumMeshRadius,
+    );
+    for (let index = 0; index < this.entries.length; index += 1) this.packElevationBounds(this.entries[index]!, index);
+  }
 
-    const bodyLocalUnitsPerElevationMetre =
-      terrainMultiplier / this.referenceRadiusM;
-    const bodyLocalSkirtDepth = 0.02 / displayRadiusM;
-    this.sphereExpansion =
-      Math.max(Math.abs(bounds.minimum), Math.abs(bounds.maximum)) *
-        bodyLocalUnitsPerElevationMetre +
-      bodyLocalSkirtDepth;
-    const ellipsoidPerturbation =
-      this.sphereExpansion * MAXIMUM_ELLIPSOID_SCALE;
-    const maximumOutwardRadius =
-      1 + Math.max(0, bounds.maximum) * bodyLocalUnitsPerElevationMetre *
-        MAXIMUM_ELLIPSOID_SCALE;
-    if (
-      !Number.isFinite(this.sphereExpansion) ||
-      !Number.isFinite(maximumOutwardRadius) ||
-      ellipsoidPerturbation >= 1 ||
-      maximumOutwardRadius < 1
-    ) {
-      this.elevationHorizonCertain = false;
-      return;
-    }
+  /** Measured crop extrema override only this target's displacement. The
+   * occluding shell remains shared and conservative for unknown terrain. */
+  setElevationBounds(entry: TerrainRenderVisibilityEntry, bounds: ElevationBoundsMetres | undefined): void {
+    if (bounds && Number.isFinite(bounds.minimum) && Number.isFinite(bounds.maximum) && bounds.minimum <= bounds.maximum) {
+      this.measuredBounds.set(entry, bounds);
+    } else this.measuredBounds.delete(entry);
+    const index = this.entryIndices.get(entry);
+    if (index !== undefined && this.entries[index] === entry) this.packElevationBounds(entry, index);
+  }
 
-    const displacementHorizon =
-      Math.acos(1 / maximumOutwardRadius) +
-      Math.asin(ellipsoidPerturbation);
-    this.elevationHorizonCertain = displacementHorizon < Math.PI / 2;
-    if (!this.elevationHorizonCertain) return;
-    this.displacementHorizonCosine = Math.cos(displacementHorizon);
-    this.displacementHorizonSine = Math.sin(displacementHorizon);
+  private packElevationBounds(entry: TerrainRenderVisibilityEntry, index: number): void {
+    const offset = index * PACKED_ENTRY_STRIDE;
+    const local = surfaceDisplacementBounds(this.bodyGeometry, this.measuredBounds.get(entry) ?? this.elevationBounds,
+      this.terrainMultiplier, this.displayRadiusM, this.minimumMeshRadius);
+    const global = this.displacementBounds;
+    this.packedEntries[offset + PACKED_BOUNDS_FINITE] = local && global ? 1 : 0;
+    this.packedEntries[offset + PACKED_SPHERE_EXPANSION] = local?.sphereExpansion ?? Infinity;
+    const delta = local && global ? surfaceTargetHorizonRadians({ ...local, innerRadius: global.innerRadius }) -
+      surfaceTargetHorizonRadians(global, false) : 0;
+    this.packedEntries[offset + PACKED_HORIZON_DELTA_COSINE] = Math.cos(delta);
+    this.packedEntries[offset + PACKED_HORIZON_DELTA_SINE] = Math.sin(delta);
   }
 
   setEnabled(enabled: boolean): void {
@@ -419,13 +399,8 @@ export class TerrainRenderVisibility {
     const plane5Z = plane5.normal.z;
     const plane5Constant = plane5.constant;
     const unionDirection = union.ellipsoidDirection;
-    const elevationHorizonCertain = this.elevationHorizonCertain;
     const flatHorizonCosine = union.flatHorizonCosine;
     const flatHorizonSine = union.flatHorizonSine;
-    const elevatedHorizonCosine = union.elevatedHorizonCosine;
-    const elevatedHorizonSine = union.elevatedHorizonSine;
-    const sphereExpansion = this.sphereExpansion;
-    const sphereExpansionFinite = Number.isFinite(sphereExpansion);
     for (
       let index = 0, packedIndex = 0;
       index < entries.length;
@@ -435,7 +410,7 @@ export class TerrainRenderVisibility {
       const needsBounds = elevationBoundFlags[index] !== 0;
       if (
         needsBounds &&
-        (!sphereExpansionFinite || !elevationHorizonCertain)
+        packedEntries[packedIndex + PACKED_BOUNDS_FINITE] === 0
       ) {
         entry.mesh.visible = true;
         unionVisible += 1;
@@ -443,17 +418,18 @@ export class TerrainRenderVisibility {
         continue;
       }
 
-      const horizonCosine = needsBounds
-        ? elevatedHorizonCosine
-        : flatHorizonCosine;
+      const deltaCosine = packedEntries[packedIndex + PACKED_HORIZON_DELTA_COSINE]!;
+      const deltaSine = packedEntries[packedIndex + PACKED_HORIZON_DELTA_SINE]!;
+      const fullHorizon = needsBounds && flatHorizonCosine <= -deltaCosine;
+      const horizonCosine = !needsBounds ? flatHorizonCosine : fullHorizon ? -1 :
+        flatHorizonCosine * deltaCosine - flatHorizonSine * deltaSine;
       const coneCosine = packedEntries[
         packedIndex + PACKED_CONE_COSINE
       ]!;
       let withinHorizon = true;
       if (coneCosine > -horizonCosine) {
-        const horizonSine = needsBounds
-          ? elevatedHorizonSine
-          : flatHorizonSine;
+        const horizonSine = !needsBounds ? flatHorizonSine : fullHorizon ? 0 :
+          flatHorizonSine * deltaCosine + flatHorizonCosine * deltaSine;
         const threshold =
           horizonCosine * coneCosine -
           horizonSine * packedEntries[packedIndex + PACKED_CONE_SINE]!;
@@ -469,7 +445,7 @@ export class TerrainRenderVisibility {
       if (visible) {
         const negativeRadius = -(
           packedEntries[packedIndex + PACKED_RADIUS]! +
-          (needsBounds ? sphereExpansion : 0)
+          (needsBounds ? packedEntries[packedIndex + PACKED_SPHERE_EXPANSION]! : 0)
         );
         const centerX = packedEntries[packedIndex + PACKED_CENTER_X]!;
         const centerY = packedEntries[packedIndex + PACKED_CENTER_Y]!;
@@ -526,84 +502,51 @@ export class TerrainRenderVisibility {
       .setFromMatrixPosition(camera.matrixWorld)
       .applyMatrix4(this.terrainWorldInverse);
     eye.ellipsoidDirection.set(
-      eye.localPosition.x * ELLIPSOID_XZ_SCALE,
-      eye.localPosition.y * ELLIPSOID_Y_SCALE,
-      eye.localPosition.z * ELLIPSOID_XZ_SCALE,
+      eye.localPosition.x * this.bodyGeometry.xzScale,
+      eye.localPosition.y * this.bodyGeometry.yScale,
+      eye.localPosition.z * this.bodyGeometry.xzScale,
     );
     const radius = eye.ellipsoidDirection.length();
-    eye.horizonCertain = Number.isFinite(radius) && radius > 1;
+    const flat = surfaceVisibilityHorizonRadians(radius, this.displacementBounds, false);
+    eye.horizonCertain = flat !== undefined;
     if (!eye.horizonCertain) {
       eye.ellipsoidDirection.set(0, 1, 0);
       eye.flatHorizonCosine = 1;
       eye.flatHorizonSine = 0;
-      eye.elevatedHorizonCosine = 1;
-      eye.elevatedHorizonSine = 0;
       return;
     }
     eye.ellipsoidDirection.multiplyScalar(1 / radius);
-    eye.flatHorizonCosine = 1 / radius;
-    eye.flatHorizonSine = Math.sqrt(
-      Math.max(0, 1 - eye.flatHorizonCosine * eye.flatHorizonCosine),
-    );
-    eye.elevatedHorizonCosine = eye.flatHorizonCosine;
-    eye.elevatedHorizonSine = eye.flatHorizonSine;
+    eye.flatHorizonCosine = Math.cos(flat!);
+    eye.flatHorizonSine = Math.sin(flat!);
   }
 
   private prepareUnionHorizon(): void {
     const union = this.unionState;
     const left = this.eyeStates[0]!;
-    if (this.eyeCount === 1) {
-      union.horizonCertain = left.horizonCertain;
-      union.ellipsoidDirection.copy(left.ellipsoidDirection);
-      union.flatHorizonCosine = left.flatHorizonCosine;
-      union.flatHorizonSine = left.flatHorizonSine;
-    } else {
-      const right = this.eyeStates[1]!;
-      union.horizonCertain = left.horizonCertain && right.horizonCertain;
-      union.ellipsoidDirection
-        .copy(left.ellipsoidDirection)
-        .add(right.ellipsoidDirection);
-      const directionLength = union.ellipsoidDirection.length();
-      if (!Number.isFinite(directionLength) || directionLength <= 0) {
-        union.horizonCertain = false;
-        union.ellipsoidDirection.set(0, 1, 0);
-      } else {
-        union.ellipsoidDirection.multiplyScalar(1 / directionLength);
-      }
-      if (union.horizonCertain) {
-        const directionMarginCosine = Math.min(
-          union.ellipsoidDirection.dot(left.ellipsoidDirection),
-          union.ellipsoidDirection.dot(right.ellipsoidDirection),
-        );
-        const marginCosine = Math.max(-1, Math.min(1, directionMarginCosine));
-        const marginSine = Math.sqrt(
-          Math.max(0, 1 - marginCosine * marginCosine),
-        );
-        const base = left.flatHorizonCosine <= right.flatHorizonCosine
-          ? left
-          : right;
-        union.flatHorizonCosine =
-          base.flatHorizonCosine * marginCosine -
-          base.flatHorizonSine * marginSine;
-        union.flatHorizonSine =
-          base.flatHorizonSine * marginCosine +
-          base.flatHorizonCosine * marginSine;
-      }
+    union.horizonCertain = left.horizonCertain;
+    union.ellipsoidDirection.copy(left.ellipsoidDirection);
+    union.flatHorizonCosine = left.flatHorizonCosine;
+    union.flatHorizonSine = left.flatHorizonSine;
+    if (this.eyeCount === 1) return;
+    const right = this.eyeStates[1]!;
+    union.horizonCertain &&= right.horizonCertain;
+    union.ellipsoidDirection.add(right.ellipsoidDirection);
+    const length = union.ellipsoidDirection.length();
+    if (!Number.isFinite(length) || length <= 0) {
+      union.horizonCertain = false;
+      return;
     }
-    if (!union.horizonCertain) {
-      union.flatHorizonCosine = 1;
-      union.flatHorizonSine = 0;
-    }
-    union.elevatedHorizonCosine = union.flatHorizonCosine;
-    union.elevatedHorizonSine = union.flatHorizonSine;
-    if (this.elevationHorizonCertain) {
-      union.elevatedHorizonCosine =
-        union.flatHorizonCosine * this.displacementHorizonCosine -
-        union.flatHorizonSine * this.displacementHorizonSine;
-      union.elevatedHorizonSine =
-        union.flatHorizonSine * this.displacementHorizonCosine +
-        union.flatHorizonCosine * this.displacementHorizonSine;
-    }
+    union.ellipsoidDirection.multiplyScalar(1 / length);
+    if (!union.horizonCertain) return;
+    const margin = Math.acos(Math.max(-1, Math.min(1, Math.min(
+      union.ellipsoidDirection.dot(left.ellipsoidDirection),
+      union.ellipsoidDirection.dot(right.ellipsoidDirection),
+    ))));
+    const flat = Math.min(Math.PI, Math.acos(Math.min(
+      left.flatHorizonCosine, right.flatHorizonCosine,
+    )) + margin);
+    union.flatHorizonCosine = Math.cos(flat);
+    union.flatHorizonSine = Math.sin(flat);
   }
 
   private refreshEyeVisibleCounts(): void {
@@ -627,42 +570,25 @@ export class TerrainRenderVisibility {
       this.rightEyeVisibleCount = this.eyeCount === 2 ? count : 0;
       return;
     }
-    for (let eyeIndex = 0; eyeIndex < this.eyeCount; eyeIndex += 1) {
-      const eye = this.eyeStates[eyeIndex]!;
-      eye.elevatedHorizonCosine = eye.flatHorizonCosine;
-      eye.elevatedHorizonSine = eye.flatHorizonSine;
-      if (this.elevationHorizonCertain) {
-        eye.elevatedHorizonCosine =
-          eye.flatHorizonCosine * this.displacementHorizonCosine -
-          eye.flatHorizonSine * this.displacementHorizonSine;
-        eye.elevatedHorizonSine =
-          eye.flatHorizonSine * this.displacementHorizonCosine +
-          eye.flatHorizonCosine * this.displacementHorizonSine;
-      }
-    }
-
     let leftVisible = 0;
     let rightVisible = 0;
     for (let index = 0; index < this.entries.length; index += 1) {
       const entry = this.entries[index]!;
       const needsBounds = entry.usesElevationBounds;
-      if (
-        needsBounds &&
-        (!Number.isFinite(this.sphereExpansion) ||
-          !this.elevationHorizonCertain)
-      ) {
+      const packedIndex = index * PACKED_ENTRY_STRIDE;
+      if (needsBounds && this.packedEntries[packedIndex + PACKED_BOUNDS_FINITE] === 0) {
         leftVisible += 1;
         if (this.eyeCount === 2) rightVisible += 1;
         continue;
       }
       this.expandedSphere.center.copy(entry.baseSphere.center);
       this.expandedSphere.radius = entry.baseSphere.radius +
-        (needsBounds ? this.sphereExpansion : 0);
+        (needsBounds ? this.packedEntries[packedIndex + PACKED_SPHERE_EXPANSION]! : 0);
       const left = this.withinHorizon(
         entry,
         this.eyeStates[0]!,
         needsBounds,
-        this.elevationHorizonCertain,
+        packedIndex,
       ) && this.eyeStates[0]!.frustum.intersectsSphere(this.expandedSphere);
       if (left) leftVisible += 1;
       if (this.eyeCount === 2) {
@@ -670,7 +596,7 @@ export class TerrainRenderVisibility {
           entry,
           this.eyeStates[1]!,
           needsBounds,
-          this.elevationHorizonCertain,
+          packedIndex,
         ) && this.eyeStates[1]!.frustum.intersectsSphere(this.expandedSphere);
         if (right) rightVisible += 1;
       }
@@ -683,16 +609,16 @@ export class TerrainRenderVisibility {
     entry: TerrainRenderVisibilityEntry,
     eye: EyeVisibilityState,
     usesElevationBounds: boolean,
-    elevationHorizonCertain: boolean,
+    packedIndex: number,
   ): boolean {
     if (!eye.horizonCertain) return true;
-    if (usesElevationBounds && !elevationHorizonCertain) return true;
-    const horizonCosine = usesElevationBounds
-      ? eye.elevatedHorizonCosine
-      : eye.flatHorizonCosine;
-    const horizonSine = usesElevationBounds
-      ? eye.elevatedHorizonSine
-      : eye.flatHorizonSine;
+    const deltaCosine = this.packedEntries[packedIndex + PACKED_HORIZON_DELTA_COSINE]!;
+    const deltaSine = this.packedEntries[packedIndex + PACKED_HORIZON_DELTA_SINE]!;
+    const fullHorizon = usesElevationBounds && eye.flatHorizonCosine <= -deltaCosine;
+    const horizonCosine = !usesElevationBounds ? eye.flatHorizonCosine : fullHorizon ? -1 :
+      eye.flatHorizonCosine * deltaCosine - eye.flatHorizonSine * deltaSine;
+    const horizonSine = !usesElevationBounds ? eye.flatHorizonSine : fullHorizon ? 0 :
+      eye.flatHorizonSine * deltaCosine + eye.flatHorizonCosine * deltaSine;
     if (entry.ellipsoidConeCosine <= -horizonCosine) return true;
     const threshold =
       horizonCosine * entry.ellipsoidConeCosine -

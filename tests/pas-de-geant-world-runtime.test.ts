@@ -68,6 +68,40 @@ describe("Shared world runtime", () => {
     expect(pole.length() * EARTH_SURFACE_MODEL.referenceRadiusM).toBeCloseTo(6_356_752.314245, 6);
   });
 
+  it.each([EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL])(
+    "pins loaded $id terrain to the floor through scale, relief, and crouching changes",
+    (model) => {
+      const contact = rollContactFrame(
+        contactFrame(0.67416, 23.47314), new THREE.Vector2(0.2, -0.1),
+        model.referenceRadiusM / 50,
+      );
+      const coordinates = coordinatesForFrame(contact);
+      const floor = new THREE.Vector2(2.4, -1.1);
+      for (const denominator of [50, 100, 60_000]) {
+        const radius = model.referenceRadiusM / denominator;
+        for (const elevationMetres of [0, -1_927.5, 1_500]) {
+          for (const terrainMultiplier of [0, 1, 3]) {
+            const state = { contact, terrainMultiplier };
+            const pose = solveBodySurfacePose(state, floor, radius, model, elevationMetres);
+            const { position, normal } = model.positionAndNormal(
+              coordinates.latitudeDegrees, coordinates.longitudeDegrees,
+            );
+            // Mirror the renderer's normal displacement and one root scale.
+            const groundWorld = position.addScaledVector(normal,
+              elevationMetres * terrainMultiplier / model.referenceRadiusM,
+            ).multiplyScalar(radius).applyQuaternion(pose.bodyToWorld).add(pose.centre);
+            expect(groundWorld.distanceTo(new THREE.Vector3(floor.x, 0, floor.y)))
+              .toBeLessThan(1e-9);
+            for (const eyeHeight of [1.65, 0.65, 0.1]) {
+              const headWorld = new THREE.Vector3(floor.x, eyeHeight, floor.y);
+              expect(headWorld.distanceTo(groundWorld)).toBeCloseTo(eyeHeight, 8);
+            }
+          }
+        }
+      }
+    },
+  );
+
   it("creates every registered body through the same runtime and disposes only owned geometry", () => {
     for (const body of SOLAR_SYSTEM_BODIES) {
       const root = new THREE.Group();

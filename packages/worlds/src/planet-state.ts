@@ -31,18 +31,22 @@ export interface BodySurfacePose {
   centre: Vector3;
 }
 
-/** Pins any body's reference surface while preserving the transported tangent frame. */
+/** Pins the displaced surface while preserving the transported tangent frame. */
 export function solveBodySurfacePose(
   state: PlanetState,
   headsetFloorPosition: Vector2,
   displayRadiusM: number,
-  geometry: Pick<SurfaceModel, "positionAndNormal">,
+  geometry: Pick<SurfaceModel, "positionAndNormal" | "referenceRadiusM">,
+  elevationMetres = 0,
 ): BodySurfacePose {
   const coordinates = coordinatesForFrame(state.contact);
   const bodyToWorld = earthToWorldQuaternion(state.contact);
-  const point = geometry.positionAndNormal(
+  const { position, normal } = geometry.positionAndNormal(
     coordinates.latitudeDegrees, coordinates.longitudeDegrees,
-  ).position.multiplyScalar(displayRadiusM).applyQuaternion(bodyToWorld);
+  );
+  const point = position.addScaledVector(normal, normalizedBodyLocalTerrainOffset(
+    elevationMetres, state.terrainMultiplier, geometry.referenceRadiusM,
+  )).multiplyScalar(displayRadiusM).applyQuaternion(bodyToWorld);
   return {
     bodyToWorld,
     centre: new Vector3(headsetFloorPosition.x, 0, headsetFloorPosition.y).sub(point),
@@ -179,6 +183,7 @@ export function solvePlanetPose(
   displayRadiusM: number,
 ): PlanetPose {
   const pose = solveBodySurfacePose(state, headsetFloorPosition, displayRadiusM, {
+    referenceRadiusM: EARTH_MEAN_RADIUS_KM * 1_000,
     positionAndNormal(latitudeDegrees, longitudeDegrees) {
       return {
         position: geodeticSurfaceEcefKm(latitudeDegrees, longitudeDegrees)

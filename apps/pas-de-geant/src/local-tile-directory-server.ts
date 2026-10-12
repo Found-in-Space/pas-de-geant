@@ -32,12 +32,18 @@ export function localTilePath(
 export function createTileDirectoryMiddleware(
   providerId: string,
   directory: string | undefined,
+  options: { readonly metadataDirectory?: string } = {},
 ): TileDirectoryMiddleware | undefined {
   if (!directory?.trim()) return undefined;
   const root = resolve(directory);
 
   return (request, response, next) => {
-    const tilePath = localTilePath(providerId, root, request.url ?? "/");
+    const pathname = new URL(request.url ?? "/", "http://local").pathname;
+    const metadata = options.metadataDirectory && ["product.json", "base.png"].find(
+      (name) => pathname === `/api/tiles/${providerId}/${name}`,
+    );
+    const tilePath = metadata ? resolve(options.metadataDirectory!, metadata)
+      : localTilePath(providerId, root, request.url ?? "/");
     if (!tilePath) {
       next();
       return;
@@ -57,9 +63,9 @@ export function createTileDirectoryMiddleware(
           return;
         }
         response.statusCode = 200;
-        response.setHeader("Content-Type", "image/png");
+        response.setHeader("Content-Type", metadata === "product.json" ? "application/json" : "image/png");
         response.setHeader("Content-Length", String(tile.size));
-        response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        response.setHeader("Cache-Control", metadata === "product.json" ? "no-cache" : "public, max-age=31536000, immutable");
         if (request.method === "HEAD") {
           response.end();
           return;

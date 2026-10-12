@@ -432,7 +432,8 @@ export class ScheduledImageryProvider
     observer: (result: TileProviderResult<ImageryTileResource>) => void,
   ): TileRequestHandle {
     const requestedTile = Object.freeze({ ...tile });
-    const sourceTile = ancestorAtZoom(tile, this.source.maxZoom);
+    const sourceTile = this.source.resolveSource?.(tile) ??
+      ancestorAtZoom(tile, this.source.maxZoom);
     const sourceKey = imageryKey(sourceTile);
     return this.queue.request({
       key: sourceKey,
@@ -1001,6 +1002,7 @@ export class ImageryVirtualTexture {
       latitudeDegrees: 0,
       longitudeDegrees: 0,
     },
+    initialHorizonView?: TileHorizonView,
   ) {
     const zoom = imageryProvider
       ? selectImageryZoom({
@@ -1063,7 +1065,7 @@ export class ImageryVirtualTexture {
         (blob, tileSize, signal) =>
           this.workerClient!.decode(blob, tileSize, signal),
       );
-      this.horizonView = {
+      this.horizonView = initialHorizonView ?? {
         ...initialView,
         observerHeightWorldM: initialView.observerHeightWorldM ?? 0,
       };
@@ -1160,6 +1162,13 @@ export class ImageryVirtualTexture {
     this.lastObservedTargetLatitudeDegrees = target.latitudeDegrees;
     this.lastObservedTargetLongitudeDegrees = target.longitudeDegrees;
     this.processUploads();
+  }
+
+  /** Updates geometric resource admission without changing the planner target. */
+  updateHorizonView(view: TileHorizonView): void {
+    if (this.loadingSuspended) return;
+    this.horizonView = view;
+    this.applyHorizonCulling();
   }
 
   setDebugControls(

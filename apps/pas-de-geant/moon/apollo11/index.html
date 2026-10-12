@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apollo 11 · VR at 1:50 — Pas de Géant</title>
+  </head>
+  <body>
+    <p><a href="/?world=moon&amp;site=apollo11&amp;scale=50&amp;imagery=apollo11-preview">Open Apollo 11 in VR at 1:50</a></p>
+    <script type="module">
+      import { APOLLO11_VR_ENTRY } from "../../src/world-launch.ts";
+      const destination = new URL(APOLLO11_VR_ENTRY, location.origin);
+      const parameters = new URLSearchParams(location.search);
+      for (const key of ["debug", "xrEmulation", "sessionLabel"]) {
+        const value = parameters.get(key);
+        if (value !== null) destination.searchParams.set(key, value);
+      }
+      location.replace(destination.href);
+    </script>
+  </body>
+</html>

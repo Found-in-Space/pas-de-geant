@@ -1,4 +1,5 @@
 import type { TileIdentity } from "./tile-transition-planner.js";
+import { tileGrid, type TileGrid } from "./tile-grid.js";
 import {
   isSessionFatalStatus,
   retryAfterMilliseconds,
@@ -24,6 +25,11 @@ export interface ImageryProvider {
   readonly tileSize: number;
   readonly minZoom: number;
   readonly maxZoom: number;
+  readonly grid?: TileGrid;
+  /** Resolve to an available ancestor on the same XYZ grid before queueing.
+   * The mapping must be stable for this provider's lifetime and idempotent.
+   */
+  resolveSource?(address: TileIdentity): TileIdentity;
   /** Returns an exact persistent-cache hit without starting network work. */
   loadFromCache?(
     address: TileIdentity,
@@ -44,8 +50,11 @@ export interface XyzImageryConfiguration {
   tileSize?: number;
   minZoom?: number;
   maxZoom?: number;
+  grid?: TileGrid;
 }
 
+// Preserve the existing cache namespace so previously retained imagery survives.
+// All configured imagery, including same-origin proxy URLs, uses this cache.
 export const MAPTILER_IMAGERY_CACHE_NAME =
   "pas-de-geant-maptiler-imagery-v1";
 
@@ -104,16 +113,20 @@ function ensureNotAborted(signal: AbortSignal): void {
   if (signal.aborted) throw abortError();
 }
 
-function isMapTilerUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" && parsed.hostname === "api.maptiler.com";
-  } catch {
-    return false;
-  }
+function isFallbackResponse(response: Response): boolean {
+  return response.headers.has("x-pas-de-geant-tile-fallback") ||
+    response.headers.get("x-pas-de-geant-tile-cache") === "FALLBACK";
 }
 
 async function imageBlob(response: Response): Promise<Blob> {
+  if (isFallbackResponse(response)) {
+    throw new ImageryRequestError(
+      "The imagery provider returned a temporary fallback.",
+      "transient",
+      503,
+      retryAfterMilliseconds(response.headers.get("retry-after")) ?? 5_000,
+    );
+  }
   const blob = await response.blob();
   if (blob.size === 0 || !blob.type.toLowerCase().startsWith("image/")) {
     throw new ImageryRequestError(
@@ -130,11 +143,13 @@ export class XyzImageryProvider implements ImageryProvider {
   readonly tileSize: number;
   readonly minZoom: number;
   readonly maxZoom: number;
+  readonly grid?: TileGrid;
 
   constructor(
     private readonly configuration: XyzImageryConfiguration,
     private readonly options: XyzImageryProviderOptions = {},
   ) {
+    this.grid = configuration.grid ? tileGrid(configuration.grid) : undefined;
     if (
       !configuration.urlTemplate.includes("{z}") ||
       !configuration.urlTemplate.includes("{x}") ||
@@ -178,13 +193,12 @@ export class XyzImageryProvider implements ImageryProvider {
   }
 
   private async responseCache(
-    url: string,
     signal: AbortSignal,
   ): Promise<ImageryResponseCache | undefined> {
     const cacheStorage = this.options.cacheStorage === undefined
       ? browserCacheStorage()
       : this.options.cacheStorage;
-    if (!cacheStorage || !isMapTilerUrl(url)) return undefined;
+    if (!cacheStorage) return undefined;
     try {
       const cache = await cacheStorage.open(MAPTILER_IMAGERY_CACHE_NAME);
       ensureNotAborted(signal);
@@ -200,7 +214,7 @@ export class XyzImageryProvider implements ImageryProvider {
     signal: AbortSignal,
   ): Promise<Blob | undefined> {
     const url = this.url(address);
-    const cache = await this.responseCache(url, signal);
+    const cache = await this.responseCache(signal);
     if (!cache) return undefined;
     try {
       const cached = await cache.match(url);
@@ -229,11 +243,17 @@ export class XyzImageryProvider implements ImageryProvider {
     signal: AbortSignal,
   ): Promise<Blob> {
     const url = this.url(address);
-    const response = await (this.options.fetcher ?? fetch)(url, {
+    const fetcher = this.options.fetcher ?? fetch;
+    let response = await fetcher(url, {
       cache: "default",
       mode: "cors",
       signal,
     });
+    // Old HTTP caches may still hold the former successful black placeholder.
+    // Bypass it once; never promote synthetic imagery to the persistent cache.
+    if (isFallbackResponse(response) && response.ok) {
+      response = await fetcher(url, { cache: "reload", mode: "cors", signal });
+    }
     if (!response.ok) {
       const kind = response.status === 404
         ? "not-found"
@@ -247,7 +267,7 @@ export class XyzImageryProvider implements ImageryProvider {
         retryAfterMilliseconds(response.headers.get("retry-after")),
       );
     }
-    const cache = await this.responseCache(url, signal);
+    const cache = await this.responseCache(signal);
     const responseForCache = cache ? response.clone() : undefined;
     const blob = await imageBlob(response);
     ensureNotAborted(signal);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   imageryUvForGeographicPoint,
+  TerrainSurface,
   sampleTerrariumElevationMetres,
   sourceUvForTilePoint,
   terrainTargetForView,
@@ -9,12 +10,42 @@ import {
   decodeHeightMetres,
   EARTH_SURFACE_MODEL,
   MOON_SURFACE_MODEL,
+  MOON_GEOGRAPHIC_SURFACE_MODEL,
 } from "@found-in-space/worlds/surface-model";
 import {
   elevationSourceZoomForTile,
 } from "@found-in-space/worlds/terrain-lod";
 
 describe("Terrain surface composition", () => {
+  it("samples loaded fine terrain while a coarser target is still awaiting publication", () => {
+    const surface = Object.create(TerrainSurface.prototype) as any;
+    surface.surfaceModel = MOON_GEOGRAPHIC_SURFACE_MODEL;
+    surface.currentTarget = { maxZoom: 0 };
+    surface.maximumMeshZoom = 12;
+    const encoding = MOON_GEOGRAPHIC_SURFACE_MODEL.heightEncoding;
+    const encodedHeight = encoding.kind === "rg16"
+      ? (-1_927.5 - encoding.offsetM) / encoding.scaleM
+      : -1_927.5 + 32_768;
+    const pixels = { data: new Uint8ClampedArray([
+      Math.floor(encodedHeight / 256), Math.floor(encodedHeight) % 256,
+      Math.round((encodedHeight % 1) * 256), 255,
+    ]), width: 1, height: 1 };
+    surface.pixelsForElevation = () => pixels;
+    const tile = { z: 12, x: 2315, y: 2032 };
+    const bounds = MOON_GEOGRAPHIC_SURFACE_MODEL.tileBounds(tile);
+    const latitude = (bounds.north + bounds.south) / 2;
+    const longitude = (bounds.west + bounds.east) / 2;
+    const elevation = { image: {}, sourceScale: 1, sourceOffsetX: 0, sourceOffsetY: 0 };
+    surface.meshes = new Map([["12/2315/2032", { tile, elevation }]]);
+    expect(surface.sampleElevationMetres(latitude, longitude)).toBe(-1_927.5);
+    // A visible no-data child must stay flat even if its ancestor has relief.
+    surface.meshes.get("12/2315/2032").elevation = undefined;
+    surface.meshes.set("0/0/0", { tile: { z: 0, x: 0, y: 0 }, elevation });
+    expect(surface.sampleElevationMetres(latitude, longitude)).toBe(0);
+    surface.meshes.delete("12/2315/2032");
+    expect(surface.sampleElevationMetres(latitude, longitude)).toBe(-1_927.5);
+  });
+
   it("maps adjacent overzoom children to the same source coordinate at their join", () => {
     const westChild = {
       sourceScale: 2,
@@ -115,7 +146,7 @@ describe("Terrain surface composition", () => {
   });
 
   it("maps the lunar geographic pyramid through both poles", () => {
-    const bounds = MOON_SURFACE_MODEL.tileBounds({ z: 1, x: 0, y: 0 });
+    const bounds = MOON_GEOGRAPHIC_SURFACE_MODEL.tileBounds({ z: 1, x: 0, y: 0 });
     expect(bounds).toEqual({ west: -180, east: 0, north: 90, south: 0 });
     expect(imageryUvForGeographicPoint(
       bounds,

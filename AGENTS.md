@@ -16,6 +16,17 @@
 - When the user already has the development server running, reuse it. Do not
   start, stop, or replace it unless asked or unless local validation requires
   a separate process.
+- Development tile acquisition uses the independent cache service. Never
+  bypass a missing or unavailable cache with direct MapTiler requests. Direct
+  access requires the documented deliberate override; keep upstream provider
+  credentials out of application configuration.
+- Good imagery and elevation persist indefinitely in browser Cache Storage.
+  Upstream freshness must not expire retained tiles. Tile provider tests use
+  local fixtures or fake fetchers rather than live paid endpoints.
+- The shared cache host runs only the upstream tile cache/proxy. Application
+  APIs, AI token issuance and local lunar products stay on development machines.
+  Never forward all application APIs to the cache host or deploy local product
+  datasets there.
 - Do not run browser tests unless visual verification is genuinely necessary.
   When visual verification is necessary, prefer the embedded viewer. The user
   performs visual testing far faster than automated browser tests.

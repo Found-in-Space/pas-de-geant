@@ -43,6 +43,33 @@ contact-frame transport, terrain runtime, and wrist panel as Earth. Moon terrain
 readouts and debug controls refer to the lunar surface. Without a configured
 LOLA source it renders the reference sphere with the bundled lunar imagery.
 
+For the Apollo 11 imagery test, open **`/moon/apollo11/`** on the same HTTPS
+development origin (currently `https://geant.demo.k-si.com/moon/apollo11/`
+through Cudy), then select **Enter VR**. It starts in surface mode at
+0.67416° N, 23.47314° E with the variable-resolution preview and **1:50** scale.
+One headset metre corresponds to 50 physical lunar metres; the loaded terrain
+underfoot is pinned to the physical floor, including elevations below the lunar
+reference sphere. Terrain and imagery detail use camera clearance above that
+loaded surface. Reset returns to the site and the launch
+scale. This entry is also linked from the imagery comparison page.
+
+The equivalent full URL is
+`/?world=moon&site=apollo11&scale=50&imagery=apollo11-preview`. Use
+`imagery=global` to compare the same viewpoint against WAC alone, or `scale=N`
+to choose another denominator. Ordinary Earth and Moon launches keep their
+existing defaults. The shared imagery loader chooses an available opaque XYZ
+tile from the global, Kaguya, regional NAC or landing-site NAC provider. It uses
+the existing queue, source sharing, decoder, parent sampling and texture pool.
+There is no VR canvas compositor or additional rendering layer. The renderer
+applies the lunar display curve once.
+
+Prepare the local Apollo payload with the sibling texture pipeline's
+`prepare-preview-tiles` command, documented in its
+`projects/moon/apollo11-preview/README.md`. The resulting
+`.cache/apollo11-preview/runtime/product.json` declares available tiles and caps.
+The producer regrids the archive images and fills masked holes before serving;
+VR only fetches prepared PNGs. Partial context boundary tiles use global imagery.
+
 The standalone Eclipse Observatory is at
 `http://127.0.0.1:4197/eclipse/`. Earth, Moon, shadow cones, and the apparent
 Sun remain in one coherent system frame; the unscaled headset and controllers
@@ -154,6 +181,8 @@ application CPU time, draw calls and primitives, Three.js resource counts,
 tile/source request-decode-upload metrics, recent resource timing,
 WebGL capabilities, and browser heap. `mark(name)` retains a named snapshot;
 control changes and `clearMetrics()` start a clean frame window.
+`controls.surfaceView` reports loaded elevation, signed height above the reference
+surface, and the actual terrain clearance used to select tile detail.
 
 The reproducible high-zoom Amsterdam-to-Rotterdam browser audit is documented
 in [AMSTERDAM_ROTTERDAM_TILE_AUDIT.md](./AMSTERDAM_ROTTERDAM_TILE_AUDIT.md).
@@ -259,69 +288,167 @@ IDs to the user.
 ## Lunar surface data
 
 The bundled `lroc-color-2k.jpg` is the immediate, offline full-globe fallback.
-For detailed colour and LOLA topography, configure two geographic XYZ
-pyramids (linear longitude and latitude, including both poles):
+For new colour and LOLA topography products, use the same spherical Mercator
+XYZ scheme as Earth, with an explicit lunar radius of 1,737,400 m. The shared
+loader admits each product descriptor before using its tiles, and rejects
+imagery/elevation grid mismatches. Immutable format 1 imagery remains geographic
+and selects its explicit compatibility model; changing a descriptor cannot
+reproject stored pixels.
+
+For local acceptance, configure the producer's imagery directory and the
+separate scientific elevation directory. The imagery parent contains
+`product.json` and `base.png`; elevation has its own `product.json`:
 
 ```sh
-PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE='https://tiles.example/moon/imagery/{z}/{x}/{y}.png'
-PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE='https://tiles.example/moon/elevation/{z}/{x}/{y}.png'
+PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY=/path/to/new-product/imagery
+PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY=/path/to/new-heights/elevation
 ```
 
-For local acceptance of a controlled texture-pipeline output, point the app at
-the product's `imagery` directory and open the dedicated viewer:
+Reuse the running server during development. Apply configuration changes only
+when switching to a validated payload and restarting that server deliberately.
+The canonical global imagery reaches zoom 8; its descriptor caps requests
+independently of elevation. `PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM` can lower that
+cap for testing.
+
+For static/CDN hosting, provide the public immutable imagery template and
+matching descriptor, with CORS enabled and no credentials:
 
 ```sh
-PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY=/path/to/product/output/imagery \
-PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY=/path/to/product/output/elevation \
-  npm run dev -- --port 4197
+PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE='https://tiles.example/new-release/imagery/{z}/{x}/{y}.png'
+PAS_DE_GEANT_LUNAR_IMAGERY_PRODUCT_URL='https://tiles.example/new-release/product.json'
+PAS_DE_GEANT_LUNAR_ELEVATION_URL_TEMPLATE='https://tiles.example/new-height-release/elevation/{z}/{x}/{y}.png'
+PAS_DE_GEANT_LUNAR_ELEVATION_PRODUCT_URL='https://tiles.example/new-height-release/elevation/product.json'
 ```
 
-The current LROC WAC product reaches zoom 8. Override
-`PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM` only when testing another admitted
-product contract.
+An imagery descriptor URL is derived automatically from a public template ending
+in `/imagery/{z}/{x}/{y}.png`; other templates and server-only upstream proxies
+need an explicit public descriptor URL. Local directories expose only the
+whitelisted descriptor/base and XYZ paths. A descriptor fetch/validation failure
+retains the bundled base and flat heights rather than guessing a grid.
 
-For a static deployment, set `PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE` to the
-public immutable CDN template at build time. Both the whole-globe base and
-detail imagery use it directly; the tile host must allow browser CORS requests.
-The template is public configuration and must not contain credentials. For
-the `20261011.1` release it is:
+The existing immutable `20261011.1` WAC CDN payload remains usable as format 1.
+Its geographic zoom-0 tile supplies the equirectangular base. New format 2
+products carry a separate authenticated full-latitude `base.png`; Mercator zoom
+0 is unsuitable for that role. The same loader serves the main, focused Moon
+and Apollo views. The shared polar caps use the base and flat reference heights
+outside ±85.05112878°. Tone exponent `0.55` remains a uniform presentation
+choice for both base and detail, without changing stored source samples.
 
-```sh
-PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE='https://data.foundin.space/textures/moon/lroc-wac-global-100m/20261011.1/imagery/{z}/{x}/{y}.png'
-```
+Scientific heights use `kind: "elevation-xyz"`, `formatVersion: 2`, a matching
+`grid`, units in metres, a reference-surface vertical datum and an explicit
+encoding/bounds descriptor. LOLA RG16 stores an unsigned 16-bit value in red and
+green; height is `value × 0.5 − 10,000 m`. Display imagery never supplies height
+samples. Browser request URLs and provider identities include grid/product
+identity so switching a local dataset cannot reuse old geographic cache bytes.
+Published migrations require new immutable prefixes.
 
-The GitHub Pages build supplies this template. Without a public template,
-the configured development proxy or local imagery directory still applies.
-
-The main experience and dedicated Moon viewer share one source loader and use
-the configured product's zoom-0 tile as their whole-globe base. The focused
-viewer waits for the complete visible imagery cut, or a committed surface with
-a usable base after an imagery failure, before dismissing its loading state.
-GPU publication advances even while the camera is still. Both views apply one
-source-wide linear-light tone exponent of `0.55` to the base and every detail
-tile. This is a runtime presentation choice; it does not alter the controlled
-payload or normalize individual tiles. Geographic detail calculations retain
-the north/south tile span at the poles rather than using Mercator's latitude
-scale factor.
-
-Elevation PNGs store the source unsigned 16-bit LOLA value in the red and
-green channels. Runtime height is `value × 0.5 − 10,000 m`, relative to the
-1,737.4 km lunar reference sphere. The renderer streams both datasets and
-retains the bundled colour/flat-height fallback if either source is absent.
-
-The preprocessing artifact requires GDAL command-line tools and does not
-publish or deploy its output:
+The GDAL helper produces small display fixtures or scratch elevation migration
+outputs; controlled publication imagery belongs to the sibling texture
+pipeline. The helper requires an embedded or explicitly reviewed lunar source
+CRS, complete UInt16 LOLA samples for heights, and a new output directory:
 
 ```sh
 npm run lunar:tiles -- \
-  --imagery /data/lroc_color.tif \
   --elevation /data/ldem_64_uint.tif \
-  --output /data/pas-de-geant-moon
+  --source-crs /data/reviewed-source.wkt \
+  --projection web-mercator \
+  --output /data/new-moon-elevation
 ```
 
-It produces `imagery/{z}/{x}/{y}.png` and
-`elevation/{z}/{x}/{y}.png`, ready for any static object store or local server.
-Either source argument may be omitted when rebuilding only one pyramid.
+It performs actual reprojection, preserves the numeric encoding, uses nearest
+encoded pyramid samples and records source/code/grid/command/payload evidence.
+Missing target height coverage is rejected. It does not deploy or publish its
+scratch output. Existing elevation bytes without a scientific descriptor are
+not silently assigned a new grid. See
+[the migration guide](../../docs/surface-grid-migration.md) for replay and
+acceptance steps.
+
+### Compare Apollo imagery against the WAC base
+
+Open `http://127.0.0.1:4197/moon/compare/` on the existing development server,
+or follow **Compare Apollo imagery** from the Moon viewer. The page is an explicitly geographic archive comparison. Its WAC base defaults
+to immutable `20261011.1` (zooms 0–8), independently of the 3D runtime grid;
+`PAS_DE_GEANT_LUNAR_STUDY_IMAGERY_URL_TEMPLATE` selects another geographic base.
+It
+overlays LROC/Lunaserv imagery for all six landing sites: high-resolution,
+high-Sun, low-Sun, and the additional advertised variants where available.
+The default Apollo 11 view previews a variable-resolution pyramid over a
+**100 × 100 km** region: Kaguya context at about 8.4 m/pixel, the 1.3 m NAC mosaic
+within an inner 25 km band, and a 0.52 m NAC mosaic within an inner 5 km band.
+Source masks determine the actual detail coverage. Holes retain coarser imagery,
+and zooming beyond a source's useful level keeps its capped geographic parent.
+The page shows estimated coverage shares and can outline the detail footprints.
+The initial opacity is 100%, so the preview is fully visible. Existing comparison
+links retain their selected source, view and opacity.
+
+The context tiles are built by the sibling texture producer; see its
+`projects/moon/apollo11-preview/README.md` and `preview.toml` for the replay
+command. `/lunar-preview/` serves the local generated manifest and PNGs from
+`.cache/apollo11-preview`, or `PAS_DE_GEANT_LUNAR_PREVIEW_DIRECTORY`. This is a
+local preview: NAC is regridded from remote archive pyramids on demand, and seams
+and differing illumination have not been corrected. It is not a complete 1 m
+regional mosaic or a self-contained published tile package.
+
+Wider archive regional mosaics remain available for all six sites. **50 × 50 km**
+and **100 × 100 km** select the pyramid for Apollo 11, or the regional source at
+other sites, and outline a square centred on the landing site. Switching sites
+keeps the selected area size. The global WAC base remains underneath every layer.
+
+The page requests small registered WMS images directly from the public LROC
+service, or geographic crops assembled from the archive's Zoomify browse tiles.
+`/lunar-study-tiles/` provides same-origin access to these fixed public archive
+products in the development, preview, and application API servers. It does not
+accept arbitrary upstream URLs. Native NAC mosaics remain at the archive; the
+local context builder downloads four Kaguya tiles. Regional previews include JPEG
+browse compression and their existing
+display stretch; Apollo 16's browse pyramid is resampled to approximately 0.63 m.
+
+Blend, swipe, and blink compare the candidate against WAC or a second NAC
+version. Hold **B**, or the base button, to reveal only WAC. Context, join, and
+detail views return to the NASA/LROC-derived lunar module location. Both
+layers share lunar geographic coordinates; stored square XYZ base tiles
+display as 512 × 256 rectangles without losing their 512 stored rows.
+
+The shared display setting either preserves stored display pixels or applies
+the viewer's `0.55` linear-light brightness exponent to both sources. The study
+omits the 3D viewer's lighting and ACES exposure. **Match visible terrain brightness
+to WAC** compares corresponding unadjusted terrain over the current view,
+resampled to approximately the 100 m base scale when zoomed in. It sets gain
+from the median linear-light brightness ratio, preserves candidate contrast,
+and resets the brightness offset. Transparent and clipped samples are excluded.
+Use the join view for a local match. The result is a display adjustment rather
+than calibrated albedo or photometric correction; illumination differences remain.
+Candidate gain, contrast, brightness offset, and
+east/north offsets are temporary inspection controls; their defaults preserve
+the service image and its registration. Dark pixels retain their source alpha
+and are not treated as gaps.
+
+The URL retains the current comparison and view. Optional assessments stay in
+browser storage and export as a JSON study record. Lunaserv previews include
+service-side processing and may differ from the corresponding archived TIFF;
+verify the selected archival source before admission to the texture pipeline.
+Chandrayaan-2 OHRC observations are linked for discovery but are not served as
+registered overlays by this page.
+
+Regional registration and coverage are generated by
+`scripts/build-apollo-regional-preview-metadata.py`, using system GDAL and NumPy:
+
+```sh
+/usr/bin/python3 scripts/build-apollo-regional-preview-metadata.py \
+  --native-label .cache/apollo-study/sources/native-label.lbl \
+  --browse .cache/apollo-study/sources/browse-20m.tif \
+  --image-properties .cache/apollo-study/sources/ImageProperties.xml \
+  --output apps/pas-de-geant/src/data/apollo11-regional.json
+```
+
+Each generated JSON records public input URLs and hashes. Registration includes
+the lunar standard parallel and pixel-edge offsets, and handles western longitudes.
+Coverage is polygonized from the published 20 m browse GeoTIFF's explicit no-data
+mask; native dark terrain pixels remain valid. These approximate edge masks are
+for visual source selection. When Zoomify dimensions differ from the PDS raster,
+the generator requires `--pyramid-registration` with actual GDAL GeoTIFF header
+metadata, rather than assuming the registration of a different product. This
+applies to Apollo 16. Raw inputs stay outside Git.
 
 ### Compare native lunar imagery locally
 
@@ -400,12 +527,12 @@ The production surface is composed from reusable, provider-neutral modules:
   and GPU texture-array pool at its own draw and source zooms;
 - `TerrainSurface` is the only application-facing integration point.
 
-Terrain z comes from observer height above the flat, un-displaced Earth
-surface, latitude, render-buffer focal length, elevation page resolution, and
+Terrain z comes from camera clearance above loaded terrain, latitude,
+render-buffer focal length, elevation page resolution, and
 its own screen-density target. Photographic z uses a separate metre-per-texel
 target and hysteresis. Either pipeline can therefore be capped, overzoomed,
-and tuned without changing the other. Terrain elevation never feeds back into
-LOD selection.
+and tuned without changing the other. Surface mode pins the sampled terrain
+contact to the physical floor, so crouching changes that clearance directly.
 
 The embedded Blue Marble is immediate, complete fallback imagery. Mapterhorn
 Terrarium pages hydrate only horizon-retained members of the planner-owned committed
@@ -429,131 +556,54 @@ ancestor. Existing mappings remain visible until a replacement mapping is
 ready. Press Y to inspect photographic source boundaries; press X to inspect
 the independent committed terrain cut.
 
-### Optional photographic imagery
+### Tile sources and the development cache
 
-No photographic imagery provider is hard-coded. Configure its server-side
-cached upstream and public metadata:
+The server-side tile cache is owned by the independent private `kws/tile-cache`
+repository. Pas de Géant forwards tile requests over HTTP; it contains no
+upstream downloader or disk-cache implementation. AI, geocoding, local lunar
+products, and application APIs remain owned here.
 
-```sh
-PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE='https://example.test/{z}/{x}/{y}.jpg'
-VITE_IMAGERY_ATTRIBUTION='Required provider attribution'
-VITE_IMAGERY_PROVIDER_ID='provider-id'
-VITE_IMAGERY_TILE_SIZE=512
-VITE_IMAGERY_MIN_ZOOM=0
-VITE_IMAGERY_MAX_ZOOM=22
-```
-
-The upstream URL and any credentials in it remain server-side. Browser code
-receives only the attribution, source metadata, and same-origin cached route.
-Source tiles retain their native dimensions, requests never exceed the provider
-maximum zoom, and deep draw levels crop the corresponding source ancestor.
-
-When the configured source is MapTiler `satellite-v2`, the application uses
-MapTiler Satellite Plain's 256 px raster endpoint by default while preserving
-the configured key and attribution:
-
-- the default and `?imageryVariant=maptiler-256` use 256 px raster tiles;
-- `?imageryVariant=maptiler-512` remains available as an explicit diagnostic
-  override for the configured 512 px raw source.
-
-For example, compare
-`http://127.0.0.1:4197/?imageryVariant=maptiler-512` with
-`http://127.0.0.1:4197/?imageryVariant=maptiler-256`. The photographic tile
-onion remains 8 by 8 in both cases. Its source-pixel size is supplied to the
-existing imagery zoom selector, and each variant has a distinct provider and
-request URL so their pages cannot share cache identity.
-
-Textures and elevation always use the canonical same-origin route
-`/api/tiles/{provider}/{z}/{x}/{y}`. The server registry expands those
-coordinates through the selected provider's HTTP(S) URL template. Provider IDs
-not present in the registry return 404, so the endpoint cannot be used as an
-open forward proxy.
-
-The initial registry exposes `textures`, the diagnostic `textures-source`,
-`elevation`, and configured lunar sources. Each provider has its own request
-coalescing, throttle queue, and cache namespace below a user-level cache shared
-by checkouts and worktrees.
-The default root is `~/Library/Caches/pas-de-geant/tiles` on macOS,
-`$XDG_CACHE_HOME/pas-de-geant/tiles` when `XDG_CACHE_HOME` is an absolute path,
-`%LOCALAPPDATA%\pas-de-geant\tiles` on Windows, and
-`~/.cache/pas-de-geant/tiles` otherwise. By default, each queue permits 16
-upstream requests at a time and spaces starts by 10 ms (about 100 starts per
-second). A provider's `Retry-After` pauses only its own queue; rate-limit
-responses without that header use a five-second fallback.
-
-The cache defaults can be tuned in `.env.local`:
+When running application APIs locally, configure the separate service:
 
 ```sh
-PAS_DE_GEANT_TILE_PROXY_MAX_CONCURRENCY=16
-PAS_DE_GEANT_TILE_PROXY_MIN_INTERVAL_MS=10
-PAS_DE_GEANT_TILE_PROXY_DEFAULT_TTL_MS=86400000
-PAS_DE_GEANT_TILE_PROXY_UPSTREAM_BACKOFF_MS=5000
-PAS_DE_GEANT_TILE_PROXY_TEXTURES_FALLBACK_TTL_MS=60000
-# Optional; defaults to the platform user cache described above.
-# PAS_DE_GEANT_TILE_PROXY_CACHE_DIRECTORY=/absolute/path/to/tile-cache
-PAS_DE_GEANT_TILE_PROXY_CACHE_KEY_IGNORED_QUERY_PARAMETERS=key
-PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_TEMPLATE=
-PAS_DE_GEANT_TILE_PROXY_TEXTURES_SCHEME=xyz
-PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_TEMPLATE=https://tiles.mapterhorn.com/{z}/{x}/{y}.webp
-PAS_DE_GEANT_TILE_PROXY_ELEVATION_SCHEME=xyz
-PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_TEMPLATE=
-PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_SCHEME=xyz
-PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM=8
-PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY=
-PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_TEMPLATE=
-PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_SCHEME=xyz
-PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY=
-PAS_DE_GEANT_TILE_PROXY_UPSTREAM_HEADERS_JSON={}
-PAS_DE_GEANT_TILE_PROXY_FORWARD_REQUEST_HEADERS=origin,referer,user-agent
-PAS_DE_GEANT_TILE_PROXY_TEXTURES_UPSTREAM_HEADERS_JSON=
-PAS_DE_GEANT_TILE_PROXY_TEXTURES_FORWARD_REQUEST_HEADERS=
-PAS_DE_GEANT_TILE_PROXY_ELEVATION_UPSTREAM_HEADERS_JSON=
-PAS_DE_GEANT_TILE_PROXY_ELEVATION_FORWARD_REQUEST_HEADERS=
-PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_UPSTREAM_HEADERS_JSON=
-PAS_DE_GEANT_TILE_PROXY_LUNAR_IMAGERY_FORWARD_REQUEST_HEADERS=
-PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_UPSTREAM_HEADERS_JSON=
-PAS_DE_GEANT_TILE_PROXY_LUNAR_ELEVATION_FORWARD_REQUEST_HEADERS=
-PAS_DE_GEANT_TILE_PROXY_PROVIDERS_JSON=
+PAS_DE_GEANT_TILE_CACHE_URL=https://tile-cache.int.k-si.com
 ```
 
-When a texture upstream returns 429 or 503, the proxy observes its
-provider-local backoff and returns a correctly sized black fallback tile with
-HTTP 200. The response is marked by `X-Pas-De-Geant-Tile-Fallback` and cached
-by the client for `PAS_DE_GEANT_TILE_PROXY_TEXTURES_FALLBACK_TTL_MS` (60
-seconds by default); it is never written into the persistent tile cache. Cache
-hits remain available while the upstream is backed off. The default cache TTL
-applies only when an otherwise cacheable image response does not publish an
-explicit lifetime. `no-store` and `private` responses are never written to
-disk. Cache files are committed by atomic rename, so multiple development
-servers can share the directory when a cache identity always denotes the same
-immutable tile. Request coalescing and upstream throttling remain local to each
-server, so simultaneous misses can still download the same tile more than once.
-Do not delete entries while another server is writing them. The cache has no
-automatic size eviction; remove the platform cache directory (or the configured
-override) manually when a clean development run is needed. The ignored
-query-parameter list keeps rotating credentials out of cache identity; set it
-to the parameter names used by the configured providers. URL templates may put
-`{z}`, `{x}`, and `{y}` in any order and may include extensions and query
-parameters. Set a provider's scheme to `tms` when its upstream Y axis is
-inverted. Fixed upstream headers are configured as a JSON object. Incoming
-headers are forwarded only when named in the comma-separated forwarding list;
-this is useful for providers that validate `Origin`, `Referer`, or
-`User-Agent`. Fixed values take precedence over forwarded values. The texture
-and elevation variables override the shared defaults for their respective
-providers.
+Application APIs, AI token issuance and admitted lunar products stay on the
+development machine. The cache host runs only the independent upstream tile
+cache/proxy. Whole-API forwarding with `PAS_DE_GEANT_API_BACKEND_URL` is retired.
+Source metadata comes from the cache's public provider manifest. Upstream
+templates, credentials, headers, throttling and disk paths belong only to the
+cache service's private configuration.
 
-Additional provider IDs and per-provider overrides can be supplied as a JSON
-object in `PAS_DE_GEANT_TILE_PROXY_PROVIDERS_JSON`; each record accepts
-`urlTemplate`, `scheme`, `upstreamHeaders`, `forwardRequestHeaders`, and the
-throttle/cache settings shown above in camelCase. A generic provider can opt
-into the same fallback behavior with `fallbackTilePixels` and `fallbackTtlMs`.
-Forwarded headers do not vary
-the cache identity, so they should identify or authorize the same tile content
-rather than select a different representation.
+Development MapTiler source URLs are rejected at startup and in client source
+configuration, including injected imagery settings. An unavailable or missing
+cache returns a clear non-cacheable 503; it never falls back to direct upstream
+requests. Deliberate emergency access requires the exact explicit setting:
 
-Mapterhorn publishes its endpoint and source-level attribution at
-<https://mapterhorn.com/data-access/> and
-<https://mapterhorn.com/attribution/>.
+```sh
+PAS_DE_GEANT_ALLOW_DIRECT_MAPTILER=I_ACCEPT_MAPTILER_RATE_LIMIT_RISK
+```
+
+Leaving this unset is the supported development configuration. A public CDN or
+other explicitly configured source can be used without the helper. Production
+accepts `VITE_IMAGERY_XYZ_TEMPLATE` and `VITE_ELEVATION_XYZ_TEMPLATE`, source
+attribution, provider identity, dimensions, and zoom coverage. Source URLs are
+consumed as configured rather than unconditionally rewritten through the cache.
+
+Existing `/api/tiles/{provider}/{z}/{x}/{y}` routes, provider namespaces, and
+disk identities are preserved during extraction. MapTiler's default 256-pixel
+variant uses the cache's `textures` provider; the diagnostic 512-pixel source
+uses `textures-source`. Both routes remain persistent browser cache keys.
+Local admitted lunar products remain served by the application API.
+
+Successful imagery and Earth elevation are retained indefinitely in browser
+Cache Storage, including proxy and explicitly configured source URLs. The
+independent service retains good tiles indefinitely on disk, including legacy
+expired metadata. Missing upstream tiles during backoff are retryable failures;
+synthetic black images are never accepted as successful imagery. Source identity
+changes and explicit invalidation replace retained content. Browser storage
+remains subject to the browser's own eviction policy.
 
 ## Location and Realtime guide
 
@@ -750,3 +800,30 @@ npm run build
 
 Source and licence details are in `public/THIRD_PARTY_LICENSES.txt`. Terrain
 and imagery are not suitable for navigation or safety-critical use.
+
+## Local application APIs
+
+Vite serves application APIs on the development machine alongside the demo.
+Realtime token issuance, geocoding, knowledge, satellite feeds and prepared
+lunar products use that machine's configuration and files. Set `OPENAI_API_KEY`
+in its private `apps/pas-de-geant/.env.local` when voice is required, and start
+the app with `npm run dev -- --port 4197`.
+
+Only upstream tile requests are forwarded to the independent cache at
+`https://tile-cache.int.k-si.com`. Configure it with
+`PAS_DE_GEANT_TILE_CACHE_URL` as described above. The cache host serves no
+application APIs or local lunar products. Vite rejects the retired
+`PAS_DE_GEANT_API_BACKEND_URL` setting.
+
+Browser requests stay on the development site's origin, including its HTTPS
+proxy. `/api/supervision` and the supervisor console stay with the local Vite
+server, so each development server retains its own headset sessions.
+
+For local HTTP integration checks, build the standalone application API server
+with `npm run api:build` and run it with `npm run api:serve`. Supply its private
+configuration through the process environment; the command does not load Vite's
+environment files. `PAS_DE_GEANT_API_HOST` defaults to `127.0.0.1` and
+`PAS_DE_GEANT_API_PORT` defaults to `4198`. This local helper returns 404 for app
+pages and source code. `/healthz` reports readiness and `/api/config` exposes
+public source metadata and availability. Upstream credentials and the OpenAI
+API key remain server-side.

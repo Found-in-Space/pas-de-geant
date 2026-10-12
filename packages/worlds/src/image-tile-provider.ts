@@ -2,6 +2,7 @@ import {
   deleteCachedElevation,
   loadElevationFromNetwork,
   lookupCachedElevation,
+  type ElevationCacheOptions,
   type ElevationCacheStatus,
   type ElevationPayload,
 } from "./elevation-cache.js";
@@ -27,7 +28,7 @@ import {
 export type ImageTileKind = "imagery" | "terrain";
 export interface ElevationProviderMetadata extends ElevationSourceConstraints {
   readonly attribution: string;
-  /** Conservative decoded elevation range used only for render visibility. */
+  /** Conservative decoded elevation range for rendering and resource admission. */
   readonly elevationBoundsMetres?: {
     readonly minimum: number;
     readonly maximum: number;
@@ -556,6 +557,7 @@ async function decodeElevationSource(
   payload: ElevationPayload,
   signal: AbortSignal,
   expectedPixels: number,
+  options: ElevationCacheOptions = {},
 ): Promise<SourceImageLoad> {
   const blob = new Blob([payload.bytes], { type: payload.contentType });
   try {
@@ -565,7 +567,7 @@ async function decodeElevationSource(
       cacheStatus: elevationCacheStatus(payload.cacheStatus),
     };
   } catch (error) {
-    if (!isAbortError(error)) await deleteCachedElevation(source);
+    if (!isAbortError(error)) await deleteCachedElevation(source, options);
     throw error;
   }
 }
@@ -573,6 +575,7 @@ async function decodeElevationSource(
 export function createElevationTileProvider(
   metadata: ElevationProviderMetadata,
   maxElevationSourceZoom: number,
+  options: ElevationCacheOptions = {},
 ): ImageTileProvider<ElevationPayload> {
   return new ImageTileProvider({
     mode: "terrain",
@@ -582,10 +585,10 @@ export function createElevationTileProvider(
     resolveSource: (tile) =>
       elevationSourceMapping(tile, maxElevationSourceZoom),
     loadFromCache: async (source, signal) => {
-      return await lookupCachedElevation(source, signal);
+      return await lookupCachedElevation(source, signal, options.cacheStorage, true, options.urlTemplate);
     },
     loadSource: async (source, signal) => {
-      const payload = await loadElevationFromNetwork(source, signal);
+      const payload = await loadElevationFromNetwork(source, signal, options);
       if (payload.status < 200 || payload.status >= 300) {
         throw new HttpTileError(
           payload.status,
@@ -601,6 +604,7 @@ export function createElevationTileProvider(
         payload,
         signal,
         metadata.tilePixels,
+        options,
       ),
   });
 }

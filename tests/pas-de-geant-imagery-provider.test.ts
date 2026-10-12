@@ -43,6 +43,49 @@ function cacheStorage(cache: MemoryResponseCache): ImageryCacheStorage {
 }
 
 describe("XYZ imagery provider cache", () => {
+  it("retains proxied imagery beyond HTTP freshness across provider instances", async () => {
+    vi.useFakeTimers();
+    try {
+      const cache = new MemoryResponseCache();
+      const fetcher = vi.fn(async () => new Response(new Uint8Array([4, 5, 6]), {
+        headers: { "content-type": "image/jpeg", "cache-control": "public, max-age=1" },
+      }));
+      const options = { cacheStorage: cacheStorage(cache), fetcher };
+      const proxied = { ...configuration, urlTemplate: "/api/tiles/textures/{z}/{x}/{y}" };
+      const tile = { z: 6, x: 32, y: 20 };
+      await new XyzImageryProvider(proxied, options).load(tile, new AbortController().signal);
+      vi.setSystemTime(new Date("2040-01-01"));
+      expect((await new XyzImageryProvider(proxied, options).load(tile, new AbortController().signal)).size).toBe(3);
+      expect(fetcher).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("evicts legacy cached fallbacks and bypasses a poisoned HTTP cache", async () => {
+    const cache = new MemoryResponseCache();
+    const fallback = () => new Response(new Uint8Array([0]), {
+      headers: { "content-type": "image/png", "x-pas-de-geant-tile-fallback": "upstream-backoff" },
+    });
+    const url = "/api/tiles/textures/6/32/20";
+    cache.responses.set(url, fallback());
+    const fetcher = vi.fn().mockResolvedValueOnce(fallback()).mockResolvedValueOnce(new Response(new Uint8Array([7, 8]), {
+      headers: { "content-type": "image/jpeg" },
+    }));
+    const provider = new XyzImageryProvider({ ...configuration, urlTemplate: "/api/tiles/textures/{z}/{x}/{y}" }, { cacheStorage: cacheStorage(cache), fetcher });
+    expect((await provider.load({ z: 6, x: 32, y: 20 }, new AbortController().signal)).size).toBe(2);
+    expect(fetcher).toHaveBeenNthCalledWith(2, url, expect.objectContaining({ cache: "reload" }));
+    expect((await cache.match(url))?.headers.get("content-type")).toBe("image/jpeg");
+  });
+
+  it("never persists fallback imagery and surfaces a retryable failure", async () => {
+    const cache = new MemoryResponseCache();
+    const fetcher = vi.fn(async () => new Response(new Uint8Array([0]), {
+      headers: { "content-type": "image/png", "x-pas-de-geant-tile-cache": "FALLBACK", "retry-after": "12" },
+    }));
+    const provider = new XyzImageryProvider({ ...configuration, urlTemplate: "/api/tiles/textures/{z}/{x}/{y}" }, { cacheStorage: cacheStorage(cache), fetcher });
+    await expect(provider.load({ z: 6, x: 32, y: 20 }, new AbortController().signal)).rejects.toMatchObject({ kind: "transient", status: 503, retryAfterMs: 12_000 });
+    expect(cache.responses.size).toBe(0);
+  });
+
   it("classifies 429 responses and parses both Retry-After forms", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-08T10:00:00Z"));
@@ -148,7 +191,7 @@ describe("XYZ imagery provider cache", () => {
     expect((await cache.responses.get(url)!.blob()).type).toBe("image/jpeg");
   });
 
-  it("does not persist imagery from unrelated providers", async () => {
+  it("persists configured imagery from other providers", async () => {
     const cache = new MemoryResponseCache();
     const storage = cacheStorage(cache);
     const fetcher = vi.fn(async () =>
@@ -167,7 +210,7 @@ describe("XYZ imagery provider cache", () => {
       new AbortController().signal,
     );
 
-    expect(storage.open).not.toHaveBeenCalled();
-    expect(cache.responses.size).toBe(0);
+    expect(storage.open).toHaveBeenCalled();
+    expect(cache.responses.size).toBe(1);
   });
 });

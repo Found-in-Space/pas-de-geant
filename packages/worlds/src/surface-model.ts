@@ -7,6 +7,10 @@ import {
 } from "./tile-onion-core.js";
 import type { TileIdentity } from "./tile-transition-planner.js";
 import { celestialBody, type CelestialBodyDefinition } from "./solar-system.js";
+import {
+  createSurfaceVisibilityGeometry,
+  type SurfaceVisibilityGeometry,
+} from "./surface-visibility-geometry.js";
 
 export type SurfaceModelId = string;
 export type HeightEncoding =
@@ -16,6 +20,7 @@ export type HeightEncoding =
 export interface SurfaceModel {
   readonly id: SurfaceModelId;
   readonly referenceRadiusM: number;
+  readonly visibilityGeometry: SurfaceVisibilityGeometry;
   readonly projection: TileProjection;
   /** Minimum mesh subdivisions across either full projected world axis. */
   readonly minimumProjectedWorldSegments: number;
@@ -67,11 +72,12 @@ export function createBodySurfaceModel(
     "minimumProjectedWorldSegments" | "hasPolarCaps" | "nightAmbient"
   >> = {},
 ): SurfaceModel {
-  const projection = source.projection ?? "geographic";
+  const projection = source.projection ?? "web-mercator";
   const shape = body.shape;
   return Object.freeze({
     id: body.id,
     referenceRadiusM: body.referenceRadiusM,
+    visibilityGeometry: createSurfaceVisibilityGeometry(body),
     projection,
     minimumProjectedWorldSegments: source.minimumProjectedWorldSegments ?? 64,
     minimumNormalizedSurfaceRadius: shape.kind === "sphere"
@@ -80,8 +86,9 @@ export function createBodySurfaceModel(
     heightEncoding: source.heightEncoding ?? { kind: "terrarium" },
     elevationMetadata: source.elevationMetadata ?? {
       tilePixels: 512, maxSourceZoom: 0, attribution: "Reference surface · no elevation source",
+      elevationBoundsMetres: Object.freeze({ minimum: 0, maximum: 0 }),
     },
-    hasPolarCaps: source.hasPolarCaps ?? false,
+    hasPolarCaps: source.hasPolarCaps ?? projection === "web-mercator",
     nightAmbient: source.nightAmbient ?? new THREE.Color(0x010101),
     tileBounds: (tile: TileIdentity) => tileBounds(tile, projection),
     positionAndNormal(latitudeDegrees: number, longitudeDegrees: number) {
@@ -121,7 +128,7 @@ export const EARTH_SURFACE_MODEL: SurfaceModel = createBodySurfaceModel(celestia
 });
 
 export const MOON_SURFACE_MODEL: SurfaceModel = createBodySurfaceModel(celestialBody("moon"), {
-  projection: "geographic",
+  projection: "web-mercator",
   minimumProjectedWorldSegments: 64,
   heightEncoding: Object.freeze({
     kind: "rg16",
@@ -134,8 +141,16 @@ export const MOON_SURFACE_MODEL: SurfaceModel = createBodySurfaceModel(celestial
     attribution: "NASA LRO · LOLA global displacement",
     elevationBoundsMetres: Object.freeze({ minimum: -10_000, maximum: 22_767.5 }),
   }),
-  hasPolarCaps: false,
+  hasPolarCaps: true,
   nightAmbient: new THREE.Color(0x010101),
+});
+
+/** Explicit compatibility model for immutable format-1 geographic payloads. */
+export const MOON_GEOGRAPHIC_SURFACE_MODEL: SurfaceModel = Object.freeze({
+  ...MOON_SURFACE_MODEL,
+  projection: "geographic",
+  hasPolarCaps: false,
+  tileBounds: (tile: TileIdentity) => tileBounds(tile, "geographic"),
 });
 
 export function decodeHeightMetres(

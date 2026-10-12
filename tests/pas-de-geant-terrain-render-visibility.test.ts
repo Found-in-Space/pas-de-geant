@@ -4,11 +4,14 @@ import {
   createTerrainRenderVisibilityEntry,
   TerrainRenderVisibility,
 } from "@found-in-space/worlds/terrain-render-visibility";
+import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL, createBodySurfaceModel, type SurfaceModel } from "@found-in-space/worlds/surface-model";
+import { celestialBody } from "@found-in-space/worlds/solar-system";
 
 function meshEntry(
   center: THREE.Vector3,
   radius: number,
   usesElevationBounds: boolean,
+  model: SurfaceModel = EARTH_SURFACE_MODEL,
 ) {
   const positions = [
     center.x - radius,
@@ -38,7 +41,7 @@ function meshEntry(
   geometry.computeBoundingSphere();
   const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
   mesh.frustumCulled = false;
-  return createTerrainRenderVisibilityEntry(mesh, usesElevationBounds);
+  return createTerrainRenderVisibilityEntry(mesh, usesElevationBounds, model.visibilityGeometry);
 }
 
 function cameraLookingFrom(
@@ -59,14 +62,56 @@ function visibility(
     minimum: -32_768,
     maximum: 32_767 + 255 / 256,
   },
+  model: SurfaceModel = EARTH_SURFACE_MODEL,
 ): TerrainRenderVisibility {
   group.updateMatrixWorld(true);
-  const result = new TerrainRenderVisibility(group, bounds);
+  const result = new TerrainRenderVisibility(group, bounds, model.visibilityGeometry);
   result.updateDisplacement(1, 1_000);
   return result;
 }
 
 describe("terrain render visibility", () => {
+  it.each([EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL, createBodySurfaceModel({
+    ...celestialBody("moon"), referenceRadiusM: 2 * MOON_SURFACE_MODEL.referenceRadiusM,
+  })])(
+    "culls the far side of $id (reference radius $referenceRadiusM) from the captured Apollo-height observer",
+    (model) => {
+      const group = new THREE.Group();
+      group.scale.setScalar(model.referenceRadiusM / 50);
+      const { position, normal } = model.positionAndNormal(0.67416, 23.47314);
+      const near = meshEntry(position, 0.00001, true, model);
+      const far = meshEntry(position.clone().negate(), 0.00001, true, model);
+      group.add(near.mesh, far.mesh);
+      const classifier = visibility(group, model.elevationMetadata.elevationBoundsMetres, model);
+      classifier.updateDisplacement(1, model.referenceRadiusM / 50);
+      classifier.setEntries([near, far]);
+      const head = position.clone().addScaledVector(normal, 0.771805 * 50 / model.referenceRadiusM);
+      const camera = cameraLookingFrom(group.localToWorld(head), group.localToWorld(position.clone()));
+      classifier.update(camera);
+      expect(near.mesh.visible).toBe(true);
+      expect(far.mesh.visible).toBe(false);
+      expect(classifier.metrics.conservativeRetainCount).toBe(0);
+      expect(classifier.metrics.horizonCulledCount).toBe(1);
+    },
+  );
+
+  it("uses the depressed surface as occluder for an observer below the Moon reference sphere", () => {
+    const model = MOON_SURFACE_MODEL;
+    const group = new THREE.Group();
+    const near = meshEntry(new THREE.Vector3(0.999, 0, 0), 0.00001, true, model);
+    const far = meshEntry(new THREE.Vector3(-1, 0, 0), 0.00001, true, model);
+    group.add(near.mesh, far.mesh);
+    const classifier = visibility(group, { minimum: -2_000, maximum: 0 }, model);
+    classifier.updateDisplacement(1, model.referenceRadiusM / 50);
+    classifier.setEntries([near, far]);
+    classifier.update(cameraLookingFrom(
+      new THREE.Vector3(1 - 1_000 / model.referenceRadiusM, 0, 0),
+      new THREE.Vector3(0, 0, 0),
+    ));
+    expect(far.mesh.visible).toBe(false);
+    expect(classifier.metrics.conservativeRetainCount).toBe(0);
+  });
+
   it("keeps the stereo union visible when only one eye contains a mesh", () => {
     const group = new THREE.Group();
     const entry = meshEntry(new THREE.Vector3(0, 0, 1), 0.02, false);
