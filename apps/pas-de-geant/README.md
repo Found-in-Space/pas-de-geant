@@ -304,6 +304,11 @@ PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY=/path/to/new-product/imagery
 PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY=/path/to/new-heights/elevation
 ```
 
+Keep source data, completed products, and their validation evidence on a durable
+data volume outside Git. A running viewer must not depend on `/tmp` or another
+disposable build directory. Verify staged transfers against their payload
+manifests before promoting them and changing these configured roots.
+
 Reuse the running server during development. Apply configuration changes only
 when switching to a validated payload and restarting that server deliberately.
 The canonical global imagery reaches zoom 8; its descriptor caps requests
@@ -557,6 +562,13 @@ ready. Press Y to inspect photographic source boundaries; press X to inspect
 the independent committed terrain cut.
 
 ### Tile sources and the development cache
+
+**Quest display imagery baseline: 256 × 256 pixels for every body and provider.**
+Earlier physical Quest testing found performance problems with 512-pixel
+imagery. The 512-pixel option is diagnostic only; a Moon/Apollo product declaring
+512 pixels does not establish acceptance for normal Quest use. This concerns
+display imagery, not elevation. See the [tile-size decision and known integration
+gap](../../docs/quest-imagery-tile-size.md).
 
 The server-side tile cache is owned by the independent private `kws/tile-cache`
 repository. Pas de Géant forwards tile requests over HTTP; it contains no
