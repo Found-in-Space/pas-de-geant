@@ -560,8 +560,14 @@ remain persistent browser cache keys.
 Successful imagery and Earth elevation are retained indefinitely in browser
 Cache Storage, including proxy and explicitly configured source URLs. The
 independent service retains good tiles indefinitely on disk, including legacy
-expired metadata. Missing upstream tiles during backoff are retryable failures;
-synthetic black images are never accepted as successful imagery. Source identity
+expired metadata. Upstream backoff and outages must not block access to the
+server cache: it returns retained imagery first and temporary, marked black
+HTTP 200 images for missing display tiles during backoff. The imagery loader
+accepts those placeholders without pausing other cache requests. They use short
+HTTP freshness and never enter indefinite browser Cache Storage; subsequent
+requests can obtain real imagery after recovery. This applies to display
+imagery, not numeric elevation. Actual cache-service failures remain retryable
+errors. Source identity
 changes and explicit invalidation replace retained content. Browser storage
 remains subject to the browser's own eviction policy.
 

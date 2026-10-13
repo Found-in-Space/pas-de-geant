@@ -23,6 +23,13 @@
 - Good imagery and elevation persist indefinitely in browser Cache Storage.
   Upstream freshness must not expire retained tiles. Tile provider tests use
   local fixtures or fake fetchers rather than live paid endpoints.
+- Upstream backoff or outages must not block access to server-cached imagery.
+  The cache serves retained tiles first and marked black HTTP 200 placeholders
+  for missing display imagery during backoff. Accept those placeholders for
+  display without opening a provider-wide retry circuit, bypassing their short
+  HTTP freshness, or retaining them indefinitely in browser Cache Storage.
+  Verify that a server-only cache hit remains reachable after a fallback;
+  checking browser-local cache hits alone does not cover this contract.
 - Quest display imagery uses 256 × 256 tiles across all bodies and providers,
   including the Moon and Apollo products. Prior physical Quest testing found
   performance problems with 512 × 512 imagery; do not reintroduce it as a
