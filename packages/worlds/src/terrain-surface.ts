@@ -50,6 +50,7 @@ import {
 } from "./tile-horizon-culling.js";
 import {
   normalizeTerrainLodOptions,
+  terrainRefinementLimits,
   terrainSegmentsForZoom,
   type NormalizedTerrainLodOptions,
   type TerrainLodOptions,
@@ -809,6 +810,10 @@ export class TerrainSurface {
     this.desiredZoom = this.currentTarget.maxZoom;
     this.scheduler = new TileWorkerScheduler(this.currentTarget, {
       provider: this.provider,
+      refinementLimits: this.provider.coverage ? terrainRefinementLimits(
+        this.provider.coverage, this.provider.tilePixels, this.terrainLod.segmentTiers,
+        this.surfaceModel.minimumProjectedWorldSegments,
+      ) : undefined,
       retryDelayMs: 5_000,
       retryMaxDelayMs: TRANSIENT_RETRY_MAX_DELAY_MS,
     });

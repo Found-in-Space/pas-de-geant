@@ -138,7 +138,10 @@ describe("independent photographic imagery pipeline", () => {
     texture.processUploads = vi.fn();
 
     texture.update(
-      { displayRadiusM: 1_000, latitudeDegrees: -5, longitudeDegrees: 11.25 },
+      {
+        displayRadiusM: 1_000, latitudeDegrees: -5, longitudeDegrees: 11.25,
+        observerHeightWorldM: 1.65, focalLengthPixels: 1_000,
+      },
       {
         displayRadiusM: 1_000,
         latitudeDegrees: -5,
@@ -148,7 +151,10 @@ describe("independent photographic imagery pipeline", () => {
       { recalculateTopology: false },
     );
     texture.update(
-      { displayRadiusM: 1_000, latitudeDegrees: 60, longitudeDegrees: 100 },
+      {
+        displayRadiusM: 1_000, latitudeDegrees: 60, longitudeDegrees: 100,
+        observerHeightWorldM: 1.65, focalLengthPixels: 1_000,
+      },
       {
         displayRadiusM: 1_000,
         latitudeDegrees: 60,
@@ -158,10 +164,24 @@ describe("independent photographic imagery pipeline", () => {
       { recalculateTopology: false },
     );
 
+    // Without a separate horizon view, use the current altitude. This tile
+    // becomes visible from high above the surface, but not at the old eye height.
+    texture.update(
+      {
+        displayRadiusM: 1_000, latitudeDegrees: 30, longitudeDegrees: 11.25,
+        observerHeightWorldM: 1_000, focalLengthPixels: 1_000,
+      },
+      undefined,
+      { recalculateTopology: false },
+    );
+
     expect(updateHorizonCulling).toHaveBeenNthCalledWith(1, [
       { z: 4, x: 8, y: 8 },
     ]);
     expect(updateHorizonCulling).toHaveBeenNthCalledWith(2, []);
+    expect(updateHorizonCulling).toHaveBeenNthCalledWith(3, [
+      { z: 4, x: 8, y: 8 },
+    ]);
     expect(updateTarget).not.toHaveBeenCalled();
     expect(providerRequest).not.toHaveBeenCalled();
     expect(texture.targetSubmissionTotal).toBe(0);
@@ -925,11 +945,13 @@ describe("independent photographic imagery pipeline", () => {
     });
   });
 
-  it("selects imagery z from native provider texel density", () => {
+  it("selects imagery z from projected provider texel size", () => {
     const common = {
       displayRadiusM: 1_000,
       latitudeDegrees: 46,
       longitudeDegrees: 9,
+      observerHeightWorldM: 1.65,
+      focalLengthPixels: 1_000,
       minZoom: 0,
       maxZoom: 22,
     };
@@ -939,6 +961,33 @@ describe("independent photographic imagery pipeline", () => {
 
     expect(zoom256).toBe(zoom512 + 1);
     expect(zoom1024).toBe(zoom512 - 1);
+  });
+
+  it("rejects missing observer or projection inputs instead of inventing imagery demand", () => {
+    const common = {
+      displayRadiusM: 1_000,
+      latitudeDegrees: 0,
+      longitudeDegrees: 0,
+      minZoom: 0,
+      maxZoom: 22,
+      tilePixels: 256,
+    };
+    expect(() => {
+      // @ts-expect-error Observer distance is required, including from JS callers.
+      selectImageryZoom({ ...common, focalLengthPixels: 1_000 });
+    }).toThrow(RangeError);
+    expect(() => {
+      // @ts-expect-error Camera projection is required, including from JS callers.
+      selectImageryZoom({ ...common, observerHeightWorldM: 1.65 });
+    }).toThrow(RangeError);
+    for (const invalid of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => selectImageryZoom({
+        ...common, observerHeightWorldM: invalid, focalLengthPixels: 1_000,
+      })).toThrow(RangeError);
+      expect(() => selectImageryZoom({
+        ...common, observerHeightWorldM: 1.65, focalLengthPixels: invalid,
+      })).toThrow(RangeError);
+    }
   });
 
   it("refines imagery as the eye approaches its geographic sub-point", () => {
@@ -961,6 +1010,60 @@ describe("independent photographic imagery pipeline", () => {
     });
 
     expect(halfMetre).toBe(oneMetre + 1);
+  });
+
+  it("coarsens distant Earth imagery after leaving the surface and refines on return", () => {
+    // Quest observation at 1:50 while standing on the Moon. Earth must not
+    // retain surface-level imagery merely because its displayed radius is large.
+    const common = {
+      displayRadiusM: 127_420.176,
+      latitudeDegrees: -24.44,
+      longitudeDegrees: -74.74,
+      focalLengthPixels: 735.22,
+      minZoom: 0,
+      maxZoom: 22,
+      tilePixels: 256,
+    };
+    const surfaceHeight = 1.65;
+    const surfaceZoom = selectImageryZoom({
+      ...common,
+      observerHeightWorldM: surfaceHeight,
+    });
+    let zoom = surfaceZoom;
+    for (const observerHeightWorldM of [16.5, 165, 1_650, 7_823_177]) {
+      const nextZoom = selectImageryZoom({
+        ...common,
+        observerHeightWorldM,
+        previousZoom: zoom,
+      });
+      expect(nextZoom).toBeLessThan(zoom);
+      zoom = nextZoom;
+    }
+    expect(zoom).toBe(common.minZoom);
+    expect(selectImageryZoom({
+      ...common,
+      observerHeightWorldM: surfaceHeight,
+      previousZoom: zoom,
+    })).toBe(surfaceZoom);
+  });
+
+  it("keeps high-resolution Apollo imagery available near the lunar surface", () => {
+    const common = {
+      displayRadiusM: 1_737_400 / 50,
+      latitudeDegrees: 0.67416,
+      longitudeDegrees: 23.47314,
+      focalLengthPixels: 735.22,
+      minZoom: 0,
+      maxZoom: 17,
+      tilePixels: 256,
+    };
+    for (const observerHeightWorldM of [0.775, 1.65]) {
+      expect(selectImageryZoom({
+        ...common,
+        observerHeightWorldM,
+        previousZoom: 0,
+      })).toBeGreaterThanOrEqual(common.maxZoom);
+    }
   });
 
   it("identifies the one-to-one observer height for a native source zoom", () => {
@@ -1032,6 +1135,8 @@ describe("independent photographic imagery pipeline", () => {
       displayRadiusM: 1_000,
       latitudeDegrees: 46,
       longitudeDegrees: 9,
+      observerHeightWorldM: 1.65,
+      focalLengthPixels: 1_000,
       minZoom: 0,
       maxZoom: 1,
       tilePixels: 512,
@@ -1055,9 +1160,13 @@ describe("independent photographic imagery pipeline", () => {
 
   it("rebases texture hysteresis after a dynamic density change", () => {
     const common = {
-      displayRadiusM: 3.2353562342649442,
-      latitudeDegrees: 46,
+      // A close observer makes the 20 cm vertical hysteresis retain the old
+      // level unless a deliberate density change resets the selection baseline.
+      displayRadiusM: 0.1 * 2 ** 3 / (2 * Math.PI),
+      latitudeDegrees: 0,
       longitudeDegrees: 9,
+      observerHeightWorldM: 0.1,
+      focalLengthPixels: 512,
       minZoom: 0,
       maxZoom: 22,
       tilePixels: 512,
@@ -1114,7 +1223,7 @@ describe("independent photographic imagery pipeline", () => {
     }).maxZoom).toBe(6);
   });
 
-  it("keeps tree depth independent from a provider-capped source zoom", () => {
+  it("collapses overzoomed tree branches to their provider-capped source zoom", () => {
     const cut = Array.from({ length: 16 }, (_, index) => ({
       z: 2,
       x: index % 4,
@@ -1138,7 +1247,7 @@ describe("independent photographic imagery pipeline", () => {
       sourceTile: parseTileKey(image),
     }));
 
-    expect(encoded?.maximumDepth).toBe(2);
+    expect(encoded?.maximumDepth).toBe(1);
     expect(encoded?.imageCount).toBe(4);
     expect(encoded && [...encoded.imageData].filter((_, i) => i % 4 === 1))
       .toEqual([1, 1, 1, 1]);

@@ -73,7 +73,7 @@ scope.onmessage = ({ data }: MessageEvent<TileSchedulerCommand>) => {
     provider = new MainThreadResourceProvider();
     scheduler = new TileTransitionScheduler(
       data.target,
-      new TileOnionLayoutSource(),
+      new TileOnionLayoutSource(data.refinementLimits),
       provider,
     );
     scheduler.subscribe((snapshot, event) => {

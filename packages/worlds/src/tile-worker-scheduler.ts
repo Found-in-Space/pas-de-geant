@@ -1,3 +1,4 @@
+import type { TileRefinementLimits } from "./tile-refinement.js";
 import {
   TileLayoutSubmissionGate,
   normalizeTileLayoutTarget,
@@ -31,6 +32,7 @@ export interface TileSchedulerWorker {
 export interface TileWorkerSchedulerOptions<Resource> {
   readonly createWorker?: () => TileSchedulerWorker;
   readonly provider: TileProvider<Resource>;
+  readonly refinementLimits?: TileRefinementLimits;
   /** Base retry cadence for transient provider failures. */
   readonly retryDelayMs?: number;
   /** When set above the base cadence, failed retry rounds back off to this. */
@@ -156,6 +158,7 @@ export class TileWorkerScheduler<Resource> {
     this.worker.postMessage({
       kind: "initialize",
       target: normalizedInitialTarget,
+      ...(options.refinementLimits ? { refinementLimits: options.refinementLimits } : {}),
     });
   }
 

@@ -1,3 +1,4 @@
+import type { TileRefinementLimits } from "./tile-refinement.js";
 import type { TileLayoutTarget } from "./tile-layout-source.js";
 import type {
   SchedulerEvent,
@@ -9,6 +10,7 @@ import type { TileProviderResult } from "./tile-provider.js";
 export type TileSchedulerCommand =
   | {
       readonly kind: "initialize";
+      readonly refinementLimits?: TileRefinementLimits;
       readonly target: TileLayoutTarget;
     }
   | { readonly kind: "target"; readonly target: TileLayoutTarget }

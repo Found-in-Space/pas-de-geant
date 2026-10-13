@@ -96,6 +96,19 @@ function providerHarness<Resource>(): ProviderHarness<Resource> {
 }
 
 describe("Tile worker scheduler planner bridge", () => {
+  it("transfers source refinement coverage to the planner worker once at initialization", () => {
+    const worker = new FakeWorker();
+    const limits = { globalMaximumZoom: 3, ranges: [[7, 40, 50, 41, 51, 7] as const] };
+    const scheduler = new TileWorkerScheduler(layoutTarget(12), {
+      provider: providerHarness<string>().provider, createWorker: () => worker,
+      refinementLimits: limits,
+    });
+    expect(worker.commands[0]).toEqual({ kind: "initialize", target: layoutTarget(12), refinementLimits: limits });
+    scheduler.updateTarget(layoutTarget(13));
+    expect(worker.commands.filter(command => "refinementLimits" in command)).toHaveLength(1);
+    scheduler.dispose();
+  });
+
   it("sends horizon culling to the worker and deduplicates identical sets", () => {
     const worker = new FakeWorker();
     const harness = providerHarness<string>();

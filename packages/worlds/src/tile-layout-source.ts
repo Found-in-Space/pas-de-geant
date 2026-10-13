@@ -1,3 +1,4 @@
+import { constrainTileRefinement, type TileRefinementLimits } from "./tile-refinement.js";
 import {
   calculateTileOnionPlan,
   mercatorTileX,
@@ -200,6 +201,8 @@ export class TileLayoutSubmissionGate {
 export class TileOnionLayoutSource implements LayoutSource<TileLayoutTarget> {
   private previousState: TileOnionState | undefined;
 
+  constructor(private readonly refinementLimits?: TileRefinementLimits) {}
+
   calculate(
     sourceTarget: Readonly<TileLayoutTarget>,
   ): readonly TileIdentity[] {
@@ -212,6 +215,7 @@ export class TileOnionLayoutSource implements LayoutSource<TileLayoutTarget> {
       projection: target.projection,
     });
     this.previousState = plan.state;
-    return plan.leaves.map(({ z, x, y }) => ({ z, x, y }));
+    const leaves = plan.leaves.map(({ z, x, y }) => ({ z, x, y }));
+    return this.refinementLimits ? constrainTileRefinement(leaves, this.refinementLimits) : leaves;
   }
 }

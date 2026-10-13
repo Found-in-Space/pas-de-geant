@@ -292,7 +292,7 @@ function compareAddresses(
   return first.z - second.z || first.y - second.y || first.x - second.x;
 }
 
-function balancedQuadtreeLeaves(
+export function balancedQuadtreeLeaves(
   finestTiles: readonly TileAddress[],
 ): TileOnionLeaf[] {
   const finestKeys = new Set(finestTiles.map(tileKey));

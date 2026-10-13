@@ -157,6 +157,12 @@ export function reconcileImageryTree(
     );
   };
 
+  const branch = (children: ImageryChildrenNode["children"]): ImageryTreeNode => {
+    const first = children[0];
+    if (isImage(first) && children.every((child) => isImage(child) && child.image === first.image)) return first;
+    return Object.freeze({ children: Object.freeze(children) });
+  };
+
   const merge = (
     current: ImageryTreeNode,
     next: DesiredImageryTree,
@@ -166,18 +172,14 @@ export function reconcileImageryTree(
     }
     if (isImage(current)) {
       if (!ready(current, next)) return current;
-      return Object.freeze({
-        children: Object.freeze(
-          next.children.map((child) => merge(current, child)),
-        ) as unknown as ImageryChildrenNode["children"],
-      });
+      return branch(next.children.map((child) => merge(current, child)) as unknown as ImageryChildrenNode["children"]);
     }
     const children = next.children.map((child, index) =>
       merge(current.children[index]!, child),
     ) as unknown as ImageryChildrenNode["children"];
     return children.every((child, index) => child === current.children[index])
       ? current
-      : Object.freeze({ children: Object.freeze(children) });
+      : branch(children);
   };
 
   const mergeLeaf = (

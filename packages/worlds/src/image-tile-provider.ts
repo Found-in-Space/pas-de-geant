@@ -1,3 +1,4 @@
+import type { TileSourceCoverage } from "./tile-refinement.js";
 import {
   deleteCachedElevation,
   loadElevationFromNetwork,
@@ -124,6 +125,7 @@ export interface SourceImageLoad {
 }
 
 export interface ImageTileProviderOptions<TPayload = SourceImageLoad> {
+  readonly coverage?: TileSourceCoverage;
   readonly mode: ImageTileKind;
   readonly tilePixels: number;
   readonly attribution?: string;
@@ -310,6 +312,8 @@ async function decodeBlobImage(
 export class ImageTileProvider<TPayload = SourceImageLoad>
   implements TileProvider<ImageTileResource>
 {
+  get coverage(): TileSourceCoverage | undefined { return this.options.coverage; }
+
   readonly mode: ImageTileKind;
   readonly tilePixels: number;
   readonly attribution: string;
@@ -574,6 +578,10 @@ export function createElevationTileProvider(
 ): ImageTileProvider<ElevationPayload> {
   return new ImageTileProvider({
     mode: "terrain",
+    coverage: {
+      globalMaximumZoom: Math.min(maxElevationSourceZoom, options.availability?.globalMaximumZoom ?? maxElevationSourceZoom),
+      ranges: options.availability?.ranges.filter(([z]) => z <= maxElevationSourceZoom) ?? [],
+    },
     tilePixels: metadata.tilePixels,
     attribution: metadata.attribution,
     processingConcurrency: 4,

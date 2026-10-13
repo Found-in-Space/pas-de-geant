@@ -5,10 +5,6 @@ import {
   selectZoomWithVerticalHysteresis,
 } from "./observer-tile-zoom.js";
 
-export const IMAGERY_TARGET_METRES_PER_TEXEL = 0.0025;
-export const IMAGERY_REFERENCE_TILE_PIXELS = 512;
-export const IMAGERY_COARSEN_FACTOR = 1.75 / 2.56;
-export const IMAGERY_REFINE_FACTOR = 3.75 / 2.56;
 export const WEB_MERCATOR_MAX_LATITUDE = 85.05112878;
 
 export type ImageryAddress = TileIdentity;
@@ -18,10 +14,10 @@ export interface ImageryView {
   readonly latitudeDegrees: number;
   readonly longitudeDegrees: number;
   readonly projection?: TileProjection;
-  /** Room-space distance from the eye to its WGS84 sub-point. */
-  readonly observerHeightWorldM?: number;
+  /** Room-space distance from the eye to the local body surface. */
+  readonly observerHeightWorldM: number;
   /** Active camera projection focal length in render pixels. */
-  readonly focalLengthPixels?: number;
+  readonly focalLengthPixels: number;
 }
 
 export interface ImageryZoomOptions extends ImageryView {
@@ -121,7 +117,9 @@ export function observerHeightForImageryZoom(options: {
 }
 
 export function selectImageryZoom(options: ImageryZoomOptions): number {
-  const minZoom = Math.max(0, Math.floor(options.minZoom));
+  if (!Number.isFinite(options.focalLengthPixels) || options.focalLengthPixels <= 0) {
+    throw new RangeError("Imagery focal length must be positive.");
+  }
   const targetScreenPixelsPerSourcePixel =
     options.targetScreenPixelsPerSourcePixel ?? 1;
   const renderedWidthAtZoomZero = renderedImageryTileWidthM(
@@ -130,61 +128,20 @@ export function selectImageryZoom(options: ImageryZoomOptions): number {
     0,
     options.projection,
   );
-  const nativeDensityTargetWidth =
-    Math.max(1, options.tilePixels) * IMAGERY_TARGET_METRES_PER_TEXEL *
-    targetScreenPixelsPerSourcePixel;
-  if (
-    options.observerHeightWorldM !== undefined &&
-    options.focalLengthPixels !== undefined
-  ) {
-    const projectedTargetWidth = Math.max(1, options.tilePixels) *
-      options.observerHeightWorldM * targetScreenPixelsPerSourcePixel /
-      options.focalLengthPixels;
-    return selectZoomWithVerticalHysteresis({
-      continuousZoom: Math.log2(
-        renderedWidthAtZoomZero / projectedTargetWidth,
-      ),
-      minimumContinuousZoom: Math.log2(
-        renderedWidthAtZoomZero / nativeDensityTargetWidth,
-      ),
-      observerHeightWorldM: options.observerHeightWorldM,
-      previousZoom: options.previousZoom,
-      minimumZoom: minZoom,
-      maximumZoom: options.maxTopologyZoom,
-    });
-  }
-
-  // Callers without a room-space eye height retain the native-density selector.
-  const targetWidth = nativeDensityTargetWidth;
-  let zoom =
-    options.previousZoom === undefined
-      ? Math.max(
-          minZoom,
-          Math.round(
-            Math.log2(
-              renderedWidthAtZoomZero / targetWidth,
-            ),
-          ),
-        )
-      : Math.max(minZoom, Math.floor(options.previousZoom));
-  let width = renderedImageryTileWidthM(
-    options.latitudeDegrees,
-    options.displayRadiusM,
-    zoom,
-    options.projection,
-  );
-  while (width > targetWidth * IMAGERY_REFINE_FACTOR) {
-    zoom += 1;
-    width *= 0.5;
-  }
-  while (width < targetWidth * IMAGERY_COARSEN_FACTOR && zoom > minZoom) {
-    zoom -= 1;
-    width *= 2;
-  }
-  return options.maxTopologyZoom === undefined ||
-      options.maxTopologyZoom === null
-    ? zoom
-    : Math.min(zoom, Math.max(0, Math.floor(options.maxTopologyZoom)));
+  const projectedTargetWidth = Math.max(1, options.tilePixels) *
+    options.observerHeightWorldM * targetScreenPixelsPerSourcePixel /
+    options.focalLengthPixels;
+  // Distance determines visible detail. A room-space texel-density floor
+  // would keep distant bodies streaming surface-resolution imagery.
+  return selectZoomWithVerticalHysteresis({
+    continuousZoom: Math.log2(
+      renderedWidthAtZoomZero / projectedTargetWidth,
+    ),
+    observerHeightWorldM: options.observerHeightWorldM,
+    previousZoom: options.previousZoom,
+    minimumZoom: options.minZoom,
+    maximumZoom: options.maxTopologyZoom,
+  });
 }
 
 export function ancestorAtZoom(

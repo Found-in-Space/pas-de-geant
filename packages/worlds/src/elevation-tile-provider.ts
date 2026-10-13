@@ -1,3 +1,4 @@
+import type { TileSourceCoverage } from "./tile-refinement.js";
 import type {
   ImageTileProvider,
   ImageTileProviderMetrics,
@@ -18,6 +19,7 @@ export interface ElevationTileResource {
 }
 
 export interface TerrainElevationProvider extends TileProvider<ElevationTileResource> {
+  readonly coverage?: TileSourceCoverage;
   readonly tilePixels: number;
   readonly metrics: ImageTileProviderMetrics;
   retainSourceTiles(tiles: Iterable<TileIdentity>): void;
@@ -51,6 +53,8 @@ export class ElevationTileProvider<TPayload = unknown>
     private readonly options: { readonly missingTile?: "flat" | "failure" } = {}) {
     this.tilePixels = elevationProvider.tilePixels;
   }
+
+  get coverage(): TileSourceCoverage | undefined { return this.elevationProvider.coverage; }
 
   get metrics(): ImageTileProviderMetrics {
     return this.elevationProvider.metrics;

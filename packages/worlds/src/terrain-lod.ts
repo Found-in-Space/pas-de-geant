@@ -1,3 +1,4 @@
+import { sourceRefinementLimits, type TileRefinementLimits, type TileSourceCoverage } from "./tile-refinement.js";
 import type { TileIdentity } from "./tile-transition-planner.js";
 
 export interface ElevationSourceConstraints {
@@ -139,4 +140,19 @@ export function elevationSourceZoomForTile(
       "Maximum elevation source zoom",
     ),
   );
+}
+
+/** Stop subdivision once the mesh can represent the source's pixel spacing. */
+export function terrainRefinementLimits(
+  coverage: TileSourceCoverage,
+  tilePixels: number,
+  tiers: readonly TerrainSegmentTier[] = DEFAULT_TERRAIN_SEGMENT_TIERS,
+  minimumProjectedWorldSegments = 0,
+): TileRefinementLimits {
+  return sourceRefinementLimits(coverage, (sourceZoom) => {
+    let zoom = sourceZoom;
+    while (terrainSegmentsForZoom(zoom, tiers, minimumProjectedWorldSegments) *
+      2 ** (zoom - sourceZoom) < tilePixels) zoom++;
+    return zoom;
+  });
 }

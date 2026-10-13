@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { sourceRefinementLimits } from "./tile-refinement.js";
 import {
   ancestorAtZoom,
   imageryKey,
@@ -996,12 +997,8 @@ export class ImageryVirtualTexture {
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
     blueMarble: THREE.Texture,
-    imageryProvider?: ImageryProvider,
-    initialView: ImageryView & { readonly observerHeightWorldM?: number } = {
-      displayRadiusM: 1,
-      latitudeDegrees: 0,
-      longitudeDegrees: 0,
-    },
+    imageryProvider: ImageryProvider | undefined,
+    initialView: ImageryView,
     initialHorizonView?: TileHorizonView,
   ) {
     const zoom = imageryProvider
@@ -1065,12 +1062,12 @@ export class ImageryVirtualTexture {
         (blob, tileSize, signal) =>
           this.workerClient!.decode(blob, tileSize, signal),
       );
-      this.horizonView = initialHorizonView ?? {
-        ...initialView,
-        observerHeightWorldM: initialView.observerHeightWorldM ?? 0,
-      };
+      this.horizonView = initialHorizonView ?? initialView;
       this.scheduler = new TileWorkerScheduler(this.target, {
         provider: this.provider,
+        refinementLimits: sourceRefinementLimits(imageryProvider.coverage ?? {
+          globalMaximumZoom: imageryProvider.maxZoom, ranges: [],
+        }),
         retryDelayMs: 5_000,
         retryMaxDelayMs: TRANSIENT_RETRY_MAX_DELAY_MS,
       });
@@ -1126,10 +1123,7 @@ export class ImageryVirtualTexture {
   ): void {
     if (!this.scheduler || !this.provider) return;
     if (this.loadingSuspended) return;
-    this.horizonView = horizonView ?? {
-      ...view,
-      observerHeightWorldM: this.horizonView?.observerHeightWorldM ?? 0,
-    };
+    this.horizonView = horizonView ?? view;
     this.applyHorizonCulling();
     if (options.recalculateTopology === false) {
       this.processUploads();

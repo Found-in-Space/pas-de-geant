@@ -1,9 +1,12 @@
+import type { TileCoverageRange, TileSourceCoverage } from "./tile-refinement.js";
 import { ancestorAtZoom } from "./imagery-core.js";
 import type { ImageryProvider } from "./imagery-provider.js";
 import type { TileIdentity } from "./tile-transition-planner.js";
 import { sameTileGrid, type TileGrid } from "./tile-grid.js";
 
 export interface SparseImagerySource {
+  /** Exact coverage for worker-side refinement; omitted for opaque custom providers. */
+  readonly coverage?: readonly TileCoverageRange[];
   readonly provider: ImageryProvider;
   /** Exact, complete tiles declared by the producer; no speculative requests. */
   readonly hasTile: (address: TileIdentity) => boolean;
@@ -15,6 +18,7 @@ export interface SparseImagerySource {
  * parent sampling and rendering remain in the ordinary imagery pipeline.
  */
 export class SparseImageryProvider implements ImageryProvider {
+  readonly coverage: TileSourceCoverage;
   readonly id: string;
   readonly attribution: string;
   readonly tileSize: number;
@@ -41,6 +45,13 @@ export class SparseImageryProvider implements ImageryProvider {
     this.tileSize = fallback.tileSize;
     this.minZoom = fallback.minZoom;
     this.maxZoom = Math.max(...providers.map((provider) => provider.maxZoom));
+    // Unknown custom-source coverage must not suppress potentially available detail.
+    this.coverage = this.sources.every((source) => source.coverage !== undefined)
+      ? {
+          globalMaximumZoom: fallback.coverage?.globalMaximumZoom ?? fallback.maxZoom,
+          ranges: [...(fallback.coverage?.ranges ?? []), ...this.sources.flatMap((source) => source.coverage!)],
+        }
+      : { globalMaximumZoom: this.maxZoom, ranges: [] };
   }
 
   private select(address: TileIdentity): { provider: ImageryProvider; tile: TileIdentity } {

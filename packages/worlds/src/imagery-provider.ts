@@ -1,3 +1,4 @@
+import type { TileSourceCoverage } from "./tile-refinement.js";
 import type { TileIdentity } from "./tile-transition-planner.js";
 import { tileGrid, type TileGrid } from "./tile-grid.js";
 import { tileUrl, type TileAddressing } from "./tile-url.js";
@@ -21,6 +22,7 @@ function isValidImageryAddress(address: TileIdentity): boolean {
 }
 
 export interface ImageryProvider {
+  readonly coverage?: TileSourceCoverage;
   readonly id: string;
   readonly attribution: string;
   readonly tileSize: number;

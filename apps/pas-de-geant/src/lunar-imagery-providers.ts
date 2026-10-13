@@ -1,4 +1,5 @@
 import { assertDevelopmentTileSource } from "./development-tile-policy.js";
+import { tileCoverageRanges } from "@found-in-space/worlds/tile-refinement";
 import { imageryKey } from "@found-in-space/worlds/imagery-core";
 import { XyzImageryProvider, type ImageryProvider } from "@found-in-space/worlds/imagery-provider";
 import { SparseImageryProvider } from "@found-in-space/worlds/sparse-imagery-provider";
@@ -47,6 +48,7 @@ export function lunarImageryProviders(core: ImageryProvider, product: LunarImage
         addressing,
       }),
       hasTile: (tile) => available.has(imageryKey(tile)),
+      coverage: tileCoverageRanges(source.levels),
       priority: source.priority,
     };
   }));
