@@ -114,19 +114,13 @@ function ensureNotAborted(signal: AbortSignal): void {
 }
 
 function isFallbackResponse(response: Response): boolean {
-  return response.headers.has("x-pas-de-geant-tile-fallback") ||
+  return response.headers.has("x-tile-cache-fallback") ||
+    response.headers.get("x-tile-cache") === "FALLBACK" ||
+    response.headers.has("x-pas-de-geant-tile-fallback") ||
     response.headers.get("x-pas-de-geant-tile-cache") === "FALLBACK";
 }
 
 async function imageBlob(response: Response): Promise<Blob> {
-  if (isFallbackResponse(response)) {
-    throw new ImageryRequestError(
-      "The imagery provider returned a temporary fallback.",
-      "transient",
-      503,
-      retryAfterMilliseconds(response.headers.get("retry-after")) ?? 5_000,
-    );
-  }
   const blob = await response.blob();
   if (blob.size === 0 || !blob.type.toLowerCase().startsWith("image/")) {
     throw new ImageryRequestError(
@@ -219,7 +213,7 @@ export class XyzImageryProvider implements ImageryProvider {
     try {
       const cached = await cache.match(url);
       ensureNotAborted(signal);
-      if (!cached?.ok) {
+      if (!cached?.ok || isFallbackResponse(cached)) {
         if (cached) await cache.delete(url);
         return undefined;
       }
@@ -244,16 +238,11 @@ export class XyzImageryProvider implements ImageryProvider {
   ): Promise<Blob> {
     const url = this.url(address);
     const fetcher = this.options.fetcher ?? fetch;
-    let response = await fetcher(url, {
+    const response = await fetcher(url, {
       cache: "default",
       mode: "cors",
       signal,
     });
-    // Old HTTP caches may still hold the former successful black placeholder.
-    // Bypass it once; never promote synthetic imagery to the persistent cache.
-    if (isFallbackResponse(response) && response.ok) {
-      response = await fetcher(url, { cache: "reload", mode: "cors", signal });
-    }
     if (!response.ok) {
       const kind = response.status === 404
         ? "not-found"
@@ -267,7 +256,12 @@ export class XyzImageryProvider implements ImageryProvider {
         retryAfterMilliseconds(response.headers.get("retry-after")),
       );
     }
-    const cache = await this.responseCache(signal);
+    // A black fallback is a usable temporary display result. Upstream backoff
+    // belongs to the cache server, so it must not trip the client circuit or
+    // prevent requests for other tiles already held by that server.
+    const cache = isFallbackResponse(response)
+      ? undefined
+      : await this.responseCache(signal);
     const responseForCache = cache ? response.clone() : undefined;
     const blob = await imageBlob(response);
     ensureNotAborted(signal);

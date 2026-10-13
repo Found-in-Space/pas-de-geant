@@ -60,10 +60,10 @@ describe("XYZ imagery provider cache", () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it("evicts legacy cached fallbacks and bypasses a poisoned HTTP cache", async () => {
+  it("evicts persisted placeholders, displays HTTP fallbacks, and retains recovered imagery", async () => {
     const cache = new MemoryResponseCache();
     const fallback = () => new Response(new Uint8Array([0]), {
-      headers: { "content-type": "image/png", "x-pas-de-geant-tile-fallback": "upstream-backoff" },
+      headers: { "content-type": "image/png", "x-pas-de-geant-tile-fallback": "upstream-backoff", "cache-control": "max-age=60" },
     });
     const url = "/api/tiles/textures/6/32/20";
     cache.responses.set(url, fallback());
@@ -71,18 +71,24 @@ describe("XYZ imagery provider cache", () => {
       headers: { "content-type": "image/jpeg" },
     }));
     const provider = new XyzImageryProvider({ ...configuration, urlTemplate: "/api/tiles/textures/{z}/{x}/{y}" }, { cacheStorage: cacheStorage(cache), fetcher });
-    expect((await provider.load({ z: 6, x: 32, y: 20 }, new AbortController().signal)).size).toBe(2);
-    expect(fetcher).toHaveBeenNthCalledWith(2, url, expect.objectContaining({ cache: "reload" }));
+    const tile = { z: 6, x: 32, y: 20 };
+    expect((await provider.load(tile, new AbortController().signal)).size).toBe(1);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(cache.responses.size).toBe(0);
+    expect((await provider.load(tile, new AbortController().signal)).size).toBe(2);
     expect((await cache.match(url))?.headers.get("content-type")).toBe("image/jpeg");
+    expect((await provider.load(tile, new AbortController().signal)).size).toBe(2);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
-  it("never persists fallback imagery and surfaces a retryable failure", async () => {
+  it.each(["x-tile-cache", "x-pas-de-geant-tile-cache"])("displays %s fallbacks without persisting or refetching them", async (header) => {
     const cache = new MemoryResponseCache();
     const fetcher = vi.fn(async () => new Response(new Uint8Array([0]), {
-      headers: { "content-type": "image/png", "x-pas-de-geant-tile-cache": "FALLBACK", "retry-after": "12" },
+      headers: { "content-type": "image/png", [header]: "FALLBACK" },
     }));
     const provider = new XyzImageryProvider({ ...configuration, urlTemplate: "/api/tiles/textures/{z}/{x}/{y}" }, { cacheStorage: cacheStorage(cache), fetcher });
-    await expect(provider.load({ z: 6, x: 32, y: 20 }, new AbortController().signal)).rejects.toMatchObject({ kind: "transient", status: 503, retryAfterMs: 12_000 });
+    expect((await provider.load({ z: 6, x: 32, y: 20 }, new AbortController().signal)).size).toBe(1);
+    expect(fetcher).toHaveBeenCalledOnce();
     expect(cache.responses.size).toBe(0);
   });
 
