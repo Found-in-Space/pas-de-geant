@@ -20,7 +20,6 @@
     }
   },
   "bindings": {
-    "earthElevation": "earth-elevation",
-    "moonImagery": "moon-global"
+    "earthElevation": "earth-elevation"
   }
 }

@@ -94,7 +94,6 @@ export function compileDevelopmentSession(
       addressing: "xyz", attribution: "NASA/GSFC/Arizona State University; USGS Astrogeology",
       tileSize: 512, minZoom: 0, maxZoom: number(environment.PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM, 8),
     });
-    bindings.moonImagery = "moon-global";
   } else if (environment.PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE) {
     const template = environment.PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE;
     const productUrl = environment.PAS_DE_GEANT_LUNAR_IMAGERY_PRODUCT_URL;
@@ -104,7 +103,6 @@ export function compileDevelopmentSession(
       tileSize: 512, minZoom: 0, maxZoom: number(environment.PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM, 8),
       productUrl,
     };
-    bindings.moonImagery = "moon-global";
   }
   if (environment.PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY) {
     local("moon-elevation", environment.PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY, "{z}/{x}/{y}.png", {
@@ -125,7 +123,6 @@ export function compileDevelopmentSession(
     local("apollo-prepared", apolloRoot, "{source}/{z}/{x}/{y}.png", {
       addressing: "xyz", attribution: "NASA LRO / LROC", tileSize: 512, minZoom: 0, maxZoom: 18,
     });
-    bindings.apolloImagery = "apollo-prepared";
   }
   for (const [id, override] of Object.entries(settings.providers ?? {})) {
     const current = providers[id];

@@ -20,12 +20,30 @@ describe("session tile providers", () => {
     const staticConfig = parseSessionConfiguration(JSON.parse(await readFile(
       new URL("../apps/pas-de-geant/public/session-config.json", import.meta.url), "utf8",
     )));
-    expect(staticConfig.bindings.moonImagery).toBe("moon-global");
+    expect(staticConfig.bindings.moonImagery).toBeUndefined();
     expect(staticConfig.providers["moon-global"]?.productUrl).toContain("product.json");
     const development = compileDevelopmentSession({ PAS_DE_GEANT_TILE_CACHE_URL: "https://cache.example" }, "/workspace/app");
     expect(parseSessionConfiguration(development.config)).toEqual(development.config);
+    expect(development.config.bindings.moonImagery).toBeUndefined();
     expect(development.config.providers["earth-elevation"]?.urlTemplate)
       .toBe("https://cache.example/api/tiles/elevation/{z}/{x}/{y}");
+  });
+
+  it("requires explicit bindings for legacy 512-pixel lunar products", () => {
+    const environment = {
+      PAS_DE_GEANT_TILE_CACHE_URL: "https://cache.example",
+      PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY: "/data/moon/imagery",
+      PAS_DE_GEANT_LUNAR_RUNTIME_DIRECTORY: "/data/apollo/runtime",
+    };
+    const defaults = compileDevelopmentSession(environment, "/workspace/app").config;
+    expect(defaults.providers["moon-global"]?.tileSize).toBe(512);
+    expect(defaults.bindings.moonImagery).toBeUndefined();
+    expect(defaults.bindings.apolloImagery).toBeUndefined();
+    const diagnostic = compileDevelopmentSession(environment, "/workspace/app", {
+      bindings: { moonImagery: "moon-global", apolloImagery: "apollo-prepared" },
+    }).config;
+    expect(diagnostic.bindings.moonImagery).toBe("moon-global");
+    expect(diagnostic.bindings.apolloImagery).toBe("apollo-prepared");
   });
 
   it("loads from the application base for nested pages and preserves template queries", () => {

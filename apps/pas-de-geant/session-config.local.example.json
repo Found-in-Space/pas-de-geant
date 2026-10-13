@@ -6,7 +6,7 @@
       "localTilePathTemplate": "imagery/{z}/{x}/{y}.png",
       "addressing": "xyz",
       "attribution": "Source attribution",
-      "tileSize": 512,
+      "tileSize": 256,
       "minZoom": 0,
       "maxZoom": 8
     }

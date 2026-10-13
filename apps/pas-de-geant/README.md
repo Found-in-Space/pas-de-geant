@@ -311,9 +311,10 @@ manifests before promoting them and changing these configured roots.
 
 Reuse the running server during development. Apply configuration changes only
 when switching to a validated payload and restarting that server deliberately.
-The canonical global imagery reaches zoom 8; its descriptor caps requests
-independently of elevation. Set the provider's `maxZoom` lower in the session
-configuration for testing.
+The existing 512-pixel global imagery reaches zoom 8; its descriptor caps
+requests independently of elevation. It is retained as an explicit diagnostic
+provider and is unbound by default. Set the provider's `maxZoom` lower in the
+session configuration for testing.
 
 For static/CDN hosting, edit `public/session-config.json`. Each lunar provider
 needs its public immutable `urlTemplate` and matching `productUrl`, for example:
@@ -323,14 +324,19 @@ needs its public immutable `urlTemplate` and matching `productUrl`, for example:
   "urlTemplate": "https://tiles.example/new-release/imagery/{z}/{x}/{y}.png",
   "addressing": "xyz",
   "attribution": "Source attribution",
-  "tileSize": 512,
+  "tileSize": 256,
   "minZoom": 0,
   "maxZoom": 8,
   "productUrl": "https://tiles.example/new-release/product.json"
 }
 ```
 
-The `bindings.moonImagery` value selects that provider. Local development
+Bind a verified 256-pixel runtime derivative with `bindings.moonImagery`. The
+example local settings file shows the matching provider override and binding.
+The existing 512-pixel WAC product remains listed but unbound in the static
+session file; binding it is an explicit diagnostic choice. Legacy local Moon
+and Apollo environment paths likewise configure providers without selecting
+them. The provider tile size must match its descriptor. Local development
 products expose only the whitelisted descriptor, base and tile paths. A
 descriptor fetch/validation failure
 retains the bundled base and flat heights rather than guessing a grid.

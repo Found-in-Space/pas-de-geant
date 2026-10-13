@@ -55,12 +55,15 @@ export async function lunarSurfaceSource(renderer: THREE.WebGLRenderer, session:
       ? admittedProduct(elevationProviderConfig.productUrl,
           (value) => elevationSource(value, body)) : undefined,
   ]);
+  if (imagery && imageryProviderConfig && imagery.tileSize !== imageryProviderConfig.tileSize) {
+    throw new Error("Lunar imagery tile size differs from the session provider.");
+  }
   requireCompatibleSurfaceSources(imagery, elevation);
   const core = imagery && imageryProviderConfig ? lunarImageryProvider(imagery, imageryProviderConfig) : undefined;
   if (options.preview && !core) throw new Error("Apollo imagery requires an admitted global lunar source.");
   if (options.preview && !apolloProviderConfig?.productUrl) throw new Error("The session has no prepared Apollo imagery provider.");
   const imageryProvider = options.preview
-    ? await loadLunarImageryProviders(core!, apolloProviderConfig!.productUrl!, apolloProviderConfig!.addressing) : core;
+    ? await loadLunarImageryProviders(core!, apolloProviderConfig!.productUrl!, apolloProviderConfig!.addressing, apolloProviderConfig!.tileSize) : core;
   const grid = imagery?.grid ?? elevation?.grid;
   const model = grid?.projection === "geographic" ? MOON_GEOGRAPHIC_SURFACE_MODEL : MOON_SURFACE_MODEL;
   const base = await loadWorldBaseTexture({

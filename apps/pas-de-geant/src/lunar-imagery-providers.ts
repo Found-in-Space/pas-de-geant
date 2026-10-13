@@ -52,9 +52,11 @@ export function lunarImageryProviders(core: ImageryProvider, product: LunarImage
   }));
 }
 
-export async function loadLunarImageryProviders(core: ImageryProvider, productUrl: string, addressing: TileAddressing): Promise<ImageryProvider> {
+export async function loadLunarImageryProviders(core: ImageryProvider, productUrl: string, addressing: TileAddressing, tileSize: number): Promise<ImageryProvider> {
   assertDevelopmentTileSource(productUrl, { development: import.meta.env.DEV });
   const response = await fetch(productUrl);
   if (!response.ok) throw new Error("The prepared Apollo 11 XYZ tiles are unavailable.");
-  return lunarImageryProviders(core, await response.json() as LunarImageryTileProduct, productUrl, addressing);
+  const product = await response.json() as LunarImageryTileProduct;
+  if (product.tileSize !== tileSize) throw new Error("Apollo imagery tile size differs from the session provider.");
+  return lunarImageryProviders(core, product, productUrl, addressing);
 }
