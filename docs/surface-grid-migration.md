@@ -112,9 +112,6 @@ and publication manifests are immutable and remain geographic.
 After complete producer validation, select new global imagery and matching
 scientific elevation descriptors in application configuration. Set
 `PAS_DE_GEANT_LUNAR_RUNTIME_DIRECTORY` to the prepared Mercator Apollo root.
-Keep `PAS_DE_GEANT_LUNAR_PREVIEW_DIRECTORY` on the geographic 2D study product;
-its WAC base separately defaults to geographic release `20261011.1`. The study
-reader rejects Mercator input rather than misdrawing it.
 
 The implementation is developed in isolated worktrees. Local Quest preparation
 builds and validates the complete global and Apollo payloads and matching

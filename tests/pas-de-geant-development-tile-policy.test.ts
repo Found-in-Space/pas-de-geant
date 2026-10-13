@@ -5,10 +5,9 @@ import { assertDevelopmentTileSource, assertDevelopmentPublicTileSources } from 
 
 describe("development MapTiler routing", () => {
   it("rejects injected development imagery before a tile loader can fetch it", () => {
-    vi.stubGlobal("window", { __PAS_DE_GEANT_IMAGERY_CONFIG__: {
-      urlTemplate: "https://api.maptiler.com/{z}/{x}/{y}", attribution: "MapTiler",
-    } });
-    expect(() => imageryConfiguration()).toThrow("disabled in development");
+    expect(() => imageryConfiguration({ formatVersion: 1, providers: {
+      direct: { urlTemplate: "https://api.maptiler.com/{z}/{x}/{y}", addressing: "xyz", attribution: "MapTiler", tileSize: 256, minZoom: 0, maxZoom: 20 },
+    }, bindings: { earthImagery: "direct" } })).toThrow("disabled in development");
   });
   it("rejects direct MapTiler sources without including credentials in the error", () => {
     for (const template of ["https://api.maptiler.com/{z}/{x}/{y}?key=private-key", "https://tiles.maptiler.com/{z}/{x}/{y}"]) {

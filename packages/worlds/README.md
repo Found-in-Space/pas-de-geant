@@ -226,10 +226,12 @@ together; implementation changes should preserve the Earth and Moon regressions.
 
 ## Persistent tile caching
 
-Configured imagery and Earth elevation use browser Cache Storage before network
-work, including same-origin `/api/tiles` URLs. Good responses remain reusable
+Configured imagery and elevation use browser Cache Storage before direct provider
+requests. Good responses remain reusable
 indefinitely, independent of HTTP freshness headers; browser storage eviction
 and explicit invalidation still apply. Legacy synthetic fallback responses are
 rejected and retried rather than retained as imagery or elevation. Source URLs
 (including product/grid identity) distinguish versions; change that identity
 or explicitly invalidate retained entries when replacing source content.
+`TerrainSurface` uses a flat elevation provider unless its host supplies a
+configured one; the package has no application tile-service default.

@@ -4,7 +4,6 @@ import { tileGrid, tileGridKey, productTileGrid, surfaceSourceUrl } from "../pac
 import { tileBounds, projectedTilePoint } from "../packages/worlds/src/tile-onion-core.js";
 import { celestialBody } from "../packages/worlds/src/solar-system.js";
 import { displayTextureSource, elevationSource, requireCompatibleSurfaceSources } from "../packages/worlds/src/surface-product.js";
-import { geographicStudyPreview, type LunarPreviewProduct } from "../apps/pas-de-geant/src/lunar-preview-pyramid.js";
 import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL } from "../packages/worlds/src/surface-model.js";
 import { terrainPatchGeometry } from "../packages/worlds/src/terrain-surface.js";
 
@@ -78,7 +77,6 @@ describe("producer and consumer surface grid contract", () => {
     expect(() => displayTextureSource({ ...display(), grid: undefined }, moon)).toThrow();
     expect(() => displayTextureSource({ ...display(), grid: { ...mercator, radiusMetres: 6378137 } }, moon)).toThrow();
     expect(() => requireCompatibleSurfaceSources(legacy, elevationSource(height(), moon))).toThrow();
-    expect(() => geographicStudyPreview({ formatVersion: 2, grid: mercator } as LunarPreviewProduct)).toThrow(/comparison page/);
   });
 
   it("requires an independent full-latitude base for version 2", () => {

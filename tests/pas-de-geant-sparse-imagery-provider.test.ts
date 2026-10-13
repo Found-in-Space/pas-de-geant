@@ -103,12 +103,12 @@ describe("available imagery source selection", () => {
       new Response(new Blob(["tile"], { type: "image/png" })));
     vi.stubGlobal("fetch", fetcher);
     try {
-      const provider = lunarImageryProviders({ ...source("global", 2), grid: { formatVersion: 1, projection: "geographic", radiusMetres: 1_737_400 } }, product);
+      const provider = lunarImageryProviders({ ...source("global", 2), grid: { formatVersion: 1, projection: "geographic", radiusMetres: 1_737_400 } }, product, "https://tiles.example/runtime/product.json");
       const tile = provider.resolveSource!({ z: 5, x: 17, y: 13 });
       await provider.load(tile, new AbortController().signal);
       expect(fetcher).toHaveBeenCalledTimes(1);
       const requested = new URL(String(fetcher.mock.calls[0]![0]), "https://local.test");
-      expect(requested.pathname).toBe("/lunar-preview/runtime/landing/3/4/3.png");
+      expect(requested.pathname).toBe("/runtime/landing/3/4/3.png");
       expect(requested.searchParams.get("surface-product")).toBe("geographic-xyz-v1-r1737400:fixture");
     } finally { vi.unstubAllGlobals(); }
   });

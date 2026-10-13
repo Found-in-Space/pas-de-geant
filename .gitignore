@@ -15,6 +15,7 @@ npm-debug.log*
 .env
 .env.*
 !.env.example
+session-config.local.json
 *.tsbuildinfo
 .DS_Store
 Thumbs.db

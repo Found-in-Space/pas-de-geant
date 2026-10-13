@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { observerHeightForImageryZoom } from "@found-in-space/worlds/imagery-core";
 import { lunarSurfaceSource } from "./lunar-configuration.js";
+import { loadSessionConfiguration } from "./session-config.js";
+import { monitorTileSourceFailures } from "./tile-source-status.js";
 import { MOON_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
 import { createWorldRuntime, celestialBody, contactFrame } from "@found-in-space/worlds";
 import { orbitalDragRadiansPerPixel } from "@found-in-space/worlds/world-navigation";
@@ -83,7 +85,7 @@ controls.zoomSpeed = 0.85;
 controls.target.set(0, 0, 0);
 controls.update();
 
-const source = await lunarSurfaceSource(renderer);
+const source = await lunarSurfaceSource(renderer, await loadSessionConfiguration());
 const imageryProvider = source.imageryProvider;
 const maximumNativeZoom = imageryProvider?.maxZoom ?? 2;
 const world = createWorldRuntime({
@@ -100,6 +102,7 @@ const world = createWorldRuntime({
   },
 });
 const surface = world.surface;
+monitorTileSourceFailures(() => surface.getTileFailureTotal());
 surface.setTileMaxZoom({ target: "both", value: maximumNativeZoom });
 world.setSunlightDirection(new THREE.Vector3(4, 2.6, 3));
 scene.add(world.object3d);

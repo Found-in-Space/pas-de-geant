@@ -98,9 +98,10 @@ import {
 } from "./imagery-configuration.js";
 import {
   MAPTILER_IMAGERY_VARIANT_PARAMETER,
-  selectImageryVariant,
 } from "./imagery-variants.js";
-import { elevationSourceOptions } from "./elevation-configuration.js";
+import { earthElevationMaximumZoom, elevationSourceOptions } from "./elevation-configuration.js";
+import { loadSessionConfiguration } from "./session-config.js";
+import { monitorTileSourceFailures } from "./tile-source-status.js";
 import {
   applyTerrainMultiplierRate,
   contactFrame,
@@ -321,6 +322,7 @@ const element = <T extends HTMLElement>(id: string): T => {
   return value as T;
 };
 
+const sessionConfiguration = await loadSessionConfiguration();
 const sceneRoot = element<HTMLDivElement>("scene-root");
 const benchmarkParameters = new URLSearchParams(window.location.search);
 const worldLaunch = worldLaunchFromQuery(benchmarkParameters);
@@ -506,7 +508,7 @@ celestialSphere.setVisibility("planets", false);
 scene.add(celestialSphere.object3d);
 const textureLoader = new THREE.TextureLoader();
 const worldRuntimes: WorldRuntime[] = [];
-const lunarSurfacePromise = lunarSurfaceSource(renderer, { preview: worldLaunch.lunarPreview });
+const lunarSurfacePromise = lunarSurfaceSource(renderer, sessionConfiguration, { preview: worldLaunch.lunarPreview });
 void lunarSurfacePromise.then(
   (source) => {
     const texture = source.baseTexture.clone();
@@ -539,13 +541,9 @@ journeyEarthGlobe.name = "earth-to-gaia-whole-earth";
 journeyEarthGlobe.visible = false;
 scene.add(journeyEarthGlobe);
 
-const baseImageryConfiguration = imageryConfiguration();
-const selectedImageryConfiguration = baseImageryConfiguration
-  ? selectImageryVariant(
-      baseImageryConfiguration,
-      benchmarkParameters.get(MAPTILER_IMAGERY_VARIANT_PARAMETER),
-    )
-  : undefined;
+const selectedImageryConfiguration = imageryConfiguration(
+  sessionConfiguration, benchmarkParameters.get(MAPTILER_IMAGERY_VARIANT_PARAMETER),
+);
 const photographicImageryProvider =
   configuredXyzImageryProvider(selectedImageryConfiguration);
 document.body.dataset.imageryProvider =
@@ -667,8 +665,8 @@ const earthWorld = createWorldRuntime({
     surfaceModel: EARTH_SURFACE_MODEL,
     elevationProvider: new ElevationTileProvider(createElevationTileProvider(
       EARTH_SURFACE_MODEL.elevationMetadata,
-      EARTH_SURFACE_MODEL.elevationMetadata.maxSourceZoom,
-      elevationSourceOptions(),
+      earthElevationMaximumZoom(sessionConfiguration, EARTH_SURFACE_MODEL.elevationMetadata.maxSourceZoom),
+      elevationSourceOptions(sessionConfiguration),
     )),
   },
   initialView: {
@@ -756,7 +754,7 @@ function updateWorldCredits(): void {
     (focusBodyId === "moon" ? "lroc-color-2k" : "blue-marble");
   document.body.dataset.imageryTileSize = String(provider?.tileSize ?? 0);
   if (focusBodyId === "moon") {
-    terrainCredit.textContent = import.meta.env.PAS_DE_GEANT_LUNAR_ELEVATION_CONFIGURED
+    terrainCredit.textContent = sessionConfiguration.bindings.moonElevation
       ? "Terrain: NASA LRO / LOLA"
       : "Terrain: lunar reference sphere · no elevation data";
     imageryCredit.textContent = `Imagery: ${provider?.attribution ?? "NASA LRO / LROC"}`;
@@ -4614,6 +4612,7 @@ setTextureTileOverlayVisible(false);
 setEclipseConesVisible(false);
 setPreflightCheck(worldCheck, worldCheckStatus, "ready", `${celestialBody(initialFocusBodyId).name} ready`);
 errorState.hidden = true;
+monitorTileSourceFailures(() => focusedTerrain().getTileFailureTotal());
 aircraftLayer.visible = false;
 setAircraftEnabled(false);
 setAircraftLabelsEnabled(false);

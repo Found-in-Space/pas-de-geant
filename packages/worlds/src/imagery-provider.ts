@@ -1,5 +1,6 @@
 import type { TileIdentity } from "./tile-transition-planner.js";
 import { tileGrid, type TileGrid } from "./tile-grid.js";
+import { tileUrl, type TileAddressing } from "./tile-url.js";
 import {
   isSessionFatalStatus,
   retryAfterMilliseconds,
@@ -46,6 +47,7 @@ export interface ImageryProvider {
 export interface XyzImageryConfiguration {
   id?: string;
   urlTemplate: string;
+  addressing?: TileAddressing;
   attribution: string;
   tileSize?: number;
   minZoom?: number;
@@ -71,13 +73,6 @@ export interface ImageryCacheStorage {
 export interface XyzImageryProviderOptions {
   cacheStorage?: ImageryCacheStorage | null;
   fetcher?: typeof fetch;
-}
-
-declare global {
-  interface Window {
-    __PAS_DE_GEANT_IMAGERY_CONFIG__?: XyzImageryConfiguration;
-    __PAS_DE_GEANT_IMAGERY_PROVIDER__?: ImageryProvider;
-  }
 }
 
 export class ImageryRequestError extends Error {
@@ -186,10 +181,7 @@ export class XyzImageryProvider implements ImageryProvider {
         "not-found",
       );
     }
-    return this.configuration.urlTemplate
-      .replaceAll("{z}", String(address.z))
-      .replaceAll("{x}", String(address.x))
-      .replaceAll("{y}", String(address.y));
+    return tileUrl(this.configuration.urlTemplate, this.configuration.addressing ?? "xyz", address);
   }
 
   private async responseCache(

@@ -1212,6 +1212,10 @@ export class ImageryVirtualTexture {
     return (this.provider?.metrics.failureTotal ?? 0) > 0;
   }
 
+  get failureTotal(): number {
+    return this.provider?.metrics.failureTotal ?? 0;
+  }
+
   /** Advances bounded GPU upload work without recalculating the view target. */
   processFrame(): void {
     if (!this.loadingSuspended) this.processUploads();

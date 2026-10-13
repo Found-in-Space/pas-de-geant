@@ -11,7 +11,7 @@ export function createApiRequestHandler(
 }
 
 function createApplicationRequestHandler(
-  { middlewares, readPublicEnvironment }: ReturnType<typeof createApplicationApis>,
+  { middlewares }: ReturnType<typeof createApplicationApis>,
 ) {
   return (request: IncomingMessage, response: ServerResponse) => {
     const pathname = new URL(request.url ?? "/", "http://local").pathname;
@@ -20,22 +20,13 @@ function createApplicationRequestHandler(
       response.writeHead(403).end("Cross-origin requests are denied.");
       return;
     }
-    if (pathname === "/healthz" || pathname === "/api/config") {
+    if (pathname === "/healthz") {
       if (request.method !== "GET" && request.method !== "HEAD") {
         response.writeHead(405, { Allow: "GET, HEAD" }).end();
         return;
       }
       response.setHeader("Content-Type", "application/json; charset=utf-8");
-      if (pathname === "/healthz") {
-        response.end(request.method === "HEAD" ? undefined : JSON.stringify({ status: "ok" }));
-      } else {
-        void readPublicEnvironment().then(configuration => {
-          response.end(request.method === "HEAD" ? undefined : JSON.stringify(configuration));
-        }).catch(() => {
-          response.statusCode = 503;
-          response.end(JSON.stringify({ error: "Tile cache unavailable; direct upstream fallback is disabled." }));
-        });
-      }
+      response.end(request.method === "HEAD" ? undefined : JSON.stringify({ status: "ok" }));
       return;
     }
     let index = 0;

@@ -23,6 +23,17 @@
 - Good imagery and elevation persist indefinitely in browser Cache Storage.
   Upstream freshness must not expire retained tiles. Tile provider tests use
   local fixtures or fake fetchers rather than live paid endpoints.
+- Quest display imagery uses 256 × 256 tiles across all bodies and providers,
+  including the Moon and Apollo products. Prior physical Quest testing found
+  performance problems with 512 × 512 imagery; do not reintroduce it as a
+  normal runtime default through a new source or product descriptor. A 512-pixel
+  source is an explicit diagnostic choice. This decision concerns display
+  imagery, not scientific elevation. Read `docs/quest-imagery-tile-size.md`
+  before changing imagery sources, tile preparation, or tile-size defaults.
+- Local imagery, elevation, and prepared Apollo products used by a running
+  server must live on durable storage outside Git. Never point live dataset
+  configuration at `/tmp` or a disposable build directory. Verify completed
+  products before switching their configured roots.
 - The shared cache host runs only the upstream tile cache/proxy. Application
   APIs, AI token issuance and local lunar products stay on development machines.
   Never forward all application APIs to the cache host or deploy local product

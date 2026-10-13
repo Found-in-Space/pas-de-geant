@@ -64,8 +64,13 @@ import {
 } from "./imagery-configuration.js";
 import {
   MAPTILER_IMAGERY_VARIANT_PARAMETER,
-  selectImageryVariant,
 } from "./imagery-variants.js";
+import { loadSessionConfiguration } from "./session-config.js";
+import { monitorTileSourceFailures } from "./tile-source-status.js";
+import { earthElevationMaximumZoom, elevationSourceOptions } from "./elevation-configuration.js";
+import { ElevationTileProvider } from "@found-in-space/worlds/elevation-tile-provider";
+import { createElevationTileProvider } from "@found-in-space/worlds/image-tile-provider";
+import { EARTH_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
 import {
   HAND_PANEL_SURFACE,
   HAND_PANEL_THEME,
@@ -124,7 +129,6 @@ import type {
 } from "./supervision-client.js";
 import { idleJourneyState } from "./earth-to-gaia-journey.js";
 import { TerrainSurface, type TerrainSurfaceView } from "@found-in-space/worlds/terrain-surface";
-import { proxiedTileConfiguration } from "@found-in-space/worlds/tile-proxy";
 import {
   displayRadiusMetres,
   formatScaleRatio,
@@ -133,6 +137,7 @@ import {
 } from "@found-in-space/worlds/world-scale";
 import { orbitalDragRadiansPerPixel } from "@found-in-space/worlds/world-navigation";
 
+const sessionConfiguration = await loadSessionConfiguration();
 const DEFAULT_EVENT_ID = "solar-2026-08-12-total";
 const GEOMETRY_INTERVAL_MS = 160;
 const TERRAIN_VIEW_INTERVAL_MS = 250;
@@ -227,21 +232,9 @@ moonTexture.colorSpace = THREE.SRGBColorSpace;
 moonTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 
 const eclipseParameters = new URLSearchParams(window.location.search);
-const baseImageryConfiguration = imageryConfiguration();
-const selectedImageryConfiguration = baseImageryConfiguration
-  ? selectImageryVariant(
-      baseImageryConfiguration,
-      eclipseParameters.get(MAPTILER_IMAGERY_VARIANT_PARAMETER),
-    )
-  : undefined;
-const runtimeImageryConfiguration = selectedImageryConfiguration
-  ? proxiedTileConfiguration(
-      selectedImageryConfiguration,
-      selectedImageryConfiguration === baseImageryConfiguration
-        ? "textures-source"
-        : "textures",
-    )
-  : undefined;
+const runtimeImageryConfiguration = imageryConfiguration(
+  sessionConfiguration, eclipseParameters.get(MAPTILER_IMAGERY_VARIANT_PARAMETER),
+);
 const photographicImageryProvider =
   configuredXyzImageryProvider(runtimeImageryConfiguration);
 document.body.dataset.imageryProvider =
@@ -634,8 +627,14 @@ const terrain = new TerrainSurface({
   renderer,
   baseTexture: earthTexture,
   imageryProvider: photographicImageryProvider,
+  elevationProvider: new ElevationTileProvider(createElevationTileProvider(
+    EARTH_SURFACE_MODEL.elevationMetadata,
+    earthElevationMaximumZoom(sessionConfiguration, EARTH_SURFACE_MODEL.elevationMetadata.maxSourceZoom),
+    elevationSourceOptions(sessionConfiguration),
+  )),
   initialView: initialTerrainView.view,
 });
+monitorTileSourceFailures(() => terrain.getTileFailureTotal());
 terrain.setTilePixelRatio({
   target: "textures",
   screenPixelsPerSourcePixel:

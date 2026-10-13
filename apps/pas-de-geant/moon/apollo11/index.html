@@ -6,10 +6,13 @@
     <title>Apollo 11 · VR at 1:50 — Pas de Géant</title>
   </head>
   <body>
-    <p><a href="/?world=moon&amp;site=apollo11&amp;scale=50&amp;imagery=apollo11-preview">Open Apollo 11 in VR at 1:50</a></p>
+    <p><a href="../../?world=moon&amp;site=apollo11&amp;scale=50&amp;imagery=apollo11-preview">Open Apollo 11 in VR at 1:50</a></p>
     <script type="module">
       import { APOLLO11_VR_ENTRY } from "../../src/world-launch.ts";
-      const destination = new URL(APOLLO11_VR_ENTRY, location.origin);
+      const base = import.meta.env.BASE_URL === "./"
+        ? new URL("../../", location.href)
+        : new URL(import.meta.env.BASE_URL, location.origin);
+      const destination = new URL(APOLLO11_VR_ENTRY.slice(1), base);
       const parameters = new URLSearchParams(location.search);
       for (const key of ["debug", "xrEmulation", "sessionLabel"]) {
         const value = parameters.get(key);

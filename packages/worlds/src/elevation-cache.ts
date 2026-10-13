@@ -1,9 +1,10 @@
 import type { TileIdentity } from "./tile-transition-planner.js";
 import { retryAfterMilliseconds } from "./tile-request-circuit.js";
-import { tileProxyUrlTemplate } from "./tile-proxy.js";
+import { tileUrl, type TileAddressing } from "./tile-url.js";
 
-function elevationUrlForTile(address: TileIdentity, template = tileProxyUrlTemplate("elevation")): string {
-  return template.replaceAll("{z}", String(address.z)).replaceAll("{x}", String(address.x)).replaceAll("{y}", String(address.y));
+function elevationUrlForTile(address: TileIdentity, template: string | undefined, addressing: TileAddressing = "xyz"): string {
+  if (!template) throw new Error("An elevation tile URL template is required.");
+  return tileUrl(template, addressing, address);
 }
 
 export const MAPTERHORN_ELEVATION_CACHE_NAME =
@@ -34,6 +35,7 @@ export interface ElevationCacheStorage {
 
 export interface ElevationCacheOptions {
   urlTemplate?: string;
+  addressing?: TileAddressing;
   cacheStorage?: ElevationCacheStorage | null;
   fetcher?: typeof fetch;
   /** @deprecated Proxy routing and browser persistence are both always enabled. */
@@ -86,10 +88,11 @@ export async function lookupCachedElevation(
   cacheStorage: ElevationCacheStorage | null = browserCacheStorage(),
   _useProxy = true,
   urlTemplate?: string,
+  addressing: TileAddressing = "xyz",
 ): Promise<ElevationPayload | undefined> {
   ensureNotAborted(signal);
   if (!cacheStorage) return undefined;
-  const url = elevationUrlForTile(address, urlTemplate);
+  const url = elevationUrlForTile(address, urlTemplate, addressing);
   try {
     const cache = await cacheStorage.open(MAPTERHORN_ELEVATION_CACHE_NAME);
     ensureNotAborted(signal);
@@ -125,7 +128,7 @@ export async function loadElevationFromNetwork(
   options: ElevationCacheOptions = {},
 ): Promise<ElevationPayload> {
   const fetcher = options.fetcher ?? fetch;
-  const url = elevationUrlForTile(address, options.urlTemplate);
+  const url = elevationUrlForTile(address, options.urlTemplate, options.addressing);
   const cacheStorage = options.cacheStorage === undefined
     ? browserCacheStorage()
     : options.cacheStorage;
@@ -197,6 +200,7 @@ export async function loadCachedElevation(
     cacheStorage,
     true,
     options.urlTemplate,
+    options.addressing,
   );
   if (cached) return cached;
   return loadElevationFromNetwork(address, signal, {
@@ -209,7 +213,7 @@ export async function deleteCachedElevation(
   address: TileIdentity,
   options: ElevationCacheOptions = {},
 ): Promise<"deleted" | "missing" | "unavailable" | "error"> {
-  const url = elevationUrlForTile(address, options.urlTemplate);
+  const url = elevationUrlForTile(address, options.urlTemplate, options.addressing);
   let browserDeleted = false;
   try {
     const storage = browserCacheStorage();
@@ -220,17 +224,5 @@ export async function deleteCachedElevation(
   } catch {
     // Browser storage failure must not prevent invalidating the proxy entry.
   }
-  if (!url.startsWith("/api/tiles/")) return browserDeleted ? "deleted" : "missing";
-  try {
-    const response = await fetch(url, {
-      method: "DELETE",
-    });
-    return response.status === 204 || (response.status === 404 && browserDeleted)
-      ? "deleted"
-      : response.status === 404
-      ? "missing"
-      : "error";
-  } catch {
-    return "error";
-  }
+  return browserDeleted ? "deleted" : "missing";
 }

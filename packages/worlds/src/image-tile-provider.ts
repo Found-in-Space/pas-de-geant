@@ -17,6 +17,7 @@ import type {
   TileProviderResult,
   TileRequestHandle,
 } from "./tile-provider.js";
+import type { TileAddressing } from "./tile-url.js";
 import {
   isSessionFatalStatus,
   type TileRequestFailureMetadata,
@@ -39,6 +40,7 @@ export interface ElevationProviderMetadata extends ElevationSourceConstraints {
 
 export interface XyzElevationConfiguration {
   readonly urlTemplate: string;
+  readonly addressing?: TileAddressing;
   readonly headers?: Readonly<Record<string, string>>;
   readonly availability?: ElevationAvailability;
   readonly cacheStorage?: ElevationCacheStorage | null;
@@ -578,7 +580,7 @@ export function createElevationTileProvider(
     resolveSource: (tile) =>
       elevationSourceMapping(tile, maxElevationSourceZoom, options.availability),
     loadFromCache: async (source, signal) => {
-      return await lookupCachedElevation(source, signal, options.cacheStorage, true, options.urlTemplate);
+      return await lookupCachedElevation(source, signal, options.cacheStorage, true, options.urlTemplate, options.addressing);
     },
     loadSource: async (source, signal) => {
       const payload = await loadElevationFromNetwork(source, signal, options);
@@ -611,6 +613,7 @@ export function createXyzElevationTileProvider(
   const fetcher = configuration.fetcher ?? fetch;
   return createElevationTileProvider(metadata, maxElevationSourceZoom, {
     urlTemplate: configuration.urlTemplate,
+    addressing: configuration.addressing,
     availability: configuration.availability,
     cacheStorage: configuration.cacheStorage,
     fetcher: configuration.headers ? (input, init) => {

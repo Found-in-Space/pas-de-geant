@@ -4,8 +4,8 @@ import { attachSupervisionRelay } from "./src/supervision-server.js";
 import { createApplicationApis } from "./src/application-apis.js";
 import { createApplicationApiMiddleware } from "./src/api-server.js";
 import { assertDevelopmentPublicTileSources, DIRECT_MAPTILER_OVERRIDE } from "./src/development-tile-policy.js";
-import { createLunarRegionalImageryMiddleware } from "./src/lunar-regional-imagery-server.js";
-import { createLunarPreviewMiddleware } from "./src/lunar-preview-server.js";
+import { compileDevelopmentSession, readDevelopmentSessionSettings } from "./src/development-session-config.js";
+import { createLocalTileServer } from "./src/local-tile-server.js";
 
 function enforceSingleThreeRuntime(): Plugin {
   return {
@@ -40,27 +40,33 @@ export default defineConfig(async ({ mode, command }) => {
   if (serverEnvironment.PAS_DE_GEANT_API_BACKEND_URL?.trim()) {
     throw new Error("Shared application API forwarding has been retired. Configure PAS_DE_GEANT_TILE_CACHE_URL; application APIs and local lunar files stay on the development machine.");
   }
-  const lunarPreviewDirectory = serverEnvironment.PAS_DE_GEANT_LUNAR_PREVIEW_DIRECTORY;
-  const lunarRuntimeDirectory = serverEnvironment.PAS_DE_GEANT_LUNAR_RUNTIME_DIRECTORY;
+  const appDirectory = fileURLToPath(new URL(".", import.meta.url));
   const localApis = createApplicationApis(
-    serverEnvironment, fileURLToPath(new URL(".", import.meta.url)),
+    serverEnvironment, appDirectory,
   );
-  const publicEnvironment = await localApis.readPublicEnvironment();
   const localApiMiddleware = createApplicationApiMiddleware(localApis);
   return {
     define: {
-      ...Object.fromEntries(Object.entries(publicEnvironment).map(([key, value]) => [
-        `import.meta.env.${key}`, JSON.stringify(value),
-      ])),
       "import.meta.env.PAS_DE_GEANT_DIRECT_MAPTILER_ALLOWED": JSON.stringify(allowDirectMapTiler),
     },
     plugins: [
       enforceSingleThreeRuntime(),
       {
         name: "pas-de-geant-development-apis",
-        configureServer(server) {
-          server.middlewares.use(createLunarPreviewMiddleware(lunarPreviewDirectory, lunarRuntimeDirectory));
-          server.middlewares.use(createLunarRegionalImageryMiddleware());
+        async configureServer(server) {
+          const settings = await readDevelopmentSessionSettings(appDirectory);
+          const { config, localProducts } = compileDevelopmentSession(serverEnvironment, appDirectory, settings);
+          const localTiles = await createLocalTileServer(localProducts);
+          server.middlewares.use((request, response, next) => {
+            if (new URL(request.url ?? "/", "http://local").pathname !== "/session-config.json") { next(); return; }
+            if (request.method !== "GET" && request.method !== "HEAD") {
+              response.writeHead(405, { Allow: "GET, HEAD" }).end(); return;
+            }
+            response.setHeader("Content-Type", "application/json; charset=utf-8");
+            response.setHeader("Cache-Control", "no-store");
+            response.end(request.method === "HEAD" ? undefined : JSON.stringify(config));
+          });
+          server.middlewares.use(localTiles);
           const httpServer = server.httpServer;
           if (httpServer) {
             const detachSupervisionRelay = attachSupervisionRelay(httpServer);
@@ -69,8 +75,6 @@ export default defineConfig(async ({ mode, command }) => {
           server.middlewares.use(localApiMiddleware);
         },
         configurePreviewServer(server) {
-          server.middlewares.use(createLunarPreviewMiddleware(lunarPreviewDirectory, lunarRuntimeDirectory));
-          server.middlewares.use(createLunarRegionalImageryMiddleware());
           server.middlewares.use(localApiMiddleware);
         },
       } satisfies Plugin,
@@ -97,9 +101,6 @@ export default defineConfig(async ({ mode, command }) => {
           ),
           moon: fileURLToPath(
             new URL("./moon/index.html", import.meta.url),
-          ),
-          lunarImageryStudy: fileURLToPath(
-            new URL("./moon/compare/index.html", import.meta.url),
           ),
           apollo11Vr: fileURLToPath(
             new URL("./moon/apollo11/index.html", import.meta.url),

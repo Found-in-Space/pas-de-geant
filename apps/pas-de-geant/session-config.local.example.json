@@ -1,0 +1,17 @@
+{
+  "cacheBaseUrl": "https://your-independent-tile-cache.example",
+  "providers": {
+    "moon-global": {
+      "localRoot": "../../.cache/validated-moon-product",
+      "localTilePathTemplate": "imagery/{z}/{x}/{y}.png",
+      "addressing": "xyz",
+      "attribution": "Source attribution",
+      "tileSize": 512,
+      "minZoom": 0,
+      "maxZoom": 8
+    }
+  },
+  "bindings": {
+    "moonImagery": "moon-global"
+  }
+}

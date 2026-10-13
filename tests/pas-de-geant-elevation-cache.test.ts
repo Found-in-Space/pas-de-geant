@@ -7,6 +7,7 @@ import {
 } from "@found-in-space/worlds/elevation-cache";
 
 const tile = { z: 4, x: 8, y: 5 };
+const cacheTemplate = "https://cache.example/api/tiles/elevation/{z}/{x}/{y}";
 
 function cacheStorage(cache: ElevationResponseCache): ElevationCacheStorage {
   return { open: vi.fn(async () => cache) };
@@ -28,6 +29,21 @@ describe("Elevation cache", () => {
     expect(fetcher).toHaveBeenCalledWith("https://tiles.example/elevation/4/8/5.webp", expect.anything());
   });
 
+  it("uses TMS rows for both network and persistent cache keys", async () => {
+    const cache: ElevationResponseCache = {
+      match: vi.fn(async () => undefined), put: vi.fn(), delete: vi.fn(async () => false),
+    };
+    const fetcher = vi.fn(async () => new Response(new Uint8Array([1, 2]), { headers: { "content-type": "image/png" } }));
+    await loadCachedElevation(tile, new AbortController().signal, {
+      urlTemplate: "https://tiles.example/elevation/{z}/{x}/{y}.png?layer=height",
+      addressing: "tms", cacheStorage: cacheStorage(cache), fetcher,
+    });
+    const expected = "https://tiles.example/elevation/4/8/10.png?layer=height";
+    expect(fetcher).toHaveBeenCalledWith(expected, expect.anything());
+    expect(cache.match).toHaveBeenCalledWith(expected);
+    expect(cache.put).toHaveBeenCalledWith(expected, expect.any(Response));
+  });
+
   it("reuses proxied elevation indefinitely without contacting the server", async () => {
     let retained: Response | undefined;
     const cache: ElevationResponseCache = {
@@ -38,7 +54,7 @@ describe("Elevation cache", () => {
     const fetcher = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), {
       headers: { "content-type": "image/webp", "cache-control": "public, max-age=0", "x-pas-de-geant-tile-cache": "MISS" },
     }));
-    const options = { cacheStorage: cacheStorage(cache), fetcher };
+    const options = { cacheStorage: cacheStorage(cache), fetcher, urlTemplate: cacheTemplate };
     await loadCachedElevation(tile, new AbortController().signal, options);
     const hit = await loadCachedElevation(tile, new AbortController().signal, options);
     expect(hit.cacheStatus).toBe("hit");
@@ -51,7 +67,7 @@ describe("Elevation cache", () => {
     const fetcher = vi.fn(async () => new Response(new Uint8Array([0]), {
       headers: { "content-type": "image/png", "x-pas-de-geant-tile-fallback": "upstream-backoff", "retry-after": "10" },
     }));
-    const payload = await loadCachedElevation(tile, new AbortController().signal, { cacheStorage: cacheStorage(cache), fetcher });
+    const payload = await loadCachedElevation(tile, new AbortController().signal, { cacheStorage: cacheStorage(cache), fetcher, urlTemplate: cacheTemplate });
     expect(payload).toMatchObject({ status: 503, cacheStatus: "unavailable", retryAfterMs: 10_000 });
     expect(payload.bytes.byteLength).toBe(0);
     expect(cache.put).not.toHaveBeenCalled();
@@ -76,6 +92,7 @@ describe("Elevation cache", () => {
       {
         cacheStorage: cacheStorage(cache),
         fetcher: fetcher as unknown as typeof fetch,
+        urlTemplate: cacheTemplate,
         useProxy: false,
       },
     );
@@ -108,6 +125,7 @@ describe("Elevation cache", () => {
       {
         cacheStorage: cacheStorage(cache),
         fetcher: fetcher as unknown as typeof fetch,
+        urlTemplate: cacheTemplate,
         useProxy: false,
       },
     );
@@ -134,6 +152,7 @@ describe("Elevation cache", () => {
       loadElevationFromNetwork(tile, controller.signal, {
         cacheStorage: cacheStorage(cache),
         fetcher: fetcher as unknown as typeof fetch,
+        urlTemplate: cacheTemplate,
         useProxy: false,
       }),
     ).rejects.toMatchObject({ name: "AbortError" });
@@ -161,12 +180,13 @@ describe("Elevation cache", () => {
       {
         cacheStorage: cacheStorage(cache),
         fetcher: fetcher as unknown as typeof fetch,
+        urlTemplate: cacheTemplate,
         useProxy: true,
       },
     );
 
     expect(fetcher).toHaveBeenCalledWith(
-      "/api/tiles/elevation/4/8/5",
+      "https://cache.example/api/tiles/elevation/4/8/5",
       expect.objectContaining({ cache: "default", mode: "cors" }),
     );
     expect(payload.cacheStatus).toBe("stored");

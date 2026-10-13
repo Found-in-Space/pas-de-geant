@@ -1,0 +1,26 @@
+{
+  "formatVersion": 1,
+  "providers": {
+    "earth-elevation": {
+      "urlTemplate": "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
+      "addressing": "xyz",
+      "attribution": "Mapterhorn · Terrarium elevation tiles",
+      "tileSize": 512,
+      "minZoom": 0,
+      "maxZoom": 12
+    },
+    "moon-global": {
+      "urlTemplate": "https://data.foundin.space/textures/moon/lroc-wac-global-100m/20261011.1/imagery/{z}/{x}/{y}.png",
+      "addressing": "xyz",
+      "attribution": "NASA/GSFC/Arizona State University; USGS Astrogeology",
+      "tileSize": 512,
+      "minZoom": 0,
+      "maxZoom": 8,
+      "productUrl": "https://data.foundin.space/textures/moon/lroc-wac-global-100m/20261011.1/product.json"
+    }
+  },
+  "bindings": {
+    "earthElevation": "earth-elevation",
+    "moonImagery": "moon-global"
+  }
+}

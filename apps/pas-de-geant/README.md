@@ -51,7 +51,7 @@ One headset metre corresponds to 50 physical lunar metres; the loaded terrain
 underfoot is pinned to the physical floor, including elevations below the lunar
 reference sphere. Terrain and imagery detail use camera clearance above that
 loaded surface. Reset returns to the site and the launch
-scale. This entry is also linked from the imagery comparison page.
+scale.
 
 The equivalent full URL is
 `/?world=moon&site=apollo11&scale=50&imagery=apollo11-preview`. Use
@@ -304,26 +304,35 @@ PAS_DE_GEANT_LUNAR_IMAGERY_DIRECTORY=/path/to/new-product/imagery
 PAS_DE_GEANT_LUNAR_ELEVATION_DIRECTORY=/path/to/new-heights/elevation
 ```
 
+Keep source data, completed products, and their validation evidence on a durable
+data volume outside Git. A running viewer must not depend on `/tmp` or another
+disposable build directory. Verify staged transfers against their payload
+manifests before promoting them and changing these configured roots.
+
 Reuse the running server during development. Apply configuration changes only
 when switching to a validated payload and restarting that server deliberately.
 The canonical global imagery reaches zoom 8; its descriptor caps requests
-independently of elevation. `PAS_DE_GEANT_LUNAR_IMAGERY_MAX_ZOOM` can lower that
-cap for testing.
+independently of elevation. Set the provider's `maxZoom` lower in the session
+configuration for testing.
 
-For static/CDN hosting, provide the public immutable imagery template and
-matching descriptor, with CORS enabled and no credentials:
+For static/CDN hosting, edit `public/session-config.json`. Each lunar provider
+needs its public immutable `urlTemplate` and matching `productUrl`, for example:
 
-```sh
-PAS_DE_GEANT_LUNAR_IMAGERY_URL_TEMPLATE='https://tiles.example/new-release/imagery/{z}/{x}/{y}.png'
-PAS_DE_GEANT_LUNAR_IMAGERY_PRODUCT_URL='https://tiles.example/new-release/product.json'
-PAS_DE_GEANT_LUNAR_ELEVATION_URL_TEMPLATE='https://tiles.example/new-height-release/elevation/{z}/{x}/{y}.png'
-PAS_DE_GEANT_LUNAR_ELEVATION_PRODUCT_URL='https://tiles.example/new-height-release/elevation/product.json'
+```json
+"moon-global": {
+  "urlTemplate": "https://tiles.example/new-release/imagery/{z}/{x}/{y}.png",
+  "addressing": "xyz",
+  "attribution": "Source attribution",
+  "tileSize": 512,
+  "minZoom": 0,
+  "maxZoom": 8,
+  "productUrl": "https://tiles.example/new-release/product.json"
+}
 ```
 
-An imagery descriptor URL is derived automatically from a public template ending
-in `/imagery/{z}/{x}/{y}.png`; other templates and server-only upstream proxies
-need an explicit public descriptor URL. Local directories expose only the
-whitelisted descriptor/base and XYZ paths. A descriptor fetch/validation failure
+The `bindings.moonImagery` value selects that provider. Local development
+products expose only the whitelisted descriptor, base and tile paths. A
+descriptor fetch/validation failure
 retains the bundled base and flat heights rather than guessing a grid.
 
 The existing immutable `20261011.1` WAC CDN payload remains usable as format 1.
@@ -384,93 +393,6 @@ scratch output. Existing elevation bytes without a scientific descriptor are
 not silently assigned a new grid. See
 [the migration guide](../../docs/surface-grid-migration.md) for replay and
 acceptance steps.
-
-### Compare Apollo imagery against the WAC base
-
-Open `http://127.0.0.1:4197/moon/compare/` on the existing development server,
-or follow **Compare Apollo imagery** from the Moon viewer. The page is an explicitly geographic archive comparison. Its WAC base defaults
-to immutable `20261011.1` (zooms 0–8), independently of the 3D runtime grid;
-`PAS_DE_GEANT_LUNAR_STUDY_IMAGERY_URL_TEMPLATE` selects another geographic base.
-It
-overlays LROC/Lunaserv imagery for all six landing sites: high-resolution,
-high-Sun, low-Sun, and the additional advertised variants where available.
-The default Apollo 11 view previews a variable-resolution pyramid over a
-**100 × 100 km** region: Kaguya context at about 8.4 m/pixel, the 1.3 m NAC mosaic
-within an inner 25 km band, and a 0.52 m NAC mosaic within an inner 5 km band.
-Source masks determine the actual detail coverage. Holes retain coarser imagery,
-and zooming beyond a source's useful level keeps its capped geographic parent.
-The page shows estimated coverage shares and can outline the detail footprints.
-The initial opacity is 100%, so the preview is fully visible. Existing comparison
-links retain their selected source, view and opacity.
-
-The context tiles are built by the sibling texture producer; see its
-`projects/moon/apollo11-preview/README.md` and `preview.toml` for the replay
-command. `/lunar-preview/` serves the local generated manifest and PNGs from
-`.cache/apollo11-preview`, or `PAS_DE_GEANT_LUNAR_PREVIEW_DIRECTORY`. This is a
-local preview: NAC is regridded from remote archive pyramids on demand, and seams
-and differing illumination have not been corrected. It is not a complete 1 m
-regional mosaic or a self-contained published tile package.
-
-Wider archive regional mosaics remain available for all six sites. **50 × 50 km**
-and **100 × 100 km** select the pyramid for Apollo 11, or the regional source at
-other sites, and outline a square centred on the landing site. Switching sites
-keeps the selected area size. The global WAC base remains underneath every layer.
-
-The page requests small registered WMS images directly from the public LROC
-service, or geographic crops assembled from the archive's Zoomify browse tiles.
-`/lunar-study-tiles/` provides same-origin access to these fixed public archive
-products in the development, preview, and application API servers. It does not
-accept arbitrary upstream URLs. Native NAC mosaics remain at the archive; the
-local context builder downloads four Kaguya tiles. Regional previews include JPEG
-browse compression and their existing
-display stretch; Apollo 16's browse pyramid is resampled to approximately 0.63 m.
-
-Blend, swipe, and blink compare the candidate against WAC or a second NAC
-version. Hold **B**, or the base button, to reveal only WAC. Context, join, and
-detail views return to the NASA/LROC-derived lunar module location. Both
-layers share lunar geographic coordinates; stored square XYZ base tiles
-display as 512 × 256 rectangles without losing their 512 stored rows.
-
-The shared display setting either preserves stored display pixels or applies
-the viewer's `0.55` linear-light brightness exponent to both sources. The study
-omits the 3D viewer's lighting and ACES exposure. **Match visible terrain brightness
-to WAC** compares corresponding unadjusted terrain over the current view,
-resampled to approximately the 100 m base scale when zoomed in. It sets gain
-from the median linear-light brightness ratio, preserves candidate contrast,
-and resets the brightness offset. Transparent and clipped samples are excluded.
-Use the join view for a local match. The result is a display adjustment rather
-than calibrated albedo or photometric correction; illumination differences remain.
-Candidate gain, contrast, brightness offset, and
-east/north offsets are temporary inspection controls; their defaults preserve
-the service image and its registration. Dark pixels retain their source alpha
-and are not treated as gaps.
-
-The URL retains the current comparison and view. Optional assessments stay in
-browser storage and export as a JSON study record. Lunaserv previews include
-service-side processing and may differ from the corresponding archived TIFF;
-verify the selected archival source before admission to the texture pipeline.
-Chandrayaan-2 OHRC observations are linked for discovery but are not served as
-registered overlays by this page.
-
-Regional registration and coverage are generated by
-`scripts/build-apollo-regional-preview-metadata.py`, using system GDAL and NumPy:
-
-```sh
-/usr/bin/python3 scripts/build-apollo-regional-preview-metadata.py \
-  --native-label .cache/apollo-study/sources/native-label.lbl \
-  --browse .cache/apollo-study/sources/browse-20m.tif \
-  --image-properties .cache/apollo-study/sources/ImageProperties.xml \
-  --output apps/pas-de-geant/src/data/apollo11-regional.json
-```
-
-Each generated JSON records public input URLs and hashes. Registration includes
-the lunar standard parallel and pixel-edge offsets, and handles western longitudes.
-Coverage is polygonized from the published 20 m browse GeoTIFF's explicit no-data
-mask; native dark terrain pixels remain valid. These approximate edge masks are
-for visual source selection. When Zoomify dimensions differ from the PDS raster,
-the generator requires `--pyramid-registration` with actual GDAL GeoTIFF header
-metadata, rather than assuming the registration of a different product. This
-applies to Apollo 16. Raw inputs stay outside Git.
 
 ### Compare native lunar imagery locally
 
@@ -580,44 +502,54 @@ the independent committed terrain cut.
 
 ### Tile sources and the development cache
 
-The server-side tile cache is owned by the independent private `kws/tile-cache`
-repository. Pas de Géant forwards tile requests over HTTP; it contains no
-upstream downloader or disk-cache implementation. AI, geocoding, local lunar
-products, and application APIs remain owned here.
+**Quest display imagery baseline: 256 × 256 pixels for every body and provider.**
+Earlier physical Quest testing found performance problems with 512-pixel
+imagery. The 512-pixel option is diagnostic only; a Moon/Apollo product declaring
+512 pixels does not establish acceptance for normal Quest use. This concerns
+display imagery, not elevation. See the [tile-size decision and known integration
+gap](../../docs/quest-imagery-tile-size.md).
 
-When running application APIs locally, configure the separate service:
+The headset loads `session-config.json` once from the application base path,
+including on nested pages. It contains versioned provider records with complete
+tile URL templates, XYZ/TMS addressing, attribution, zoom coverage, optional
+product descriptors, and named Earth/Moon/Apollo bindings. The static build
+packages `public/session-config.json`; change that file to select public hosted
+providers. No tile server is part of the production application.
+
+For development, set the independent cache's browser-reachable origin in
+`apps/pas-de-geant/.env.local`:
 
 ```sh
-PAS_DE_GEANT_TILE_CACHE_URL=https://tile-cache.int.k-si.com
+PAS_DE_GEANT_TILE_CACHE_URL=https://your-independent-cache.example
 ```
 
-Application APIs, AI token issuance and admitted lunar products stay on the
-development machine. The cache host runs only the independent upstream tile
-cache/proxy. Whole-API forwarding with `PAS_DE_GEANT_API_BACKEND_URL` is retired.
-Source metadata comes from the cache's public provider manifest. Upstream
-templates, credentials, headers, throttling and disk paths belong only to the
-cache service's private configuration.
+Earth imagery and elevation use that cache by default. The development server
+delivers its resolved configuration at `/session-config.json`; the headset
+requests tiles directly from the selected provider. Cache host details remain
+in local settings and upstream credentials remain with the cache service.
 
-Development MapTiler source URLs are rejected at startup and in client source
-configuration, including injected imagery settings. An unavailable or missing
-cache returns a clear non-cacheable 503; it never falls back to direct upstream
-requests. Deliberate emergency access requires the exact explicit setting:
+Copy `session-config.local.example.json` to the ignored
+`session-config.local.json` for per-provider overrides. A provider can specify
+its own `urlTemplate` and `productUrl` for a hosted service, or `localRoot` and
+`localTilePathTemplate` for a temporary product. A local root must contain a
+validated `product.json` and live on durable storage outside Git. The dedicated
+development server serves only descriptors, declared base images and tile
+paths at `/_local-tiles/{providerId}/…`; it does not proxy or redirect. The
+same-origin route is available to a headset through the development origin.
+
+Development MapTiler source URLs are rejected unless deliberately enabled. An
+unavailable cache fails the selected tile request without falling back to an
+upstream. Emergency direct access requires the exact explicit setting:
 
 ```sh
 PAS_DE_GEANT_ALLOW_DIRECT_MAPTILER=I_ACCEPT_MAPTILER_RATE_LIMIT_RISK
 ```
 
-Leaving this unset is the supported development configuration. A public CDN or
-other explicitly configured source can be used without the helper. Production
-accepts `VITE_IMAGERY_XYZ_TEMPLATE` and `VITE_ELEVATION_XYZ_TEMPLATE`, source
-attribution, provider identity, dimensions, and zoom coverage. Source URLs are
-consumed as configured rather than unconditionally rewritten through the cache.
-
-Existing `/api/tiles/{provider}/{z}/{x}/{y}` routes, provider namespaces, and
-disk identities are preserved during extraction. MapTiler's default 256-pixel
-variant uses the cache's `textures` provider; the diagnostic 512-pixel source
-uses `textures-source`. Both routes remain persistent browser cache keys.
-Local admitted lunar products remain served by the application API.
+Leaving this unset is the normal development configuration. A public CDN or
+other explicitly selected source can use its own path and query syntax. The
+default 256-pixel variant uses the cache's `textures` provider; the diagnostic
+512-pixel variant uses `textures-source`. Both have independent bindings and
+remain persistent browser cache keys.
 
 Successful imagery and Earth elevation are retained indefinitely in browser
 Cache Storage, including proxy and explicitly configured source URLs. The
@@ -826,19 +758,16 @@ and imagery are not suitable for navigation or safety-critical use.
 ## Local application APIs
 
 Vite serves application APIs on the development machine alongside the demo.
-Realtime token issuance, geocoding, knowledge, satellite feeds and prepared
-lunar products use that machine's configuration and files. Set `OPENAI_API_KEY`
+Realtime token issuance, geocoding, knowledge and satellite feeds use that
+machine's configuration. Set `OPENAI_API_KEY`
 in its private `apps/pas-de-geant/.env.local` when voice is required, and start
 the app with `npm run dev -- --port 4197`.
 
-Only upstream tile requests are forwarded to the independent cache at
-`https://tile-cache.int.k-si.com`. Configure it with
-`PAS_DE_GEANT_TILE_CACHE_URL` as described above. The cache host serves no
-application APIs or local lunar products. Vite rejects the retired
-`PAS_DE_GEANT_API_BACKEND_URL` setting.
+The independent cache host serves no application APIs or local lunar products.
+Vite rejects the retired `PAS_DE_GEANT_API_BACKEND_URL` setting.
 
-Browser requests stay on the development site's origin, including its HTTPS
-proxy. `/api/supervision` and the supervisor console stay with the local Vite
+Application API requests stay on the development site's origin, including its
+HTTPS proxy. `/api/supervision` and the supervisor console stay with the local Vite
 server, so each development server retains its own headset sessions.
 
 For local HTTP integration checks, build the standalone application API server
@@ -846,6 +775,6 @@ with `npm run api:build` and run it with `npm run api:serve`. Supply its private
 configuration through the process environment; the command does not load Vite's
 environment files. `PAS_DE_GEANT_API_HOST` defaults to `127.0.0.1` and
 `PAS_DE_GEANT_API_PORT` defaults to `4198`. This local helper returns 404 for app
-pages and source code. `/healthz` reports readiness and `/api/config` exposes
-public source metadata and availability. Upstream credentials and the OpenAI
-API key remain server-side.
+pages and source code. `/healthz` reports readiness. Session configuration is
+delivered only through `session-config.json` by the Vite development server or
+as a static file. Upstream credentials and the OpenAI API key remain server-side.

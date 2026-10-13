@@ -1,9 +1,6 @@
 import * as THREE from "three";
 import { ImageTexturePool } from "./image-texture-pool.js";
-import {
-  createElevationTileProvider,
-  type ImageTileResource,
-} from "./image-tile-provider.js";
+import type { ImageTileResource } from "./image-tile-provider.js";
 import type { ImageryProvider } from "./imagery-provider.js";
 import {
   IMAGERY_FRAGMENT_DECLARATIONS,
@@ -17,7 +14,7 @@ import {
   type TileLayoutTarget,
 } from "./tile-layout-source.js";
 import {
-  ElevationTileProvider,
+  FlatElevationTileProvider,
   type TerrainElevationProvider,
   type ElevationTileResource,
 } from "./elevation-tile-provider.js";
@@ -788,11 +785,8 @@ export class TerrainSurface {
     options.baseTexture.wrapT = THREE.ClampToEdgeWrapping;
     options.baseTexture.needsUpdate = true;
 
-    const elevationProvider = options.elevationProvider ?? new ElevationTileProvider(
-      createElevationTileProvider(
-      this.surfaceModel.elevationMetadata,
-      this.terrainLod.maxElevationSourceZoom,
-      ),
+    const elevationProvider = options.elevationProvider ?? new FlatElevationTileProvider(
+      this.surfaceModel.elevationMetadata.tilePixels,
     );
     this.imagery = new ImageryVirtualTexture(
       options.renderer,
@@ -995,6 +989,10 @@ export class TerrainSurface {
           this.provider.tilePixels * 4,
       },
     };
+  }
+
+  getTileFailureTotal(): number {
+    return this.imagery.failureTotal + this.provider.metrics.failureTotal;
   }
 
   setTileOverlayVisible(visible: boolean): void {

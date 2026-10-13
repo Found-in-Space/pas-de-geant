@@ -3,6 +3,8 @@ import { imageryKey } from "@found-in-space/worlds/imagery-core";
 import { XyzImageryProvider, type ImageryProvider } from "@found-in-space/worlds/imagery-provider";
 import { SparseImageryProvider } from "@found-in-space/worlds/sparse-imagery-provider";
 import { productTileGrid, sameTileGrid, surfaceSourceUrl, type TileGrid } from "@found-in-space/worlds/tile-grid";
+import type { TileAddressing } from "@found-in-space/worlds/tile-url";
+import { descriptorTileTemplate } from "./session-config.js";
 
 export interface LunarImageryTileProduct {
   readonly kind: "sparse-opaque-xyz";
@@ -24,7 +26,7 @@ export interface LunarImageryTileProduct {
   }[];
 }
 
-export function lunarImageryProviders(core: ImageryProvider, product: LunarImageryTileProduct): ImageryProvider {
+export function lunarImageryProviders(core: ImageryProvider, product: LunarImageryTileProduct, productUrl: string, addressing: TileAddressing = "xyz"): ImageryProvider {
   if (product.kind !== "sparse-opaque-xyz" || ![1, 2].includes(product.formatVersion)) {
     throw new Error("Apollo imagery requires prepared opaque XYZ tiles.");
   }
@@ -41,7 +43,8 @@ export function lunarImageryProviders(core: ImageryProvider, product: LunarImage
         minZoom: source.minimumZoom,
         maxZoom: source.maximumZoom,
         grid,
-        urlTemplate: surfaceSourceUrl(`/lunar-preview/runtime/${source.pathTemplate}`, grid, product.identity),
+        urlTemplate: surfaceSourceUrl(descriptorTileTemplate(source.pathTemplate, productUrl), grid, product.identity),
+        addressing,
       }),
       hasTile: (tile) => available.has(imageryKey(tile)),
       priority: source.priority,
@@ -49,9 +52,9 @@ export function lunarImageryProviders(core: ImageryProvider, product: LunarImage
   }));
 }
 
-export async function loadLunarImageryProviders(core: ImageryProvider): Promise<ImageryProvider> {
-  assertDevelopmentTileSource("/lunar-preview/runtime/product.json", { development: import.meta.env.DEV });
-  const response = await fetch("/lunar-preview/runtime/product.json");
+export async function loadLunarImageryProviders(core: ImageryProvider, productUrl: string, addressing: TileAddressing): Promise<ImageryProvider> {
+  assertDevelopmentTileSource(productUrl, { development: import.meta.env.DEV });
+  const response = await fetch(productUrl);
   if (!response.ok) throw new Error("The prepared Apollo 11 XYZ tiles are unavailable.");
-  return lunarImageryProviders(core, await response.json() as LunarImageryTileProduct);
+  return lunarImageryProviders(core, await response.json() as LunarImageryTileProduct, productUrl, addressing);
 }
