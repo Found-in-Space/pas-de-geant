@@ -25,8 +25,8 @@ import { lunarBaseTextureUrl } from "./world-assets.js";
 import { loadLunarImageryProviders } from "./lunar-imagery-providers.js";
 import { boundProvider, type SessionConfiguration } from "./session-config.js";
 
-/** Source-wide linear-light curve used to keep WAC morphology legible. */
-export const LUNAR_DISPLAY_TONE_EXPONENT = 0.55;
+/** Shared base/overlay midtone lift in linear light; keeps black and white anchored. */
+export const LUNAR_DISPLAY_TONE_EXPONENT = 0.8;
 
 async function admittedProduct<T>(url: string, admit: (value: unknown) => T): Promise<T | undefined> {
   try {
@@ -85,6 +85,13 @@ export async function lunarSurfaceSource(renderer: THREE.WebGLRenderer, session:
         attribution: "Lunar reference surface", elevationBoundsMetres: { minimum: 0, maximum: 0 } },
     }),
     albedoToneExponent: LUNAR_DISPLAY_TONE_EXPONENT,
+    // Shared Moon/Apollo presentation reviewed in Quest; stored tile samples stay unchanged.
+    displayPresentation: {
+      lighting: "neutral",
+      gain: 1.3,
+      contrast: 2,
+      contrastPivot: 0.4,
+    },
   };
 }
 

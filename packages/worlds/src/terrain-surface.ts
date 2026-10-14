@@ -106,6 +106,18 @@ export interface TerrainRuntimeMetrics {
   };
 }
 
+/** Optional output presentation for photographic surfaces, shared by base and detail. */
+export interface TerrainDisplayPresentation {
+  /** Neutral omits the final solar modulation and blue fill, retaining image shading. */
+  readonly lighting: "scene" | "neutral";
+  /** Linear-light gain applied before conversion to the renderer's output colour space. */
+  readonly gain: number;
+  /** Output-space sigmoid slope; 1 is identity, greater values increase contrast. */
+  readonly contrast: number;
+  /** Output-space value left fixed by the contrast curve, strictly between 0 and 1. */
+  readonly contrastPivot: number;
+}
+
 export interface TerrainSurfaceOptions {
   readonly renderer: THREE.WebGLRenderer;
   readonly baseTexture: THREE.Texture;
@@ -115,6 +127,8 @@ export interface TerrainSurfaceOptions {
   readonly terrainLod?: TerrainLodOptions;
   /** Uniform linear-light presentation curve; 1 preserves source values. */
   readonly albedoToneExponent?: number;
+  /** Enables explicit display conversion and grading; omit to retain the existing presentation. */
+  readonly displayPresentation?: TerrainDisplayPresentation;
   readonly initialView: TerrainSurfaceView;
 }
 
@@ -600,6 +614,12 @@ const FRAGMENT_SHADER = `
   uniform vec3 tileTint;
   uniform vec3 sunlight;
   uniform float albedoToneExponent;
+  #ifdef SURFACE_DISPLAY_PRESENTATION
+    uniform float neutralLighting;
+    uniform float displayGain;
+    uniform float displayContrast;
+    uniform float displayContrastPivot;
+  #endif
   in vec2 vTileUv;
   in vec3 vBaseWorldPosition;
   in vec3 vWorldPosition;
@@ -685,6 +705,9 @@ const FRAGMENT_SHADER = `
     float shadowLift = 0.18 * darkSurface;
     vec3 colour = balanced * (0.58 + shadowLift + direct * (0.6 - shadowLift));
     colour += vec3(0.025, 0.045, 0.065) * (1.0 - direct);
+    #ifdef SURFACE_DISPLAY_PRESENTATION
+      colour = mix(colour, balanced, neutralLighting);
+    #endif
     float tileEdge = edgeOverlay(vTileUv);
     colour = mix(colour, tileTint, tileOverlayVisible * (0.14 + tileEdge * 0.72));
     vec4 imageryTileOverlay =
@@ -696,7 +719,21 @@ const FRAGMENT_SHADER = `
       imageryTileOverlay.rgb,
       textureOverlayVisible * imageryTileOverlay.a
     );
-    surfaceColour = vec4(colour, 1.0);
+    #ifdef SURFACE_DISPLAY_PRESENTATION
+      // ShaderMaterial supplies this function but does not call it automatically.
+      // Keep the reviewed gain/contrast curve independent of renderer tone mapping.
+      surfaceColour = linearToOutputTexel(vec4(colour * displayGain, 1.0));
+      vec3 encoded = clamp(surfaceColour.rgb, vec3(0.0), vec3(1.0));
+      vec3 low = pow(encoded, vec3(displayContrast));
+      vec3 high = pow(vec3(1.0) - encoded, vec3(displayContrast));
+      float pivotOdds = pow(
+        displayContrastPivot / (1.0 - displayContrastPivot),
+        displayContrast - 1.0
+      );
+      surfaceColour.rgb = low / (low + high * pivotOdds);
+    #else
+      surfaceColour = vec4(colour, 1.0);
+    #endif
   }
 `;
 
@@ -727,6 +764,7 @@ export class TerrainSurface {
   private readonly polarVisibilityEntries: TerrainRenderVisibilityEntry[] = [];
   private readonly emptyTexture: THREE.DataTexture;
   private readonly sharedUniforms: Record<string, THREE.IUniform>;
+  private readonly displayPresentationEnabled: boolean;
   private readonly unsubscribe: () => void;
   private snapshot: SchedulerSnapshot<TileLayoutTarget>;
   private currentTarget: TileLayoutTarget;
@@ -749,6 +787,16 @@ export class TerrainSurface {
     if (!Number.isFinite(albedoToneExponent) || albedoToneExponent <= 0) {
       throw new RangeError("Surface albedo tone exponent must be positive.");
     }
+    const display = options.displayPresentation;
+    if (display && (
+      !Number.isFinite(display.gain) || display.gain < 0 ||
+      !Number.isFinite(display.contrast) || display.contrast <= 0 ||
+      !Number.isFinite(display.contrastPivot) ||
+      display.contrastPivot <= 0 || display.contrastPivot >= 1
+    )) {
+      throw new RangeError("Surface display presentation requires a nonnegative gain, positive contrast, and pivot between 0 and 1.");
+    }
+    this.displayPresentationEnabled = display !== undefined;
     this.renderer = options.renderer;
     this.surfaceModel = options.surfaceModel ?? EARTH_SURFACE_MODEL;
     const initialView: TerrainSurfaceView = {
@@ -842,6 +890,10 @@ export class TerrainSurface {
       },
       sunlight: { value: new THREE.Vector3(-0.38, 0.82, 0.42).normalize() },
       albedoToneExponent: { value: albedoToneExponent },
+      neutralLighting: { value: display?.lighting === "neutral" ? 1 : 0 },
+      displayGain: { value: display?.gain ?? 1 },
+      displayContrast: { value: display?.contrast ?? 1 },
+      displayContrastPivot: { value: display?.contrastPivot ?? 0.5 },
       heightEncodingKind: {
         value: this.surfaceModel.heightEncoding.kind === "terrarium" ? 0 : 1,
       },
@@ -1376,6 +1428,7 @@ export class TerrainSurface {
   }): THREE.ShaderMaterial {
     return new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
+      defines: this.displayPresentationEnabled ? { SURFACE_DISPLAY_PRESENTATION: 1 } : {},
       side: THREE.DoubleSide,
       depthTest: true,
       depthWrite: true,

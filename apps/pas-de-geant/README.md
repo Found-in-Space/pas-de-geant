@@ -346,8 +346,13 @@ Its geographic zoom-0 tile supplies the equirectangular base. New format 2
 products carry a separate authenticated full-latitude `base.png`; Mercator zoom
 0 is unsuitable for that role. The same loader serves the main, focused Moon
 and Apollo views. The shared polar caps use the base and flat reference heights
-outside ±85.05112878°. Tone exponent `0.55` remains a uniform presentation
-choice for both base and detail, without changing stored source samples.
+outside ±85.05112878°. Base and detail share the Quest-reviewed Moon presentation:
+linear-light tone exponent `0.8`, neutral lighting, gain `1.3`, explicit output
+colour conversion, then contrast `2` around output-space pivot `0.4`. Neutral
+lighting omits the final solar modulation and blue fill; the imagery retains its
+photographed shadows and the existing adaptive tonal balance. This is a viewing
+choice, not a simulation of current surface illumination or a change to stored
+source samples. Renderer-wide tone mapping is not applied to this surface curve.
 
 Scientific heights use `kind: "elevation-xyz"`, `formatVersion: 2`, a matching
 `grid`, units in metres, a reference-surface vertical datum and an explicit

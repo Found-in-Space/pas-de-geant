@@ -40,7 +40,10 @@ const world = createWorldRuntime({
     surfaceModel: MOON_SURFACE_MODEL,
     imageryProvider,
     elevationProvider,
-    albedoToneExponent: 0.55,
+    albedoToneExponent: 0.8,
+    displayPresentation: {
+      lighting: "neutral", gain: 1.3, contrast: 2, contrastPivot: 0.4,
+    },
   },
 });
 scene.add(world.object3d);
@@ -69,6 +72,16 @@ worlds consumes them. It does not produce tiles or bundle data payloads.
 The texture pipeline remains the display-texture producer, with scientific
 elevation following its own contract. Relief exaggeration and the lunar tone
 curve are presentation choices, not measurements or changes to source data.
+
+Optional `displayPresentation` applies linear-light gain, explicitly converts to
+the renderer's output colour space, then applies a sigmoid contrast curve that
+preserves black, white and `contrastPivot`. `contrast: 1` leaves output contrast
+unchanged. `lighting: "neutral"` replaces the final solar modulation and blue
+fill with the existing balanced imagery; photographed shadows remain, and the
+adaptive balance still uses the light direction. The application uses this
+presentation for the Moon's base, polar caps and streamed detail. It does not
+apply renderer-wide tone mapping on top. Omitting the option retains the existing
+surface presentation, including Earth's current appearance.
 
 `SparseImageryProvider` selects one available opaque tile from providers sharing
 the same XYZ grid and tile size. Source indexes declare exact coverage; the best
