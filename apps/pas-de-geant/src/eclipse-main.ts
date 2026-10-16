@@ -106,10 +106,7 @@ import {
   searchWeb,
   searchWikipedia,
 } from "./external-knowledge.js";
-import {
-  RealtimeVoiceAgent,
-  type RealtimeAgentStatus,
-} from "./realtime-agent.js";
+import { createGeantVoiceAgent, type RealtimeAgentStatus } from './voice-agent.js';
 import {
   anchoredSimulationClock,
   realtimeSimulationClock,
@@ -1026,25 +1023,8 @@ function formatPhysicalAltitude(value: number): string {
   })} km above terrain`;
 }
 
-const realtimeAudio = document.createElement("audio");
-realtimeAudio.autoplay = true;
-realtimeAudio.setAttribute("playsinline", "");
-realtimeAudio.hidden = true;
-document.body.append(realtimeAudio);
-
-function setRealtimeAudioStream(stream: MediaStream | null): void {
-  realtimeAudio.srcObject = stream;
-  if (!stream) {
-    realtimeAudio.pause();
-    return;
-  }
-  void realtimeAudio.play().catch((error) => {
-    console.warn("Realtime audio playback was blocked:", error);
-  });
-}
-
-const voiceAgent = new RealtimeVoiceAgent({
-  tokenEndpoint: "/api/realtime/token?experience=eclipse",
+const voiceAgent = createGeantVoiceAgent({
+  experience: 'eclipse',
   greetingInstructions:
     "Greet the user warmly in one short sentence and invite them to choose or explore a solar eclipse. Do not call a tool in this greeting.",
   onStatus(status) {
@@ -1052,7 +1032,6 @@ const voiceAgent = new RealtimeVoiceAgent({
     panelSignature = "";
     syncPresentation();
   },
-  onRemoteStream: setRealtimeAudioStream,
   tools: {
     get_eclipse_state() {
       return eclipseStateReadback();
@@ -1723,7 +1702,7 @@ function render(nowMs: number): void {
 
 window.addEventListener("beforeunload", () => {
   stopSupervisionSession();
-  voiceAgent.disable();
+  void voiceAgent.dispose();
   worker.dispose();
   handPanel.dispose();
   panelRuntime.dispose();

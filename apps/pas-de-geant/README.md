@@ -578,6 +578,21 @@ remains subject to the browser's own eviction policy.
 
 ## Location and Realtime guide
 
+Both the walking and eclipse experiences use the independent
+`@found-in-space/voice-os` package. `src/voice-agent.ts` composes its runtime and
+browser adapter; `src/voice-contracts.ts` shares tool declarations with the
+trusted configurations in `src/voice-profiles.ts`. Application commands,
+geocoding, knowledge services, controller labels and greetings stay here.
+`src/realtime-token-server.ts` supplies Geant's origin and profile selection
+policy to the shared server helper. Automatic VAD response creation is retained.
+The app pins the published `0.1.0-alpha.1` package and its registry integrity in
+the npm lockfile. To adopt a later tested release, run
+`npm install @found-in-space/voice-os@<version> --workspace @found-in-space/pas-de-geant --save-exact`
+at the repository root, then run `npm run check`, `npm test`, `npm run build`
+and `npm run api:build`. Live microphone, speaker, interruption and recovery
+checks in a browser and Quest remain part of host acceptance; offline tests
+and production builds do not establish physical audio behavior.
+
 At startup, the app first asks the browser for device location, then tries an
 approximate GeoJS location, and finally falls back to 0° N, 0° E. Reset returns
 to the resolved starting point.

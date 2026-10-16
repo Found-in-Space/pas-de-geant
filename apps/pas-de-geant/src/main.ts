@@ -131,11 +131,8 @@ import {
   lookupLocations,
   parseLocationLookupArguments,
 } from "./location-context.js";
-import {
-  parseLocationToolArguments,
-  RealtimeVoiceAgent,
-  type RealtimeAgentStatus,
-} from "./realtime-agent.js";
+import { createGeantVoiceAgent, type RealtimeAgentStatus } from './voice-agent.js';
+import { parseLocationToolArguments } from './voice-location-tools.js';
 import {
   applySupervisorLocationPinMutation,
   applySupervisorNavigationMutation,
@@ -472,31 +469,6 @@ const observerRig = new THREE.Group();
 observerRig.name = "world-observer-rig";
 observerRig.add(camera);
 scene.add(observerRig);
-const realtimeAudioElement = document.createElement("audio");
-realtimeAudioElement.autoplay = true;
-realtimeAudioElement.setAttribute("playsinline", "");
-realtimeAudioElement.hidden = true;
-document.body.append(realtimeAudioElement);
-
-function setRealtimeAudioStream(stream: MediaStream | null): void {
-  realtimeAudioElement.srcObject = stream;
-  if (!stream) {
-    realtimeAudioElement.pause();
-    document.body.dataset.agentAudio = "off";
-    return;
-  }
-  document.body.dataset.agentAudio = "starting";
-  void realtimeAudioElement.play().then(
-    () => {
-      document.body.dataset.agentAudio = "playing";
-    },
-    (error: unknown) => {
-      document.body.dataset.agentAudio = "blocked";
-      console.warn("Realtime audio playback was blocked:", error);
-    },
-  );
-}
-
 const planetRoot = new THREE.Group();
 scene.add(planetRoot);
 
@@ -2828,14 +2800,14 @@ function syncHandPanelState(
     String(handPanelRedrawCount);
 }
 
-const voiceAgent = new RealtimeVoiceAgent({
+const voiceAgent = createGeantVoiceAgent({
   onStatus(status) {
     realtimeAgentStatus = status;
     document.body.dataset.agentStatus = status.state;
     document.body.dataset.agentDetail = status.detail;
     handPanelLocationSignature = "";
   },
-  onRemoteStream: setRealtimeAudioStream,
+  onAudioState(state) { document.body.dataset.agentAudio = state; },
   tools: {
     get_navigation_state() {
       const orbitDistanceHeadsetM = navigationMode === "orbit"
@@ -4579,6 +4551,7 @@ function render(nowMs: number): void {
 }
 
 window.addEventListener("beforeunload", () => {
+  void voiceAgent.dispose();
   stopSupervisionSession();
   if (benchmarkMetricsTimer !== undefined) {
     window.clearInterval(benchmarkMetricsTimer);

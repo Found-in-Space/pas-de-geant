@@ -24,6 +24,13 @@ npm ci
 npm run dev -- --port 4197
 ```
 
+Both walking and eclipse voice guides use the published
+`@found-in-space/voice-os@0.1.0-alpha.1` package, pinned in the app manifest and
+npm lockfile. A standalone checkout needs no sibling VoiceOS repository.
+Shared voice runtime changes belong in the independent
+[VoiceOS repository](https://github.com/Found-in-Space/voice-os). See the
+[voice integration guide](apps/pas-de-geant/README.md#location-and-realtime-guide).
+
 Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel, Z/X to
 change planet scale, C/V to change the terrain multiplier, and Backspace to
 reset.

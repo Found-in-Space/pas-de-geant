@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { realtimeGreetingEvent } from "../apps/pas-de-geant/src/realtime-agent.js";
+import { createRealtimeGreetingEvent as realtimeGreetingEvent } from '@found-in-space/voice-os/openai';
 import {
   realtimeExperienceFromUrl,
   realtimeSessionConfiguration,

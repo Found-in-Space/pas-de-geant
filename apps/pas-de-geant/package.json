@@ -14,15 +14,16 @@
     "@found-in-space/shadowline": "0.1.0-alpha.1",
     "@found-in-space/shadowline-astronomy-engine": "0.1.0-alpha.1",
     "@found-in-space/skykit": "0.2.0",
+    "@found-in-space/spatial": "file:../../vendor/npm/spatial-0.3.0-alpha.0-8b5dd96872bf.tgz",
     "@found-in-space/star-octree-provider": "0.2.0",
     "@found-in-space/star-trees": "0.2.0",
     "@found-in-space/three-star-field": "0.2.0",
     "@found-in-space/touch-os": "0.3.0",
+    "@found-in-space/voice-os": "0.1.0-alpha.1",
+    "@found-in-space/worlds": "0.1.0-alpha.0",
     "astronomy-engine": "2.1.19",
     "satellite.js": "^6.0.1",
-    "three": "0.185.1",
-    "@found-in-space/worlds": "0.1.0-alpha.0",
-    "@found-in-space/spatial": "file:../../vendor/npm/spatial-0.3.0-alpha.0-8b5dd96872bf.tgz"
+    "three": "0.185.1"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.22",

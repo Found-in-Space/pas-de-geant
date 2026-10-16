@@ -15,7 +15,7 @@ import {
   earthMapImageRects,
   earthMapPoint,
 } from "./earth-map.js";
-import type { RealtimeAgentState } from "./realtime-agent.js";
+import type { VoiceState as RealtimeAgentState } from '@found-in-space/voice-os';
 import {
   DEFAULT_SCALE_DENOMINATOR,
   formatScaleRatio,
