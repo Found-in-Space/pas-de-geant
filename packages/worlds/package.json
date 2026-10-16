@@ -34,12 +34,12 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "astronomy-engine": "2.1.19",
-    "@found-in-space/spatial": "0.2.0"
+    "@found-in-space/spatial": "file:../../vendor/npm/spatial-0.3.0-alpha.0-8b5dd96872bf.tgz",
+    "astronomy-engine": "2.1.19"
   },
   "peerDependencies": {
-    "three": ">=0.170.0 <1",
-    "@found-in-space/skykit": ">=0.2.0 <1"
+    "@found-in-space/skykit": ">=0.2.0 <1",
+    "three": ">=0.170.0 <1"
   },
   "peerDependenciesMeta": {
     "@found-in-space/skykit": {
@@ -47,7 +47,7 @@
     }
   },
   "devDependencies": {
-    "@types/three": "0.185.1",
-    "@found-in-space/skykit": "0.2.0"
+    "@found-in-space/skykit": "0.2.0",
+    "@types/three": "0.185.1"
   }
 }

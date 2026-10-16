@@ -1,3 +1,5 @@
+import { interpolateSpatialDirections, subtractSpatialVectors, scaleSpatialVector, dotSpatialVectors } from "@found-in-space/spatial";
+
 export interface NavigationCoordinates {
   readonly latitudeDegrees: number;
   readonly longitudeDegrees: number;
@@ -55,24 +57,6 @@ function coordinatesVector(
   ];
 }
 
-function cross(
-  left: readonly [number, number, number],
-  right: readonly [number, number, number],
-): [number, number, number] {
-  return [
-    left[1] * right[2] - left[2] * right[1],
-    left[2] * right[0] - left[0] * right[2],
-    left[0] * right[1] - left[1] * right[0],
-  ];
-}
-
-function normalize(
-  value: readonly [number, number, number],
-): [number, number, number] {
-  const length = Math.hypot(value[0], value[1], value[2]);
-  return [value[0] / length, value[1] / length, value[2] / length];
-}
-
 function interpolateCoordinates(
   from: NavigationCoordinates,
   to: NavigationCoordinates,
@@ -80,43 +64,17 @@ function interpolateCoordinates(
 ): NavigationCoordinates {
   if (progress <= 0) return from;
   if (progress >= 1) return to;
-
-  const start = coordinatesVector(from);
-  const end = coordinatesVector(to);
-  const dot = clampUnit(
-    start[0] * end[0] + start[1] * end[1] + start[2] * end[2],
-  );
-  const angle = Math.acos(dot);
-  if (angle < 1e-10) return from;
-
-  let axis = cross(start, end);
-  if (Math.hypot(axis[0], axis[1], axis[2]) < 1e-10) {
-    const reference: readonly [number, number, number] =
-      Math.abs(start[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
-    axis = cross(start, reference);
-  }
-  axis = normalize(axis);
-
-  const step = angle * progress;
-  const cosine = Math.cos(step);
-  const sine = Math.sin(step);
-  const axisCrossStart = cross(axis, start);
-  const axisDotStart =
-    axis[0] * start[0] + axis[1] * start[1] + axis[2] * start[2];
-  const interpolated: [number, number, number] = [
-    start[0] * cosine + axisCrossStart[0] * sine +
-      axis[0] * axisDotStart * (1 - cosine),
-    start[1] * cosine + axisCrossStart[1] * sine +
-      axis[1] * axisDotStart * (1 - cosine),
-    start[2] * cosine + axisCrossStart[2] * sine +
-      axis[2] * axisDotStart * (1 - cosine),
-  ];
-
+  const a = coordinatesVector(from);
+  const b = coordinatesVector(to);
+  const start = { x: a[0], y: a[1], z: a[2] };
+  const reference = Math.abs(start.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+  const tangent = subtractSpatialVectors(reference, scaleSpatialVector(start, dotSpatialVectors(start, reference)));
+  const direction = interpolateSpatialDirections(start, { x: b[0], y: b[1], z: b[2] }, progress, {
+    antipodalTangent: tangent, antipodalCosineThreshold: -1 + Number.EPSILON,
+  });
   return {
-    latitudeDegrees: Math.asin(clampUnit(interpolated[1])) *
-      RADIANS_TO_DEGREES,
-    longitudeDegrees: Math.atan2(-interpolated[2], interpolated[0]) *
-      RADIANS_TO_DEGREES,
+    latitudeDegrees: Math.asin(clampUnit(direction.y)) * RADIANS_TO_DEGREES,
+    longitudeDegrees: Math.atan2(-direction.z, direction.x) * RADIANS_TO_DEGREES,
   };
 }
 

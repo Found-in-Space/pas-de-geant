@@ -1,19 +1,20 @@
-import type { SpatialVector3 } from "@found-in-space/spatial";
+import { SPATIAL_METERS_PER_PARSEC, scaleSpatialVector, type SpatialVector3 } from "@found-in-space/spatial";
 import type { SkykitThreeFrame, SkykitThreePart, SkykitPlugin } from "@found-in-space/skykit";
 import type * as THREE from "three";
 import type { WorldRuntime } from "./world-runtime.js";
 import type { TerrainSurfaceView } from "./terrain-surface.js";
 import type { Vector3d } from "./solar-system.js";
 
-export const WORLD_METRES_PER_PARSEC = 3.085677581491367e16;
+export const WORLD_METRES_PER_PARSEC = SPATIAL_METERS_PER_PARSEC;
 
-/** Raw J2000/ICRS axes are retained here; PdG's Y-up axis mapping belongs to its host. */
+/** Axis/unit conversion only. The caller must already align the physical and catalog origins.
+ * This does not calculate a heliocentric-to-barycentric or J2000-to-ICRS correction. */
 export function physicalJ2000MetresToSkykitPosition(
   positionM: Vector3d,
   coordinateUnitsPerParsec: number,
 ): SpatialVector3 {
   const scale = coordinateUnitsPerParsec / WORLD_METRES_PER_PARSEC;
-  return { x: positionM.x * scale, y: positionM.y * scale, z: positionM.z * scale };
+  return scaleSpatialVector(positionM, scale);
 }
 
 export interface WorldSkykitOptions {

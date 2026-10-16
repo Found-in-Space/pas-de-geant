@@ -1,3 +1,4 @@
+import type { SpatialVector3 } from "@found-in-space/spatial";
 import {
   Body,
   GeoMoon,
@@ -18,11 +19,7 @@ export type SolarSystemBodyId =
   | "uranus"
   | "neptune";
 
-export interface Vector3d {
-  readonly x: number;
-  readonly y: number;
-  readonly z: number;
-}
+export type Vector3d = Readonly<SpatialVector3>;
 
 export interface BodyRotation {
   /** J2000 right ascension of the north pole, in degrees. */
@@ -208,28 +205,4 @@ export function bodyRotation(id: SolarSystemBodyId, at: Date): BodyRotation {
     poleDeclinationDegrees: axis.dec,
     primeMeridianDegrees: axis.spin,
   };
-}
-
-export function subtractVector3d(first: Vector3d, second: Vector3d): Vector3d {
-  return {
-    x: first.x - second.x,
-    y: first.y - second.y,
-    z: first.z - second.z,
-  };
-}
-
-export function addVector3d(first: Vector3d, second: Vector3d): Vector3d {
-  return {
-    x: first.x + second.x,
-    y: first.y + second.y,
-    z: first.z + second.z,
-  };
-}
-
-export function scaleVector3d(value: Vector3d, scale: number): Vector3d {
-  return { x: value.x * scale, y: value.y * scale, z: value.z * scale };
-}
-
-export function vector3dLength(value: Vector3d): number {
-  return Math.hypot(value.x, value.y, value.z);
 }

@@ -1,12 +1,11 @@
+import {
+  SPATIAL_Z_UP_TO_Y_UP, applySpatialQuaternion, multiplySpatialQuaternions,
+  invertSpatialQuaternion, subtractSpatialVectors,
+} from "@found-in-space/spatial";
 import * as THREE from "three";
 import type { Vector3d } from "./solar-system.js";
 import { translatedObserverJ2000M } from "./world-navigation.js";
 
-/** Raw equatorial J2000 axes (x,y,z) to Pas de Géant's Three.js Y-up axes. */
-const J2000_TO_RENDER_AXES = new THREE.Quaternion().setFromAxisAngle(
-  new THREE.Vector3(1, 0, 0),
-  -Math.PI / 2,
-);
 
 /**
  * Combines the app-authored rendered-system orientation with the single fixed
@@ -17,16 +16,16 @@ export function j2000ToWorldQuaternion(
   renderedSystemToWorld: THREE.Quaternion,
   target = new THREE.Quaternion(),
 ): THREE.Quaternion {
-  return target.copy(renderedSystemToWorld)
-    .multiply(J2000_TO_RENDER_AXES)
-    .normalize();
+  const value = multiplySpatialQuaternions(renderedSystemToWorld, SPATIAL_Z_UP_TO_Y_UP);
+  return target.set(value.x, value.y, value.z, value.w);
 }
 
 export function j2000VectorToRenderAxes(
   value: THREE.Vector3,
   target = new THREE.Vector3(),
 ): THREE.Vector3 {
-  return target.copy(value).applyQuaternion(J2000_TO_RENDER_AXES);
+  const rotated = applySpatialQuaternion(value, SPATIAL_Z_UP_TO_Y_UP);
+  return target.set(rotated.x, rotated.y, rotated.z);
 }
 
 /** Physical tracked-space translation with authored observer-rig motion removed. */
@@ -36,9 +35,10 @@ export function trackingRoomOffsetWorld(
   observerRigToWorld: THREE.Quaternion,
   target = new THREE.Vector3(),
 ): THREE.Vector3 {
-  return target.copy(currentTrackingLocal)
-    .sub(trackingOriginLocal)
-    .applyQuaternion(observerRigToWorld);
+  const offset = applySpatialQuaternion(
+    subtractSpatialVectors(currentTrackingLocal, trackingOriginLocal), observerRigToWorld,
+  );
+  return target.set(offset.x, offset.y, offset.z);
 }
 
 /** Rebase a rendered world point without changing its physical J2000 pose. */
@@ -49,12 +49,8 @@ export function j2000ObserverAtWorldPoint(
   renderedSystemToWorld: THREE.Quaternion,
   scaleDenominator: number,
 ): Vector3d {
-  const renderOffset = pointWorld.clone()
-    .sub(originWorld)
-    .applyQuaternion(renderedSystemToWorld.clone().invert());
-  return translatedObserverJ2000M(
-    originJ2000M,
-    renderOffset,
-    scaleDenominator,
+  const offset = applySpatialQuaternion(
+    subtractSpatialVectors(pointWorld, originWorld), invertSpatialQuaternion(renderedSystemToWorld),
   );
+  return translatedObserverJ2000M(originJ2000M, offset, scaleDenominator);
 }

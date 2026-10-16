@@ -1,7 +1,13 @@
+import {
+  SPATIAL_METERS_PER_PARSEC, addSpatialVectors as addVectors,
+  subtractSpatialVectors as subtractVectors, scaleSpatialVector as scaleVector,
+  getSpatialVectorLength as vectorLength, interpolateSpatialDirections,
+} from "@found-in-space/spatial";
+
 export const EARTH_TO_GAIA_JOURNEY_ID = "earth_to_gaia" as const;
 export const EARTH_TO_GAIA_DURATION_MS = 35_000;
 const LEGACY_EARTH_TO_GAIA_DURATION_MS = 45_000;
-export const PARSEC_METRES = 3.085677581491367e16;
+export const PARSEC_METRES = SPATIAL_METERS_PER_PARSEC;
 export const STELLAR_METRES_PER_PARSEC = 1;
 export const STELLAR_SUN_DISTANCE_PC = 1;
 export const STELLAR_SCALE_DENOMINATOR =
@@ -434,59 +440,18 @@ function interstellarObserver(
   return addVectors(earth, scaleVector(direction, radius));
 }
 
-function addVectors(
-  left: JourneyVector3,
-  right: JourneyVector3,
-): JourneyVector3 {
-  return { x: left.x + right.x, y: left.y + right.y, z: left.z + right.z };
-}
-
-function subtractVectors(
-  left: JourneyVector3,
-  right: JourneyVector3,
-): JourneyVector3 {
-  return { x: left.x - right.x, y: left.y - right.y, z: left.z - right.z };
-}
-
 export function sphericalDirectionMix(
   from: JourneyVector3,
   to: JourneyVector3,
   progress: number,
 ): JourneyVector3 {
   const left = normalizeVector(from);
-  const right = normalizeVector(to);
-  const dot = clamp(
-    left.x * right.x + left.y * right.y + left.z * right.z,
-    -1,
-    1,
-  );
-  const t = clamp(progress, 0, 1);
-  if (dot > 0.9995) {
-    return normalizeVector({
-      x: mix(left.x, right.x, t),
-      y: mix(left.y, right.y, t),
-      z: mix(left.z, right.z, t),
-    });
-  }
-  if (dot < -0.9995) {
-    const axis = Math.abs(left.x) < 0.8
-      ? normalizeVector({ x: 0, y: -left.z, z: left.y })
-      : normalizeVector({ x: -left.y, y: left.x, z: 0 });
-    const angle = Math.PI * t;
-    return normalizeVector({
-      x: left.x * Math.cos(angle) + axis.x * Math.sin(angle),
-      y: left.y * Math.cos(angle) + axis.y * Math.sin(angle),
-      z: left.z * Math.cos(angle) + axis.z * Math.sin(angle),
-    });
-  }
-  const angle = Math.acos(dot);
-  const sine = Math.sin(angle);
-  const leftWeight = Math.sin((1 - t) * angle) / sine;
-  const rightWeight = Math.sin(t * angle) / sine;
-  return normalizeVector({
-    x: left.x * leftWeight + right.x * rightWeight,
-    y: left.y * leftWeight + right.y * rightWeight,
-    z: left.z * leftWeight + right.z * rightWeight,
+  // Retain the authored journey's antipodal arc choice while sharing the interpolation.
+  const tangent = Math.abs(left.x) < 0.8
+    ? normalizeVector({ x: 0, y: -left.z, z: left.y })
+    : normalizeVector({ x: -left.y, y: left.x, z: 0 });
+  return interpolateSpatialDirections(left, normalizeVector(to), progress, {
+    antipodalTangent: tangent, antipodalCosineThreshold: -0.9995,
   });
 }
 
@@ -496,14 +461,6 @@ function normalizeVector(value: JourneyVector3): JourneyVector3 {
     throw new Error("Journey direction must be finite and nonzero.");
   }
   return scaleVector(value, 1 / length);
-}
-
-function scaleVector(value: JourneyVector3, scale: number): JourneyVector3 {
-  return { x: value.x * scale, y: value.y * scale, z: value.z * scale };
-}
-
-function vectorLength(value: JourneyVector3): number {
-  return Math.hypot(value.x, value.y, value.z);
 }
 
 function logarithmicMix(from: number, to: number, progress: number): number {

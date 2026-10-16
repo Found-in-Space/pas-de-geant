@@ -21,7 +21,8 @@
     "astronomy-engine": "2.1.19",
     "satellite.js": "^6.0.1",
     "three": "0.185.1",
-    "@found-in-space/worlds": "0.1.0-alpha.0"
+    "@found-in-space/worlds": "0.1.0-alpha.0",
+    "@found-in-space/spatial": "file:../../vendor/npm/spatial-0.3.0-alpha.0-8b5dd96872bf.tgz"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.22",

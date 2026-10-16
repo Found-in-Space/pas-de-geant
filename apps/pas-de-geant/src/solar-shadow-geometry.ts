@@ -1,3 +1,4 @@
+import { subtractSpatialVectors, getSpatialVectorLength } from "@found-in-space/spatial";
 import {
   coneRadialSlope,
   coneRadiusKm,
@@ -7,8 +8,6 @@ import {
 import {
   bodyPositionJ2000M,
   celestialBody,
-  subtractVector3d,
-  vector3dLength,
   type Vector3d,
 } from "@found-in-space/worlds/solar-system";
 
@@ -56,26 +55,26 @@ export function calculateSolarShadowGeometry(
     throw new RangeError(`Invalid solar-shadow time: ${at}`);
   }
   const earthJ2000M = bodyPositionJ2000M("earth", at);
-  const sunFromEarthJ2000M = subtractVector3d(
+  const sunFromEarthJ2000M = subtractSpatialVectors(
     bodyPositionJ2000M("sun", at),
     earthJ2000M,
   );
-  const moonFromEarthJ2000M = subtractVector3d(
+  const moonFromEarthJ2000M = subtractSpatialVectors(
     bodyPositionJ2000M("moon", at),
     earthJ2000M,
   );
-  const sunToMoonJ2000M = subtractVector3d(
+  const sunToMoonJ2000M = subtractSpatialVectors(
     moonFromEarthJ2000M,
     sunFromEarthJ2000M,
   );
-  const sunMoonDistanceM = vector3dLength(sunToMoonJ2000M);
+  const sunMoonDistanceM = getSpatialVectorLength(sunToMoonJ2000M);
   const shadowDirectionJ2000 = {
     x: sunToMoonJ2000M.x / sunMoonDistanceM,
     y: sunToMoonJ2000M.y / sunMoonDistanceM,
     z: sunToMoonJ2000M.z / sunMoonDistanceM,
   };
-  const sunEarthDistanceM = vector3dLength(sunFromEarthJ2000M);
-  const moonEarthDistanceM = vector3dLength(moonFromEarthJ2000M);
+  const sunEarthDistanceM = getSpatialVectorLength(sunFromEarthJ2000M);
+  const moonEarthDistanceM = getSpatialVectorLength(moonFromEarthJ2000M);
   const axisDistanceToEarthPlaneM = -dot(
     moonFromEarthJ2000M,
     shadowDirectionJ2000,
@@ -116,7 +115,7 @@ export function calculateSolarShadowGeometry(
     sunMoonDistanceM,
     moonEarthDistanceM,
     axisDistanceToEarthPlaneM,
-    axisMissDistanceM: vector3dLength(closestAxisPointM),
+    axisMissDistanceM: getSpatialVectorLength(closestAxisPointM),
     centralConeSlope,
     penumbraConeSlope,
     centralConeRadiusAtEarthPlaneM:

@@ -1,14 +1,21 @@
 import {
+  SPATIAL_Z_UP_TO_Y_UP, invertSpatialQuaternion, transformSpatialDisplacement,
+  addSpatialVectors, scaleSpatialVector, type SpatialCoordinateSpace,
+} from "@found-in-space/spatial";
+import {
   celestialBody,
   type SolarSystemBodyId,
   type Vector3d,
 } from "./solar-system.js";
 import {
   displayRadiusMetres,
-  headsetMetresForPhysicalMetres,
-  physicalMetresForHeadsetMetres,
   validScaleDenominator,
 } from "./world-scale.js";
+
+/** Heliocentric origin, equatorial J2000 axes; ephemerides are evaluated by the caller. */
+export const WORLD_J2000_METRES: SpatialCoordinateSpace = Object.freeze({ frameId: "worlds:heliocentric-j2000", metersPerUnit: 1 });
+/** The same origin with x/z/-y axes, before presentation scale or room transforms. */
+export const WORLD_Y_UP_METRES: SpatialCoordinateSpace = Object.freeze({ frameId: "worlds:heliocentric-y-up", metersPerUnit: 1 });
 
 export type NavigationMode = "surface" | "orbit" | "free";
 
@@ -92,11 +99,10 @@ export function relativeJ2000MetresToRender(
   relativeM: Vector3d,
   scaleDenominator: number,
 ): Vector3d {
-  return {
-    x: headsetMetresForPhysicalMetres(relativeM.x, scaleDenominator),
-    y: headsetMetresForPhysicalMetres(relativeM.z, scaleDenominator),
-    z: -headsetMetresForPhysicalMetres(relativeM.y, scaleDenominator),
-  };
+  const axes = transformSpatialDisplacement({
+    from: WORLD_J2000_METRES, to: WORLD_Y_UP_METRES, rotation: SPATIAL_Z_UP_TO_Y_UP,
+  }, relativeM);
+  return scaleSpatialVector(axes, 1 / validScaleDenominator(scaleDenominator));
 }
 
 /** Inverse of the render-axis mapping, used to move a rebased observer. */
@@ -105,21 +111,10 @@ export function translatedObserverJ2000M(
   renderTravelM: Vector3d,
   scaleDenominator: number,
 ): Vector3d {
-  validScaleDenominator(scaleDenominator);
-  return {
-    x: observerM.x + physicalMetresForHeadsetMetres(
-      renderTravelM.x,
-      scaleDenominator,
-    ),
-    y: observerM.y - physicalMetresForHeadsetMetres(
-      renderTravelM.z,
-      scaleDenominator,
-    ),
-    z: observerM.z + physicalMetresForHeadsetMetres(
-      renderTravelM.y,
-      scaleDenominator,
-    ),
-  };
+  const offset = transformSpatialDisplacement({
+    from: WORLD_Y_UP_METRES, to: WORLD_J2000_METRES, rotation: invertSpatialQuaternion(SPATIAL_Z_UP_TO_Y_UP),
+  }, scaleSpatialVector(renderTravelM, validScaleDenominator(scaleDenominator)));
+  return addSpatialVectors(observerM, offset);
 }
 
 /** Space travel stays useful at toy, room, and interplanetary display scales. */

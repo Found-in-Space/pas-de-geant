@@ -248,3 +248,18 @@ rejected and retried rather than retained as imagery or elevation. Source URLs
 or explicitly invalidate retained entries when replacing source content.
 `TerrainSurface` uses a flat elevation provider unless its host supplies a
 configured one; the package has no application tile-service default.
+
+## Shared spatial alpha
+
+Generic vector/quaternion operations, unit conversion, interpolation, and relative
+frame transforms use the packed spatial 0.3 alpha. Body definitions, ephemerides,
+datums, and transported surface contact remain in worlds.
+
+The physical frame is heliocentric equatorial J2000 in metres. Its Y-up mapping
+retains the same origin; neither mapping establishes a catalog origin or an ICRS
+correction. A caller must explicitly establish those astronomical relationships.
+The raw body-attitude helper is named `bodyFixedToJ2000Quaternion` accordingly.
+
+Run `npm run spatial:refresh` and `npm run check:spatial-package` at the repository
+root to regenerate and verify the packed dependency. See `vendor/npm/README.md`
+for the release boundary and the intentionally separate released SkyKit dependency.

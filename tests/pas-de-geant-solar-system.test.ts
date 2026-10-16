@@ -1,10 +1,9 @@
+import { subtractSpatialVectors, getSpatialVectorLength } from "@found-in-space/spatial";
 import { describe, expect, it } from "vitest";
 import {
   bodyPositionJ2000M,
   celestialBody,
   SOLAR_SYSTEM_BODIES,
-  subtractVector3d,
-  vector3dLength,
 } from "@found-in-space/worlds/solar-system";
 import {
   displayRadiusForScale,
@@ -27,7 +26,7 @@ describe("solar-system coordinate foundation", () => {
 
   it("places the Moon at a physical Earth-relative distance", () => {
     const at = new Date("2026-08-12T17:42:00Z");
-    const distance = vector3dLength(subtractVector3d(
+    const distance = getSpatialVectorLength(subtractSpatialVectors(
       bodyPositionJ2000M("moon", at),
       bodyPositionJ2000M("earth", at),
     ));
@@ -38,10 +37,10 @@ describe("solar-system coordinate foundation", () => {
   it("rebases Neptune-distance coordinates before render scaling", () => {
     const origin = { x: 4.5e12, y: -2.1e12, z: 7.2e11 };
     const point = { x: origin.x + 12.5, y: origin.y - 3.25, z: origin.z + 8 };
-    expect(relativeJ2000MetresToRender(
-      subtractVector3d(point, origin),
-      10,
-    )).toEqual({ x: 1.25, y: 0.8, z: 0.325 });
+    const rendered = relativeJ2000MetresToRender(subtractSpatialVectors(point, origin), 10);
+    expect(rendered.x).toBeCloseTo(1.25, 12);
+    expect(rendered.y).toBeCloseTo(0.8, 12);
+    expect(rendered.z).toBeCloseTo(0.325, 12);
   });
 
   it("round-trips head-relative 3D travel through the render-axis mapping", () => {
@@ -51,10 +50,10 @@ describe("solar-system coordinate foundation", () => {
       { x: 2, y: -3, z: 4 },
       4,
     );
-    expect(relativeJ2000MetresToRender(
-      subtractVector3d(moved, origin),
-      4,
-    )).toEqual({ x: 2, y: -3, z: 4 });
+    const rendered = relativeJ2000MetresToRender(subtractSpatialVectors(moved, origin), 4);
+    expect(rendered.x).toBeCloseTo(2, 12);
+    expect(rendered.y).toBeCloseTo(-3, 12);
+    expect(rendered.z).toBeCloseTo(4, 12);
   });
 
   it("scales space travel to remain visible without breaking toy scales", () => {

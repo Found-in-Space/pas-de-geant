@@ -1,15 +1,15 @@
+import { SPATIAL_Z_UP_TO_Y_UP } from "@found-in-space/spatial";
 import * as THREE from "three";
 import type { BodyRotation } from "./solar-system.js";
 
-const J2000_TO_RENDER = new THREE.Quaternion().setFromAxisAngle(
-  new THREE.Vector3(1, 0, 0),
-  -Math.PI / 2,
+const J2000_TO_RENDER = new THREE.Quaternion(
+  SPATIAL_Z_UP_TO_Y_UP.x, SPATIAL_Z_UP_TO_Y_UP.y, SPATIAL_Z_UP_TO_Y_UP.z, SPATIAL_Z_UP_TO_Y_UP.w,
 );
 const BODY_BASIS = new THREE.Matrix4();
 const RENDER_TO_J2000 = J2000_TO_RENDER.clone().invert();
 
-/** Body-fixed coordinates to raw J2000/ICRS axes used by Skykit. */
-export function bodyFixedToIcrsQuaternion(
+/** Body-fixed coordinates to raw equatorial J2000 axes used by Skykit. */
+export function bodyFixedToJ2000Quaternion(
   rotation: BodyRotation,
   target = new THREE.Quaternion(),
 ): THREE.Quaternion {

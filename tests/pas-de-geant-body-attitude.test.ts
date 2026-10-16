@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { bodyFixedToIcrsQuaternion, bodyFixedToRenderQuaternion } from
+import { bodyFixedToJ2000Quaternion, bodyFixedToRenderQuaternion } from
   "@found-in-space/worlds/body-attitude";
 import {
   bodyRotation,
@@ -8,7 +8,7 @@ import {
 } from "@found-in-space/worlds/solar-system";
 
 describe("rendered body attitude", () => {
-  it("maps body-fixed north onto raw ICRS axes for Skykit", () => {
+  it("maps body-fixed north onto raw equatorial J2000 axes", () => {
     const at = new Date("2026-08-23T12:00:00Z");
     for (const body of SOLAR_SYSTEM_BODIES) {
       const rotation = bodyRotation(body.id, at);
@@ -20,7 +20,7 @@ describe("rendered body attitude", () => {
         Math.sin(delta),
       );
       const north = new THREE.Vector3(0, 1, 0)
-        .applyQuaternion(bodyFixedToIcrsQuaternion(rotation));
+        .applyQuaternion(bodyFixedToJ2000Quaternion(rotation));
       expect(north.distanceTo(expectedPole)).toBeLessThan(1e-10);
     }
   });

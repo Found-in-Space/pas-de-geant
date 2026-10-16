@@ -12,6 +12,7 @@ __pycache__/
 *.log
 npm-debug.log*
 *.tgz
+!vendor/npm/spatial-*.tgz
 .env
 .env.*
 !.env.example
