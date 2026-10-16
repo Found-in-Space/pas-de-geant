@@ -58,10 +58,6 @@ export function realtimeSessionConfiguration(experience: RealtimeExperience = "e
                 "to remove, delete, or forget a pin, and set_location_pin_guidance to enable or disable " +
                 "off-screen guidance independently for one or more pins. Pins require " +
                 "an immersive Earth surface session. " +
-                "Use set_satellite_group_visibility when the user asks to show, hide, " +
-                "turn on, or turn off the brightest satellites, space stations, or " +
-                "science and education satellites. These are three independent groups, " +
-                "so change only the requested group. " +
                 "Use get_amazon_forest_outlines before reporting which historical " +
                 "forest outlines are available or visible. Use " +
                 "set_amazon_forest_outline_visibility to show or hide one available " +
@@ -80,10 +76,7 @@ export function realtimeSessionConfiguration(experience: RealtimeExperience = "e
                 "a search, speak the substantive answer in one or two sentences and " +
                 "optionally name one or two relevant source titles; never read URLs " +
                 "aloud. If a follow-up needs more detail, run a narrower search. Keep " +
-                "fetched external facts distinct from live app state. Use " +
-                "get_aircraft_display before reporting whether live aircraft symbols " +
-                "or radar labels are enabled. Use set_aircraft_display to turn either " +
-                "one on or off without changing the other. For tile " +
+                "fetched external facts distinct from live app state. For tile " +
                 "debugging, call get_tile_debug_controls before reporting current values. " +
                 "For questions about tile loading, replanning, waiting, queued or " +
                 "in-flight work, transition completion, or scheduler health, call " +

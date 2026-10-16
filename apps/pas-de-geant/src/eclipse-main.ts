@@ -838,15 +838,6 @@ function eclipseSupervisionNavigationState(): SupervisionNavigationSnapshot {
 function eclipseSupervisionControlState(): SupervisionControlState {
   const clock = simulationClockSnapshot(state.simulationClock);
   return {
-    aircraft: {
-      aircraft: false,
-      labels: false,
-    },
-    satellites: {
-      brightest: false,
-      space_stations: false,
-      science_education: false,
-    },
     amazonForestOutlines: {
       availableYears: [],
       visibleYears: [],

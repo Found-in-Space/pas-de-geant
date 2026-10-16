@@ -56,15 +56,6 @@ const initialState: SupervisionNavigationState = {
 };
 
 const initialControls: SupervisionControlState = {
-  aircraft: {
-    aircraft: true,
-    labels: false,
-  },
-  satellites: {
-    brightest: true,
-    space_stations: false,
-    science_education: true,
-  },
   amazonForestOutlines: {
     availableYears: [1986, 2023],
     visibleYears: [1986],
@@ -90,7 +81,7 @@ const initialControls: SupervisionControlState = {
 
 describe("supervision protocol", () => {
   it("rejects incompatible versions and unknown message types", () => {
-    for (const protocolVersion of [1, 2, 3, 4]) {
+    for (const protocolVersion of [1, 2, 3, 4, 5]) {
       expect(() => parseSupervisionMessage({
         protocolVersion,
         type: "headset.hello",
@@ -101,6 +92,15 @@ describe("supervision protocol", () => {
     expect(() => parseSupervisionMessage(protocolMessage({
       type: "future.message",
     }))).toThrow(/type/i);
+  });
+
+  it("rejects commands for extensions that are no longer installed", () => {
+    for (const command of [
+      { kind: "setAircraftDisplay", target: "aircraft", enabled: true },
+      { kind: "setSatelliteGroupVisibility", group: "space_stations", enabled: true },
+    ]) {
+      expect(() => parseSupervisionCommand(command)).toThrow(/unknown supervision command/i);
+    }
   });
 
   it("validates coordinates and accepts positive finite scales without a ceiling", () => {
@@ -235,34 +235,6 @@ describe("supervision protocol", () => {
     })).toThrow(/boolean/i);
 
     expect(parseSupervisionCommand({
-      kind: "setAircraftDisplay",
-      target: "labels",
-      enabled: true,
-    })).toEqual({
-      kind: "setAircraftDisplay",
-      target: "labels",
-      enabled: true,
-    });
-    expect(() => parseSupervisionCommand({
-      kind: "setAircraftDisplay",
-      target: "contrails",
-      enabled: true,
-    })).toThrow(/aircraft display target/i);
-    expect(parseSupervisionCommand({
-      kind: "setSatelliteGroupVisibility",
-      group: "space_stations",
-      enabled: false,
-    })).toEqual({
-      kind: "setSatelliteGroupVisibility",
-      group: "space_stations",
-      enabled: false,
-    });
-    expect(() => parseSupervisionCommand({
-      kind: "setSatelliteGroupVisibility",
-      group: "weather",
-      enabled: true,
-    })).toThrow(/satellite group/i);
-    expect(parseSupervisionCommand({
       kind: "setAmazonForestYearVisibility",
       year: 2023,
       visible: true,
@@ -371,14 +343,6 @@ describe("supervision protocol", () => {
       pins: [],
       guidedPinIds: ["missing"],
     }))).toThrow(/guided pin/i);
-    expect(() => parseSupervisionMessage(protocolMessage({
-      type: "headset.state",
-      state: initialState,
-      controls: {
-        ...initialControls,
-        aircraft: { aircraft: "yes", labels: false },
-      },
-    }))).toThrow(/aircraft symbols/i);
 
     const stellarState = {
       ...initialState,

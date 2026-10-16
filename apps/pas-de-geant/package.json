@@ -22,7 +22,6 @@
     "@found-in-space/voice-os": "0.1.0-alpha.1",
     "@found-in-space/worlds": "0.1.0-alpha.0",
     "astronomy-engine": "2.1.19",
-    "satellite.js": "^6.0.1",
     "three": "0.185.1"
   },
   "devDependencies": {

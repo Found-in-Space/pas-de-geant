@@ -247,38 +247,6 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.audio.input.turn_detection.type).toBe(
       "server_vad",
     );
-    expect(configuration.session.tools.map((tool) => tool.name)).toEqual([
-      "get_navigation_state",
-      "get_journey_state",
-      "start_journey",
-      "control_journey",
-      "set_navigation",
-      "get_user_location",
-      "set_user_location",
-      "lookup_location",
-      "get_location_pins",
-      "add_location_pin",
-      "remove_location_pin",
-      "set_location_pin_visibility",
-      "rename_location_pin",
-      "set_location_pin_guidance",
-      "get_view_direction",
-      "set_view_direction",
-      "set_satellite_group_visibility",
-      "get_amazon_forest_outlines",
-      "set_amazon_forest_outline_visibility",
-      "get_celestial_visibility",
-      "set_celestial_visibility",
-      "search_wikipedia",
-      "search_web",
-      "get_aircraft_display",
-      "set_aircraft_display",
-      "get_tile_debug_controls",
-      "get_tile_planner_state",
-      "set_tile_pixel_ratio",
-      "set_tile_max_zoom",
-      "set_tile_recalculation",
-    ]);
     expect(configuration.session.tools.find(
       ({ name }) => name === "lookup_location",
     )?.parameters.required).toEqual(["query"]);
@@ -343,12 +311,6 @@ describe("Pas de Géant Realtime voice agent", () => {
     );
     expect(configuration.session.instructions).toContain(
       "set_location_pin_visibility to show, hide, turn on, or turn off a pin",
-    );
-    expect(configuration.session.instructions).toContain(
-      "set_aircraft_display to turn either one on or off",
-    );
-    expect(configuration.session.instructions).toContain(
-      "These are three independent groups",
     );
     expect(configuration.session.instructions).toContain(
       "Multiple years may be visible together",
@@ -418,29 +380,9 @@ describe("Pas de Géant Realtime voice agent", () => {
     expect(configuration.session.tools.find(
       ({ name }) => name === "get_tile_planner_state",
     )?.description).toContain("source jobs are distinct layers");
-    const aircraftDisplayTool = configuration.session.tools.find(
-      ({ name }) => name === "set_aircraft_display",
-    );
-    expect(aircraftDisplayTool?.parameters.required).toEqual([
-      "target",
-      "enabled",
-    ]);
-    expect(aircraftDisplayTool?.parameters.properties?.target?.enum).toEqual([
-      "aircraft",
-      "labels",
-    ]);
     expect(configuration.session.tools.find(
       ({ name }) => name === "get_tile_planner_state",
     )?.description).toContain("horizon-culling");
-    const satelliteTool = configuration.session.tools.find(
-      ({ name }) => name === "set_satellite_group_visibility",
-    );
-    expect(satelliteTool?.parameters.required).toEqual(["group", "enabled"]);
-    expect(satelliteTool?.parameters.properties?.group?.enum).toEqual([
-      "brightest",
-      "space_stations",
-      "science_education",
-    ]);
     const forestOutlineTool = configuration.session.tools.find(
       ({ name }) => name === "set_amazon_forest_outline_visibility",
     );

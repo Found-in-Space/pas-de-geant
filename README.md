@@ -5,7 +5,7 @@ _Walk around worlds, one small step at a time._
 Pas de Géant is a room-scale WebXR experience that puts a relief globe beneath
 your feet. Walk through the room or use a controller to roll the world through
 the floor contact point, changing planetary scale while the terrain,
-atmosphere, sky, and optional live aircraft move with it.
+atmosphere and sky move with it.
 
 Earth and Moon have streamed ground surfaces, and the other registered major
 Solar System bodies have plain globes for orbit and free navigation. All use
@@ -75,7 +75,6 @@ Quest Browser JavaScript console through its DevTools connection.
 - Mapterhorn / Copernicus GLO-30 terrain with atomic quadtree transitions
 - Embedded NASA Blue Marble imagery with optional atomic XYZ refinement
 - A Gaia DR3 / Hipparcos celestial sphere through Found in Space SkyKit
-- Optional Flight Follower traffic during an active immersive session
 - Browser geolocation with an approximate network fallback
 
 The detailed terrain, imagery, and rendering design is documented in
@@ -100,8 +99,10 @@ in another terminal to rebuild it as files change.
 Source, licence, datum, DOI, checksum, and service-attribution details live in
 [`apps/pas-de-geant/public/THIRD_PARTY_LICENSES.txt`](apps/pas-de-geant/public/THIRD_PARTY_LICENSES.txt).
 
-Live aircraft are an opt-in proof of concept and are disabled on each page
-load. Terrain and imagery are not suitable for navigation or safety-critical
-use.
+Satellite and aircraft implementations now live in independent extension projects,
+with standalone examples using public SkyKit plugin APIs. They are not installed
+in the main application during this refactor.
+
+Terrain and imagery are not suitable for navigation or safety-critical use.
 
 The software is available under the [MIT License](LICENSE).

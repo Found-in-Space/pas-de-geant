@@ -15,22 +15,11 @@ import type { EclipseSummary } from "@found-in-space/shadowline";
 import * as THREE from "three";
 import { VRButton } from "three/addons/webxr/VRButton.js";
 import {
-  AIRCRAFT_SUBSCRIPTION_REFRESH_INTERVAL_MS,
-  FlightFollowerClient,
-  type FlightFollowerConnectionState,
-} from "./aircraft-feed.js";
-import { AircraftLayer } from "./aircraft-layer.js";
-import {
   parseAmazonForestOutlineVisibilityArguments,
   type AmazonForestOutlineControlState,
 } from "./amazon-forest-outline-control.js";
 import { AmazonForestOutlineLayer } from "./amazon-forest-outline-layer.js";
 import { AmazonForestOutlineStore } from "./amazon-forest-outline-state.js";
-import {
-  parseAircraftDisplayArguments,
-  shouldStreamAircraft,
-  type AircraftDisplayTarget,
-} from "./aircraft-lifecycle.js";
 import { AtmosphereLayer } from "./atmosphere.js";
 import {
   controllerIntent,
@@ -202,16 +191,6 @@ import {
   FrameTelemetry,
   summarizeResourceTimings,
 } from "./runtime-debug.js";
-import {
-  fetchSatelliteGroup,
-  SATELLITE_REFRESH_INTERVAL_MS,
-} from "./satellite-feed.js";
-import {
-  parseSatelliteVisibilityArguments,
-  SATELLITE_GROUPS,
-  type SatelliteGroupId,
-} from "./satellite-groups.js";
-import { SatelliteLayer } from "./satellite-layer.js";
 import { SpatialStarPass } from "./spatial-star-pass.js";
 import {
   j2000ObserverAtWorldPoint,
@@ -286,7 +265,7 @@ interface PasDeGeantDebugApi {
   setFramebufferScale(value: number): Record<string, unknown>;
   setDesktopPixelRatio(value: number): Record<string, unknown>;
   setLayerVisibility(
-    layer: "terrain" | "atmosphere" | "stars" | "aircraft" | "hand-panel",
+    layer: "terrain" | "atmosphere" | "stars" | "hand-panel",
     visible: boolean,
   ): Record<string, unknown>;
 }
@@ -762,12 +741,6 @@ scene.add(new THREE.AmbientLight(0x8793a8, 0.65));
 scene.onBeforeRender = (_renderer, _scene, renderCamera): void => {
   for (const world of worldRuntimes) world.beforeRender(renderCamera);
 };
-const aircraftLayer = new AircraftLayer((latitudeDegrees, longitudeDegrees) =>
-  terrain.sampleElevationMetres(latitudeDegrees, longitudeDegrees)
-);
-planetRoot.add(aircraftLayer.group);
-const satelliteLayer = new SatelliteLayer();
-planetRoot.add(satelliteLayer.group);
 
 const atmosphere = new AtmosphereLayer();
 planetRoot.add(atmosphere.mesh);
@@ -1042,62 +1015,7 @@ let pitch = Number.isFinite(benchmarkPitch)
   ? Math.max(-1.35, Math.min(1.1, benchmarkPitch))
   : -0.55;
 camera.rotation.set(pitch, yaw, 0);
-let aircraftEnabled = false;
-let aircraftLabelsEnabled = false;
 let vrSessionActive = false;
-let aircraftCount = 0;
-let aircraftRetargetTimer: number | undefined;
-let aircraftStreamState: FlightFollowerConnectionState = "stopped";
-const aircraftStream = new FlightFollowerClient({
-  onTracks(tracks) {
-    aircraftLayer.setAircraft(tracks);
-    aircraftCount = tracks.length;
-    document.body.dataset.aircraftCount = String(aircraftCount);
-  },
-  onStatus(status) {
-    aircraftStreamState = status.state;
-    document.body.dataset.aircraftStreamState = status.state;
-  },
-});
-
-interface SatelliteGroupRuntime {
-  enabled: boolean;
-  count: number;
-  fetchedAtMs: number;
-  request?: AbortController;
-  loadPromise?: Promise<SatelliteGroupControlState>;
-  refreshTimer?: number;
-  unavailable: boolean;
-}
-
-interface SatelliteGroupControlState {
-  readonly group: SatelliteGroupId;
-  readonly enabled: boolean;
-  readonly visible: boolean;
-  readonly status: "off" | "ready" | "loading" | "loaded" | "unavailable";
-  readonly count: number;
-}
-
-const satelliteGroups: Record<SatelliteGroupId, SatelliteGroupRuntime> = {
-  visual: {
-    enabled: false,
-    count: 0,
-    fetchedAtMs: 0,
-    unavailable: false,
-  },
-  stations: {
-    enabled: false,
-    count: 0,
-    fetchedAtMs: 0,
-    unavailable: false,
-  },
-  "science-education": {
-    enabled: false,
-    count: 0,
-    fetchedAtMs: 0,
-    unavailable: false,
-  },
-};
 
 function currentViewCamera(): THREE.Camera {
   // WebXRManager's ArrayCamera is not parented to observerRig. Asking it to
@@ -1530,15 +1448,6 @@ function supervisionControlState(): SupervisionControlState {
   const clock = simulationClockSnapshot(state.simulationClock, nowMs);
   const eclipse = state.eclipse;
   return {
-    aircraft: {
-      aircraft: aircraftEnabled,
-      labels: aircraftLabelsEnabled,
-    },
-    satellites: {
-      brightest: satelliteGroups.visual.enabled,
-      space_stations: satelliteGroups.stations.enabled,
-      science_education: satelliteGroups["science-education"].enabled,
-    },
     amazonForestOutlines: amazonForestOutlineControlState(),
     clock: {
       atUtc: new Date(clock.atMs).toISOString(),
@@ -2128,11 +2037,6 @@ async function applySupervisionCommand(command: SupervisionCommand): Promise<voi
       command,
       canonicalLocationPinMutations,
     );
-  } else if (command.kind === "setAircraftDisplay") {
-    setAircraftDisplay(command.target, command.enabled);
-  } else if (command.kind === "setSatelliteGroupVisibility") {
-    const { group, enabled } = parseSatelliteVisibilityArguments(command);
-    void setSatelliteGroupEnabled(group, enabled);
   } else {
     applySupervisorNavigationMutation(command, canonicalNavigationMutations);
   }
@@ -3004,12 +2908,6 @@ const voiceAgent = createGeantVoiceAgent({
       requireJourneyUnlocked();
       return setViewDirection(argumentsValue);
     },
-    async set_satellite_group_visibility(argumentsValue) {
-      requireJourneyUnlocked();
-      const { group, enabled } =
-        parseSatelliteVisibilityArguments(argumentsValue);
-      return await setSatelliteGroupEnabled(group, enabled);
-    },
     async get_amazon_forest_outlines() {
       await amazonForestOutlineStore.load();
       return amazonForestOutlineVoiceState();
@@ -3052,14 +2950,6 @@ const voiceAgent = createGeantVoiceAgent({
       const result = await searchWeb(query);
       showResearch(result.answer, result.sources);
       return result;
-    },
-    get_aircraft_display() {
-      return aircraftDisplayState();
-    },
-    set_aircraft_display(argumentsValue) {
-      requireJourneyUnlocked();
-      const display = parseAircraftDisplayArguments(argumentsValue);
-      return setAircraftDisplay(display.target, display.enabled);
     },
     get_tile_debug_controls() {
       return focusedTerrain().getTileDebugControls();
@@ -3544,244 +3434,6 @@ window.addEventListener("keyup", (event) => {
 });
 window.addEventListener("blur", () => keys.clear());
 
-function aircraftStreamAllowed(): boolean {
-  return shouldStreamAircraft({
-    enabled: aircraftEnabled || aircraftLabelsEnabled,
-    vrSessionActive,
-    documentVisible: !document.hidden,
-  });
-}
-
-function stopAircraftStream(): void {
-  if (aircraftRetargetTimer !== undefined) {
-    window.clearTimeout(aircraftRetargetTimer);
-    aircraftRetargetTimer = undefined;
-  }
-  aircraftStream.stop();
-}
-
-function scheduleAircraftRetarget(): void {
-  if (!aircraftStreamAllowed()) return;
-  if (aircraftRetargetTimer !== undefined) {
-    window.clearTimeout(aircraftRetargetTimer);
-  }
-  aircraftRetargetTimer = window.setTimeout(() => {
-    aircraftRetargetTimer = undefined;
-    const coordinates = coordinatesForFrame(state.contact);
-    aircraftStream.setCenter(coordinates);
-    scheduleAircraftRetarget();
-  }, AIRCRAFT_SUBSCRIPTION_REFRESH_INTERVAL_MS);
-}
-
-function aircraftDisplayState(): Record<string, unknown> {
-  return {
-    aircraft_enabled: aircraftEnabled,
-    labels_enabled: aircraftLabelsEnabled,
-    vr_session_active: vrSessionActive,
-    aircraft_count: aircraftCount,
-    stream_state: aircraftStreamState,
-  };
-}
-
-function syncAircraftDisplay(): void {
-  const displayEnabled = aircraftEnabled || aircraftLabelsEnabled;
-  aircraftLayer.symbolsVisible = aircraftEnabled;
-  aircraftLayer.labelsVisible = aircraftLabelsEnabled;
-  aircraftLayer.visible = displayEnabled && vrSessionActive;
-  document.body.dataset.aircraftEnabled = String(aircraftEnabled);
-  document.body.dataset.aircraftLabelsEnabled = String(
-    aircraftLabelsEnabled,
-  );
-  if (aircraftStreamAllowed()) {
-    aircraftStream.start(coordinatesForFrame(state.contact));
-    scheduleAircraftRetarget();
-  } else {
-    stopAircraftStream();
-  }
-}
-
-function setAircraftEnabled(enabled: boolean): void {
-  aircraftEnabled = enabled;
-  syncAircraftDisplay();
-}
-
-function setAircraftLabelsEnabled(enabled: boolean): void {
-  aircraftLabelsEnabled = enabled;
-  syncAircraftDisplay();
-}
-
-function setAircraftDisplay(
-  target: AircraftDisplayTarget,
-  enabled: boolean,
-): Record<string, unknown> {
-  if (target === "aircraft") setAircraftEnabled(enabled);
-  else setAircraftLabelsEnabled(enabled);
-  return { ok: true, ...aircraftDisplayState() };
-}
-
-function satelliteGroupControlState(
-  group: SatelliteGroupId,
-): SatelliteGroupControlState {
-  const runtime = satelliteGroups[group];
-  let status: SatelliteGroupControlState["status"];
-  if (!runtime.enabled) status = "off";
-  else if (runtime.request) status = "loading";
-  else if (runtime.unavailable) status = "unavailable";
-  else if (!vrSessionActive) status = "ready";
-  else status = runtime.fetchedAtMs > 0 ? "loaded" : "ready";
-  return {
-    group,
-    enabled: runtime.enabled,
-    visible: satelliteLayer.groupVisible(group),
-    status,
-    count: runtime.count,
-  };
-}
-
-function updateSatelliteReadout(): void {
-  const enabled = SATELLITE_GROUPS.filter(
-    ({ id }) => satelliteGroups[id].enabled,
-  );
-  const count = enabled.reduce(
-    (total, { id }) => total + satelliteGroups[id].count,
-    0,
-  );
-  document.body.dataset.satelliteCount = String(count);
-  for (const { id } of SATELLITE_GROUPS) {
-    document.body.setAttribute(
-      `data-satellite-${id}-enabled`,
-      String(satelliteGroups[id].enabled),
-    );
-    document.body.setAttribute(
-      `data-satellite-${id}-count`,
-      String(satelliteGroups[id].count),
-    );
-  }
-}
-
-function stopSatelliteGroup(group: SatelliteGroupId): void {
-  const runtime = satelliteGroups[group];
-  if (runtime.refreshTimer !== undefined) {
-    window.clearTimeout(runtime.refreshTimer);
-    runtime.refreshTimer = undefined;
-  }
-  runtime.request?.abort();
-}
-
-function scheduleSatelliteRefresh(group: SatelliteGroupId): void {
-  const runtime = satelliteGroups[group];
-  if (
-    !runtime.enabled ||
-    !vrSessionActive ||
-    document.hidden ||
-    runtime.request ||
-    runtime.unavailable ||
-    runtime.fetchedAtMs <= 0
-  ) {
-    return;
-  }
-  if (runtime.refreshTimer !== undefined) {
-    window.clearTimeout(runtime.refreshTimer);
-  }
-  const delayMs = Math.max(
-    0,
-    runtime.fetchedAtMs + SATELLITE_REFRESH_INTERVAL_MS - Date.now(),
-  );
-  runtime.refreshTimer = window.setTimeout(() => {
-    runtime.refreshTimer = undefined;
-    void loadSatelliteGroup(group, true);
-  }, delayMs);
-}
-
-function loadSatelliteGroup(
-  group: SatelliteGroupId,
-  force = false,
-): Promise<SatelliteGroupControlState> {
-  const runtime = satelliteGroups[group];
-  if (
-    !runtime.enabled ||
-    !vrSessionActive ||
-    document.hidden
-  ) {
-    updateSatelliteReadout();
-    return Promise.resolve(satelliteGroupControlState(group));
-  }
-  if (runtime.loadPromise) return runtime.loadPromise;
-  if (
-    !force &&
-    runtime.fetchedAtMs > 0 &&
-    Date.now() - runtime.fetchedAtMs < SATELLITE_REFRESH_INTERVAL_MS
-  ) {
-    scheduleSatelliteRefresh(group);
-    updateSatelliteReadout();
-    return Promise.resolve(satelliteGroupControlState(group));
-  }
-
-  const request = new AbortController();
-  runtime.request = request;
-  runtime.unavailable = false;
-  updateSatelliteReadout();
-  const promise = (async (): Promise<SatelliteGroupControlState> => {
-    try {
-      const payload = await fetchSatelliteGroup(group, request.signal);
-      if (runtime.request !== request) return satelliteGroupControlState(group);
-      runtime.count = satelliteLayer.setSatellites(group, payload.satellites);
-      runtime.fetchedAtMs = payload.fetchedAtMs;
-      runtime.unavailable = false;
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === "AbortError")) {
-        runtime.unavailable = true;
-        console.warn(
-          `Satellite ${group} update failed:`,
-          error,
-        );
-      }
-    } finally {
-      if (runtime.request === request) runtime.request = undefined;
-      runtime.loadPromise = undefined;
-      scheduleSatelliteRefresh(group);
-      updateSatelliteReadout();
-      if (
-        request.signal.aborted &&
-        runtime.enabled &&
-        vrSessionActive &&
-        !document.hidden
-      ) {
-        queueMicrotask(() => void loadSatelliteGroup(group));
-      }
-    }
-    return satelliteGroupControlState(group);
-  })();
-  runtime.loadPromise = promise;
-  return promise;
-}
-
-async function setSatelliteGroupEnabled(
-  group: SatelliteGroupId,
-  enabled: boolean,
-): Promise<SatelliteGroupControlState> {
-  const runtime = satelliteGroups[group];
-  runtime.enabled = enabled;
-  satelliteLayer.setGroupVisible(group, enabled && vrSessionActive);
-  if (!enabled) {
-    stopSatelliteGroup(group);
-    updateSatelliteReadout();
-    return satelliteGroupControlState(group);
-  }
-  updateSatelliteReadout();
-  return await loadSatelliteGroup(group);
-}
-
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    stopAircraftStream();
-    for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
-  } else {
-    syncAircraftDisplay();
-    for (const { id } of SATELLITE_GROUPS) void loadSatelliteGroup(id);
-  }
-});
-
 let supervisionClient: SupervisionClient | undefined;
 let supervisionClientModule: Promise<typeof import("./supervision-client.js")> |
   undefined;
@@ -3830,13 +3482,6 @@ renderer.xr.addEventListener("sessionstart", () => {
   document.body.classList.add("xr-presenting");
   locationPinStore.clear();
   vrSessionActive = true;
-  syncAircraftDisplay();
-  for (const { id } of SATELLITE_GROUPS) {
-    const enabled = satelliteGroups[id].enabled;
-    satelliteLayer.setGroupVisible(id, enabled);
-    if (enabled) void loadSatelliteGroup(id);
-  }
-  updateSatelliteReadout();
   camera.position.set(0, 0, 0);
   camera.rotation.set(0, 0, 0);
   if (navigationMode === "orbit") orbitNavigation = undefined;
@@ -3856,13 +3501,6 @@ renderer.xr.addEventListener("sessionend", () => {
   vrSessionActive = false;
   voiceAgent.disable();
   handPanel.enabled = false;
-  stopAircraftStream();
-  aircraftLayer.visible = false;
-  for (const { id } of SATELLITE_GROUPS) {
-    stopSatelliteGroup(id);
-    satelliteLayer.setGroupVisible(id, false);
-  }
-  updateSatelliteReadout();
   camera.position.set(0, 1.65, 0);
   camera.rotation.set(pitch, yaw, 0);
   if (navigationMode === "orbit") orbitNavigation = undefined;
@@ -3902,7 +3540,6 @@ interface BenchmarkRestoreState {
     readonly terrain: boolean;
     readonly atmosphere: boolean;
     readonly stars: boolean;
-    readonly aircraft: boolean;
     readonly handPanel: boolean;
   };
 }
@@ -3977,7 +3614,6 @@ function debugControlState(): Record<string, unknown> {
       terrain: focusedTerrain().group.visible,
       atmosphere: atmosphere.mesh.visible,
       stars: spatialStarPass.scene.visible,
-      aircraft: aircraftLayer.group.visible,
       handPanel: handPanelVisible,
     },
   };
@@ -4105,7 +3741,6 @@ function captureBenchmarkRestoreState(): BenchmarkRestoreState {
       terrain: focusedTerrain().group.visible,
       atmosphere: atmosphere.mesh.visible,
       stars: spatialStarPass.scene.visible,
-      aircraft: aircraftLayer.group.visible,
       handPanel: handPanelVisible,
     },
   };
@@ -4227,7 +3862,6 @@ const debugApi: PasDeGeantDebugApi = {
     renderingEnabled = true;
     focusedTerrain().group.visible = true;
     spatialStarPass.scene.visible = true;
-    aircraftLayer.group.visible = false;
     handPanelVisible = false;
     handPanel.enabled = false;
     renderer.xr.setFoveation(1);
@@ -4267,7 +3901,6 @@ const debugApi: PasDeGeantDebugApi = {
     focusedTerrain().group.visible = restore.layers.terrain;
     atmosphere.mesh.visible = restore.layers.atmosphere;
     spatialStarPass.scene.visible = restore.layers.stars;
-    aircraftLayer.group.visible = restore.layers.aircraft;
     handPanelVisible = restore.layers.handPanel;
     if (restore.foveation !== undefined) {
       renderer.xr.setFoveation(restore.foveation);
@@ -4393,9 +4026,6 @@ const debugApi: PasDeGeantDebugApi = {
       case "stars":
         spatialStarPass.scene.visible = visible;
         break;
-      case "aircraft":
-        aircraftLayer.group.visible = visible;
-        break;
       case "hand-panel":
         handPanelVisible = visible;
         if (!visible) handPanel.enabled = false;
@@ -4415,7 +4045,6 @@ if (import.meta.env.DEV || benchmarkParameters.get("debug") === "1") {
 
 const cameraWorldPosition = new THREE.Vector3();
 const celestialObserverAppEcefKm = new THREE.Vector3();
-const earthWorldScale = new THREE.Vector3();
 const starJ2000ToWorld = new THREE.Quaternion();
 let lastStarTelemetryUpdateMs = Number.NEGATIVE_INFINITY;
 function render(nowMs: number): void {
@@ -4461,17 +4090,6 @@ function render(nowMs: number): void {
       navigationMode === "surface" && focusBodyId === "earth",
   });
   supervisionClient?.update(nowMs);
-  const earthDisplayRadiusM = navigationMode === "surface"
-    ? displayRadiusForScale("earth", scaleDenominator)
-    : planetRoot.getWorldScale(earthWorldScale).x;
-  aircraftLayer.update(
-    wallTimeMs,
-    earthDisplayRadiusM,
-  );
-  satelliteLayer.update(
-    simulationTimeMsValue,
-    earthDisplayRadiusM,
-  );
   const viewCamera = currentViewCamera();
   viewCamera.getWorldPosition(cameraWorldPosition);
   if (navigationMode === "orbit") {
@@ -4556,8 +4174,6 @@ window.addEventListener("beforeunload", () => {
   if (benchmarkMetricsTimer !== undefined) {
     window.clearInterval(benchmarkMetricsTimer);
   }
-  stopAircraftStream();
-  for (const { id } of SATELLITE_GROUPS) stopSatelliteGroup(id);
   amazonForestOutlines.dispose();
   for (const world of worldRuntimes) world.dispose();
   journeyEarthGlobe.geometry.dispose();
@@ -4586,11 +4202,4 @@ setEclipseConesVisible(false);
 setPreflightCheck(worldCheck, worldCheckStatus, "ready", `${celestialBody(initialFocusBodyId).name} ready`);
 errorState.hidden = true;
 monitorTileSourceFailures(() => focusedTerrain().getTileFailureTotal());
-aircraftLayer.visible = false;
-setAircraftEnabled(false);
-setAircraftLabelsEnabled(false);
-for (const { id } of SATELLITE_GROUPS) {
-  satelliteLayer.setGroupVisible(id, false);
-}
-updateSatelliteReadout();
 renderer.setAnimationLoop(render);

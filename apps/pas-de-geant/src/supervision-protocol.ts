@@ -1,7 +1,5 @@
 import type { SolarSystemBodyId } from "@found-in-space/worlds/solar-system";
 import type { NavigationMode } from "@found-in-space/worlds/world-navigation";
-import type { AircraftDisplayTarget } from "./aircraft-lifecycle.js";
-import type { SatelliteToolGroup } from "./satellite-groups.js";
 import type { AmazonForestOutlineControlState } from "./amazon-forest-outline-control.js";
 import {
   parseLocationPin,
@@ -18,8 +16,8 @@ import {
 } from "./earth-to-gaia-journey.js";
 
 export const SUPERVISION_PATH = "/api/supervision";
-export const SUPERVISION_SUBPROTOCOL = "pas-de-geant.supervision.v5";
-export const SUPERVISION_PROTOCOL_VERSION = 5;
+export const SUPERVISION_SUBPROTOCOL = "pas-de-geant.supervision.v6";
+export const SUPERVISION_PROTOCOL_VERSION = 6;
 
 export interface SupervisionStellarState {
   readonly observerJ2000Pc: {
@@ -50,8 +48,6 @@ export type SupervisionNavigationSnapshot = Omit<
 >;
 
 export interface SupervisionControlState {
-  readonly aircraft: Readonly<Record<AircraftDisplayTarget, boolean>>;
-  readonly satellites: Readonly<Record<SatelliteToolGroup, boolean>>;
   readonly amazonForestOutlines: AmazonForestOutlineControlState;
   readonly clock: SupervisionSimulationClockState | null;
   readonly eclipse: SupervisionEclipseControlState;
@@ -77,15 +73,6 @@ export interface SupervisionEclipseControlState {
 }
 
 export const DEFAULT_SUPERVISION_CONTROL_STATE: SupervisionControlState = {
-  aircraft: {
-    aircraft: false,
-    labels: false,
-  },
-  satellites: {
-    brightest: false,
-    space_stations: false,
-    science_education: false,
-  },
   amazonForestOutlines: {
     availableYears: [],
     visibleYears: [],
@@ -140,16 +127,6 @@ export type SupervisionCommand =
   | {
     readonly kind: "setPinGuidance";
     readonly pin: LocationPin;
-    readonly enabled: boolean;
-  }
-  | {
-    readonly kind: "setAircraftDisplay";
-    readonly target: AircraftDisplayTarget;
-    readonly enabled: boolean;
-  }
-  | {
-    readonly kind: "setSatelliteGroupVisibility";
-    readonly group: SatelliteToolGroup;
     readonly enabled: boolean;
   }
   | {
@@ -450,8 +427,6 @@ export function parseSupervisionControlState(
 ): SupervisionControlState {
   if (value === undefined) return DEFAULT_SUPERVISION_CONTROL_STATE;
   const candidate = record(value, "Control state");
-  const aircraft = record(candidate.aircraft, "Aircraft control state");
-  const satellites = record(candidate.satellites, "Satellite control state");
   const amazonForestOutlines = candidate.amazonForestOutlines === undefined
     ? DEFAULT_SUPERVISION_CONTROL_STATE.amazonForestOutlines
     : record(candidate.amazonForestOutlines, "Amazon forest outline control state");
@@ -551,27 +526,6 @@ export function parseSupervisionControlState(
     throw new Error("Visible Amazon forest outline years must be available.");
   }
   return {
-    aircraft: {
-      aircraft: requiredBoolean(
-        aircraft.aircraft,
-        "Aircraft symbols enabled",
-      ),
-      labels: requiredBoolean(aircraft.labels, "Aircraft labels enabled"),
-    },
-    satellites: {
-      brightest: requiredBoolean(
-        satellites.brightest,
-        "Brightest satellites enabled",
-      ),
-      space_stations: requiredBoolean(
-        satellites.space_stations,
-        "Space stations enabled",
-      ),
-      science_education: requiredBoolean(
-        satellites.science_education,
-        "Science and education satellites enabled",
-      ),
-    },
     amazonForestOutlines: {
       availableYears: availableForestYears,
       visibleYears: visibleForestYears,
@@ -625,12 +579,12 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
   const candidate = record(value, "Supervision command");
   if ("displayRadiusM" in candidate) {
     throw new Error(
-      "displayRadiusM is not supported by protocol v5; use scaleDenominator.",
+      "displayRadiusM is not supported by protocol v6; use scaleDenominator.",
     );
   }
   if ("radialMultiplier" in candidate) {
     throw new Error(
-      "radialMultiplier is not supported by protocol v5; use terrainMultiplier.",
+      "radialMultiplier is not supported by protocol v6; use terrainMultiplier.",
     );
   }
   if (candidate.kind === "warp") {
@@ -689,38 +643,6 @@ export function parseSupervisionCommand(value: unknown): SupervisionCommand {
       kind: "setPinGuidance",
       pin: parseLocationPin(candidate.pin),
       enabled: candidate.enabled,
-    };
-  }
-  if (candidate.kind === "setAircraftDisplay") {
-    if (candidate.target !== "aircraft" && candidate.target !== "labels") {
-      throw new Error("Aircraft display target must be aircraft or labels.");
-    }
-    return {
-      kind: "setAircraftDisplay",
-      target: candidate.target,
-      enabled: requiredBoolean(
-        candidate.enabled,
-        "Aircraft display enabled",
-      ),
-    };
-  }
-  if (candidate.kind === "setSatelliteGroupVisibility") {
-    if (
-      candidate.group !== "brightest" &&
-      candidate.group !== "space_stations" &&
-      candidate.group !== "science_education"
-    ) {
-      throw new Error(
-        "Satellite group must be brightest, space_stations, or science_education.",
-      );
-    }
-    return {
-      kind: "setSatelliteGroupVisibility",
-      group: candidate.group,
-      enabled: requiredBoolean(
-        candidate.enabled,
-        "Satellite visibility enabled",
-      ),
     };
   }
   if (candidate.kind === "setAmazonForestYearVisibility") {
@@ -794,12 +716,12 @@ export function parseSupervisionNavigationState(
   const candidate = record(value, "Navigation state");
   if ("displayRadiusM" in candidate) {
     throw new Error(
-      "displayRadiusM is not supported by protocol v5; use scaleDenominator.",
+      "displayRadiusM is not supported by protocol v6; use scaleDenominator.",
     );
   }
   if ("radialMultiplier" in candidate) {
     throw new Error(
-      "radialMultiplier is not supported by protocol v5; use terrainMultiplier.",
+      "radialMultiplier is not supported by protocol v6; use terrainMultiplier.",
     );
   }
   const sequence = finiteNumber(candidate.sequence, "State sequence");

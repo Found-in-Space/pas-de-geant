@@ -93,9 +93,7 @@ The Vite development server exposes a supervisor dashboard at
 `http://127.0.0.1:4197/supervisor/`. An Earth ground-mode headset appears there
 only while its immersive XR session is active. The dashboard shows live
 position, ground-projected gaze, and `1:N` scale, and can send explicit warp or
-scale-denominator commands. It can also independently
-toggle live aircraft symbols, radar labels, and the same brightest, station, and
-science/education satellite groups exposed to the voice agent. Map destinations
+scale-denominator commands. Map destinations
 can be saved as a browser-local location library, then warped to, shown or hidden
 as Earth surface markers, and independently enabled for off-screen guidance.
 Multiple guides can be active together. Headset visibility survives supervision
@@ -107,8 +105,7 @@ navigation mode without replacing the normal Earth controls. It follows live
 UTC by default. The supervisor can load the verified 12 August 2026 total
 eclipse paused at first contact, show or hide the shadow cones, play or pause
 the shared simulation clock at 180×, scrub across the complete first-to-last
-contact period, and return the whole astronomical scene to live time. Live
-aircraft interpolation remains tied to wall-clock time.
+contact period, and return the whole astronomical scene to live time.
 
 An immersive standalone Eclipse Observatory session also appears in the
 dashboard with its dedicated event, UTC, playback, and timeline workspace.
@@ -762,19 +759,10 @@ frame. Catalogue failure leaves an empty sky without blocking the surface. The
 voice guide can show or hide the Sun, Moon, each planet, all planets, or all
 Solar System bodies without changing the background star catalogue.
 
-Live Flight Follower traffic is opt-in and only streams during an immersive VR
-session. Leaving VR, hiding the page, or disabling the layer closes the stream.
-The client follows Flight Follower's predicted trajectories, renders reported
-surface-vehicle categories distinctly, and anchors explicit on-ground reports
-to the physical elevation sampled from the same Mapterhorn tiles used by the
-terrain surface. Terrain exaggeration does not change traffic altitude.
-
-CelesTrak satellite tracking is also opt-in. The 100 brightest, space-station,
-and combined science/education groups can be enabled independently from the
-page or by asking the voice guide. Orbital elements are cached for CelesTrak's
-two-hour update interval, while SGP4 propagation moves the markers locally.
-Satellite altitude remains at the universal global scale and is independent of
-terrain exaggeration.
+Satellite and aircraft objects are maintained in the independent `satellites`
+and `aircraft` extension projects. Their standalone examples demonstrate public
+SkyKit plugin registration. This application currently includes neither extension;
+its API server and voice/supervision controls do not depend on their services.
 
 ## Validation
 
@@ -790,7 +778,7 @@ and imagery are not suitable for navigation or safety-critical use.
 ## Local application APIs
 
 Vite serves application APIs on the development machine alongside the demo.
-Realtime token issuance, geocoding, knowledge and satellite feeds use that
+Realtime token issuance, geocoding and knowledge APIs use that
 machine's configuration. Set `OPENAI_API_KEY`
 in its private `apps/pas-de-geant/.env.local` when voice is required, and start
 the app with `npm run dev -- --port 4197`.

@@ -216,26 +216,6 @@ export const EARTH_VOICE_TOOLS = [
         }
     },
     {
-        name: "set_satellite_group_visibility",
-        description: "Turn one satellite group on or off without changing either of the other satellite groups.",
-        parameters: {
-            type: "object",
-            properties: {
-                group: {
-                    type: "string",
-                    enum: [
-                        "brightest",
-                        "space_stations",
-                        "science_education",
-                    ],
-                },
-                enabled: { type: "boolean" },
-            },
-            required: ["group", "enabled"],
-            additionalProperties: false,
-        }
-    },
-    {
         name: "get_amazon_forest_outlines",
         description: "Read the available and currently visible Amazon forest outline years.",
         parameters: { type: "object", properties: {}, additionalProperties: false }
@@ -316,27 +296,6 @@ export const EARTH_VOICE_TOOLS = [
                 },
             },
             required: ["query"],
-            additionalProperties: false,
-        }
-    },
-    {
-        name: "get_aircraft_display",
-        description: "Read whether live aircraft symbols and radar-style information labels are enabled, plus the current nearby aircraft count.",
-        parameters: { type: "object", properties: {}, additionalProperties: false }
-    },
-    {
-        name: "set_aircraft_display",
-        description: "Turn live aircraft symbols or their radar-style information labels on or off without changing the other display setting.",
-        parameters: {
-            type: "object",
-            properties: {
-                target: {
-                    type: "string",
-                    enum: ["aircraft", "labels"],
-                },
-                enabled: { type: "boolean" },
-            },
-            required: ["target", "enabled"],
             additionalProperties: false,
         }
     },
