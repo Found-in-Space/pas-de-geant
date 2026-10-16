@@ -22,6 +22,8 @@ export interface TerrainElevationProvider extends TileProvider<ElevationTileReso
   readonly coverage?: TileSourceCoverage;
   readonly tilePixels: number;
   readonly metrics: ImageTileProviderMetrics;
+  /** Failed terrain requests after applying the provider's no-data policy. */
+  readonly failureTotal: number;
   retainSourceTiles(tiles: Iterable<TileIdentity>): void;
   resumeDeferred(): void;
   dispose(): void;
@@ -47,6 +49,7 @@ export class ElevationTileProvider<TPayload = unknown>
 {
   readonly tilePixels: number;
   private nextRequestId = 1;
+  private failedRequestTotal = 0;
   private readonly active = new Map<number, ActiveRequest>();
 
   constructor(private readonly elevationProvider: ImageTileProvider<TPayload>,
@@ -58,6 +61,10 @@ export class ElevationTileProvider<TPayload = unknown>
 
   get metrics(): ImageTileProviderMetrics {
     return this.elevationProvider.metrics;
+  }
+
+  get failureTotal(): number {
+    return this.failedRequestTotal;
   }
 
   get retryDiagnostics() {
@@ -95,6 +102,7 @@ export class ElevationTileProvider<TPayload = unknown>
         if (result.status === 404 && this.options.missingTile !== "failure") {
           this.complete(tile, request);
         } else {
+          this.failedRequestTotal += 1;
           request.active = false;
           this.active.delete(requestId);
           observer(result);
@@ -170,6 +178,7 @@ const EMPTY_METRICS: ImageTileProviderMetrics = Object.freeze({
 /** Supplies immediately-ready flat topology when a body has no height source. */
 export class FlatElevationTileProvider implements TerrainElevationProvider {
   readonly metrics = EMPTY_METRICS;
+  readonly failureTotal = 0;
   private nextRequestId = 1;
 
   constructor(readonly tilePixels = 512) {}

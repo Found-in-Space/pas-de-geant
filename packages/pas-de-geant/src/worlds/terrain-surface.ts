@@ -1053,7 +1053,7 @@ export class TerrainSurface {
   }
 
   getTileFailureTotal(): number {
-    return this.imagery.failureTotal + this.provider.metrics.failureTotal;
+    return this.imagery.failureTotal + this.provider.failureTotal;
   }
 
   setTileOverlayVisible(visible: boolean): void {

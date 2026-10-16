@@ -91,6 +91,7 @@ describe("Elevation tile provider", () => {
       phase: "response",
       resource: { kind: "elevation", tile: { z: 1, x: 0, y: 0 } },
     });
+    expect(surface.failureTotal).toBe(0);
   });
 
   it("keeps non-404 elevation failures retryable", () => {
@@ -106,6 +107,7 @@ describe("Elevation tile provider", () => {
     expect(results).toEqual([
       { phase: "failure", reason: "unavailable", status: 503 },
     ]);
+    expect(surface.failureTotal).toBe(1);
   });
 
   it("keeps a missing declared scientific tile as a failure", () => {
@@ -115,6 +117,7 @@ describe("Elevation tile provider", () => {
     surface.request({ z: 14, x: 8975, y: 8001 }, (result) => results.push(result));
     elevation.deliver({ phase: "failure", reason: "declared tile missing", status: 404 });
     expect(results).toEqual([{ phase: "failure", reason: "declared tile missing", status: 404 }]);
+    expect(surface.failureTotal).toBe(1);
   });
 
   it("lets an atomic sibling group commit when one elevation cell is a 404", () => {
