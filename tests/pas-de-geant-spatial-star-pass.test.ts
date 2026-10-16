@@ -290,7 +290,13 @@ describe("SpatialStarPass", () => {
       { x: 0, y: 0, z: 1 },
     ];
     await pass.warmJourney(route, route[2]!, new AbortController().signal);
-    expect(fake.warmups.length).toBeGreaterThanOrEqual(5);
+    expect(fake.warmups).toHaveLength(5);
+    const [destinationWarmup] = vi.mocked(fake.provider.warmCells).mock.calls.at(-1)!;
+    const strategy = destinationWarmup.strategy!;
+    const evaluator = strategy.createEvaluator(strategy.createAnchor({}));
+    const cell = { centerX: 0, centerY: 0, centerZ: 30, halfSize: 0, level: 0, mortonCode: "0" };
+    expect(evaluator.evaluateCell(cell).include).toBe(true);
+    expect(evaluator.evaluateCell({ ...cell, centerZ: 31.5 }).include).toBe(false);
 
     const remove: StarCellDelta = {
       type: "stars/cells-remove",

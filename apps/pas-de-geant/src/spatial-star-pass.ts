@@ -11,6 +11,7 @@ import {
 } from "@found-in-space/star-trees";
 import {
   createSkykitStarPreloadRequestsFromSpatialHints,
+  SKYKIT_ICRS_SPACE,
 } from "@found-in-space/skykit";
 import {
   createDefaultThreeStarFieldMaterialProfile,
@@ -218,17 +219,21 @@ export class SpatialStarPass {
         signal,
       })
     );
+    // The authored journey supplies catalog-relative parsec coordinates here;
+    // this warmup adapter does not calculate J2000/ICRS origin corrections.
     const preloadRequests = createSkykitStarPreloadRequestsFromSpatialHints([
       {
-        kind: "path-volume",
-        pointsPc: Array.from(routePointsPc),
-        radiusPc: 0.25,
+        space: SKYKIT_ICRS_SPACE,
+        kind: "pathVolume",
+        points: Array.from(routePointsPc),
+        radius: 0.25,
         priority: 1,
       },
       {
-        kind: "sphere-volume",
-        centerPc: destinationPc,
-        radiusPc: 30,
+        space: SKYKIT_ICRS_SPACE,
+        kind: "sphereVolume",
+        center: destinationPc,
+        radius: 30,
         priority: 2,
       },
     ]);

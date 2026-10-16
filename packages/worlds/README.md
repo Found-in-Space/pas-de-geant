@@ -252,7 +252,8 @@ configured one; the package has no application tile-service default.
 ## Shared spatial alpha
 
 Generic vector/quaternion operations, unit conversion, interpolation, and relative
-frame transforms use the packed spatial 0.3 alpha. Body definitions, ephemerides,
+frame transforms use published spatial `0.3.0-alpha.1` with SkyKit
+`0.3.0-alpha.0`. Body definitions, ephemerides,
 datums, and transported surface contact remain in worlds.
 
 The physical frame is heliocentric equatorial J2000 in metres. Its Y-up mapping
@@ -260,6 +261,10 @@ retains the same origin; neither mapping establishes a catalog origin or an ICRS
 correction. A caller must explicitly establish those astronomical relationships.
 The raw body-attitude helper is named `bodyFixedToJ2000Quaternion` accordingly.
 
-Run `npm run spatial:refresh` and `npm run check:spatial-package` at the repository
-root to regenerate and verify the packed dependency. See `vendor/npm/README.md`
-for the release boundary and the intentionally separate released SkyKit dependency.
+The app, worlds and root tooling pin the same exact spatial version; SkyKit uses
+that version as well. Direct star dependencies follow the compatible alpha
+batch. There are no local package archives or sibling links. Run `npm ci` and
+`npm run check:spatial-package` at the repository root to verify installed
+registry versions, shared resolution and the domain conversion/preload adapters.
+Root tooling declares SkyKit and its Three.js 0.170 peer explicitly; the app
+retains its Three.js 0.185.1 pin and existing Vite deduplication for the browser.

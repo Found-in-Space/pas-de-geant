@@ -30,19 +30,20 @@
     "typecheck": "npm run build --workspace @found-in-space/worlds && tsc --build --pretty false && tsc --project tsconfig.tools.json --pretty false",
     "api:build": "node scripts/build-api-server.mjs",
     "api:serve": "node dist/api/server.mjs",
-    "spatial:refresh": "node scripts/refresh-spatial.mjs",
-    "check:spatial-package": "npm run build --workspace @found-in-space/worlds && node scripts/check-packed-spatial.mjs"
+    "check:spatial-package": "npm run build --workspace @found-in-space/worlds && node scripts/check-spatial-dependencies.mjs"
   },
   "engines": {
     "node": ">=22.0.0"
   },
   "devDependencies": {
+    "@found-in-space/skykit": "0.3.0-alpha.0",
     "@playwright/test": "1.55.1",
     "@types/node": "22.18.6",
     "typescript": "5.9.2",
     "vite": "7.3.6",
     "vitest": "3.2.7",
     "esbuild": "0.28.1",
-    "@found-in-space/spatial": "file:vendor/npm/spatial-0.3.0-alpha.0-8b5dd96872bf.tgz"
+    "@found-in-space/spatial": "0.3.0-alpha.1",
+    "three": "0.170.0"
   }
 }
