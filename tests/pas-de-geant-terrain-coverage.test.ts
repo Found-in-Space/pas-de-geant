@@ -1,27 +1,27 @@
 import * as THREE from "three";
 import { inflateSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
-import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL, type SurfaceModel } from "@found-in-space/worlds/surface-model";
+import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL, type SurfaceModel } from "../packages/pas-de-geant/src/worlds/surface-model.js";
 import {
   TerrainSurface, terrainMeshAngularMargin, terrainPatchGeometry,
   sampleEncodedElevationMetres,
-} from "@found-in-space/worlds/terrain-surface";
-import { normalizeTerrainLodOptions, terrainSegmentsForZoom } from "@found-in-space/worlds/terrain-lod";
-import { TileOnionLayoutSource } from "@found-in-space/worlds/tile-layout-source";
-import { TileHorizonCulling, classifyTilesWithinHorizon } from "@found-in-space/worlds/tile-horizon-culling";
-import { surfaceDisplacementBounds, TERRAIN_SKIRT_DEPTH_WORLD_METRES } from "@found-in-space/worlds/surface-visibility-geometry";
-import { imageryBoundsForGeographicBounds, ScheduledImageryProvider, type ImageryTileResource } from "@found-in-space/worlds/imagery";
-import { SparseImageryProvider } from "@found-in-space/worlds/sparse-imagery-provider";
-import { XyzImageryProvider } from "@found-in-space/worlds/imagery-provider";
+} from "../packages/pas-de-geant/src/worlds/terrain-surface.js";
+import { normalizeTerrainLodOptions, terrainSegmentsForZoom } from "../packages/pas-de-geant/src/worlds/terrain-lod.js";
+import { TileOnionLayoutSource } from "../packages/pas-de-geant/src/worlds/tile-layout-source.js";
+import { TileHorizonCulling, classifyTilesWithinHorizon } from "../packages/pas-de-geant/src/worlds/tile-horizon-culling.js";
+import { surfaceDisplacementBounds, TERRAIN_SKIRT_DEPTH_WORLD_METRES } from "../packages/pas-de-geant/src/worlds/surface-visibility-geometry.js";
+import { imageryBoundsForGeographicBounds, ScheduledImageryProvider, type ImageryTileResource } from "../packages/pas-de-geant/src/worlds/imagery.js";
+import { SparseImageryProvider } from "../packages/pas-de-geant/src/worlds/sparse-imagery-provider.js";
+import { XyzImageryProvider } from "../packages/pas-de-geant/src/worlds/imagery-provider.js";
 import {
   BLUE_MARBLE_IMAGERY_NODE, buildDesiredImageryTree,
   reconcileImageryTree, imageryTreeImageAtGlobalUv,
-} from "@found-in-space/worlds/imagery-tree";
-import { tileIdentityKey, type TileIdentity } from "@found-in-space/worlds/tile-transition-planner";
+} from "../packages/pas-de-geant/src/worlds/imagery-tree.js";
+import { tileIdentityKey, type TileIdentity } from "../packages/pas-de-geant/src/worlds/tile-transition-planner.js";
 import {
   createTerrainRenderVisibilityEntry, TerrainRenderVisibility,
   type TerrainRenderVisibilityEntry,
-} from "@found-in-space/worlds/terrain-render-visibility";
+} from "../packages/pas-de-geant/src/worlds/terrain-render-visibility.js";
 
 function elevationPixels(model: SurfaceModel): Uint8ClampedArray {
   const pixels = new Uint8ClampedArray(16);

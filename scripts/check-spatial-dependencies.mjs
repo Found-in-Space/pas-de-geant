@@ -5,11 +5,11 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizeSpatialPose, transformSpatialDisplacement, SPATIAL_Z_UP_TO_Y_UP } from '@found-in-space/spatial';
 import { createSkykitStarPreloadRequestsFromSpatialHints, SKYKIT_ICRS_SPACE } from '@found-in-space/skykit';
-import { relativeJ2000MetresToRender, WORLD_J2000_METRES, WORLD_Y_UP_METRES } from '@found-in-space/worlds/world-navigation';
+import { relativeJ2000MetresToRender, WORLD_J2000_METRES, WORLD_Y_UP_METRES } from '@found-in-space/pas-de-geant/worlds';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const app = join(root, 'apps/pas-de-geant');
-const worlds = join(root, 'packages/worlds');
+const worlds = join(root, 'packages/pas-de-geant');
 const json = async (path) => JSON.parse(await readFile(path, 'utf8'));
 const manifest = await json(join(root, 'package.json'));
 const appManifest = await json(join(app, 'package.json'));
@@ -50,7 +50,7 @@ assert.equal(fromRoot.resolve('@found-in-space/skykit'), skykitEntry);
 assert.equal(fromRoot.resolve('@found-in-space/spatial'), fromApp.resolve('@found-in-space/spatial'));
 assert.equal(worldsManifest.dependencies['@found-in-space/spatial'], spatialVersion);
 assert.equal(fromWorlds.resolve('@found-in-space/spatial'), fromApp.resolve('@found-in-space/spatial'));
-assert.equal(worldsManifest.devDependencies['@found-in-space/skykit'], appManifest.dependencies['@found-in-space/skykit']);
+assert.equal(worldsManifest.dependencies['@found-in-space/skykit'], appManifest.dependencies['@found-in-space/skykit']);
 assert.equal(fromWorlds.resolve('@found-in-space/skykit'), skykitEntry);
 
 const pose = normalizeSpatialPose({ space: WORLD_J2000_METRES, position: { x: 12.5, y: -3.25, z: 8 } });

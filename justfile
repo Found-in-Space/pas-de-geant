@@ -37,7 +37,7 @@ validate:
 # Serve the built production application locally.
 serve port="8000":
     npm run build
-    npm run preview --workspace @found-in-space/pas-de-geant -- --port {{ port }}
+    npm run preview --workspace @found-in-space/pas-de-geant-app -- --port {{ port }}
 
 # Remove local environments, caches, test output, and compiled artifacts.
 clean:

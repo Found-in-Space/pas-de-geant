@@ -1,6 +1,6 @@
 # Found in Space Worlds
 
-`@found-in-space/worlds` is the reusable world capability owned by Pas de Géant.
+`@found-in-space/pas-de-geant/worlds` is the reusable world capability owned by Pas de Géant.
 Earth, Moon, and the other registered Solar System bodies use the same runtime.
 The main experience, focused Moon demo, and Eclipse Observatory consume this
 package rather than maintaining copies of its surface and coordinate code.
@@ -21,7 +21,7 @@ import {
   createWorldRuntime,
   MOON_SURFACE_MODEL,
   type TerrainSurfaceView,
-} from "@found-in-space/worlds";
+} from "@found-in-space/pas-de-geant/worlds";
 
 const view: TerrainSurfaceView = {
   latitudeDegrees: 18,
@@ -160,7 +160,7 @@ The host removes the root from its scene and disposes its camera/renderer.
 
 ## Use with Skykit
 
-The optional `@found-in-space/worlds/skykit` entry point uses Skykit's public
+The optional `@found-in-space/pas-de-geant/worlds/skykit` entry point uses Skykit's public
 part/plugin lifecycle. It has no separate camera, renderer, or animation loop.
 The host supplies an explicit view mapping and presentation callback:
 
@@ -169,12 +169,12 @@ import {
   bodyFixedToIcrsQuaternion,
   bodyPositionJ2000M,
   bodyRotation,
-} from "@found-in-space/worlds";
+} from "@found-in-space/pas-de-geant/worlds";
 import {
   createWorldSkykitPlugin,
   physicalJ2000MetresToSkykitPosition,
   WORLD_METRES_PER_PARSEC,
-} from "@found-in-space/worlds/skykit";
+} from "@found-in-space/pas-de-geant/worlds/skykit";
 
 const unregister = await viewer.addPlugin(createWorldSkykitPlugin({
   world,
@@ -216,26 +216,25 @@ Calling `unregister()` removes the part and applies that ownership rule.
 From the repository root:
 
 ```sh
-npm run build --workspace @found-in-space/worlds
-npm run dev --workspace @found-in-space/worlds # watch shared package changes
+npm run build --workspace @found-in-space/pas-de-geant
+npm run dev --workspace @found-in-space/pas-de-geant # watch shared package changes
 npm run typecheck
 npm test
 npm run build
-npm pack --workspace @found-in-space/worlds --pack-destination /tmp
+npm pack --workspace @found-in-space/pas-de-geant --pack-destination /tmp
 ```
 
 The package ships ESM JavaScript, TypeScript declarations, and both worker
 modules in `dist`. A browser bundler must support module workers constructed
 with `new URL(..., import.meta.url)`; the app's Vite production build exercises
 this contract. Consumers supply one shared Three.js instance (Vite hosts can
-use `resolve.dedupe: ["three"]`). Skykit is an optional peer used only by the
-adapter's type contract.
+use `resolve.dedupe: ["three"]`). The optional adapter uses SkyKit's public lifecycle; the
+composition layer reuses the published SkyKit package directly.
 
-Use the root entry point for runtime composition. Subpaths such as
-`/terrain-surface`, `/imagery-provider`, `/image-tile-provider`, `/terrain-lod`,
-and `/tile-debug-controls` expose the existing lower-level capabilities used
-by the applications, diagnostics, and tests. These alpha contracts may evolve
-together; implementation changes should preserve the Earth and Moon regressions.
+Use `/worlds` for model, surface and runtime composition and `/worlds/skykit`
+for the lifecycle adapter. Internal modules are deliberately absent from the
+package export map. Tests of individual algorithms use repository source paths;
+application consumers use supported exports.
 
 ## Persistent tile caching
 

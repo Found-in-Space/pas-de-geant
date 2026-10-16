@@ -1,3 +1,4 @@
+import { formatScaleRatio } from "@found-in-space/pas-de-geant";
 import {
   createButton,
   createColumn,
@@ -9,7 +10,7 @@ import {
   type RuntimeOutput,
 } from "@found-in-space/touch-os";
 import type { VoiceState as RealtimeAgentState } from '@found-in-space/voice-os';
-import { formatScaleRatio } from "@found-in-space/worlds/world-scale";
+
 import {
   HAND_PANEL_SURFACE,
   HAND_PANEL_THEME,

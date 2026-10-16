@@ -1,0 +1,13 @@
+export { createGeantViewer, getGeantContext, type GeantViewer, type GeantViewerOptions, type GeantContext } from "./viewer.js";
+export { resolveGeantConfiguration, type GeantConfiguration, type ResolvedGeantConfiguration, type GeantSurfaceFactory, type SurfaceFactoryContext } from "./config.js";
+export { createGeantNavigation, GEANT_ACTIONS, type GeantNavigation, type GeantSnapshot } from "./navigation/controller.js";
+export { createGeantWorldsPlugin, type GeantWorldsOptions } from "./plugins/worlds.js";
+export { createGeantControlsPlugin, type GeantControlsOptions } from "./plugins/controls.js";
+export { createGeantStarPass, createGeantStarsPlugin } from "./plugins/stars.js";
+export { createGeantPanelPlugin, type GeantPanelOptions } from "./plugins/panels.js";
+export { createGeantXrPlugin, type GeantXrOptions } from "./plugins/xr.js";
+export * from "./navigation/policy.js";
+export * from "./navigation/simulation-clock.js";
+export * from "./navigation/controller-input.js";
+export * from "./navigation/transitions.js";
+export { geantAiCapabilities } from "./ai-tools.js";

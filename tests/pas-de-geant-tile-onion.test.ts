@@ -6,7 +6,7 @@ import {
   tileKey,
   type TileAddress,
   type TileOnionPlan,
-} from "@found-in-space/worlds/tile-onion-core";
+} from "../packages/pas-de-geant/src/worlds/tile-onion-core.js";
 
 function planAtTile(
   z: number,

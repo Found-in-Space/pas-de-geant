@@ -1,6 +1,6 @@
 import type { RuntimeOutput } from "@found-in-space/touch-os";
 import { describe, expect, it } from "vitest";
-import { freshButtonLatch } from "../apps/pas-de-geant/src/controller-input.js";
+import { freshButtonLatch } from "@found-in-space/pas-de-geant";
 import { eclipseControllerIntent } from "../apps/pas-de-geant/src/eclipse-controller-input.js";
 import {
   ECLIPSE_PANEL_ACTION,

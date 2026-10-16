@@ -4,8 +4,9 @@ import {
   contactFrame,
   geodeticSurfaceEcefKm,
   normalizedBodyLocalPhysicalOffset,
-} from "@found-in-space/worlds/planet-state";
-import { EARTH_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
+  EARTH_SURFACE_MODEL,
+} from "@found-in-space/pas-de-geant/worlds";
+
 
 export const ATMOSPHERE_TOP_KM = 100;
 

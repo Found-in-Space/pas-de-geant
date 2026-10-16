@@ -1,6 +1,5 @@
-import { bindVoiceTools, createVoiceRuntime, type VoiceRuntime, type VoiceSnapshot, type VoiceState, type VoiceToolHandlers } from '@found-in-space/voice-os';
-import { createOpenAIRealtimeTransport } from '@found-in-space/voice-os/openai';
-import { createBrowserVoiceAudio } from '@found-in-space/voice-os/browser';
+import { bindVoiceTools, type VoiceRuntime, type VoiceSnapshot, type VoiceState, type VoiceToolHandlers } from '@found-in-space/voice-os';
+import { createGeantVoiceRuntime } from '@found-in-space/pas-de-geant/ai';
 import { EARTH_VOICE_TOOLS, ECLIPSE_VOICE_TOOLS } from './voice-contracts.js';
 
 export interface RealtimeAgentStatus { state: VoiceState; detail: string }
@@ -8,6 +7,7 @@ export interface RealtimeAgentStatus { state: VoiceState; detail: string }
 /** Experience policy and labels remain here; VoiceOS owns media and protocol. */
 type GeantVoiceAgentOptions = {
   greetingInstructions?: string;
+  host?: HTMLElement;
   onStatus(status: RealtimeAgentStatus): void;
   onAudioState?: (state: 'off' | 'starting' | 'playing' | 'blocked') => void;
 } & ({ experience?: 'earth'; tools: VoiceToolHandlers<typeof EARTH_VOICE_TOOLS> }
@@ -15,11 +15,9 @@ type GeantVoiceAgentOptions = {
 
 export function createGeantVoiceAgent(options: GeantVoiceAgentOptions): VoiceRuntime {
   const experience = options.experience ?? 'earth';
-  const audio = createBrowserVoiceAudio({ onState: options.onAudioState });
-  const voice = createVoiceRuntime({
-    transport: createOpenAIRealtimeTransport({ sessionEndpoint: '/api/realtime/token', profile: experience, audio,
-      onMicrophoneSettings(settings) { console.info('Realtime microphone processing:', settings.map(({ echoCancellation, noiseSuppression, autoGainControl }) => ({ echoCancellation, noiseSuppression, autoGainControl }))); },
-    }),
+  const voice = createGeantVoiceRuntime({
+    sessionEndpoint: '/api/realtime/token', profile: experience, host: options.host,
+    onAudioState: options.onAudioState,
     tools: options.experience === 'eclipse'
       ? bindVoiceTools(ECLIPSE_VOICE_TOOLS, options.tools)
       : bindVoiceTools(EARTH_VOICE_TOOLS, options.tools),
@@ -38,7 +36,7 @@ export function createGeantVoiceAgent(options: GeantVoiceAgentOptions): VoiceRun
       if (voice.getSnapshot().playback === 'blocked') await voice.resumePlayback();
       else await voice.toggle();
     },
-    async dispose() { await voice.dispose(); audio.dispose(); },
+    async dispose() { await voice.dispose(); },
   };
 }
 

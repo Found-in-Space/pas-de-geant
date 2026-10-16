@@ -1,24 +1,22 @@
-import * as THREE from "three";
-import { describe, expect, it } from "vitest";
-import {
-  controllerIntent,
-  dominantStickAxes,
-  freshButtonLatch,
-  headRelativeTravel,
-  isHandTrackingInputSource,
-} from "../apps/pas-de-geant/src/controller-input.js";
 import {
   orbitalAngularStepRadians,
   orbitalDragRadiansPerPixel,
   orbitalLogarithmicValue,
   shapedOrbitalAxis,
-} from "@found-in-space/worlds/world-navigation";
-import {
   applyTerrainMultiplierRate,
-} from "@found-in-space/worlds/planet-state";
-import {
   scaleDenominatorAfterInput,
-} from "@found-in-space/worlds/world-scale";
+  controllerIntent,
+  dominantStickAxes,
+  freshButtonLatch,
+  headRelativeTravel,
+  isHandTrackingInputSource,
+} from "@found-in-space/pas-de-geant";
+import * as THREE from "three";
+import { describe, expect, it } from "vitest";
+
+
+
+
 
 describe("Pas de Géant controller regressions", () => {
   it("distinguishes controller input from articulated hand tracking", () => {

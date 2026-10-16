@@ -9,7 +9,7 @@ atmosphere and sky move with it.
 
 Earth and Moon have streamed ground surfaces, and the other registered major
 Solar System bodies have plain globes for orbit and free navigation. All use
-the shared [`@found-in-space/worlds` package](packages/worlds/README.md), which
+the shared [`@found-in-space/pas-de-geant/worlds` package](packages/pas-de-geant/README.md), which
 also provides a public Skykit lifecycle adapter for other Found in Space hosts.
 
 Part of [Found in Space](https://foundin.space/), a project that turns real
@@ -90,8 +90,8 @@ npm run test:browser       # Pas de Géant browser suite
 ```
 
 The production application is written to `dist/pas-de-geant`.
-The reusable package is built to `packages/worlds/dist`. When editing its source
-with the app already running, use `npm run dev --workspace @found-in-space/worlds`
+The reusable package is built to `packages/pas-de-geant/dist`. When editing its source
+with the app already running, use `npm run dev --workspace @found-in-space/pas-de-geant`
 in another terminal to rebuild it as files change.
 
 ## Data, licences, and limitations

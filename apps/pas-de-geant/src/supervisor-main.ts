@@ -1,3 +1,4 @@
+import { formatScaleRatio, scaleDenominatorForDisplay } from "@found-in-space/pas-de-geant";
 import "leaflet/dist/leaflet.css";
 import "./supervisor.css";
 
@@ -32,10 +33,7 @@ import type {
   SupervisionCommand,
   SupervisionSession,
 } from "./supervision-protocol.js";
-import {
-  formatScaleRatio,
-  scaleDenominatorForDisplay,
-} from "@found-in-space/worlds/world-scale";
+
 import {
   ECLIPSE_PLAYBACK_SCALE,
   MAIN_WORLD_FEATURED_ECLIPSE_EVENT_ID,

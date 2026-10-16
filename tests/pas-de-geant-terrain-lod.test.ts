@@ -4,14 +4,14 @@ import {
   ImageTileProvider,
   MAPTERHORN_ELEVATION_PROVIDER_METADATA,
   type ImageTileResource,
-} from "@found-in-space/worlds/image-tile-provider";
+} from "../packages/pas-de-geant/src/worlds/image-tile-provider.js";
 import {
   elevationSourceZoomForTile,
   normalizeTerrainLodOptions,
   terrainSegmentsForZoom,
-} from "@found-in-space/worlds/terrain-lod";
-import type { TileProviderResult } from "@found-in-space/worlds/tile-provider";
-import type { TileIdentity } from "@found-in-space/worlds/tile-transition-planner";
+} from "../packages/pas-de-geant/src/worlds/terrain-lod.js";
+import type { TileProviderResult } from "../packages/pas-de-geant/src/worlds/tile-provider.js";
+import type { TileIdentity } from "../packages/pas-de-geant/src/worlds/tile-transition-planner.js";
 
 describe("Terrain LOD configuration", () => {
   it("uses the default geometry tiers and provider-limited elevation mapping", () => {

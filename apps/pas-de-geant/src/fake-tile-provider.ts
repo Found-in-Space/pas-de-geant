@@ -1,12 +1,10 @@
 import {
   tileIdentityKey,
   type TileIdentity,
-} from "@found-in-space/worlds/tile-transition-planner";
-import type {
-  TileProvider,
-  TileProviderResult,
-  TileRequestHandle,
-} from "@found-in-space/worlds/tile-provider";
+  type TileProvider,
+  type TileProviderResult,
+  type TileRequestHandle,
+} from "@found-in-space/pas-de-geant/worlds";
 
 export type FakeFailureMode =
   | "none"

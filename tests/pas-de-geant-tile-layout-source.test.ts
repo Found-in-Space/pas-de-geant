@@ -3,13 +3,13 @@ import {
   TileLayoutSubmissionGate,
   TileOnionLayoutSource,
   normalizeTileLayoutTarget,
-} from "@found-in-space/worlds/tile-layout-source";
+} from "../packages/pas-de-geant/src/worlds/tile-layout-source.js";
 import {
   WEB_MERCATOR_MAX_LATITUDE,
   calculateTileOnionPlan,
   tileBounds,
-} from "@found-in-space/worlds/tile-onion-core";
-import { TileTransitionScheduler } from "@found-in-space/worlds/tile-transition-scheduler";
+} from "../packages/pas-de-geant/src/worlds/tile-onion-core.js";
+import { TileTransitionScheduler } from "../packages/pas-de-geant/src/worlds/tile-transition-scheduler.js";
 
 const target = (
   latitudeDegrees: number,

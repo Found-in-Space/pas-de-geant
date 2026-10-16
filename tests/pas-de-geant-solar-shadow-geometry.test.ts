@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { celestialBody } from "@found-in-space/worlds/solar-system";
+import { celestialBody } from "../packages/pas-de-geant/src/worlds/solar-system.js";
 import {
   calculateSolarShadowGeometry,
 } from "../apps/pas-de-geant/src/solar-shadow-geometry.js";

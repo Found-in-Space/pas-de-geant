@@ -1,4 +1,4 @@
-import { EARTH_MEAN_RADIUS_KM } from "@found-in-space/worlds/planet-state";
+import { EARTH_MEAN_RADIUS_KM } from "@found-in-space/pas-de-geant/worlds";
 
 export interface LocationPin {
   readonly pinId: string;

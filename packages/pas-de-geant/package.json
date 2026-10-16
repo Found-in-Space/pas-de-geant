@@ -1,0 +1,79 @@
+{
+  "name": "@found-in-space/pas-de-geant",
+  "version": "0.1.0-alpha.0",
+  "description": "Composable planetary worlds, navigation, and browser experiences",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Found-in-Space/pas-de-geant",
+    "directory": "packages/pas-de-geant"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "docs",
+    "NOTICE.txt"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./worlds": {
+      "types": "./dist/worlds/index.d.ts",
+      "default": "./dist/worlds/index.js"
+    },
+    "./worlds/skykit": {
+      "types": "./dist/worlds/skykit.d.ts",
+      "default": "./dist/worlds/skykit.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./ai": {
+      "types": "./dist/ai.d.ts",
+      "default": "./dist/ai.js"
+    },
+    "./embed": {
+      "types": "./dist/embed.d.ts",
+      "default": "./dist/embed.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@found-in-space/spatial": "0.3.0-alpha.1",
+    "astronomy-engine": "2.1.19",
+    "@found-in-space/star-octree-provider": "0.3.0-alpha.0",
+    "@found-in-space/star-trees": "0.2.1-alpha.0",
+    "@found-in-space/three-star-field": "0.3.0-alpha.0",
+    "@found-in-space/skykit": "0.3.0-alpha.0",
+    "@found-in-space/touch-os": "0.3.0"
+  },
+  "peerDependencies": {
+    "three": "^0.170.0",
+    "@found-in-space/voice-os": "0.1.0-alpha.1"
+  },
+  "peerDependenciesMeta": {
+    "@found-in-space/voice-os": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/three": "0.185.1",
+    "@found-in-space/voice-os": "0.1.0-alpha.1",
+    "esbuild": "0.28.1"
+  },
+  "sideEffects": [
+    "./dist/embed.js"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

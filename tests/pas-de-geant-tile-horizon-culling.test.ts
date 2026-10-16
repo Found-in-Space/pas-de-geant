@@ -6,11 +6,11 @@ import {
   plannerHorizonCandidates,
   minimumAngularDistanceToTile,
   referenceObserverPosition,
-} from "@found-in-space/worlds/tile-horizon-culling";
-import { tileIdentityKey } from "@found-in-space/worlds/tile-transition-planner";
-import { TileOnionLayoutSource } from "@found-in-space/worlds/tile-layout-source";
-import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
-import { surfaceDisplacementBounds } from "@found-in-space/worlds/surface-visibility-geometry";
+} from "../packages/pas-de-geant/src/worlds/tile-horizon-culling.js";
+import { tileIdentityKey } from "../packages/pas-de-geant/src/worlds/tile-transition-planner.js";
+import { TileOnionLayoutSource } from "../packages/pas-de-geant/src/worlds/tile-layout-source.js";
+import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL } from "../packages/pas-de-geant/src/worlds/surface-model.js";
+import { surfaceDisplacementBounds } from "../packages/pas-de-geant/src/worlds/surface-visibility-geometry.js";
 
 describe("planner horizon culling", () => {
   it.each([EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL])(

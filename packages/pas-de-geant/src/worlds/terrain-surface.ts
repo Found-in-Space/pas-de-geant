@@ -1,3 +1,4 @@
+import type { WorldWorkerFactory } from "./workers.js";
 import * as THREE from "three";
 import { ImageTexturePool } from "./image-texture-pool.js";
 import type { ImageTileResource } from "./image-tile-provider.js";
@@ -119,6 +120,7 @@ export interface TerrainDisplayPresentation {
 }
 
 export interface TerrainSurfaceOptions {
+  readonly workers?: WorldWorkerFactory;
   readonly renderer: THREE.WebGLRenderer;
   readonly baseTexture: THREE.Texture;
   readonly imageryProvider?: ImageryProvider;
@@ -843,6 +845,7 @@ export class TerrainSurface {
       options.imageryProvider,
       initialView,
       this.horizonView,
+      options.workers,
     );
     this.provider = elevationProvider;
     this.currentTarget = terrainTargetForView(
@@ -857,6 +860,7 @@ export class TerrainSurface {
     );
     this.desiredZoom = this.currentTarget.maxZoom;
     this.scheduler = new TileWorkerScheduler(this.currentTarget, {
+      createWorker: options.workers ? () => options.workers!("terrain-scheduler", new URL("./tile-scheduler.worker.js", import.meta.url)) : undefined,
       provider: this.provider,
       refinementLimits: this.provider.coverage ? terrainRefinementLimits(
         this.provider.coverage, this.provider.tilePixels, this.terrainLod.segmentTiers,

@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { bodyFixedToJ2000Quaternion, bodyFixedToRenderQuaternion } from
-  "@found-in-space/worlds/body-attitude";
+  "../packages/pas-de-geant/src/worlds/body-attitude.js";
 import {
   bodyRotation,
   SOLAR_SYSTEM_BODIES,
-} from "@found-in-space/worlds/solar-system";
+} from "../packages/pas-de-geant/src/worlds/solar-system.js";
 
 describe("rendered body attitude", () => {
   it("maps body-fixed north onto raw equatorial J2000 axes", () => {

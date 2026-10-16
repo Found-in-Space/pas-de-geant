@@ -30,7 +30,7 @@ export default defineConfig({
   },
   webServer: {
     command:
-      `npm run dev --workspace @found-in-space/pas-de-geant -- --port ${port} --strictPort`,
+      `npm run dev --workspace @found-in-space/pas-de-geant-app -- --port ${port} --strictPort`,
     url: baseURL,
     reuseExistingServer: true,
     timeout: 30_000,

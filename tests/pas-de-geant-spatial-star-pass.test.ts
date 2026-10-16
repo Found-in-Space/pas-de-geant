@@ -10,7 +10,7 @@ import {
   SpatialStarPass,
   SPATIAL_STAR_EXPOSURE,
   SPATIAL_STAR_LIMITING_MAGNITUDE,
-} from "../apps/pas-de-geant/src/spatial-star-pass.js";
+} from "../packages/pas-de-geant/src/plugins/spatial-star-pass.js";
 
 function starCell(): StarCellData {
   return {

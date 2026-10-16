@@ -25,7 +25,7 @@ import * as THREE from "three";
 import {
   STELLAR_METRES_PER_PARSEC,
   type JourneyVector3,
-} from "./earth-to-gaia-journey.js";
+} from "./stellar-presentation.js";
 
 export const SPATIAL_STAR_LIMITING_MAGNITUDE = 7.5;
 export const SPATIAL_STAR_EXPOSURE = 100_000;

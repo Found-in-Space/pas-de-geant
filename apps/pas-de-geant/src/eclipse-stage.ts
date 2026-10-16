@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import {
   headsetScaleFactorForDenominatorChange,
-} from "@found-in-space/worlds/world-scale";
+} from "@found-in-space/pas-de-geant/worlds";
 
 export const ECLIPSE_DEFAULT_SCALE_DENOMINATOR = 8_494_678.4;
 

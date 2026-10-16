@@ -1,18 +1,12 @@
+import { spaceTravelSpeedHeadsetMPerSecond } from "@found-in-space/pas-de-geant";
 import { subtractSpatialVectors, getSpatialVectorLength } from "@found-in-space/spatial";
 import { describe, expect, it } from "vitest";
 import {
   bodyPositionJ2000M,
   celestialBody,
   SOLAR_SYSTEM_BODIES,
-} from "@found-in-space/worlds/solar-system";
-import {
-  displayRadiusForScale,
-  relativeJ2000MetresToRender,
-  spaceTravelSpeedHeadsetMPerSecond,
-  translatedObserverJ2000M,
-  withNavigationTarget,
-  type WorldNavigationState,
-} from "@found-in-space/worlds/world-navigation";
+} from "../packages/pas-de-geant/src/worlds/solar-system.js";
+import { displayRadiusForScale, relativeJ2000MetresToRender, translatedObserverJ2000M, withNavigationTarget, type WorldNavigationState } from "../packages/pas-de-geant/src/worlds/world-navigation.js";
 
 describe("solar-system coordinate foundation", () => {
   it("uses one scale for every body", () => {

@@ -4,8 +4,9 @@ import {
   EARTH_MEAN_RADIUS_KM,
   geodeticSurfaceEcefKm,
   normalizedBodyLocalTerrainOffset,
-} from "@found-in-space/worlds/planet-state";
-import { EARTH_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
+  EARTH_SURFACE_MODEL,
+} from "@found-in-space/pas-de-geant/worlds";
+
 import {
   formatLocationPinDistance,
   greatCircleDistanceKm,

@@ -18,19 +18,24 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @found-in-space/worlds && npm run build --workspace @found-in-space/pas-de-geant",
+    "build": "npm run build --workspace @found-in-space/pas-de-geant && npm run build --workspace @found-in-space/pas-de-geant-app",
     "amazon:outlines": "node scripts/build-amazon-forest-outlines.mjs",
     "check": "npm run typecheck",
-    "dev": "npm run dev --workspace @found-in-space/pas-de-geant --",
+    "dev": "npm run dev --workspace @found-in-space/pas-de-geant-app --",
     "quest:debug": "node scripts/quest-debug.mjs",
     "lunar:tiles": "node scripts/build-lunar-tiles.mjs",
-    "test": "npm run build --workspace @found-in-space/worlds && vitest run",
+    "test": "npm run build --workspace @found-in-space/pas-de-geant && vitest run",
     "test:browser": "playwright test --config playwright.pas-de-geant.config.ts",
     "test:browser:xr": "playwright test --config playwright.pas-de-geant-xr.config.ts",
-    "typecheck": "npm run build --workspace @found-in-space/worlds && tsc --build --pretty false && tsc --project tsconfig.tools.json --pretty false",
+    "typecheck": "npm run build --workspace @found-in-space/pas-de-geant && tsc --build --pretty false && tsc --project tsconfig.tools.json --pretty false",
     "api:build": "node scripts/build-api-server.mjs",
     "api:serve": "node dist/api/server.mjs",
-    "check:spatial-package": "npm run build --workspace @found-in-space/worlds && node scripts/check-spatial-dependencies.mjs"
+    "check:spatial-package": "npm run build --workspace @found-in-space/pas-de-geant && node scripts/check-spatial-dependencies.mjs",
+    "build:embed": "npm run build --workspace @found-in-space/pas-de-geant && vite build --config vite.embed.config.ts",
+    "check:package": "node scripts/check-geant-package.mjs",
+    "examples": "npm run build --workspace @found-in-space/pas-de-geant && vite --config vite.examples.config.ts",
+    "build:examples": "npm run build --workspace @found-in-space/pas-de-geant && vite build --config vite.examples.config.ts",
+    "check:embed": "node scripts/check-geant-browser.mjs"
   },
   "engines": {
     "node": ">=22.0.0"

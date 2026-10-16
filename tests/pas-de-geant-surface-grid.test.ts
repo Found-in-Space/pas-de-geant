@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { tileGrid, tileGridKey, productTileGrid, surfaceSourceUrl } from "../packages/worlds/src/tile-grid.js";
-import { tileBounds, projectedTilePoint } from "../packages/worlds/src/tile-onion-core.js";
-import { celestialBody } from "../packages/worlds/src/solar-system.js";
-import { displayTextureSource, elevationSource, requireCompatibleSurfaceSources } from "../packages/worlds/src/surface-product.js";
-import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL } from "../packages/worlds/src/surface-model.js";
-import { terrainPatchGeometry } from "../packages/worlds/src/terrain-surface.js";
+import { tileGrid, tileGridKey, productTileGrid, surfaceSourceUrl } from "../packages/pas-de-geant/src/worlds/tile-grid.js";
+import { tileBounds, projectedTilePoint } from "../packages/pas-de-geant/src/worlds/tile-onion-core.js";
+import { celestialBody } from "../packages/pas-de-geant/src/worlds/solar-system.js";
+import { displayTextureSource, elevationSource, requireCompatibleSurfaceSources } from "../packages/pas-de-geant/src/worlds/surface-product.js";
+import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL } from "../packages/pas-de-geant/src/worlds/surface-model.js";
+import { terrainPatchGeometry } from "../packages/pas-de-geant/src/worlds/terrain-surface.js";
 
 const fixture = JSON.parse(readFileSync(new URL("./surface-grid.fixture.json", import.meta.url), "utf8"));
 const moon = celestialBody("moon");

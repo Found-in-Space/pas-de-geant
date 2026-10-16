@@ -4,7 +4,7 @@ import {
   realtimeSimulationClock,
   simulationClockWithScale,
   simulationTimeMs,
-} from "../apps/pas-de-geant/src/simulation-clock.js";
+} from "@found-in-space/pas-de-geant";
 
 describe("simulation clock", () => {
   it("uses the built-in wall clock in realtime mode", () => {

@@ -9,7 +9,7 @@ import {
   bodyPositionJ2000M,
   celestialBody,
   type Vector3d,
-} from "@found-in-space/worlds/solar-system";
+} from "@found-in-space/pas-de-geant/worlds";
 
 const METRES_PER_KILOMETRE = 1_000;
 

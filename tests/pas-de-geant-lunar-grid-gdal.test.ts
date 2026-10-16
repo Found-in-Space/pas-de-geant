@@ -4,8 +4,8 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { expect, it } from "vitest";
-import { displayTextureSource, elevationSource, requireCompatibleSurfaceSources } from "../packages/worlds/src/surface-product.js";
-import { celestialBody } from "../packages/worlds/src/solar-system.js";
+import { displayTextureSource, elevationSource, requireCompatibleSurfaceSources } from "../packages/pas-de-geant/src/worlds/surface-product.js";
+import { celestialBody } from "../packages/pas-de-geant/src/worlds/solar-system.js";
 
 const installed = (name: string) => (process.env.PATH ?? "").split(delimiter).some((path) => existsSync(join(path, name)));
 const tools = ["gdalinfo", "gdalsrsinfo", "gdal_translate", "gdalwarp", "gdal_calc.py", "gdal2tiles.py"];

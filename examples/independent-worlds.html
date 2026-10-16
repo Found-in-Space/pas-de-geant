@@ -1,0 +1,17 @@
+<!doctype html><meta charset="utf-8"><title>Independent Earth and Moon — Pas de Géant</title>
+<style>
+body{margin:0;background:#07111a;color:#e8f8fb;font:16px system-ui;padding:24px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}.world{height:420px;border:1px solid #456}button{margin-top:12px}output{display:block;white-space:pre-wrap}
+</style>
+<h1>Two independent worlds</h1><p>Reference surfaces and bundled NASA imagery. Click a viewer before using WASD; each has its own scale and lifetime.</p>
+<main><section><h2>Earth</h2><div class="world" id="earth"></div><button id="earth-dispose">Dispose Earth</button></section>
+<section><h2>Moon</h2><div class="world" id="moon"></div><button id="moon-scale">Change Moon scale</button><button id="moon-dispose">Dispose Moon</button></section></main><output id="state"></output>
+<script type="module">
+import {createGeantBrowser} from '@found-in-space/pas-de-geant/browser';
+const earth=await createGeantBrowser({host:document.querySelector('#earth'),bodies:['earth']});
+const moon=await createGeantBrowser({host:document.querySelector('#moon'),bodies:['moon'],location:{latitudeDegrees:18,longitudeDegrees:-24},scaleDenominator:50000});
+const state=document.querySelector('#state'); const show=()=>{state.textContent=JSON.stringify({earth:earth.getSnapshot(),moon:moon.getSnapshot()},null,2);};
+moon.navigation.subscribe(show);earth.navigation.subscribe(show);show();
+document.querySelector('#moon-scale').onclick=()=>moon.actions.invoke('geant:scale.set',{scaleDenominator:moon.getSnapshot().scaleDenominator===50000?25000:50000});
+document.querySelector('#earth-dispose').onclick=()=>earth.dispose();document.querySelector('#moon-dispose').onclick=()=>moon.dispose();
+window.addEventListener('pagehide',()=>{void earth.dispose();void moon.dispose();},{once:true});
+</script>

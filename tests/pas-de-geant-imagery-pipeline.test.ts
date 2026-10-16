@@ -3,7 +3,7 @@ import {
   ancestorAtZoom,
   observerHeightForImageryZoom,
   selectImageryZoom,
-} from "@found-in-space/worlds/imagery-core";
+} from "../packages/pas-de-geant/src/worlds/imagery-core.js";
 import {
   ImageryVirtualTexture,
   ImageryWorkerClient,
@@ -16,15 +16,15 @@ import {
   planImageryPoolMigration,
   planImageryPoolMigrationRetarget,
   type ImageryWorkerPort,
-} from "@found-in-space/worlds/imagery";
+} from "../packages/pas-de-geant/src/worlds/imagery.js";
 import {
   generateImageryMipChain,
   imageryMipDimensions,
-} from "@found-in-space/worlds/imagery-mip-chain";
+} from "../packages/pas-de-geant/src/worlds/imagery-mip-chain.js";
 import type {
   ImageryDecoderCommand,
   ImageryDecoderMessage,
-} from "@found-in-space/worlds/imagery-decoder-protocol";
+} from "../packages/pas-de-geant/src/worlds/imagery-decoder-protocol.js";
 import {
   BLUE_MARBLE_IMAGERY_KEY,
   buildDesiredImageryTree,
@@ -36,17 +36,17 @@ import {
   type DesiredImageryTree,
   type ImageryImageNode,
   type ImageryTreeNode,
-} from "@found-in-space/worlds/imagery-tree";
-import { ImageryRequestError, type ImageryProvider } from "@found-in-space/worlds/imagery-provider";
-import { terrainTargetForView } from "@found-in-space/worlds/terrain-surface";
+} from "../packages/pas-de-geant/src/worlds/imagery-tree.js";
+import { ImageryRequestError, type ImageryProvider } from "../packages/pas-de-geant/src/worlds/imagery-provider.js";
+import { terrainTargetForView } from "../packages/pas-de-geant/src/worlds/terrain-surface.js";
 import {
   createTileDebugControls,
   tileTopologySelectionChanged,
   withTilePixelRatio,
-} from "@found-in-space/worlds/tile-debug-controls";
-import { TileHorizonCulling } from "@found-in-space/worlds/tile-horizon-culling";
-import { TileTransitionScheduler } from "@found-in-space/worlds/tile-transition-scheduler";
-import type { TileIdentity } from "@found-in-space/worlds/tile-transition-planner";
+} from "../packages/pas-de-geant/src/worlds/tile-debug-controls.js";
+import { TileHorizonCulling } from "../packages/pas-de-geant/src/worlds/tile-horizon-culling.js";
+import { TileTransitionScheduler } from "../packages/pas-de-geant/src/worlds/tile-transition-scheduler.js";
+import type { TileIdentity } from "../packages/pas-de-geant/src/worlds/tile-transition-planner.js";
 
 function tileKey(tile: TileIdentity): string {
   return `${tile.z}/${tile.x}/${tile.y}`;

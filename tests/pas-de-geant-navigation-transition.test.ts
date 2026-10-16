@@ -3,7 +3,7 @@ import {
   sampleAngleTransition,
   sampleScaleTransition,
   sampleWarpTransition,
-} from "../apps/pas-de-geant/src/navigation-transition.js";
+} from "@found-in-space/pas-de-geant";
 
 describe("timed navigation transitions", () => {
   it("eases a warp along the short great-circle route across the antimeridian", () => {

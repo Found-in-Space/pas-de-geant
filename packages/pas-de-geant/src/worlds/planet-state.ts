@@ -218,17 +218,6 @@ export function normalizedBodyLocalTerrainOffset(
   );
 }
 
-export function applyTerrainMultiplierRate(
-  multiplier: number,
-  axis: number,
-  deltaSeconds: number,
-  unitsPerSecond = 3,
-): number {
-  const next = multiplier + axis * unitsPerSecond * deltaSeconds;
-  if (Math.abs(axis) < 0.12 && Math.abs(next - 1) < 0.08) return 1;
-  return Math.max(0, next);
-}
-
 export function apexError(
   state: PlanetState,
   pose: PlanetPose,

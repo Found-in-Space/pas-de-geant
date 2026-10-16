@@ -1,20 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
-import { ElevationTileProvider } from "@found-in-space/worlds/elevation-tile-provider";
+import { ElevationTileProvider } from "../packages/pas-de-geant/src/worlds/elevation-tile-provider.js";
 import {
   HttpTileError,
   ImageTileProvider,
   type SourceImageLoad,
-} from "@found-in-space/worlds/image-tile-provider";
+} from "../packages/pas-de-geant/src/worlds/image-tile-provider.js";
 import {
   ScheduledImageryProvider,
-} from "@found-in-space/worlds/imagery";
-import type { ImageryProvider } from "@found-in-space/worlds/imagery-provider";
+} from "../packages/pas-de-geant/src/worlds/imagery.js";
+import type { ImageryProvider } from "../packages/pas-de-geant/src/worlds/imagery-provider.js";
 import type {
   TileProvider,
   TileProviderResult,
-} from "@found-in-space/worlds/tile-provider";
-import { TileTransitionScheduler } from "@found-in-space/worlds/tile-transition-scheduler";
-import type { TileIdentity } from "@found-in-space/worlds/tile-transition-planner";
+} from "../packages/pas-de-geant/src/worlds/tile-provider.js";
+import { TileTransitionScheduler } from "../packages/pas-de-geant/src/worlds/tile-transition-scheduler.js";
+import type { TileIdentity } from "../packages/pas-de-geant/src/worlds/tile-transition-planner.js";
 
 const tile = { z: 0, x: 0, y: 0 };
 

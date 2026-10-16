@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   createTerrainRenderVisibilityEntry,
   TerrainRenderVisibility,
-} from "@found-in-space/worlds/terrain-render-visibility";
-import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL, createBodySurfaceModel, type SurfaceModel } from "@found-in-space/worlds/surface-model";
-import { celestialBody } from "@found-in-space/worlds/solar-system";
+} from "../packages/pas-de-geant/src/worlds/terrain-render-visibility.js";
+import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL, createBodySurfaceModel, type SurfaceModel } from "../packages/pas-de-geant/src/worlds/surface-model.js";
+import { celestialBody } from "../packages/pas-de-geant/src/worlds/solar-system.js";
 
 function meshEntry(
   center: THREE.Vector3,

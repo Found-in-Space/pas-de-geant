@@ -7,7 +7,7 @@ import {
   type TileAddress,
   type TileOnionPlan,
   type TileOnionState,
-} from "@found-in-space/worlds/tile-onion-core";
+} from "@found-in-space/pas-de-geant/worlds";
 
 const POLAR_GUTTER = 0.14;
 const VIEW_PADDING = 42;

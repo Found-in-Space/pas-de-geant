@@ -1,17 +1,7 @@
+import { applyTerrainMultiplierRate } from "@found-in-space/pas-de-geant";
 import { Vector2 } from "three";
 import { describe, expect, it } from "vitest";
-import {
-  applyTerrainMultiplierRate,
-  apexError,
-  contactFrame,
-  coordinatesForFrame,
-  frameIsOrthonormal,
-  initialPlanetState,
-  normalizedBodyLocalPhysicalOffset,
-  normalizedBodyLocalTerrainOffset,
-  rollContactFrame,
-  solvePlanetPose,
-} from "@found-in-space/worlds/planet-state";
+import { apexError, contactFrame, coordinatesForFrame, frameIsOrthonormal, initialPlanetState, normalizedBodyLocalPhysicalOffset, normalizedBodyLocalTerrainOffset, rollContactFrame, solvePlanetPose } from "../packages/pas-de-geant/src/worlds/planet-state.js";
 
 const DISPLAY_RADIUS_M = 3_000;
 

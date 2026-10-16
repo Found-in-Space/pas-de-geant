@@ -3,23 +3,33 @@ import {
   ElevationTileProvider,
   FlatElevationTileProvider,
   type TerrainElevationProvider,
-} from "@found-in-space/worlds/elevation-tile-provider";
-import {
   createXyzElevationTileProvider,
   type XyzElevationConfiguration,
-} from "@found-in-space/worlds/image-tile-provider";
-import {
   XyzImageryProvider,
   type ImageryProvider,
   type XyzImageryConfiguration,
-} from "@found-in-space/worlds/imagery-provider";
-import { MOON_SURFACE_MODEL, MOON_GEOGRAPHIC_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
-import { tileUrl } from "@found-in-space/worlds/tile-url";
-import { loadWorldBaseTexture, type WorldSurfaceSource } from "@found-in-space/worlds";
-import { displayTextureSource, elevationSource, requireCompatibleSurfaceSources,
-  type DisplayTextureSource, type ElevationSource } from "@found-in-space/worlds/surface-product";
-import { surfaceSourceUrl, tileGridKey } from "@found-in-space/worlds/tile-grid";
-import { celestialBody } from "@found-in-space/worlds/solar-system";
+  MOON_SURFACE_MODEL,
+  MOON_GEOGRAPHIC_SURFACE_MODEL,
+  tileUrl,
+  loadWorldBaseTexture,
+  type WorldSurfaceSource,
+  displayTextureSource,
+  elevationSource,
+  requireCompatibleSurfaceSources,
+  type DisplayTextureSource,
+  type ElevationSource,
+  surfaceSourceUrl,
+  tileGridKey,
+  celestialBody,
+} from "@found-in-space/pas-de-geant/worlds";
+
+
+
+
+
+
+
+
 import type * as THREE from "three";
 import { lunarBaseTextureUrl } from "./world-assets.js";
 import { loadLunarImageryProviders } from "./lunar-imagery-providers.js";

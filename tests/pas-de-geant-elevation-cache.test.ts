@@ -4,7 +4,7 @@ import {
   loadElevationFromNetwork,
   type ElevationCacheStorage,
   type ElevationResponseCache,
-} from "@found-in-space/worlds/elevation-cache";
+} from "../packages/pas-de-geant/src/worlds/elevation-cache.js";
 
 const tile = { z: 4, x: 8, y: 5 };
 const cacheTemplate = "https://cache.example/api/tiles/elevation/{z}/{x}/{y}";

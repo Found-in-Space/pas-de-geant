@@ -14,16 +14,16 @@ import {
   solveBodySurfacePose,
   solvePlanetPose,
   worldSurfaceReadiness,
-} from "@found-in-space/worlds";
-import { observerTileZoom } from "@found-in-space/worlds/observer-tile-zoom";
-import { observerHeightForImageryZoom, selectImageryZoom } from "@found-in-space/worlds/imagery-core";
-import { terrainTargetForView } from "@found-in-space/worlds/terrain-surface";
+} from "@found-in-space/pas-de-geant/worlds";
+import { observerTileZoom } from "../packages/pas-de-geant/src/worlds/observer-tile-zoom.js";
+import { observerHeightForImageryZoom, selectImageryZoom } from "../packages/pas-de-geant/src/worlds/imagery-core.js";
+import { terrainTargetForView } from "../packages/pas-de-geant/src/worlds/terrain-surface.js";
 import {
   createWorldSkykitPart,
   createWorldSkykitPlugin,
   physicalJ2000MetresToSkykitPosition,
   WORLD_METRES_PER_PARSEC,
-} from "@found-in-space/worlds/skykit";
+} from "@found-in-space/pas-de-geant/worlds/skykit";
 import type { SkykitThreeFrame, SkykitThreePluginContext } from "@found-in-space/skykit";
 
 const view = {

@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
   contactFrame, EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL, solveBodySurfacePose,
-} from "@found-in-space/worlds";
-import { terrainTargetForView } from "@found-in-space/worlds/terrain-surface";
+} from "@found-in-space/pas-de-geant/worlds";
+import { terrainTargetForView } from "../packages/pas-de-geant/src/worlds/terrain-surface.js";
 import { observeBodySurface } from "../apps/pas-de-geant/src/body-surface-view.js";
 
 describe("posed terrain view", () => {

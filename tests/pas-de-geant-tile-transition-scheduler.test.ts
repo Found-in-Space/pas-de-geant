@@ -7,18 +7,18 @@ import type {
   TileProvider,
   TileProviderResult,
   TileRequestHandle,
-} from "@found-in-space/worlds/tile-provider";
+} from "../packages/pas-de-geant/src/worlds/tile-provider.js";
 import {
   TileTransitionScheduler,
   type LayoutSource,
   type SchedulerEvent,
-} from "@found-in-space/worlds/tile-transition-scheduler";
+} from "../packages/pas-de-geant/src/worlds/tile-transition-scheduler.js";
 import {
   assertAdmissibleCut,
   tileIdentityKey,
   type TileIdentity,
-} from "@found-in-space/worlds/tile-transition-planner";
-import { calculateTileOnionPlan } from "@found-in-space/worlds/tile-onion-core";
+} from "../packages/pas-de-geant/src/worlds/tile-transition-planner.js";
+import { calculateTileOnionPlan } from "../packages/pas-de-geant/src/worlds/tile-onion-core.js";
 
 function uniformCut(zoom: number): TileIdentity[] {
   const width = 2 ** zoom;

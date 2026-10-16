@@ -3,7 +3,7 @@ import {
   ATMOSPHERE_TOP_KM,
   AtmosphereLayer,
 } from "../apps/pas-de-geant/src/atmosphere.js";
-import { EARTH_MEAN_RADIUS_KM } from "@found-in-space/worlds/planet-state";
+import { EARTH_MEAN_RADIUS_KM } from "../packages/pas-de-geant/src/worlds/planet-state.js";
 
 describe("Pas de Geant atmosphere", () => {
   it("uses global scale for its height and exterior-halo visibility", () => {

@@ -10,7 +10,7 @@ render boundary. This keeps the same architecture usable from a one-metre toy
 planet to a hundred-metre exploration globe and across interplanetary distance.
 
 Shared geometry, ephemerides, surface streaming, and navigation frames live in
-[`@found-in-space/worlds`](../../packages/worlds/README.md). Earth, Moon, and
+[`@found-in-space/pas-de-geant/worlds`](../../packages/pas-de-geant/README.md). Earth, Moon, and
 plain planetary globes use `createWorldRuntime`; the Eclipse Observatory uses
 the package's terrain capability. The optional `/skykit` adapter lets another
 Found in Space host use this runtime through Skykit's public lifecycle.
@@ -584,7 +584,7 @@ geocoding, knowledge services, controller labels and greetings stay here.
 policy to the shared server helper. Automatic VAD response creation is retained.
 The app pins the published `0.1.0-alpha.1` package and its registry integrity in
 the npm lockfile. To adopt a later tested release, run
-`npm install @found-in-space/voice-os@<version> --workspace @found-in-space/pas-de-geant --save-exact`
+`npm install @found-in-space/voice-os@<version> --workspace @found-in-space/pas-de-geant-app --save-exact`
 at the repository root, then run `npm run check`, `npm test`, `npm run build`
 and `npm run api:build`. Live microphone, speaker, interruption and recovery
 checks in a browser and Quest remain part of host acceptance; offline tests

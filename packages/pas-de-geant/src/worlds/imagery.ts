@@ -1,3 +1,4 @@
+import type { WorldWorkerFactory } from "./workers.js";
 import * as THREE from "three";
 import { sourceRefinementLimits } from "./tile-refinement.js";
 import {
@@ -1000,6 +1001,7 @@ export class ImageryVirtualTexture {
     imageryProvider: ImageryProvider | undefined,
     initialView: ImageryView,
     initialHorizonView?: TileHorizonView,
+    workers?: WorldWorkerFactory,
   ) {
     const zoom = imageryProvider
       ? selectImageryZoom({
@@ -1056,7 +1058,7 @@ export class ImageryVirtualTexture {
     };
     if (imageryProvider) {
       this.desiredZoom = zoom;
-      this.workerClient = new ImageryWorkerClient();
+      this.workerClient = new ImageryWorkerClient(workers?.("imagery-decoder", new URL("./imagery-decoder.worker.js", import.meta.url)));
       this.provider = new ScheduledImageryProvider(
         imageryProvider,
         (blob, tileSize, signal) =>
@@ -1064,6 +1066,7 @@ export class ImageryVirtualTexture {
       );
       this.horizonView = initialHorizonView ?? initialView;
       this.scheduler = new TileWorkerScheduler(this.target, {
+        createWorker: workers ? () => workers("imagery-scheduler", new URL("./tile-scheduler.worker.js", import.meta.url)) : undefined,
         provider: this.provider,
         refinementLimits: sourceRefinementLimits(imageryProvider.coverage ?? {
           globalMaximumZoom: imageryProvider.maxZoom, ranges: [],

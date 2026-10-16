@@ -1,4 +1,4 @@
-import type { TileAddressing } from "@found-in-space/worlds/tile-url";
+import type { TileAddressing } from "@found-in-space/pas-de-geant/worlds";
 
 export interface SessionTileProvider {
   readonly urlTemplate: string;

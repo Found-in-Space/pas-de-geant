@@ -8,5 +8,5 @@ await build({
   format: "esm",
   target: "node22",
   // Resolve workspace source directly; the API bundle needs no app build.
-  alias: { "@found-in-space/worlds": "./packages/worlds/src" },
+  alias: { "@found-in-space/pas-de-geant/worlds": "./packages/pas-de-geant/src/worlds/index.ts" },
 });

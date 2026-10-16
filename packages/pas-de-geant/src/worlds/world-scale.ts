@@ -1,4 +1,4 @@
-export const DEFAULT_SCALE_DENOMINATOR = 60_000;
+
 
 export function validScaleDenominator(value: number): number {
   if (!Number.isFinite(value) || value <= 0) {
@@ -37,37 +37,4 @@ export function headsetScaleFactorForDenominatorChange(
 ): number {
   return validScaleDenominator(oldScaleDenominator) /
     validScaleDenominator(newScaleDenominator);
-}
-
-/** Larger positive input enlarges the model, so it reduces the denominator. */
-export function scaleDenominatorAfterInput(
-  scaleDenominator: number,
-  axis: number,
-  deltaSeconds: number,
-  octavesPerSecond = 0.72,
-  detent = DEFAULT_SCALE_DENOMINATOR,
-): number {
-  const next = validScaleDenominator(scaleDenominator) *
-    2 ** (-axis * octavesPerSecond * deltaSeconds);
-  const detentDistance = Math.abs(Math.log2(next / detent));
-  if (Math.abs(axis) < 0.12 && detentDistance < 0.035) return detent;
-  return next;
-}
-
-const SCALE_NUMBER_FORMAT = new Intl.NumberFormat("en-GB", {
-  maximumFractionDigits: 0,
-});
-
-/** Displays scale in decade-sensitive steps, with a minimum step of one. */
-export function scaleDenominatorForDisplay(scaleDenominator: number): number {
-  const denominator = validScaleDenominator(scaleDenominator);
-  return denominator < 100
-    ? Math.round(denominator)
-    : Number(denominator.toPrecision(2));
-}
-
-export function formatScaleRatio(scaleDenominator: number): string {
-  return `1 : ${SCALE_NUMBER_FORMAT.format(
-    scaleDenominatorForDisplay(scaleDenominator),
-  )}`;
 }

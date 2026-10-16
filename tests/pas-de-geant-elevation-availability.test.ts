@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { availableElevationAncestor, elevationAvailability } from "../packages/worlds/src/elevation-availability.js";
-import { createXyzElevationTileProvider, elevationSourceMapping, type ImageTileResource } from "../packages/worlds/src/image-tile-provider.js";
-import type { TileIdentity } from "../packages/worlds/src/tile-transition-planner.js";
-import { elevationSource } from "../packages/worlds/src/surface-product.js";
-import { celestialBody } from "../packages/worlds/src/solar-system.js";
+import { availableElevationAncestor, elevationAvailability } from "../packages/pas-de-geant/src/worlds/elevation-availability.js";
+import { createXyzElevationTileProvider, elevationSourceMapping, type ImageTileResource } from "../packages/pas-de-geant/src/worlds/image-tile-provider.js";
+import type { TileIdentity } from "../packages/pas-de-geant/src/worlds/tile-transition-planner.js";
+import { elevationSource } from "../packages/pas-de-geant/src/worlds/surface-product.js";
+import { celestialBody } from "../packages/pas-de-geant/src/worlds/solar-system.js";
 
 const coverage = elevationAvailability({ globalMaximumZoom: 6, ranges: [
   [9, 280, 250, 282, 252], [14, 8975, 8001, 8976, 8003],

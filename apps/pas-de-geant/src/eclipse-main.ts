@@ -1,3 +1,15 @@
+import {
+  formatScaleRatio,
+  orbitalDragRadiansPerPixel,
+  freshButtonLatch,
+  isHandTrackingInputSource,
+  anchoredSimulationClock,
+  realtimeSimulationClock,
+  simulationClockSnapshot,
+  simulationClockWithScale,
+  simulationTimeMs,
+  type SimulationClockState,
+} from "@found-in-space/pas-de-geant";
 import "./eclipse.css";
 import { earthBaseTextureUrl, lunarBaseTextureUrl } from "./world-assets.js";
 
@@ -20,10 +32,7 @@ import {
 } from "@found-in-space/shadowline";
 import * as THREE from "three";
 import { VRButton } from "three/addons/webxr/VRButton.js";
-import {
-  freshButtonLatch,
-  isHandTrackingInputSource,
-} from "./controller-input.js";
+
 import {
   eclipseEarthSurfaceObservation,
   eclipseTopographicAltitudeMetres,
@@ -58,7 +67,15 @@ import {
 } from "./eclipse-rendering.js";
 import {
   configuredXyzImageryProvider,
-} from "@found-in-space/worlds/imagery-provider";
+  ElevationTileProvider,
+  createElevationTileProvider,
+  EARTH_SURFACE_MODEL,
+  TerrainSurface,
+  type TerrainSurfaceView,
+  displayRadiusMetres,
+  headsetMetresForPhysicalMetres,
+  validScaleDenominator,
+} from "@found-in-space/pas-de-geant/worlds";
 import {
   imageryConfiguration,
 } from "./imagery-configuration.js";
@@ -68,9 +85,7 @@ import {
 import { loadSessionConfiguration } from "./session-config.js";
 import { monitorTileSourceFailures } from "./tile-source-status.js";
 import { earthElevationMaximumZoom, elevationSourceOptions } from "./elevation-configuration.js";
-import { ElevationTileProvider } from "@found-in-space/worlds/elevation-tile-provider";
-import { createElevationTileProvider } from "@found-in-space/worlds/image-tile-provider";
-import { EARTH_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
+
 import {
   HAND_PANEL_SURFACE,
   HAND_PANEL_THEME,
@@ -107,14 +122,7 @@ import {
   searchWikipedia,
 } from "./external-knowledge.js";
 import { createGeantVoiceAgent, type RealtimeAgentStatus } from './voice-agent.js';
-import {
-  anchoredSimulationClock,
-  realtimeSimulationClock,
-  simulationClockSnapshot,
-  simulationClockWithScale,
-  simulationTimeMs,
-  type SimulationClockState,
-} from "./simulation-clock.js";
+
 import type {
   SupervisionCommand,
   SupervisionControlState,
@@ -125,14 +133,6 @@ import type {
   SupervisionConnectionStatus,
 } from "./supervision-client.js";
 import { idleJourneyState } from "./earth-to-gaia-journey.js";
-import { TerrainSurface, type TerrainSurfaceView } from "@found-in-space/worlds/terrain-surface";
-import {
-  displayRadiusMetres,
-  formatScaleRatio,
-  headsetMetresForPhysicalMetres,
-  validScaleDenominator,
-} from "@found-in-space/worlds/world-scale";
-import { orbitalDragRadiansPerPixel } from "@found-in-space/worlds/world-navigation";
 
 const sessionConfiguration = await loadSessionConfiguration();
 const DEFAULT_EVENT_ID = "solar-2026-08-12-total";

@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
-import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL, type SurfaceModel } from "@found-in-space/worlds/surface-model";
-import { TerrainSurface, elevationBoundsForTile, sampleEncodedElevationMetres } from "@found-in-space/worlds/terrain-surface";
-import { createTerrainRenderVisibilityEntry, TerrainRenderVisibility } from "@found-in-space/worlds/terrain-render-visibility";
+import { EARTH_SURFACE_MODEL, MOON_SURFACE_MODEL, type SurfaceModel } from "../packages/pas-de-geant/src/worlds/surface-model.js";
+import { TerrainSurface, elevationBoundsForTile, sampleEncodedElevationMetres } from "../packages/pas-de-geant/src/worlds/terrain-surface.js";
+import { createTerrainRenderVisibilityEntry, TerrainRenderVisibility } from "../packages/pas-de-geant/src/worlds/terrain-render-visibility.js";
 
 function pixelsFor(model: SurfaceModel): Uint8ClampedArray {
   const pixels = new Uint8ClampedArray(16 * 16 * 4);

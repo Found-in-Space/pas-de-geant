@@ -1,4 +1,4 @@
-import type { XyzImageryConfiguration } from "@found-in-space/worlds/imagery-provider";
+import type { XyzImageryConfiguration } from "@found-in-space/pas-de-geant/worlds";
 import { assertDevelopmentTileSource } from "./development-tile-policy.js";
 import { selectImageryVariant } from "./imagery-variants.js";
 import type { SessionConfiguration } from "./session-config.js";

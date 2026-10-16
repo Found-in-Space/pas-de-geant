@@ -167,7 +167,7 @@ export default defineConfig({
   },
   webServer: {
     command:
-      `npm run preview --workspace @found-in-space/pas-de-geant -- --port ${port}`,
+      `npm run preview --workspace @found-in-space/pas-de-geant-app -- --port ${port}`,
     url: baseURL,
     reuseExistingServer: true,
     timeout: 30_000,

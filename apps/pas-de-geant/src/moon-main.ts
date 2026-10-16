@@ -1,12 +1,19 @@
+import { orbitalDragRadiansPerPixel } from "@found-in-space/pas-de-geant";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { observerHeightForImageryZoom } from "@found-in-space/worlds/imagery-core";
+import {
+  observerHeightForImageryZoom,
+  MOON_SURFACE_MODEL,
+  createWorldRuntime,
+  celestialBody,
+  contactFrame,
+} from "@found-in-space/pas-de-geant/worlds";
 import { lunarSurfaceSource } from "./lunar-configuration.js";
 import { loadSessionConfiguration } from "./session-config.js";
 import { monitorTileSourceFailures } from "./tile-source-status.js";
-import { MOON_SURFACE_MODEL } from "@found-in-space/worlds/surface-model";
-import { createWorldRuntime, celestialBody, contactFrame } from "@found-in-space/worlds";
-import { orbitalDragRadiansPerPixel } from "@found-in-space/worlds/world-navigation";
+
+
+
 import { LUNAR_START_LOCATION } from "./initial-location.js";
 
 const DISPLAY_RADIUS_M = 2.25;

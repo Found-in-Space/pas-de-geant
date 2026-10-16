@@ -33,13 +33,13 @@ import {
   geodeticSurfaceEcefKm,
   initialPlanetState,
   rollContactFrame,
-} from "@found-in-space/worlds/planet-state";
+} from "../packages/pas-de-geant/src/worlds/planet-state.js";
 import {
   bodyPositionJ2000M,
-} from "@found-in-space/worlds/solar-system";
+} from "../packages/pas-de-geant/src/worlds/solar-system.js";
 import {
   relativeJ2000MetresToRender,
-} from "@found-in-space/worlds/world-navigation";
+} from "../packages/pas-de-geant/src/worlds/world-navigation.js";
 
 describe("Pas de Géant celestial-sphere regressions", () => {
   it("shares one Three runtime with the star-field renderer", () => {

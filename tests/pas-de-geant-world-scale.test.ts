@@ -1,24 +1,17 @@
+import {
+  initialWorldNavigationState,
+  DEFAULT_SCALE_DENOMINATOR,
+  formatScaleRatio,
+  scaleDenominatorAfterInput,
+  sampleScaleTransition,
+} from "@found-in-space/pas-de-geant";
 import { describe, expect, it } from "vitest";
 import {
   celestialBody,
-} from "@found-in-space/worlds/solar-system";
-import {
-  displayRadiusForScale,
-  initialWorldNavigationState,
-  withNavigationTarget,
-  withScaleDenominator,
-} from "@found-in-space/worlds/world-navigation";
-import {
-  sampleScaleTransition,
-} from "../apps/pas-de-geant/src/navigation-transition.js";
-import {
-  DEFAULT_SCALE_DENOMINATOR,
-  formatScaleRatio,
-  headsetScaleFactorForDenominatorChange,
-  headsetMetresForPhysicalMetres,
-  physicalMetresForHeadsetMetres,
-  scaleDenominatorAfterInput,
-} from "@found-in-space/worlds/world-scale";
+} from "../packages/pas-de-geant/src/worlds/solar-system.js";
+import { displayRadiusForScale, withNavigationTarget, withScaleDenominator } from "../packages/pas-de-geant/src/worlds/world-navigation.js";
+
+import { headsetScaleFactorForDenominatorChange, headsetMetresForPhysicalMetres, physicalMetresForHeadsetMetres } from "../packages/pas-de-geant/src/worlds/world-scale.js";
 
 describe("universal 1:N world scale", () => {
   it("displays Earth at 106.18348 metres at 1:60,000", () => {

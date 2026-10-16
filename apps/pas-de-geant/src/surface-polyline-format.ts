@@ -2,7 +2,7 @@ import { Vector3 } from "three";
 import {
   EARTH_MEAN_RADIUS_KM,
   geodeticSurfaceEcefKm,
-} from "@found-in-space/worlds/planet-state";
+} from "@found-in-space/pas-de-geant/worlds";
 
 const HEADER_BYTES = 40;
 const FORMAT_VERSION = 1;

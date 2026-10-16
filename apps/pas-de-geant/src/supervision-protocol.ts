@@ -1,11 +1,15 @@
-import type { SolarSystemBodyId } from "@found-in-space/worlds/solar-system";
-import type { NavigationMode } from "@found-in-space/worlds/world-navigation";
+import {
+  type SolarSystemBodyId,
+  type NavigationMode,
+  validScaleDenominator,
+} from "@found-in-space/pas-de-geant/worlds";
+
 import type { AmazonForestOutlineControlState } from "./amazon-forest-outline-control.js";
 import {
   parseLocationPin,
   type LocationPin,
 } from "./location-pin.js";
-import { validScaleDenominator } from "@found-in-space/worlds/world-scale";
+
 import {
   EARTH_TO_GAIA_DURATION_MS,
   EARTH_TO_GAIA_JOURNEY_ID,

@@ -9,7 +9,7 @@ import {
   withTileMaxZoom,
   withTilePixelRatio,
   withTileRecalculation,
-} from "@found-in-space/worlds/tile-debug-controls";
+} from "../packages/pas-de-geant/src/worlds/tile-debug-controls.js";
 
 describe("tile debug controls", () => {
   it("starts with production density and topology controls only", () => {

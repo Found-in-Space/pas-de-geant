@@ -1,7 +1,7 @@
 import {
   stickForSource,
   type ButtonLatch,
-} from "./controller-input.js";
+} from "@found-in-space/pas-de-geant";
 
 export interface EclipseControllerIntent {
   orbitX: number;

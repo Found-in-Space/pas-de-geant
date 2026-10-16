@@ -1,4 +1,4 @@
-import type { ElevationCacheOptions } from "@found-in-space/worlds/elevation-cache";
+import type { ElevationCacheOptions } from "@found-in-space/pas-de-geant/worlds";
 import { assertDevelopmentTileSource } from "./development-tile-policy.js";
 import { boundProvider, type SessionConfiguration } from "./session-config.js";
 

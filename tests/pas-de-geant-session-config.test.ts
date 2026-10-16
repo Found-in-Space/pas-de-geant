@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { tileUrl } from "@found-in-space/worlds/tile-url";
+import { tileUrl } from "../packages/pas-de-geant/src/worlds/tile-url.js";
 import { compileDevelopmentSession } from "../apps/pas-de-geant/src/development-session-config.js";
 import { imageryConfiguration } from "../apps/pas-de-geant/src/imagery-configuration.js";
 import { selectImageryVariant } from "../apps/pas-de-geant/src/imagery-variants.js";

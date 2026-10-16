@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { TileOnionLayoutSource } from "@found-in-space/worlds/tile-layout-source";
-import { calculateTileOnionPlan, tileBounds } from "@found-in-space/worlds/tile-onion-core";
-import { assertAdmissibleCut, type TileIdentity } from "@found-in-space/worlds/tile-transition-planner";
-import { constrainTileRefinement, sourceRefinementLimits, tileCoverageRanges } from "@found-in-space/worlds/tile-refinement";
-import { terrainRefinementLimits } from "@found-in-space/worlds/terrain-lod";
+import { TileOnionLayoutSource } from "../packages/pas-de-geant/src/worlds/tile-layout-source.js";
+import { calculateTileOnionPlan, tileBounds } from "../packages/pas-de-geant/src/worlds/tile-onion-core.js";
+import { assertAdmissibleCut, type TileIdentity } from "../packages/pas-de-geant/src/worlds/tile-transition-planner.js";
+import { constrainTileRefinement, sourceRefinementLimits, tileCoverageRanges } from "../packages/pas-de-geant/src/worlds/tile-refinement.js";
+import { terrainRefinementLimits } from "../packages/pas-de-geant/src/worlds/terrain-lod.js";
 import { BLUE_MARBLE_IMAGERY_NODE, buildDesiredImageryTree, imageryTreeImageAtGlobalUv,
-  imageryTreeMaximumDepth, reconcileImageryTree } from "@found-in-space/worlds/imagery-tree";
+  imageryTreeMaximumDepth, reconcileImageryTree } from "../packages/pas-de-geant/src/worlds/imagery-tree.js";
 
 const contains = (parent: TileIdentity, child: TileIdentity) => {
   const scale = 2 ** (child.z - parent.z);

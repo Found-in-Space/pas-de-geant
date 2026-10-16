@@ -5,7 +5,7 @@ import {
   type ImageryCacheStorage,
   type ImageryResponseCache,
   XyzImageryProvider,
-} from "@found-in-space/worlds/imagery-provider";
+} from "../packages/pas-de-geant/src/worlds/imagery-provider.js";
 
 class MemoryResponseCache implements ImageryResponseCache {
   readonly responses = new Map<string, Response>();

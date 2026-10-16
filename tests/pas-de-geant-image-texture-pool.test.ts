@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ImageTexturePool } from "@found-in-space/worlds/image-texture-pool";
+import { ImageTexturePool } from "../packages/pas-de-geant/src/worlds/image-texture-pool.js";
 
 describe("Image texture pool", () => {
   it("shares a texture until its final mesh binding is released", () => {

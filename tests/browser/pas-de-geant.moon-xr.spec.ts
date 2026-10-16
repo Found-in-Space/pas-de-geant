@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { contactFrame } from "@found-in-space/worlds";
+import { contactFrame } from "@found-in-space/pas-de-geant/worlds";
 
 interface WalkingSnapshot {
   controls: {

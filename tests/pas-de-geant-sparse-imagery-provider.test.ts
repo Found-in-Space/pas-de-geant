@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { ScheduledImageryProvider } from "@found-in-space/worlds/imagery";
-import type { ImageryProvider } from "@found-in-space/worlds/imagery-provider";
-import { SparseImageryProvider } from "@found-in-space/worlds/sparse-imagery-provider";
-import type { TileIdentity } from "@found-in-space/worlds/tile-transition-planner";
+import { ScheduledImageryProvider } from "../packages/pas-de-geant/src/worlds/imagery.js";
+import type { ImageryProvider } from "../packages/pas-de-geant/src/worlds/imagery-provider.js";
+import { SparseImageryProvider } from "../packages/pas-de-geant/src/worlds/sparse-imagery-provider.js";
+import type { TileIdentity } from "../packages/pas-de-geant/src/worlds/tile-transition-planner.js";
 import { lunarImageryProviders, type LunarImageryTileProduct } from "../apps/pas-de-geant/src/lunar-imagery-providers.js";
 
 function source(id: string, maxZoom: number): ImageryProvider {

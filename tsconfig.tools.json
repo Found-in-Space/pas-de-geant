@@ -19,6 +19,8 @@
     "playwright.pas-de-geant.config.ts",
     "playwright.pas-de-geant-xr.config.ts",
     "vitest.config.ts",
-    "tests/**/*.ts"
+    "tests/**/*.ts",
+    "vite.embed.config.ts",
+    "vite.examples.config.ts"
   ]
 }

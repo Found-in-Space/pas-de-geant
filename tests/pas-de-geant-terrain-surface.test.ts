@@ -5,16 +5,16 @@ import {
   sampleTerrariumElevationMetres,
   sourceUvForTilePoint,
   terrainTargetForView,
-} from "@found-in-space/worlds/terrain-surface";
+} from "../packages/pas-de-geant/src/worlds/terrain-surface.js";
 import {
   decodeHeightMetres,
   EARTH_SURFACE_MODEL,
   MOON_SURFACE_MODEL,
   MOON_GEOGRAPHIC_SURFACE_MODEL,
-} from "@found-in-space/worlds/surface-model";
+} from "../packages/pas-de-geant/src/worlds/surface-model.js";
 import {
   elevationSourceZoomForTile,
-} from "@found-in-space/worlds/terrain-lod";
+} from "../packages/pas-de-geant/src/worlds/terrain-lod.js";
 
 describe("Terrain surface composition", () => {
   it("samples loaded fine terrain while a coarser target is still awaiting publication", () => {

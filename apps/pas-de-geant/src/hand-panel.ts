@@ -1,3 +1,4 @@
+import { DEFAULT_SCALE_DENOMINATOR, formatScaleRatio } from "@found-in-space/pas-de-geant";
 import {
   createButton,
   createColumn,
@@ -16,10 +17,6 @@ import {
   earthMapPoint,
 } from "./earth-map.js";
 import type { VoiceState as RealtimeAgentState } from '@found-in-space/voice-os';
-import {
-  DEFAULT_SCALE_DENOMINATOR,
-  formatScaleRatio,
-} from "@found-in-space/worlds/world-scale";
 
 export { earthMapImageRects, earthMapPoint } from "./earth-map.js";
 
