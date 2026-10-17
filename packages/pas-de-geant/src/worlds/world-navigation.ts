@@ -17,7 +17,8 @@ export const WORLD_J2000_METRES: SpatialCoordinateSpace = Object.freeze({ frameI
 /** The same origin with x/z/-y axes, before presentation scale or room transforms. */
 export const WORLD_Y_UP_METRES: SpatialCoordinateSpace = Object.freeze({ frameId: "worlds:heliocentric-y-up", metersPerUnit: 1 });
 
-export type NavigationMode = "surface" | "orbit" | "free";
+/** A host-owned label for input conditions. It does not select a model. */
+export type NavigationMode = string;
 
 export interface SurfaceLocation {
   readonly latitudeDegrees: number;
@@ -60,9 +61,6 @@ export function withNavigationTarget(
   focusBodyId: SolarSystemBodyId,
   mode: NavigationMode,
 ): WorldNavigationState {
-  if (mode === "surface" && celestialBody(focusBodyId).surface === null) {
-    throw new RangeError(`${celestialBody(focusBodyId).name} has no surface experience.`);
-  }
   return { ...state, focusBodyId, mode };
 }
 

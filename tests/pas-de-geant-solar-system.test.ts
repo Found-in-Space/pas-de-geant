@@ -69,9 +69,7 @@ describe("solar-system coordinate foundation", () => {
       surfaceLocations: {},
       observerSystemPositionM: { x: 0, y: 0, z: 0 },
     } satisfies WorldNavigationState;
-    expect(() => withNavigationTarget(state, "jupiter", "surface")).toThrow(
-      "Jupiter has no surface experience",
-    );
+    expect(withNavigationTarget(state, "jupiter", "surface").focusBodyId).toBe("jupiter");
     expect(withNavigationTarget(state, "moon", "surface").focusBodyId).toBe("moon");
   });
 });

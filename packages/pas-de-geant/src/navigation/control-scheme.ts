@@ -121,9 +121,9 @@ for (const [code, component, multiplier] of [
   ["KeyW", "forward", 1], ["KeyS", "forward", -1], ["KeyD", "right", 1], ["KeyA", "right", -1],
 ] as const) {
   bindings.push({ id: `keyboard.${code}.move`, label: "Travel", input: { kind: "key", code }, action: move,
-    component, multiplier, phase: "hold", modes: ["surface", "free"] });
+    component, multiplier, phase: "hold", modes: ["surface", "free", "ship"] });
   bindings.push({ id: `keyboard.${code}.orbit`, label: "Orbit focused body", input: { kind: "key", code }, action: orbit,
-    component: component === "forward" ? "y" : "x", multiplier, phase: "hold", modes: ["orbit"] });
+    component: component === "forward" ? "y" : "x", multiplier, phase: "hold", modes: ["orbit", "observation"] });
 }
 for (const [code, multiplier] of [["KeyX", 1], ["KeyZ", -1]] as const) {
   bindings.push({ id: `keyboard.${code}.scale`, label: "Change world scale", input: { kind: "key", code },
@@ -131,10 +131,10 @@ for (const [code, multiplier] of [["KeyX", 1], ["KeyZ", -1]] as const) {
 }
 for (const [code, multiplier] of [["KeyV", 1], ["KeyC", -1]] as const) {
   bindings.push({ id: `keyboard.${code}.distance`, label: "Change orbital distance", input: { kind: "key", code },
-    action: GEANT_MOTION_ACTIONS.orbitDistance, multiplier, phase: "hold", modes: ["orbit"] });
+    action: GEANT_MOTION_ACTIONS.orbitDistance, multiplier, phase: "hold", modes: ["orbit", "observation"] });
 }
 for (const code of ["ShiftLeft", "ShiftRight"]) {
-  for (const [action, modes] of [[move, ["surface", "free"]], [orbit, ["orbit"]]] as const) {
+  for (const [action, modes] of [[move, ["surface", "free", "ship"]], [orbit, ["orbit", "observation"]]] as const) {
     bindings.push({ id: `keyboard.${code}.${action}`, label: "Faster travel", input: { kind: "key", code },
       action, component: "boost", phase: "hold", modes });
   }
@@ -145,37 +145,42 @@ for (const axis of ["x", "y"] as const) {
     modes: ["surface"], pointerModes: ["look"] });
   bindings.push({ id: `pointer.look.${axis}.free`, label: "Look around", input: { kind: "drag", axis }, action: GEANT_MOTION_ACTIONS.look,
     component: axis === "x" ? "yawRadians" : "pitchRadians", multiplier: -0.0035, category: "look",
-    modes: ["free"], pointerModes: ["look", "grab"] });
+    modes: ["free", "ship"], pointerModes: ["look", "grab"] });
   bindings.push({ id: `pointer.orbit.${axis}`, label: "Orbit focused body", input: { kind: "drag", axis }, action: orbit,
-    component: axis, payload: { drag: true }, modes: ["orbit"] });
+    component: axis, payload: { drag: true }, modes: ["orbit", "observation"] });
 }
 for (const axis of ["x", "y"] as const) bindings.push({ id: `pointer.grab.${axis}`, label: "Drag the surface",
   input: { kind: "drag", axis }, action: GEANT_MOTION_ACTIONS.surfaceDrag, component: axis,
   modes: ["surface"], pointerModes: ["grab"] });
 bindings.push({ id: "pointer.wheel.scale", label: "Change world scale", input: { kind: "wheel" },
-  action: GEANT_MOTION_ACTIONS.scale, payload: { wheel: true }, modes: ["surface", "free"] });
+  action: GEANT_MOTION_ACTIONS.scale, payload: { wheel: true }, modes: ["surface", "free", "ship"] });
 bindings.push({ id: "pointer.wheel.distance", label: "Change orbital distance", input: { kind: "wheel" },
-  action: GEANT_MOTION_ACTIONS.orbitDistance, payload: { wheel: true }, modes: ["orbit"] });
+  action: GEANT_MOTION_ACTIONS.orbitDistance, payload: { wheel: true }, modes: ["orbit", "observation"] });
 
-const turnModifier: GeantButtonInput = { kind: "xr-button", hand: "left", button: "trigger" };
+const surfaceModes = ["surface", "observation", "orbit"];
+const shipModes = ["ship", "free"];
 for (const axis of ["x", "y"] as const) {
-  bindings.push({ id: `xr.travel.${axis}`, label: "Travel", input: { kind: "xr-axis", hand: "left", axis }, action: move,
-    component: axis === "x" ? "right" : "forward", multiplier: axis === "x" ? 1 : -1,
-    modes: ["surface", "free"], ...(axis === "x" ? { unless: [turnModifier] } : {}) });
-  bindings.push({ id: `xr.orbit.${axis}`, label: "Orbit focused body", input: { kind: "xr-axis", hand: "left", axis }, action: orbit,
-    component: axis, multiplier: axis === "x" ? 1 : -1, modes: ["orbit"] });
+  bindings.push({ id: `xr.travel.${axis}`, label: "Move across the surface", input: { kind: "xr-axis", hand: "left", axis }, action: move,
+    component: axis === "x" ? "right" : "forward", multiplier: axis === "x" ? 1 : -1, modes: surfaceModes });
+  bindings.push({ id: `xr.ship.travel.${axis}`, label: "Move in the ship frame", input: { kind: "xr-axis", hand: "right", axis }, action: move,
+    component: axis === "x" ? "right" : "forward", multiplier: axis === "x" ? 1 : -1, modes: shipModes });
 }
-bindings.push({ id: "xr.turn", label: "Turn view with trigger held", input: { kind: "xr-axis", hand: "left", axis: "x" },
-  action: GEANT_MOTION_ACTIONS.look, component: "yawRadians", multiplier: -1.2, timeScale: true,
-  modifiers: [turnModifier], modes: ["surface", "free"], category: "look" });
-for (const [action, modes] of [[move, ["surface", "free"]], [orbit, ["orbit"]]] as const) {
-  bindings.push({ id: `xr.boost.${action}`, label: "Faster travel", input: { kind: "xr-button", hand: "left", button: "grip" },
-    action, component: "boost", phase: "hold", modes });
-}
-bindings.push({ id: "xr.scale", label: "Change world scale", input: { kind: "xr-axis", hand: "right", axis: "y" },
-  action: GEANT_MOTION_ACTIONS.scale, multiplier: -1, exclusiveGroup: "right-stick" });
-bindings.push({ id: "xr.distance", label: "Change orbital distance", input: { kind: "xr-axis", hand: "right", axis: "x" },
-  action: GEANT_MOTION_ACTIONS.orbitDistance, modes: ["orbit"], exclusiveGroup: "right-stick" });
+bindings.push({ id: "xr.turn", label: "Snap turn 30 degrees", input: { kind: "xr-axis", hand: "right", axis: "x" },
+  action: GEANT_MOTION_ACTIONS.look, component: "yawRadians", multiplier: -Math.PI / 6, phase: "press",
+  modes: surfaceModes, category: "look", exclusiveGroup: "surface-right-stick" });
+bindings.push({ id: "xr.altitude", label: "Adjust surface altitude or observation height", input: { kind: "xr-axis", hand: "right", axis: "y" },
+  action: GEANT_MOTION_ACTIONS.altitude, multiplier: -1, modes: surfaceModes, exclusiveGroup: "surface-right-stick" });
+bindings.push({ id: "xr.boost", label: "Faster surface travel", input: { kind: "xr-button", hand: "left", button: "grip" },
+  action: move, component: "boost", phase: "hold", modes: surfaceModes });
+bindings.push({ id: "xr.ship.boost", label: "Faster ship travel", input: { kind: "xr-button", hand: "right", button: "grip" },
+  action: move, component: "boost", phase: "hold", modes: shipModes });
+const rollModifier: GeantButtonInput = { kind: "xr-button", hand: "left", button: "grip" };
+bindings.push({ id: "xr.ship.yaw", label: "Ship yaw", input: { kind: "xr-axis", hand: "left", axis: "x" },
+  action: GEANT_MOTION_ACTIONS.attitude, component: "yaw", multiplier: -1, unless: [rollModifier], modes: shipModes });
+bindings.push({ id: "xr.ship.roll", label: "Ship roll with left grip held", input: { kind: "xr-axis", hand: "left", axis: "x" },
+  action: GEANT_MOTION_ACTIONS.attitude, component: "roll", modifiers: [rollModifier], modes: shipModes });
+bindings.push({ id: "xr.ship.pitch", label: "Ship pitch", input: { kind: "xr-axis", hand: "left", axis: "y" },
+  action: GEANT_MOTION_ACTIONS.attitude, component: "pitch", modes: shipModes });
 
-/** Standard controls contain no diagnostics, terrain adjustment or voice shortcuts. */
+/** Optional browser preset. Hosts can supply a completely different scheme. */
 export const standardGeantControlScheme = defineGeantControlScheme({ id: "geant:standard", bindings });

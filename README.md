@@ -15,6 +15,9 @@ cases and is excluded from the default build and package distribution.
 The [retirement inventory](docs/workbench-retirement.md) records what remains
 and what was removed.
 
+The [architecture](docs/architecture.md) defines the component boundaries.
+The [movement contract](packages/pas-de-geant/docs/movement.md) describes custom models and integration.
+
 ## Develop
 
 Use Node.js 22 or later:

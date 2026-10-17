@@ -47,8 +47,15 @@ export function observeBodySurface(options: {
   readonly terrainMultiplier: number;
 }): BodySurfaceView {
   const body = celestialBody(options.bodyId);
-  options.camera.updateWorldMatrix(true, false); options.root.updateWorldMatrix(true, false);
-  const local = options.root.worldToLocal(options.camera.getWorldPosition(new THREE.Vector3())).multiplyScalar(body.referenceRadiusM);
+  options.root.updateWorldMatrix(true, false);
+  // WebXR owns ArrayCamera matrices. Updating an unparented XR camera would remove the rig transform.
+  const eye = new THREE.Vector3();
+  if (options.camera instanceof THREE.ArrayCamera) {
+    const eyes = options.camera.cameras.length ? options.camera.cameras : [options.camera];
+    for (const camera of eyes) eye.add(new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld));
+    eye.multiplyScalar(1 / eyes.length);
+  } else options.camera.getWorldPosition(eye);
+  const local = options.root.worldToLocal(eye).multiplyScalar(body.referenceRadiusM);
   const observed = referenceSurfaceObservation(body, local);
   const displayRadiusM = options.root.getWorldScale(new THREE.Vector3()).x;
   const metresPerPhysicalMetre = displayRadiusM / body.referenceRadiusM;

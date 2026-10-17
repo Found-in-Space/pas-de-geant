@@ -7,7 +7,7 @@ export function geantAiCapabilities(bodies: readonly SolarSystemBodyId[]) {
     { name: "set_location", action: GEANT_ACTIONS.setLocation, properties: { body: { type: "string", enum: [...bodies] }, latitudeDegrees: { type: "number" }, longitudeDegrees: { type: "number" } }, required: ["latitudeDegrees", "longitudeDegrees"] },
     { name: "set_scale", action: GEANT_ACTIONS.setScale, properties: { scaleDenominator: { type: "number" } }, required: ["scaleDenominator"] },
     { name: "focus_body", action: GEANT_ACTIONS.focusBody, properties: { body: { type: "string", enum: [...bodies] } }, required: ["body"] },
-    { name: "set_mode", action: GEANT_ACTIONS.setMode, properties: { mode: { type: "string", enum: ["surface", "orbit", "free"] } }, required: ["mode"] },
+    { name: "set_mode", action: GEANT_ACTIONS.setMode, properties: { mode: { type: "string" } }, required: ["mode"] },
     { name: "set_terrain_multiplier", action: GEANT_ACTIONS.setTerrainMultiplier, properties: { multiplier: { type: "number" } }, required: ["multiplier"] },
   ];
   return actions.map(tool => ({ action: tool.action, contract: { name: tool.name,

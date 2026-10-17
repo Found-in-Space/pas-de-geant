@@ -9,7 +9,7 @@ import { anchoredSimulationClock, simulationTimeMs, type SimulationClockState } 
 
 export const GEANT_ACTIONS = Object.freeze({ setLocation: "geant:navigation.setLocation", setMode: "geant:navigation.setMode",
   focusBody: "geant:body.focus", setScale: "geant:scale.set", setTerrainMultiplier: "geant:terrain.setMultiplier",
-  travel: "geant:navigation.travel", setObserver: "geant:navigation.setObserver", setTime: "geant:time.set" });
+  setAltitude: "geant:navigation.setAltitude", travel: "geant:navigation.travel", setObserver: "geant:navigation.setObserver", setTime: "geant:time.set" });
 export interface GeantSnapshot {
   readonly bodies: readonly SolarSystemBodyId[];
   readonly focusBody: SolarSystemBodyId;
@@ -73,12 +73,10 @@ export function createGeantNavigation(configuration: ResolvedGeantConfiguration)
       }
       case GEANT_ACTIONS.focusBody: {
         const body = selected(args.body);
-        if (mode === "surface" && !celestialBody(body).surface) mode = "orbit";
         focusBody = body; break;
       }
       case GEANT_ACTIONS.setMode: {
-        if (!["surface", "orbit", "free"].includes(String(args.mode))) throw new RangeError("Unknown navigation mode.");
-        if (args.mode === "surface" && !celestialBody(focusBody).surface) throw new RangeError(`${focusBody} has no surface navigation.`);
+        if (typeof args.mode !== "string" || !args.mode.trim()) throw new RangeError("A navigation label is required.");
         mode = args.mode as NavigationMode; break;
       }
       case GEANT_ACTIONS.setScale: {
@@ -90,8 +88,11 @@ export function createGeantNavigation(configuration: ResolvedGeantConfiguration)
         if (multiplier < 0) throw new RangeError("Terrain multiplier must be nonnegative.");
         if (multiplier === terrainMultiplier) return snapshot(); terrainMultiplier = multiplier; break;
       }
+      case GEANT_ACTIONS.setAltitude: {
+        const body = selected(args.body ?? focusBody);
+        locations.set(body, { ...locations.get(body)!, altitudeM: numeric(args.altitudeM, "Altitude") }); break;
+      }
       case GEANT_ACTIONS.travel: {
-        if (mode !== "surface") throw new RangeError("Surface travel requires surface mode.");
         const eastM = numeric(args.eastM, "East displacement"), northM = numeric(args.northM, "North displacement");
         const contact = rollContactFrame(contacts.get(focusBody)!, new Vector2(eastM, -northM), celestialBody(focusBody).referenceRadiusM);
         contacts.set(focusBody, contact); locations.set(focusBody, { ...locations.get(focusBody)!, ...coordinatesForFrame(contact) }); break;

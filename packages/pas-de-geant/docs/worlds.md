@@ -13,6 +13,18 @@ and the render loop belong to the host application. Skykit remains the composer;
 worlds does not depend on Skykit internals or move world-specific logic into its
 core.
 
+## Placement boundary
+
+The world runtime supplies geometry and rendering.
+The world runtime does not select a movement model or change the camera orientation.
+The composition plugin applies the transform supplied by the movement adapter.
+The same transform applies to every selected body.
+
+The [movement architecture](movement.md) defines the model interface and integration procedure.
+Surface, observation, ship, and desktop models are optional implementations.
+A host can supply another model through the public interface.
+A custom surface adapter can supply geometry without a world renderer.
+
 ## Create a world
 
 ```ts
@@ -103,8 +115,8 @@ bounds, not a measured terrain horizon.
 terrain and imagery admission, enclosing the XR eyes in an observer sphere. Head direction
 and frusta affect only render visibility. Admission hydrates the existing
 complete planner cut and replacement dependencies; it does not create tiles or
-change the planner's grid or LOD. In surface mode, eye height is measured above
-the terrain contact pinned to the host floor.
+change the planner's grid or LOD. Eye height is measured from the actual posed terrain.
+This calculation is independent of the selected movement model.
 
 `TileGrid` identifies projection, version and reference radius. Display format
 2 products must declare it; `displayTextureSource` admits their opaque XYZ

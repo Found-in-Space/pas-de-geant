@@ -23,7 +23,7 @@ Vite has no public directory and does not copy that private file into builds.
 | --- | --- |
 | `lifecycle.html` | Scale Moon independently; dispose/remount it while Earth remains usable. Pause/resume Earth. Leaving the page disposes viewers. |
 | `planner-overlays.html` | Inspect terrain tile boundaries and imagery source overlays across location, scale and navigation modes. Compare with a fixed reference; optionally adjust terrain exaggeration. No service configuration is required. |
-| `xr.html` | Enter/exit VR, tracking, travel and scale with the same standard controls. Enable optional extensions before entering VR. No service configuration is required. |
+| `xr.html` | Check surface altitude, stable observation placement, and ship controls. The host supplies an explicit model selection function. |
 | `datasets.html` | Standard controls and optional planner/terrain tools with configured imagery/elevation. Check source admission, attribution, caching, invalid descriptors and unavailable proxies. |
 | `voice.html` | VoiceOS remains inactive until selected; check state queries/actions and teardown against an external token service. |
 | `embed.html` | Declarative attributes, focus, resizing and teardown through `/embed`. |
@@ -32,7 +32,10 @@ Vite has no public directory and does not copy that private file into builds.
 Controls use the package's standard scheme and shared desktop/XR motion actions.
 The extension checkboxes start off. They install ordinary feature plugins and
 compose application-owned binding fragments through `extendGeantControlScheme`;
-no case implements navigation or input loops. `src/control-bindings.ts` selects
+no case implements navigation or input loops.
+The [movement architecture](../packages/pas-de-geant/docs/movement.md) defines the integration contract.
+`src/xr.ts` supplies ordinary model objects through the browser's `movement` option.
+The library has no registry of all possible movement metaphors. `src/control-bindings.ts` selects
 F8/F9 and XR X/Y for planner actions, and C/V or right-grip-modified input for
 terrain adjustment. These associations belong only to this integration app;
 the package feature plugins expose actions without assigning keys or buttons.
@@ -53,12 +56,20 @@ Planner overlay and interaction acceptance:
   orbit. Restore 1× explicitly. Removing the tools preserves the multiplier.
   The bundled Moon is a reference surface; use `datasets.html` with measured
   elevation to inspect relief and imagery boundaries.
-- In XR, begin with neutral sticks/buttons. Verify left-stick travel,
-  trigger-modified turning, grip boost and right-stick vertical scale. Bare
-  horizontal input must never change terrain. With terrain tools enabled,
-  hold right grip plus horizontal right stick. In orbit, horizontal input
-  changes distance. A diagonal right-stick gesture must keep one function until
-  both axes return to neutral.
+- In XR surface mode, verify left-stick travel and right-stick altitude.
+  The horizontal right stick produces one snap turn after neutral.
+  Physical altitude changes must preserve scale.
+- In XR observation mode, walk, crouch, and turn your head.
+  The map must remain fixed in the room.
+  The left stick changes the surface contact.
+  The vertical right stick changes map height without changing physical altitude.
+- In XR ship mode, verify right-stick travel and left-stick pitch/yaw.
+  Hold the left grip to substitute roll for yaw.
+  Hold the right grip for faster travel.
+  Looking around must not steer the ship.
+- With terrain tools enabled, hold the right grip and move the horizontal right stick in surface or observation mode.
+  The modifier replaces snap turning for that interaction.
+  A diagonal gesture retains one function until both axes return to neutral.
 - Change schemes/modes while holding an input, blur the viewer, exit/re-enter
   XR and reconnect controllers. Release before starting another interaction;
   no held motion or button edge should carry into the next context. Leaving

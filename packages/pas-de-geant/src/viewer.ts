@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createSkykitViewer, type SkykitPluginContext, type SkykitPluginInput, type SkykitViewer, type SkykitViewerOptions } from "@found-in-space/skykit";
+import { createSkykitViewer, type SkykitActionMetadata, type SkykitPluginContext, type SkykitPluginInput, type SkykitViewer, type SkykitViewerOptions } from "@found-in-space/skykit";
 import { resolveGeantConfiguration, type GeantConfiguration } from "./config.js";
 import { createGeantNavigation, type GeantNavigation } from "./navigation/controller.js";
 import { registerGeantMotionActions } from "./navigation/motion.js";
@@ -10,7 +10,9 @@ const GEANT_CONTEXT = Symbol("geant:context");
 export interface GeantContext {
   readonly three: typeof THREE;
   readonly navigation: GeantNavigation;
-  readonly presentation: { observerJ2000M: Vector3d | null; systemRotation: THREE.Quaternion };
+  readonly presentation: { observerJ2000M: Vector3d | null; originJ2000M: Vector3d; systemRotation: THREE.Quaternion; translation: THREE.Vector3 };
+  movement: { command(action: string, payload: Readonly<Record<string, unknown>>, metadata?: SkykitActionMetadata): unknown } | null;
+  movementRevision: number;
   readonly host: HTMLElement | null;
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
@@ -46,7 +48,9 @@ export async function createGeantViewer(options: GeantViewerOptions) {
   cameraRoot.name ||= "geant-observer";
   cameraRoot.add(camera); scene.add(cameraRoot);
   const worlds = new Map<SolarSystemBodyId, WorldRuntime>();
-  const context: GeantContext = { three: THREE, navigation, presentation: { observerJ2000M: null, systemRotation: new THREE.Quaternion() }, scene, camera, renderer: options.renderer, host: options.host ?? null, cameraRoot, worlds };
+  const context: GeantContext = { three: THREE, navigation, movement: null, movementRevision: 0,
+    presentation: { observerJ2000M: null, originJ2000M: { x: 0, y: 0, z: 0 }, systemRotation: new THREE.Quaternion(), translation: new THREE.Vector3() },
+    scene, camera, renderer: options.renderer, host: options.host ?? null, cameraRoot, worlds };
   // Geant owns physical navigation. SkyKit supplies parts/actions, without its star-flight input policy.
   const observerRig: SkykitViewerOptions["observerRig"] = {
     type: "geant", getObserverPc: () => ({ x: 0, y: 0, z: 0 }), getRenderObserverPosition: () => ({ x: 0, y: 0, z: 0 }),

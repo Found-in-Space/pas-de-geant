@@ -14,6 +14,7 @@ workspace and use only public exports.
 | `/embed` | Attributes, `mount`, `unmount`, `whenReady`, `mountAll`, and `Geant` |
 | `/ai` | Optional VoiceOS browser runtime/plugin |
 
+See the [movement architecture and integration contract](docs/movement.md).
 Internal filenames are implementation details. See [world capabilities](docs/worlds.md)
 for source contracts, coordinates, terrain, caching and ownership.
 
@@ -45,10 +46,13 @@ GPU resources are not disposed by the browser.
 
 `bodies` selects construction; `focusBody` chooses the navigation target from
 that set. `locations` stores independent per-body coordinates. Surface contacts
-retain transported tangent frames. `mode` is `surface`, `orbit` or `free`;
-`controls.pointer` is separately `look`, `grab`, `orbit` or `none`.
-`controls: false` disables manual controls. `movement: false` disables manual
-locomotion while tracked XR head motion continues. Set `xr: true` to install the
+retain transported tangent frames. `mode` is a host-defined navigation label.
+The optional browser preset maps `surface`, `observation`/`orbit`, and `ship`/`free`.
+XR and desktop use separate models. `controls.pointer` selects `look`, `grab`, `orbit`, or `none`.
+The `movement` option accepts a model object or a host selection function.
+`movement: false` omits the placement adapter.
+`controls: false` disables manual controls. `controls: { movement: false }` disables manual locomotion while tracking continues.
+The top-level `movement: false` omits the placement adapter. Set `xr: true` to install the
 SkyKit session adapter and its host-local entry button. `time` is `now` or an ISO
 UTC timestamp ending in Z; `timeRate` is a finite playback rate, including zero.
 
@@ -67,19 +71,23 @@ XR session setup is separate: `xr: true` adds the entry button and tracking;
 
 | Input | Standard behavior |
 | --- | --- |
-| WASD / left stick | Surface or free travel; target-centred movement in orbit |
-| Shift / left grip | Faster travel |
-| Z/X / right stick vertical | Shrink/enlarge the world (physical 1:N scale) |
-| C/V / right stick horizontal | Change orbital distance in orbit mode; unbound elsewhere |
-| Drag | Look in surface/free mode; move around the focus in orbit mode |
-| Wheel | Change scale in surface/free mode; orbital distance in orbit mode |
-| Left trigger + horizontal left stick | Turn the view in surface/free mode |
+| WASD | Surface or desktop free travel. Desktop orbit uses movement around the body. |
+| Shift | Faster desktop travel |
+| Z/X | Desktop world scale |
+| C/V | Desktop orbital distance |
+| Drag / wheel | Desktop look, orbit, scale, or orbital distance |
+| Left stick / left grip in surface and observation | Contact travel / faster travel |
+| Right stick horizontal in surface and observation | Snap turn, with 30 degrees per deflection |
+| Right stick vertical in surface | Physical altitude above terrain or the reference surface |
+| Right stick vertical in observation | Map height in room metres |
+| Right stick / right grip in ship | Ship travel / faster travel |
+| Left stick / left grip in ship | Pitch and yaw / roll modifier |
 
-Planner overlays, terrain adjustment and voice shortcuts have no standard
-bindings. Diagonal right-stick gestures select one function until the stick
-returns to neutral. Small analog inputs retain their magnitude.
-`controls.speedHeadsetMPerSecond` overrides travel speed for both desktop and XR;
-otherwise surface walking and distance-sensitive free flight use their own policies.
+The standard XR scheme does not change scale.
+Planner overlays, terrain adjustment, and voice shortcuts have no standard bindings.
+A diagonal surface gesture selects one right-stick function until neutral.
+Small travel inputs retain their magnitude.
+`controls.speedHeadsetMPerSecond` overrides travel speed in room metres per second.
 
 Schemes are immutable data with stable binding IDs. Extend with `add`, `replace`
 or `remove`. Duplicate IDs and overlapping input conditions are rejected;
@@ -128,14 +136,15 @@ Blur, visibility changes, navigation/focus changes, rebinding, XR transitions
 and source changes clear held inputs. Release keys/sticks/buttons before
 starting a new interaction. Disposal releases listeners, parts and captures.
 
-`GEANT_MOTION_ACTIONS` exposes device-independent move, orbit, orbit-distance,
-surface-drag, scale-adjustment and look commands. They use the public action
+`GEANT_MOTION_ACTIONS` exposes move, altitude, attitude, recenter, orbit, distance, drag, scale, and look commands.
+The selected model supplies movement behavior. They use the public action
 registry, including canonical navigation adapters. Continuous commands accept
 `deltaSeconds`; movement components are `right`/`forward`, orbital components
 are `x`/`y`, adjustments use `value`, and look takes angular displacements
 `yawRadians`/`pitchRadians`. A binding's `component`, `multiplier`, `payload`
 and optional `timeScale` map input into those commands. One-shot key/button
-bindings use press edges; continuous key/button bindings specify `phase: "hold"`.
+bindings use press edges. Continuous key/button bindings specify `phase: "hold"`.
+An XR axis binding can use `phase: "press"` for one command per deflection.
 Tracked XR cameras retain their head orientation; manual turning moves the rig.
 
 The alpha demo-specific `controllerIntent`/`freshButtonLatch` API was removed.
@@ -173,11 +182,14 @@ replacement policy.
 
 `createGeantViewer({ renderer, scene, camera, ...configuration })` is the direct
 composition route. It borrows rendering resources and supplies the real SkyKit
-plugin/part/action lifecycle. Call `install(createGeantWorldsPlugin(...))`, then
-`viewer.update()` and `viewer.render()` from the host's scheduler. `getGeantContext`
+plugin/part/action lifecycle. Install the worlds and movement plugins separately.
+`createGeantViewer()` installs no default movement model.
+The host supplies `createGeantMovementPlugin({ model })` and its required controls.
+Call `viewer.update()` and `viewer.render()` from the host scheduler.
+The [integration procedure](docs/movement.md#integration-procedure) shows the complete composition. `getGeantContext`
 exposes domain state and world handles to ordinary plugin objects.
 
-First-party factories include worlds, controls, planner diagnostics, terrain
+First-party factories include worlds, movement, controls, planner diagnostics, terrain
 tools, stars, a Touch OS panel adapter, and SkyKit XR. `createGeantStarPass()` is the advanced explicit multipass path;
 it retains the tested observer/projection behavior without importing an authored
 journey. Aircraft and satellite extensions remain separate packages.
@@ -197,7 +209,7 @@ await browser.install({
 ```
 
 Domain actions include `geant:navigation.setLocation` (degrees/metres),
-`geant:navigation.setMode`, `geant:body.focus`, `geant:scale.set` (1:N),
+`geant:navigation.setMode` (a host-defined label), `geant:navigation.setAltitude` (physical metres), `geant:body.focus`, `geant:scale.set` (1:N),
 `geant:terrain.setMultiplier`, `geant:navigation.travel` (physical metres),
 `geant:navigation.setObserver` (heliocentric J2000 metres), and `geant:time.set`
 (UTC milliseconds/rate). SkyKit action invocation returns settled handler

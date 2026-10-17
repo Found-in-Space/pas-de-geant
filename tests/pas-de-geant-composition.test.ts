@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
-import { createGeantNavigation, createGeantViewer, createGeantWorldsPlugin, GEANT_ACTIONS, resolveGeantConfiguration } from "@found-in-space/pas-de-geant";
+import { createGeantMovementPlugin, createGeantDesktopMovementModel, createGeantNavigation, createGeantViewer, createGeantWorldsPlugin, GEANT_ACTIONS, resolveGeantConfiguration } from "@found-in-space/pas-de-geant";
 import { createWorldRuntime, celestialBody } from "@found-in-space/pas-de-geant/worlds";
 import { createWorldSkykitPlugin } from "@found-in-space/pas-de-geant/worlds/skykit";
 import { parseGeantAttributes } from "@found-in-space/pas-de-geant/embed";
@@ -59,7 +59,7 @@ describe("Geant domain composition", () => {
     const camera = new THREE.PerspectiveCamera(); camera.position.set(0, 1.65, 0);
     const viewer = await createGeantViewer({ bodies: ["moon"], renderer: renderer(), camera, time: "2026-10-16T12:00:00Z", timeRate: 0,
       location: { latitudeDegrees: 18, longitudeDegrees: -24 }, scaleDenominator: 50 });
-    await viewer.install(createGeantWorldsPlugin()); viewer.viewer.frame(0);
+    await viewer.install(createGeantWorldsPlugin()); await viewer.install(createGeantMovementPlugin({ model: createGeantDesktopMovementModel() })); viewer.viewer.frame(0);
     const initial = new THREE.Vector3().copy(viewer.context.presentation.observerJ2000M!);
     viewer.navigation.dispatch(GEANT_ACTIONS.setMode, { mode: "orbit" }); viewer.viewer.frame(0);
     expect(new THREE.Vector3().copy(viewer.context.presentation.observerJ2000M!).distanceTo(initial)).toBeLessThan(0.001);

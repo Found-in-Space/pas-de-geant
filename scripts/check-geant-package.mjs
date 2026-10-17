@@ -30,7 +30,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import * as THREE from 'three';
-import { createGeantViewer, createGeantWorldsPlugin, GEANT_ACTIONS } from '@found-in-space/pas-de-geant';
+import { createGeantViewer, createGeantWorldsPlugin, createGeantMovementPlugin, createGeantSurfaceMovementModel, GEANT_ACTIONS } from '@found-in-space/pas-de-geant';
 import { createGeantBrowser } from '@found-in-space/pas-de-geant/browser';
 import { mount } from '@found-in-space/pas-de-geant/embed';
 import { createWorldSkykitPlugin } from '@found-in-space/pas-de-geant/worlds/skykit';
@@ -46,6 +46,7 @@ const renderer = { render() {}, xr: { isPresenting: false }, getDrawingBufferSiz
 const viewer = await createGeantViewer({ renderer, bodies: ['moon'] });
 assert.ok(viewer.scene instanceof THREE.Scene);
 await viewer.install(createGeantWorldsPlugin());
+await viewer.install(createGeantMovementPlugin({ model: createGeantSurfaceMovementModel() }));
 viewer.viewer.frame(0);
 const result = await viewer.actions.invoke(GEANT_ACTIONS.setScale, { scaleDenominator: 50 });
 assert.equal(result[0].status, 'fulfilled');

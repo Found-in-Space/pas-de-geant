@@ -43,6 +43,8 @@ export function createGeantControlsPlugin(options: GeantControlsOptions = {}) {
       const abort = new AbortController(), signal = abort.signal;
       const keys = new Set<string>(), presses = new Set<string>(), blockedKeys = new Set<string>();
       const exclusive = new Map<string, string>();
+      const axisPresses = new Set<string>();
+      let movementRevision = geant.movementRevision;
       const removers: Array<() => void> = [];
       const xr = createSkykitXrControlBindings({
         deadzone: 0.25,
@@ -63,7 +65,7 @@ export function createGeantControlsPlugin(options: GeantControlsOptions = {}) {
       function clear() {
         generation++;
         for (const key of keys) blockedKeys.add(key);
-        keys.clear(); presses.clear(); exclusive.clear();
+        keys.clear(); presses.clear(); exclusive.clear(); axisPresses.clear();
         releasePointer(); dragX = dragY = wheel = 0;
         xr.reset(); needsNeutral = true;
       }
@@ -138,6 +140,7 @@ export function createGeantControlsPlugin(options: GeantControlsOptions = {}) {
       }
       function pressed(input: GeantButtonInput) { return raw(input) !== 0; }
       removers.push(context.addPart({ id: "geant:manual-input", priority: -100, update(frame) {
+        if (movementRevision !== geant.movementRevision) { clear(); movementRevision = geant.movementRevision; }
         const activeSession = geant.renderer.xr?.isPresenting ? geant.renderer.xr.getSession() : null;
         const activeSources = [...(activeSession?.inputSources ?? [])];
         if (activeSession !== session || activeSources.length !== sources.length || activeSources.some((source, index) => source !== sources[index])) {
@@ -151,7 +154,13 @@ export function createGeantControlsPlugin(options: GeantControlsOptions = {}) {
         const values = new Map<GeantControlBinding, number>();
         for (const binding of candidates) {
           const edge = (binding.input.kind === "key" || binding.input.kind === "xr-button") && binding.phase !== "hold";
-          values.set(binding, raw(binding.input, edge));
+          let value = raw(binding.input, edge);
+          if (binding.input.kind === "xr-axis" && binding.phase === "press") {
+            const wasActive = axisPresses.has(binding.id);
+            if (value) axisPresses.add(binding.id); else axisPresses.delete(binding.id);
+            value = wasActive ? 0 : Math.sign(value);
+          }
+          values.set(binding, value);
         }
         const groups = new Map<string, GeantControlBinding[]>();
         // Neutral means the physical group is released, even if a modifier or

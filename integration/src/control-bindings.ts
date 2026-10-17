@@ -16,9 +16,9 @@ export const terrainAdjustmentBindings = defineGeantControlScheme({ id: "integra
   ...([ ["KeyV", 1], ["KeyC", -1] ] as const).map(([code, multiplier]) => ({
     id: `terrain.keyboard.${code}`, label: "Adjust terrain exaggeration", input: { kind: "key" as const, code },
     action: GEANT_TERRAIN_TOOL_ACTIONS.adjust, multiplier, phase: "hold" as const,
-    modes: ["surface", "free"] as const,
+    modes: ["surface", "free", "ship"] as const,
   })),
   { id: "terrain.xr.adjust", label: "Adjust terrain exaggeration with right grip held",
     input: { kind: "xr-axis", hand: "right", axis: "x" }, action: GEANT_TERRAIN_TOOL_ACTIONS.adjust,
-    modifiers: [{ kind: "xr-button", hand: "right", button: "grip" }], modes: ["surface", "free"], exclusiveGroup: "right-stick" },
+    modifiers: [{ kind: "xr-button", hand: "right", button: "grip" }], modes: ["surface", "observation", "orbit"], exclusiveGroup: "surface-right-stick" },
 ] }).bindings;

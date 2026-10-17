@@ -1,6 +1,6 @@
 import { DEFAULT_SCALE_DENOMINATOR } from "./navigation/policy.js";
 import type { WebGLRenderer } from "three";
-import { celestialBody, isSolarSystemBodyId, type SolarSystemBodyId } from "./worlds/solar-system.js";
+import { isSolarSystemBodyId, type SolarSystemBodyId } from "./worlds/solar-system.js";
 import type { NavigationMode, SurfaceLocation } from "./worlds/world-navigation.js";
 import { validScaleDenominator } from "./worlds/world-scale.js";
 import type { WorldSurfaceSource } from "./worlds/world-runtime.js";
@@ -51,9 +51,8 @@ export function resolveGeantConfiguration(options: GeantConfiguration = {}): Res
   if (!bodies.length || bodies.some(body => !isSolarSystemBodyId(body))) throw new RangeError("Select at least one registered body.");
   const focusBody = options.focusBody ?? bodies[0]!;
   if (!bodies.includes(focusBody)) throw new RangeError("The focused body must be selected.");
-  const mode = options.mode ?? (celestialBody(focusBody).surface ? "surface" : "orbit");
-  if (!["surface", "orbit", "free"].includes(mode)) throw new RangeError("Unknown navigation mode.");
-  if (mode === "surface" && !celestialBody(focusBody).surface) throw new RangeError(`${focusBody} has no surface navigation.`);
+  const mode = options.mode ?? "surface";
+  if (typeof mode !== "string" || !mode.trim()) throw new RangeError("A navigation label is required.");
   const terrainMultiplier = finiteNumber(options.terrainMultiplier ?? 1, "Terrain multiplier");
   if (terrainMultiplier < 0) throw new RangeError("Terrain multiplier must be nonnegative.");
   const time = options.time ?? "now";

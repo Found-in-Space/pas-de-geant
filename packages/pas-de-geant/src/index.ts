@@ -17,3 +17,11 @@ export * from "./navigation/simulation-clock.js";
 export * from "./navigation/controller-input.js";
 export * from "./navigation/transitions.js";
 export { geantAiCapabilities } from "./ai-tools.js";
+
+export { createGeantMovementPlugin, type GeantMovementOptions } from "./plugins/movement.js";
+export type { GeantMovementModel, GeantMovementFrame, GeantMovementSelection, GeantMovementSurface, GeantPlacement, GeantRigPose } from "./navigation/movement-model.js";
+export type { GeantHeightReference } from "./navigation/model-geometry.js";
+export { createGeantSurfaceMovementModel, type GeantSurfaceMovementOptions } from "./navigation/surface-movement.js";
+export { createGeantObservationMovementModel, type GeantObservationMovementOptions } from "./navigation/observation-movement.js";
+export { createGeantShipMovementModel, type GeantShipMovementOptions } from "./navigation/ship-movement.js";
+export { createGeantDesktopMovementModel } from "./navigation/desktop-movement.js";

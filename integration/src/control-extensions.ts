@@ -31,7 +31,10 @@ export function offerControlExtensions(browser: GeantBrowser) {
     if (!terrain.checked && removeTerrain) { removeTerrain(); removeTerrain = undefined; }
     if (disposed) return;
     controls!.setScheme(extendGeantControlScheme(standardGeantControlScheme, {
-      id: "integration:controls", add: [...(removePlanner ? plannerDebugBindings : []), ...(removeTerrain ? terrainAdjustmentBindings : [])],
+      id: "integration:controls", replace: removeTerrain ? [{
+        ...standardGeantControlScheme.bindings.find(binding => binding.id === "xr.turn")!,
+        unless: [{ kind: "xr-button", hand: "right", button: "grip" }],
+      }] : [], add: [...(removePlanner ? plannerDebugBindings : []), ...(removeTerrain ? terrainAdjustmentBindings : [])],
     }));
     showHelp();
   }

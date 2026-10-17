@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import {
+  createGeantMovementPlugin, createGeantSurfaceMovementModel, createGeantObservationMovementModel, createGeantShipMovementModel, createGeantDesktopMovementModel,
   createGeantControlsPlugin, createGeantTerrainToolsPlugin, createGeantTileDebugPlugin, createGeantViewer, createGeantXrPlugin,
   defineGeantControlScheme, extendGeantControlScheme, standardGeantControlScheme,
   GEANT_ACTIONS, GEANT_MOTION_ACTIONS, GEANT_TILE_DEBUG_ACTIONS, GEANT_TERRAIN_TOOL_ACTIONS,
@@ -36,6 +37,9 @@ async function fixture(options: GeantControlsOptions = {}, mode: "surface" | "or
   const viewer = await createGeantViewer({ renderer, host: host as unknown as HTMLElement, bodies: ["moon"], mode,
     time: "2026-10-17T12:00:00Z", timeRate: 0, scaleDenominator: 50 });
   viewers.push(viewer);
+  const surface = createGeantSurfaceMovementModel(), observation = createGeantObservationMovementModel(), ship = createGeantShipMovementModel(), desktop = createGeantDesktopMovementModel();
+  const movement = createGeantMovementPlugin({ model: frame => !frame.xr ? desktop : frame.state.mode === "surface" ? surface : frame.state.mode === "orbit" ? observation : ship });
+  await viewer.install(movement); viewer.update(0);
   const controls = createGeantControlsPlugin(options), uninstall = await viewer.install(controls);
   const tick = (delta = 1) => viewer.update(delta);
   const button = (hand: typeof left, index: number, pressed: boolean) => Object.assign(hand.gamepad.buttons[index]!, { pressed, value: Number(pressed) });
@@ -44,7 +48,7 @@ async function fixture(options: GeantControlsOptions = {}, mode: "surface" | "or
     event(canvas, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
     event(canvas, "pointermove", { pointerId: 1, clientX: dx, clientY: dy });
   };
-  return { viewer, controls, uninstall, host, canvas, xr, session, left, right, head, tick, key, drag, button };
+  return { viewer, controls, uninstall, observation, movement, host, canvas, xr, session, left, right, head, tick, key, drag, button };
 }
 const extra: GeantControlBinding = { id: "custom", label: "Custom feature", input: { kind: "key", code: "KeyP" }, action: "test:custom", category: "feature" };
 // Test-authored mappings deliberately differ from the integration app's choices.
@@ -54,12 +58,13 @@ const plannerTestBindings = defineGeantControlScheme({ id: "test:planner", bindi
   { id: "test.planner.imagery", label: "Toggle imagery overlay", input: { kind: "key", code: "KeyP" },
     action: GEANT_TILE_DEBUG_ACTIONS.toggleImagery, category: "feature" },
 ] }).bindings;
+const terrainTurn = { ...standardGeantControlScheme.bindings.find(binding => binding.id === "xr.turn")!, unless: [{ kind: "xr-button" as const, hand: "right" as const, button: "trigger" as const }] };
 const terrainTestBindings = defineGeantControlScheme({ id: "test:terrain", bindings: [
   { id: "test.terrain.keyboard", label: "Adjust terrain", input: { kind: "key", code: "KeyT" },
     action: GEANT_TERRAIN_TOOL_ACTIONS.adjust, phase: "hold", modes: ["surface", "free"] },
   { id: "test.terrain.xr", label: "Adjust terrain with modifier", input: { kind: "xr-axis", hand: "right", axis: "x" },
     action: GEANT_TERRAIN_TOOL_ACTIONS.adjust, modifiers: [{ kind: "xr-button", hand: "right", button: "trigger" }],
-    modes: ["surface", "free"], exclusiveGroup: "right-stick" },
+    modes: ["surface"], exclusiveGroup: "surface-right-stick" },
 ] }).bindings;
 
 describe("control scheme composition", () => {
@@ -82,7 +87,7 @@ describe("control scheme composition", () => {
     expect(defineGeantControlScheme({ id: "chord", bindings: [
       { ...extra, modifiers: [modifier] }, { ...extra, id: "plain", unless: [modifier] },
     ] }).bindings).toHaveLength(2);
-    expect(extendGeantControlScheme(standardGeantControlScheme, { id: "tools", add: [...plannerTestBindings, ...terrainTestBindings] }).bindings.length)
+    expect(extendGeantControlScheme(standardGeantControlScheme, { id: "tools", replace: [terrainTurn], add: [...plannerTestBindings, ...terrainTestBindings] }).bindings.length)
       .toBeGreaterThan(standardGeantControlScheme.bindings.length);
   });
 });
@@ -129,15 +134,16 @@ describe("standard controls", () => {
     expect(result[0]?.status).toBe("rejected");
     expect(b.viewer.getSnapshot().scaleDenominator).toBe(50);
   });
-  it("leaves planner buttons and terrain axes unbound, including diagonal scale gestures", async () => {
+  it("keeps planner shortcuts optional and uses the vertical stick for altitude", async () => {
     const f = await fixture();
     const debug = createGeantTileDebugPlugin({ panel: false }); await f.viewer.install(debug);
     f.xr.isPresenting = true; f.tick(0);
     f.button(f.left, 4, true); f.button(f.left, 5, true);
-    f.right.gamepad.axes[2] = 0.9; f.right.gamepad.axes[3] = -0.6; f.tick(0.5);
+    f.right.gamepad.axes[2] = 0.2; f.right.gamepad.axes[3] = -0.6; f.tick(0.5);
     expect(debug.getSnapshot()).toEqual({ terrain: false, imagery: false });
     expect(f.viewer.getSnapshot().terrainMultiplier).toBe(1);
-    expect(f.viewer.getSnapshot().scaleDenominator).toBeLessThan(50);
+    expect(f.viewer.getSnapshot().scaleDenominator).toBe(50);
+    expect(f.viewer.getSnapshot().locations.moon!.altitudeM).toBeGreaterThan(0);
   });
   it("gates orbit dragging, wheel and travel with movement false while allowing surface look", async () => {
     const f = await fixture({ movement: false }, "orbit");
@@ -145,9 +151,10 @@ describe("standard controls", () => {
     f.drag(40, 20); f.key("KeyW"); event(f.canvas, "wheel", { deltaY: 600 }); f.tick();
     expect(f.viewer.getSnapshot()).toEqual(before);
     f.viewer.navigation.dispatch(GEANT_ACTIONS.setMode, { mode: "surface" });
+    f.tick(0); const surfaceLocation = f.viewer.getSnapshot().locations;
     f.drag(40, 20); f.tick();
     expect(f.viewer.camera.rotation.y).not.toBe(0);
-    expect(f.viewer.getSnapshot().locations).toEqual(before.locations);
+    expect(f.viewer.getSnapshot().locations).toEqual(surfaceLocation);
   });
   it("rotates an orbit without changing distance or surface location, and changes orbital distance separately", async () => {
     const f = await fixture({}, "orbit");
@@ -164,17 +171,18 @@ describe("standard controls", () => {
     expect(new THREE.Vector3().copy(f.viewer.getSnapshot().observerJ2000M!).distanceTo(new THREE.Vector3().copy(focus))).toBeCloseTo(20_000_000, 3);
     expect(f.viewer.getSnapshot().scaleDenominator).toBe(50);
   });
-  it("latches one orbital stick function through a diagonal gesture until neutral", async () => {
+  it("latches observation turning and height adjustment until neutral", async () => {
     const f = await fixture({}, "orbit"); f.xr.isPresenting = true; f.tick(0);
     f.right.gamepad.axes[2] = 0.9; f.right.gamepad.axes[3] = -0.6; f.tick(0.5);
     expect(f.viewer.getSnapshot().scaleDenominator).toBe(50);
-    const observer = f.viewer.getSnapshot().observerJ2000M;
+    const anchor = f.observation.getAnchor()!, yaw = f.viewer.cameraRoot.rotation.y;
     f.right.gamepad.axes[2] = 0; f.right.gamepad.axes[3] = -0.9; f.tick(0.5);
-    expect(f.viewer.getSnapshot().observerJ2000M).toEqual(observer);
-    expect(f.viewer.getSnapshot().scaleDenominator).toBe(50);
+    expect(f.observation.getAnchor()!.position.equals(anchor.position)).toBe(true);
+    expect(f.viewer.cameraRoot.rotation.y).toBe(yaw);
     f.right.gamepad.axes[3] = 0; f.tick(0);
     f.right.gamepad.axes[3] = -0.9; f.tick(0.5);
-    expect(f.viewer.getSnapshot().scaleDenominator).toBeLessThan(50);
+    expect(f.observation.getAnchor()!.position.y).toBeGreaterThan(anchor.position.y);
+    expect(f.viewer.getSnapshot().scaleDenominator).toBe(50);
   });
   it("isolates viewers, editable targets and disabled keyboard/pointer input", async () => {
     const a = await fixture(), b = await fixture({ keyboard: false, pointer: "none" });
@@ -222,7 +230,7 @@ describe("optional control extensions and input lifetime", () => {
     expect(f.viewer.viewer.getSnapshot().parts.some(part => part.id === "geant:tile-debug")).toBe(false);
   });
   it("requires the terrain modifier, preserves authored exaggeration, and leaves orbit altitude available", async () => {
-    const f = await fixture({ scheme: extendGeantControlScheme(standardGeantControlScheme, { id: "terrain", add: terrainTestBindings }) });
+    const f = await fixture({ scheme: extendGeantControlScheme(standardGeantControlScheme, { id: "terrain", replace: [terrainTurn], add: terrainTestBindings }) });
     await f.viewer.actions.invoke(GEANT_ACTIONS.setTerrainMultiplier, { multiplier: 2 });
     const remove = await f.viewer.install(createGeantTerrainToolsPlugin({ panel: false }));
     f.xr.isPresenting = true; f.tick(0); f.right.gamepad.axes[2] = 0.8; f.tick(0.5);
@@ -233,14 +241,14 @@ describe("optional control extensions and input lifetime", () => {
     f.viewer.navigation.dispatch(GEANT_ACTIONS.setMode, { mode: "orbit" });
     f.right.gamepad.axes[2] = 0; f.button(f.right, 0, false); f.tick(0);
     f.right.gamepad.axes[2] = 0.8; f.tick(0.5);
-    expect(f.viewer.getSnapshot().observerJ2000M).not.toBeNull();
+    expect(f.viewer.cameraRoot.rotation.y).not.toBe(0);
     expect(f.viewer.getSnapshot().terrainMultiplier).toBe(multiplier);
     f.controls.setScheme(standardGeantControlScheme); await remove();
     expect(f.viewer.getSnapshot().terrainMultiplier).toBe(multiplier);
     expect(f.viewer.actions.listActions().some(action => action.id === GEANT_TERRAIN_TOOL_ACTIONS.adjust)).toBe(false);
   });
   it("keeps the stick latched when a terrain modifier is released mid-gesture", async () => {
-    const f = await fixture({ scheme: extendGeantControlScheme(standardGeantControlScheme, { id: "terrain", add: terrainTestBindings }) });
+    const f = await fixture({ scheme: extendGeantControlScheme(standardGeantControlScheme, { id: "terrain", replace: [terrainTurn], add: terrainTestBindings }) });
     await f.viewer.install(createGeantTerrainToolsPlugin({ panel: false }));
     f.xr.isPresenting = true; f.tick(0);
     f.button(f.right, 0, true); f.right.gamepad.axes[2] = 0.9; f.right.gamepad.axes[3] = -0.5; f.tick(0.1);
@@ -252,7 +260,8 @@ describe("optional control extensions and input lifetime", () => {
     expect(f.viewer.getSnapshot().terrainMultiplier).toBe(multiplier);
     f.right.gamepad.axes[2] = f.right.gamepad.axes[3] = 0; f.tick(0);
     f.right.gamepad.axes[3] = -0.9; f.tick(0.1);
-    expect(f.viewer.getSnapshot().scaleDenominator).toBeLessThan(50);
+    expect(f.viewer.getSnapshot().scaleDenominator).toBe(50);
+    expect(f.viewer.getSnapshot().locations.moon!.altitudeM).toBeGreaterThan(0);
   });
   it("follows replacement surfaces and clears diagnostics when they are retired", async () => {
     const f = await fixture();
@@ -272,7 +281,7 @@ describe("optional control extensions and input lifetime", () => {
     f.controls.setScheme(standardGeantControlScheme); const before = f.viewer.getSnapshot();
     f.key("KeyW", true, true); f.tick(); expect(f.viewer.getSnapshot()).toEqual(before);
     f.key("KeyW", false); f.key("KeyW"); f.tick(0.1); expect(f.viewer.getSnapshot()).not.toEqual(before);
-    f.viewer.navigation.dispatch(GEANT_ACTIONS.setMode, { mode: "orbit" }); const orbit = f.viewer.getSnapshot();
+    f.viewer.navigation.dispatch(GEANT_ACTIONS.setMode, { mode: "orbit" }); f.tick(0); const orbit = f.viewer.getSnapshot();
     f.tick(); expect(f.viewer.getSnapshot()).toEqual(orbit);
     f.key("KeyW", false); f.key("KeyW"); event(f.host, "blur"); f.tick(); expect(f.viewer.getSnapshot()).toEqual(orbit);
     f.drag(20, 20); expect(f.canvas.captures.size).toBe(1);
@@ -287,11 +296,29 @@ describe("optional control extensions and input lifetime", () => {
     f.left.gamepad.axes[3] = 0; f.tick(0); f.left.gamepad.axes[3] = -1; f.tick(0.1);
     const moved = f.viewer.getSnapshot(); expect(moved.locations).not.toEqual(before.locations);
     f.controls.setScheme(standardGeantControlScheme); f.tick(); expect(f.viewer.getSnapshot()).toEqual(moved);
-    f.left.gamepad.axes[3] = 0; f.tick(0); f.left.gamepad.axes[2] = 0.8; f.button(f.left, 0, true);
+    f.left.gamepad.axes[3] = 0; f.tick(0); f.right.gamepad.axes[2] = 0.8;
     const orientation = f.head.quaternion.clone(); f.tick(0.1);
     expect(f.viewer.cameraRoot.rotation.y).not.toBe(0); expect(f.head.quaternion.equals(orientation)).toBe(true);
     f.session.inputSources = [f.right]; f.tick();
     f.session.inputSources = [f.left, f.right]; f.tick(); expect(f.viewer.getSnapshot()).toEqual(moved);
+  });
+  it("clears held input when a model object changes under the same navigation label", async () => {
+    const f = await fixture(); f.key("KeyW"); f.tick(0.1);
+    const before = f.viewer.getSnapshot().locations;
+    f.movement.setModel(createGeantSurfaceMovementModel({ id: "host:other-surface" })); f.tick(0.1);
+    expect(f.viewer.getSnapshot().locations).toEqual(before);
+    f.key("KeyW", true, true); f.tick(0.1); expect(f.viewer.getSnapshot().locations).toEqual(before);
+    f.key("KeyW", false); f.key("KeyW"); f.tick(0.1);
+    expect(f.viewer.getSnapshot().locations).not.toEqual(before);
+  });
+  it("snaps by a fixed angle once per deflection and repeats after neutral", async () => {
+    const f = await fixture(); f.xr.isPresenting = true; f.tick(0);
+    f.right.gamepad.axes[2] = 0.5; f.tick(0.1);
+    expect(f.viewer.cameraRoot.rotation.y).toBeCloseTo(-Math.PI / 6);
+    f.tick(0.1); expect(f.viewer.cameraRoot.rotation.y).toBeCloseTo(-Math.PI / 6);
+    f.right.gamepad.axes[2] = 0; f.tick(0);
+    f.right.gamepad.axes[2] = 0.9; f.tick(0.1);
+    expect(f.viewer.cameraRoot.rotation.y).toBeCloseTo(-Math.PI / 3);
   });
   it("tracks custom chord modifiers and refuses a second input owner", async () => {
     const scheme = defineGeantControlScheme({ id: "chord", bindings: [{ ...extra, modifiers: [{ kind: "key", code: "ControlLeft" }] }] });

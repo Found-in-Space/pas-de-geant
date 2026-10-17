@@ -7,6 +7,12 @@ import type { SolarSystemBodyId } from "./worlds/solar-system.js";
 import type { WorldSurfaceSource } from "./worlds/world-runtime.js";
 import { createBodySurfaceModel } from "./worlds/surface-model.js";
 import { celestialBody } from "./worlds/solar-system.js";
+import { createGeantMovementPlugin } from "./plugins/movement.js";
+import { createGeantSurfaceMovementModel } from "./navigation/surface-movement.js";
+import { createGeantObservationMovementModel } from "./navigation/observation-movement.js";
+import { createGeantShipMovementModel } from "./navigation/ship-movement.js";
+import { createGeantDesktopMovementModel } from "./navigation/desktop-movement.js";
+import type { GeantMovementSelection } from "./navigation/movement-model.js";
 
 export interface GeantComposition {
   /** Authored frame calculation/rendering, after plugin updates. Use viewer.render() for render hooks. */
@@ -25,6 +31,8 @@ export interface GeantBrowserOptions extends Omit<GeantViewerOptions, "renderer"
   readonly stars?: boolean;
   readonly ai?: import("./config.js").GeantAiOptions;
   readonly controls?: false | GeantControlsOptions;
+  /** Replace or omit the convenience navigation preset. The viewer has no default model. */
+  readonly movement?: GeantMovementSelection | false;
   readonly autoStart?: boolean;
   readonly signal?: AbortSignal;
   /** Advanced application composition replaces the default worlds/controls plugins. */
@@ -82,6 +90,7 @@ export async function createGeantBrowser(options: GeantBrowserOptions) {
   let composition: GeantComposition | undefined;
   let worldsPlugin: ReturnType<typeof createGeantWorldsPlugin> | undefined;
   let controlsPlugin: ReturnType<typeof createGeantControlsPlugin> | undefined;
+  let movementPlugin: ReturnType<typeof createGeantMovementPlugin> | undefined;
   let observer: ResizeObserver | undefined;
   let lastTime: number | undefined;
   let running = false;
@@ -149,6 +158,21 @@ export async function createGeantBrowser(options: GeantBrowserOptions) {
       }) satisfies GeantSurfaceFactory]));
       worldsPlugin = createGeantWorldsPlugin({ surfaces, signal: abort.signal, workers: options.workers });
       await geant.install(worldsPlugin);
+      if (options.movement !== false) {
+        const surface = createGeantSurfaceMovementModel(), observation = createGeantObservationMovementModel();
+        const ship = createGeantShipMovementModel(), desktop = createGeantDesktopMovementModel();
+        const model: GeantMovementSelection = options.movement ?? (frame => {
+          if (!frame.xr) return desktop;
+          switch (frame.state.mode) {
+            case "surface": return surface;
+            case "observation": case "orbit": return observation;
+            case "ship": case "free": return ship;
+            default: throw new RangeError("Supply a movement selection for the host's navigation label.");
+          }
+        });
+        movementPlugin = createGeantMovementPlugin({ model });
+        await geant.install(movementPlugin);
+      }
       if (options.controls !== false) {
         controlsPlugin = createGeantControlsPlugin(options.controls);
         await geant.install(controlsPlugin);
@@ -163,7 +187,7 @@ export async function createGeantBrowser(options: GeantBrowserOptions) {
     resize();
     ready = true;
     if (options.autoStart !== false) start();
-    return { ...geant, host: options.host, element: root, controls: controlsPlugin ?? null, start, stop, resize, dispose,
+    return { ...geant, host: options.host, element: root, controls: controlsPlugin ?? null, movement: movementPlugin ?? null, start, stop, resize, dispose,
       async setSurface(body: SolarSystemBodyId, factory: GeantSurfaceFactory) {
         if (!worldsPlugin) throw new Error("The authored composition owns surface replacement.");
         await worldsPlugin.setSurface(body, factory);
