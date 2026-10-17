@@ -56,7 +56,7 @@ export function createGeantWorldsPlugin(options: GeantWorldsOptions = {}) {
   }
   function update(_frame: SkykitThreeFrame) {
     const state = geant.navigation.getSnapshot();
-    const at = new Date(state.time);
+    const at = new Date(geant.time.getSnapshot().atMs);
     const { originJ2000M: origin, systemRotation: frameRotation, translation: focusCentre } = geant.presentation;
     for (const [body, world] of runtimes) {
       const physical = bodyPositionJ2000M(body, at);

@@ -22,7 +22,7 @@ try {
   await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...offline], { cwd: directory });
   const library = join(directory, 'node_modules/@found-in-space/pas-de-geant');
   const manifest = JSON.parse(await readFile(join(library, 'package.json'), 'utf8'));
-  assert.deepEqual(Object.keys(manifest.exports).sort(), ['.', './worlds', './worlds/skykit', './browser', './embed', './ai', './stars', './sky-image'].sort());
+  assert.deepEqual(Object.keys(manifest.exports).sort(), ['.', './worlds', './worlds/skykit', './browser', './embed', './ai', './stars', './sky-image', './appearances'].sort());
   for (const entry of Object.values(manifest.exports)) { await access(join(library, entry.default)); await access(join(library, entry.types)); }
   for (const name of ['assets/bluemarble-2048.png', 'assets/lroc-color-2k.jpg',
     'worlds/tile-scheduler.worker.js', 'worlds/imagery-decoder.worker.js']) await access(join(library, 'dist', name));
@@ -33,12 +33,13 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import * as THREE from 'three';
-import { createGeantViewer, createGeantWorldsPlugin, createGeantMovementPlugin, createGeantSurfaceMovementModel, GEANT_ACTIONS } from '@found-in-space/pas-de-geant';
+import { createGeantViewer, createGeantWorldsPlugin, createGeantMovementPlugin, createGeantSurfaceMovementModel, createGeantBodyAppearancePlugin, GEANT_ACTIONS } from '@found-in-space/pas-de-geant';
 import { createGeantBrowser } from '@found-in-space/pas-de-geant/browser';
 import { mount } from '@found-in-space/pas-de-geant/embed';
 import { createWorldSkykitPlugin } from '@found-in-space/pas-de-geant/worlds/skykit';
 import { celestialBody } from '@found-in-space/pas-de-geant/worlds';
 import { createGeantSkyImagePlugin } from '@found-in-space/pas-de-geant/sky-image';
+import { createSunAppearance } from '@found-in-space/pas-de-geant/appearances';
 const require = createRequire(import.meta.url);
 const geant = createRequire(require.resolve('@found-in-space/pas-de-geant'));
 assert.equal(geant.resolve('three'), require.resolve('three'));
@@ -59,12 +60,14 @@ assert.equal(viewer.getSnapshot().scaleDenominator, 50);
 const texture = new THREE.Texture();
 const removeSky = await viewer.install(createGeantSkyImagePlugin({ texture }));
 viewer.render(); await removeSky();
+const sun = createGeantBodyAppearancePlugin({ body: celestialBody('sun'), appearance: createSunAppearance });
+const removeSun = await viewer.install(sun); viewer.frame(0); await removeSun();
 await viewer.dispose();
 console.log('Packed core and image lifecycle passed with no SkyKit aggregate or star packages installed.');
 `);
   const result = await exec(process.execPath, ['check.mjs'], { cwd: directory });
   process.stdout.write(result.stdout);
-  await writeFile(join(directory, 'image-consumer.ts'), `import { createGeantViewer } from '@found-in-space/pas-de-geant';\nimport { createGeantSkyImagePlugin } from '@found-in-space/pas-de-geant/sky-image';\nconst plugin = createGeantSkyImagePlugin();\nconst start = (renderer: import('three').WebGLRenderer) => createGeantViewer({ renderer, plugins: [plugin] });\n`);
+  await writeFile(join(directory, 'image-consumer.ts'), `import { createGeantViewer, createGeantBodyAppearancePlugin, type BodyAppearanceFactory } from '@found-in-space/pas-de-geant';\nimport { createSunAppearance } from '@found-in-space/pas-de-geant/appearances';\nimport { celestialBody } from '@found-in-space/pas-de-geant/worlds';\nimport { createGeantSkyImagePlugin } from '@found-in-space/pas-de-geant/sky-image';\nconst factory: BodyAppearanceFactory = createSunAppearance;\nconst plugin = createGeantSkyImagePlugin();\nconst sun = createGeantBodyAppearancePlugin({ body: celestialBody('sun'), appearance: factory });\nconst start = (renderer: import('three').WebGLRenderer) => createGeantViewer({ renderer, plugins: [plugin, sun] });\n`);
   // The pinned spatial alpha has a duplicate declaration; keep the existing
   // consumer skipLibCheck policy, and separately verify Geant's declarations
   // have no back-reference to the optional aggregate SkyKit package.

@@ -42,13 +42,19 @@ use 1:63,781,370; Earth is 20 cm across its equator, the Moon is 5.4 cm across,
 and the Sun is about 22 m across off to the right. The starting eye is about
 85 cm in front of the Earth/Moon plane. Spacing and lighting are authored.
 The page and scene show body names without physical or display-size readouts.
-The Sun has a case-owned animated granulation material and a soft additive
-corona. Its photosphere retains the shared size scale. This is an artistic
+The Sun uses the public `createGeantBodyAppearancePlugin` with
+`createSunAppearance` from `/appearances`. Its stable root receives the authored
+pose and shared size scale. The factory can be replaced without changing that
+root. It supplies animated granulation and a soft additive corona. This is an artistic
 illustration, with exaggerated cells and animation, rather than measured solar
 imagery or a convection simulation. A small generated, repeating texture and
 two sphere draws supply the effect without external assets or postprocessing.
-The existing viewer scheduler advances its animation independently of the
-paused ephemeris clock; no second render loop is installed. Check the surface
+This case explicitly chooses `{ animationTime: "presentation" }` for motion
+independent of its paused simulation clock. The public factory defaults to
+simulation time and supports pause, reverse playback and seeks. Both the frame
+input and factory subscription use the viewer's shared simulation-time source;
+no second render loop is installed. See the package's
+[appearance contract](../packages/pas-de-geant/docs/appearances.md). Check the surface
 motion, smooth limb and glow in both eyes, including near the sphere's poles.
 Check the desktop view at narrow and wide widths, then enter VR and inspect
 both small bodies up close. Check the Moon's round outline as you lean and

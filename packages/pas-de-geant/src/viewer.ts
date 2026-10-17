@@ -5,11 +5,13 @@ import { createGeantNavigation, type GeantNavigation } from "./navigation/contro
 import { registerGeantMotionActions } from "./navigation/motion.js";
 import type { SolarSystemBodyId, Vector3d } from "./worlds/solar-system.js";
 import type { WorldRuntime } from "./worlds/world-runtime.js";
+import { createGeantSimulationTime, type GeantSimulationTime } from "./simulation-time.js";
 
 const GEANT_CONTEXT = Symbol("geant:context");
 export interface GeantContext {
   readonly three: typeof THREE;
   readonly navigation: GeantNavigation;
+  readonly time: GeantSimulationTime;
   readonly presentation: { observerJ2000M: Vector3d | null; originJ2000M: Vector3d; systemRotation: THREE.Quaternion; translation: THREE.Vector3 };
   movement: { command(action: string, payload: Readonly<Record<string, unknown>>, metadata?: SkykitActionMetadata): unknown } | null;
   movementRevision: number;
@@ -35,6 +37,7 @@ export interface GeantViewerOptions extends GeantConfiguration {
 export async function createGeantViewer(options: GeantViewerOptions) {
   const configuration = resolveGeantConfiguration(options);
   const navigation = createGeantNavigation(configuration);
+  const simulationTime = createGeantSimulationTime(navigation);
   const scene = options.scene ?? new THREE.Scene();
   const camera = options.camera ?? new THREE.PerspectiveCamera(62, 1, 0.025, 100_000_000);
   const cameraRoot = options.cameraRoot ?? new THREE.Group();
@@ -48,7 +51,7 @@ export async function createGeantViewer(options: GeantViewerOptions) {
   cameraRoot.name ||= "geant-observer";
   cameraRoot.add(camera); scene.add(cameraRoot);
   const worlds = new Map<SolarSystemBodyId, WorldRuntime>();
-  const context: GeantContext = { three: THREE, navigation, movement: null, movementRevision: 0,
+  const context: GeantContext = { three: THREE, navigation, time: simulationTime.time, movement: null, movementRevision: 0,
     presentation: { observerJ2000M: null, originJ2000M: { x: 0, y: 0, z: 0 }, systemRotation: new THREE.Quaternion(), translation: new THREE.Vector3() },
     scene, camera, renderer: options.renderer, host: options.host ?? null, cameraRoot, worlds };
   // Geant owns physical navigation. SkyKit supplies parts/actions, without its star-flight input policy.
@@ -60,19 +63,21 @@ export async function createGeantViewer(options: GeantViewerOptions) {
     viewer = await createSkykitViewer({ scene, camera, cameraRoot: false, renderer: options.renderer, observerRig, autoMountRenderer: false });
     await viewer.addPlugin({ id: "geant:domain", setup(ctx) {
       ctx.useStore(GEANT_CONTEXT, () => context);
+      ctx.addDisposable(ctx.on("viewer/update", () => simulationTime.sample()));
       ctx.addDisposable(navigation.register(ctx.actions));
       ctx.addDisposable(registerGeantMotionActions(context, ctx.actions));
       ctx.addDisposable(() => navigation.dispose());
+      ctx.addDisposable(() => simulationTime.dispose());
     } });
     for (const plugin of options.plugins ?? []) await viewer.addPlugin(plugin);
   } catch (error) {
-    await viewer?.dispose(); navigation.dispose(); restoreCameraRoots(); throw error;
+    await viewer?.dispose(); simulationTime.dispose(); navigation.dispose(); restoreCameraRoots(); throw error;
   }
   const runtime = viewer;
   const disposables = new Set<() => void | Promise<void>>();
   let disposal: Promise<void> | undefined;
   return {
-    viewer: runtime, context, three: THREE, configuration, navigation, actions: runtime.actions, scene, camera, renderer: options.renderer, cameraRoot,
+    viewer: runtime, context, three: THREE, configuration, navigation, time: simulationTime.time, actions: runtime.actions, scene, camera, renderer: options.renderer, cameraRoot,
     worlds,
     update: runtime.update, render: runtime.render, frame: runtime.frame, resize: runtime.resize,
     install: (plugin: SkykitPluginInput) => runtime.addPlugin(plugin),

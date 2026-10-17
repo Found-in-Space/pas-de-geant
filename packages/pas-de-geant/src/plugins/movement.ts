@@ -42,7 +42,8 @@ export function createGeantMovementPlugin(options: GeantMovementOptions) {
         return results;
       }
       function frame(metadata?: SkykitActionMetadata): GeantMovementFrame {
-        const state = geant.navigation.getSnapshot(), presenting = Boolean(geant.renderer.xr?.isPresenting);
+        const time = geant.time.getSnapshot();
+        const state = { ...geant.navigation.getSnapshot(), time: time.atMs, timeRate: time.rate }, presenting = Boolean(geant.renderer.xr?.isPresenting);
         const manager = geant.renderer.xr;
         const nextReference = manager?.getReferenceSpace?.() ?? undefined;
         const nextSession = manager?.getSession?.() ?? undefined;

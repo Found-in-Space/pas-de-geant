@@ -22,7 +22,7 @@ export function createGeantStarsPlugin(options?: SpatialStarPassOptions): Skykit
     context.addDisposable(dispose);
     const position = () => {
       const state = geant.navigation.getSnapshot();
-      const metres = geant.presentation.observerJ2000M ?? bodyPositionJ2000M(state.focusBody, new Date(state.time));
+      const metres = geant.presentation.observerJ2000M ?? bodyPositionJ2000M(state.focusBody, new Date(geant.time.getSnapshot().atMs));
       return { x: metres.x / SPATIAL_METERS_PER_PARSEC, y: metres.y / SPATIAL_METERS_PER_PARSEC, z: metres.z / SPATIAL_METERS_PER_PARSEC };
     };
     // An unavailable optional catalog leaves the worlds usable.

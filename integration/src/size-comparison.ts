@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { GeantViewer } from "@found-in-space/pas-de-geant";
+import { createGeantBodyAppearancePlugin, type GeantViewer } from "@found-in-space/pas-de-geant";
 import { createReferenceSurfaceFactory } from "@found-in-space/pas-de-geant/browser";
 import {
   celestialBody, createWorldRuntime, observeBodySurface,
@@ -7,7 +7,7 @@ import {
 } from "@found-in-space/pas-de-geant/worlds";
 import { createWorldSkykitPlugin } from "@found-in-space/pas-de-geant/worlds/skykit";
 import { mountViewer, runCase } from "./case.js";
-import { createSolarAppearance } from "./solar-appearance.js";
+import { createSunAppearance } from "@found-in-space/pas-de-geant/appearances";
 
 const bodies = ["moon", "earth", "sun"] as const;
 // Keep all sizes on one scale, with a 20 cm Earth in comfortable viewing range.
@@ -57,14 +57,11 @@ async function compose(viewer: GeantViewer, signal: AbortSignal) {
     const displayRadiusM = body.referenceRadiusM / scaleDenominator;
     const centreX = body.id === "moon" ? -0.24 : body.id === "sun" ? radiusM + 0.6 : 0;
     if (body.id === "sun") {
-      const sun = createSolarAppearance();
+      const sun = createGeantBodyAppearancePlugin({ body, signal,
+        appearance: context => createSunAppearance(context, { animationTime: "presentation" }) });
       sun.object3d.scale.setScalar(displayRadiusM);
       sun.object3d.position.set(centreX, centreY, rowZ);
-      viewer.viewer.addPart({ id: "size-comparison:sun", object3d: sun.object3d,
-        attach(context) { context.roots.originContentRoot.add(sun.object3d); },
-        update(frame) { sun.setTime(frame.elapsedSeconds); },
-        dispose: sun.dispose,
-      });
+      await viewer.install(sun);
     } else {
       const initialView: TerrainSurfaceView = { latitudeDegrees: 0, longitudeDegrees: 0,
         displayRadiusM, terrainMultiplier: 1, observerHeightWorldM: -rowZ, focalLengthPixels: 600 };

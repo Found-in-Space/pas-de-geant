@@ -13,10 +13,13 @@ workspace and use only public exports.
 | `/browser` | `createGeantBrowser({ host, ...options })` |
 | `/embed` | Attributes, `mount`, `unmount`, `whenReady`, `mountAll`, and `Geant` |
 | `/ai` | Optional VoiceOS browser runtime/plugin |
+| `/appearances` | Optional procedural body appearances; initially the Sun |
 | `/sky-image` | Optional Deep Star Maps image background; no star dependencies |
 | `/stars` | Optional SkyKit catalog background and explicit star pass |
 
 See the [movement architecture and integration contract](docs/movement.md).
+See [replaceable body appearances and simulation time](docs/appearances.md)
+for custom body visuals, observation-provider subscriptions and model replacement.
 Internal filenames are implementation details. See [world capabilities](docs/worlds.md)
 for source contracts, coordinates, terrain, caching and ownership.
 

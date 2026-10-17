@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 
-for (const entry of ['.', '/browser', '/embed', '/sky-image']) {
+for (const entry of ['.', '/browser', '/embed', '/sky-image', '/appearances']) {
   const specifier = `@found-in-space/pas-de-geant${entry === '.' ? '' : entry}`;
   const result = await build({ stdin: { contents: `export * from '${specifier}';`, resolveDir: process.cwd() },
     bundle: true, format: 'esm', platform: 'browser', splitting: true,
@@ -13,6 +13,8 @@ for (const entry of ['.', '/browser', '/embed', '/sky-image']) {
     assert.doesNotMatch(input, /\/(?:star-trees|star-octree-provider|three-star-field|hr-diagram|meta-sidecar-provider)\//,
       `${specifier} reaches a star dependency: ${input}`);
     assert.doesNotMatch(input, /\/(?:stars|spatial-star-pass)\.js$/, `${specifier} reaches catalog plugin code: ${input}`);
+    if (entry !== '/appearances') assert.doesNotMatch(input, /\/appearances\/sun\.js$/,
+      `${specifier} reaches the optional Sun implementation: ${input}`);
     if (entry !== '/sky-image') assert.doesNotMatch(input, /\/(?:sky-image\.js|deep-star-map-)/,
       `${specifier} reaches the optional sky image: ${input}`);
   }

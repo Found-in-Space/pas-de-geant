@@ -40,6 +40,10 @@
       "types": "./dist/embed.d.ts",
       "default": "./dist/embed.js"
     },
+    "./appearances": {
+      "types": "./dist/appearances.d.ts",
+      "default": "./dist/appearances.js"
+    },
     "./stars": {
       "types": "./dist/stars.d.ts",
       "default": "./dist/stars.js"

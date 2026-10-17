@@ -13,6 +13,9 @@ export { createGeantTileDebugPlugin, GEANT_TILE_DEBUG_ACTIONS } from "./plugins/
 export { createGeantTerrainToolsPlugin, GEANT_TERRAIN_TOOL_ACTIONS } from "./plugins/terrain-tools.js";
 export * from "./navigation/policy.js";
 export * from "./navigation/simulation-clock.js";
+export type { GeantSimulationTime, GeantSimulationTimeSnapshot, GeantSimulationTimeListener, GeantSimulationTimeReason } from "./simulation-time.js";
+export { createGeantBodyAppearancePlugin, type BodyAppearance, type BodyAppearanceFrame,
+  type BodyAppearanceContext, type BodyAppearanceFactory, type GeantBodyAppearanceOptions } from "./body-appearance.js";
 export * from "./navigation/controller-input.js";
 export * from "./navigation/transitions.js";
 export { geantAiCapabilities } from "./ai-tools.js";
