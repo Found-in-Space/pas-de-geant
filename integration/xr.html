@@ -3,9 +3,11 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>XR session and controls — Geant integration</title></head>
 <body>
 <nav><a href="./">Integration cases</a></nav>
-<h1>XR session and controls</h1><p>Open on a headset using localhost or HTTPS, then select Enter VR. Check tracked head motion, left-stick travel, right-stick scale, and session exit. This case has no imagery service, voice service, or diagnostic bindings.</p>
+<h1>XR session and standard controls</h1><p>Open on a headset using localhost or HTTPS, then select Enter VR. Check tracked head motion, left-stick travel, right-stick vertical scale, and session exit. X/Y and horizontal terrain adjustment are unbound by default. Enable extensions before entering VR to test their shortcuts. Release the sticks and buttons after changing extensions or entering VR.</p>
+<p><label><input id="planner-tools" type="checkbox"> Planner overlays (X/Y)</label> <label><input id="terrain-tools" type="checkbox"> Terrain tools (right grip + horizontal right stick)</label></p>
 <p id="status" role="status">Starting case…</p>
 <main><div id="world" class="world"></div></main>
 <details><summary>Public viewer state</summary><pre id="state"></pre></details>
+<details><summary>Active control bindings</summary><ul id="control-help"></ul></details>
 <script type="module" src="./src/xr.ts"></script>
 </body></html>

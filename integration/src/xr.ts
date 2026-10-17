@@ -1,5 +1,6 @@
 import { mountViewer, runCase } from "./case.js";
+import { offerControlExtensions } from "./control-extensions.js";
 
 runCase(async () => {
-  await mountViewer("world", { bodies: ["moon"], xr: true });
+  offerControlExtensions(await mountViewer("world", { bodies: ["moon"], xr: true }));
 });

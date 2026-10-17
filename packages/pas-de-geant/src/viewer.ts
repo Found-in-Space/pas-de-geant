@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { createSkykitViewer, type SkykitPluginContext, type SkykitPluginInput, type SkykitViewer, type SkykitViewerOptions } from "@found-in-space/skykit";
 import { resolveGeantConfiguration, type GeantConfiguration } from "./config.js";
 import { createGeantNavigation, type GeantNavigation } from "./navigation/controller.js";
+import { registerGeantMotionActions } from "./navigation/motion.js";
 import type { SolarSystemBodyId, Vector3d } from "./worlds/solar-system.js";
 import type { WorldRuntime } from "./worlds/world-runtime.js";
 
@@ -56,6 +57,7 @@ export async function createGeantViewer(options: GeantViewerOptions) {
     await viewer.addPlugin({ id: "geant:domain", setup(ctx) {
       ctx.useStore(GEANT_CONTEXT, () => context);
       ctx.addDisposable(navigation.register(ctx.actions));
+      ctx.addDisposable(registerGeantMotionActions(context, ctx.actions));
       ctx.addDisposable(() => navigation.dispose());
     } });
     for (const plugin of options.plugins ?? []) await viewer.addPlugin(plugin);

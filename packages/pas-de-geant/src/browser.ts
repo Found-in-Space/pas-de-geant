@@ -81,6 +81,7 @@ export async function createGeantBrowser(options: GeantBrowserOptions) {
   let geant: GeantViewer | undefined;
   let composition: GeantComposition | undefined;
   let worldsPlugin: ReturnType<typeof createGeantWorldsPlugin> | undefined;
+  let controlsPlugin: ReturnType<typeof createGeantControlsPlugin> | undefined;
   let observer: ResizeObserver | undefined;
   let lastTime: number | undefined;
   let running = false;
@@ -148,9 +149,12 @@ export async function createGeantBrowser(options: GeantBrowserOptions) {
       }) satisfies GeantSurfaceFactory]));
       worldsPlugin = createGeantWorldsPlugin({ surfaces, signal: abort.signal, workers: options.workers });
       await geant.install(worldsPlugin);
-      if (options.controls !== false) await geant.install(createGeantControlsPlugin(options.controls));
+      if (options.controls !== false) {
+        controlsPlugin = createGeantControlsPlugin(options.controls);
+        await geant.install(controlsPlugin);
+      }
     }
-    if (options.xr) { const { createGeantXrPlugin } = await import("./plugins/xr.js"); await geant.install(createGeantXrPlugin({ movement: options.controls !== false && options.controls?.movement !== false, speedHeadsetMPerSecond: options.controls === false ? undefined : options.controls?.speedHeadsetMPerSecond })); }
+    if (options.xr) { const { createGeantXrPlugin } = await import("./plugins/xr.js"); await geant.install(createGeantXrPlugin()); }
     if (options.stars) { const { createGeantStarsPlugin } = await import("./plugins/stars.js"); await geant.install(createGeantStarsPlugin()); }
     if (options.ai) { const { createGeantAiPlugin } = await import("./ai.js"); await geant.install(createGeantAiPlugin(options.ai)); }
     for (const plugin of options.plugins ?? []) await geant.install(plugin);
@@ -159,7 +163,7 @@ export async function createGeantBrowser(options: GeantBrowserOptions) {
     resize();
     ready = true;
     if (options.autoStart !== false) start();
-    return { ...geant, host: options.host, element: root, start, stop, resize, dispose,
+    return { ...geant, host: options.host, element: root, controls: controlsPlugin ?? null, start, stop, resize, dispose,
       async setSurface(body: SolarSystemBodyId, factory: GeantSurfaceFactory) {
         if (!worldsPlugin) throw new Error("The authored composition owns surface replacement.");
         await worldsPlugin.setSurface(body, factory);

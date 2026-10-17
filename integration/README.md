@@ -22,16 +22,52 @@ Vite has no public directory and does not copy that private file into builds.
 | Page | Check |
 | --- | --- |
 | `lifecycle.html` | Scale Moon independently; dispose/remount it while Earth remains usable. Pause/resume Earth. Leaving the page disposes viewers. |
-| `controls.html` | Focus, keyboard, pointer and wheel affect the enabled viewer; the disabled viewer stays fixed. Leaving clears input through package teardown. |
-| `xr.html` | Enter/exit VR, tracked head motion, travel and scale using the public XR plugin. No service configuration is required. |
-| `datasets.html` | Source admission, external imagery/elevation, attribution and browser caching. Try an invalid descriptor and a temporarily unavailable proxy. |
+| `planner-overlays.html` | Inspect terrain tile boundaries and imagery source overlays across location, scale and navigation modes. Compare with a fixed reference; optionally adjust terrain exaggeration. No service configuration is required. |
+| `xr.html` | Enter/exit VR, tracking, travel and scale with the same standard controls. Enable optional extensions before entering VR. No service configuration is required. |
+| `datasets.html` | Standard controls and optional planner/terrain tools with configured imagery/elevation. Check source admission, attribution, caching, invalid descriptors and unavailable proxies. |
 | `voice.html` | VoiceOS remains inactive until selected; check state queries/actions and teardown against an external token service. |
 | `embed.html` | Declarative attributes, focus, resizing and teardown through `/embed`. |
 | `planner.html` | Inspect the provider-independent tile cut and polar anchor using only `/worlds`, without remote tiles or WebGL. |
 
-The controls cases exercise the current implementation. Extendable schemes,
-unified desktop/XR commands and optional diagnostic bindings remain the next
-controls architecture task. These pages implement no navigation or input loops.
+Controls use the package's standard scheme and shared desktop/XR motion actions.
+The extension checkboxes start off. They install ordinary feature plugins and
+compose application-owned binding fragments through `extendGeantControlScheme`;
+no case implements navigation or input loops. `src/control-bindings.ts` selects
+F8/F9 and XR X/Y for planner actions, and C/V or right-grip-modified input for
+terrain adjustment. These associations belong only to this integration app;
+the package feature plugins expose actions without assigning keys or buttons.
+Active help derives from the resolved scheme.
+
+Planner overlay and interaction acceptance:
+
+- On `planner-overlays.html`, enable planner diagnostics and toggle terrain and
+  imagery overlays separately. Navigate and change scale to inspect the tile
+  cut, with the fixed reference alongside. Switch surface/orbit/free modes. In
+  orbit, movement rotates around the focused body and C/V/wheel changes distance
+  independently of scale. Use `datasets.html` with configured imagery to inspect
+  streamed source-tile boundaries.
+- Standard controls leave F8/F9, XR X/Y and surface C/V terrain adjustment
+  unbound. Enable planner tools, toggle overlays, then disable the extension;
+  overlays and shortcuts must stop. Re-enable it to check a fresh lifecycle.
+- Enable terrain tools and change the multiplier with the panel or C/V outside
+  orbit. Restore 1× explicitly. Removing the tools preserves the multiplier.
+  The bundled Moon is a reference surface; use `datasets.html` with measured
+  elevation to inspect relief and imagery boundaries.
+- In XR, begin with neutral sticks/buttons. Verify left-stick travel,
+  trigger-modified turning, grip boost and right-stick vertical scale. Bare
+  horizontal input must never change terrain. With terrain tools enabled,
+  hold right grip plus horizontal right stick. In orbit, horizontal input
+  changes distance. A diagonal right-stick gesture must keep one function until
+  both axes return to neutral.
+- Change schemes/modes while holding an input, blur the viewer, exit/re-enter
+  XR and reconnect controllers. Release before starting another interaction;
+  no held motion or button edge should carry into the next context. Leaving
+  the page releases input and feature resources.
+
+Built-in tool panels are HTML. Enable extensions before entering immersive XR;
+the supplied controller bindings operate there. Custom immersive panels can use
+Touch OS and the same public actions. Type/unit/package checks do not establish
+physical Quest or visual acceptance.
 
 Browser cases expose `window.geantIntegration.snapshot()` and
 `window.geantIntegration.invoke(viewerId, actionName, payload)` for inspection.

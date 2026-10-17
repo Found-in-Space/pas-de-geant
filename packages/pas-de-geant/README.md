@@ -58,6 +58,91 @@ registered bodies have plain globes. This keeps startup independent of API route
 and development tile-cache hosts. Stars, XR and AI are opt-in. Missing base
 imagery falls back to a plain reference colour.
 
+## Standard controls and extensions
+
+The browser installs one `createGeantControlsPlugin()` using
+`standardGeantControlScheme`. It owns keyboard, pointer and XR input together.
+XR session setup is separate: `xr: true` adds the entry button and tracking;
+`controls: false` leaves tracking available without manual navigation.
+
+| Input | Standard behavior |
+| --- | --- |
+| WASD / left stick | Surface or free travel; target-centred movement in orbit |
+| Shift / left grip | Faster travel |
+| Z/X / right stick vertical | Shrink/enlarge the world (physical 1:N scale) |
+| C/V / right stick horizontal | Change orbital distance in orbit mode; unbound elsewhere |
+| Drag | Look in surface/free mode; move around the focus in orbit mode |
+| Wheel | Change scale in surface/free mode; orbital distance in orbit mode |
+| Left trigger + horizontal left stick | Turn the view in surface/free mode |
+
+Planner overlays, terrain adjustment and voice shortcuts have no standard
+bindings. Diagonal right-stick gestures select one function until the stick
+returns to neutral. Small analog inputs retain their magnitude.
+`controls.speedHeadsetMPerSecond` overrides travel speed for both desktop and XR;
+otherwise surface walking and distance-sensitive free flight use their own policies.
+
+Schemes are immutable data with stable binding IDs. Extend with `add`, `replace`
+or `remove`. Duplicate IDs and overlapping input conditions are rejected;
+replacement is explicit. Conditions can select navigation/pointer modes and
+required or excluded modifiers. Bindings invoke arbitrary public action IDs.
+Feature plugins expose actions; the consuming application chooses their inputs.
+Planner and terrain plugins ship no keyboard or XR binding fragments.
+
+```ts
+import {
+  createGeantTileDebugPlugin, createGeantTerrainToolsPlugin,
+  extendGeantControlScheme, standardGeantControlScheme,
+} from "@found-in-space/pas-de-geant";
+import { investigationBindings } from "./controls.js"; // Authored by your application.
+
+const tools = extendGeantControlScheme(standardGeantControlScheme, {
+  id: "my-investigation",
+  add: investigationBindings,
+});
+const browser = await createGeantBrowser({
+  host,
+  controls: { scheme: tools },
+  plugins: [createGeantTileDebugPlugin(), createGeantTerrainToolsPlugin()],
+});
+```
+
+The planner plugin supplies terrain/imagery overlay actions and a small host
+panel. Applications can invoke `GEANT_TILE_DEBUG_ACTIONS` through any chosen
+binding, UI or programmatic caller. It follows the viewer's selected worlds and
+replacement surfaces; uninstalling hides the overlays.
+
+Terrain tools supply a numeric multiplier, Restore 1× control and
+`GEANT_TERRAIN_TOOL_ACTIONS.adjust` for application-authored bindings.
+Exaggeration changes the representation; it does not change source elevations.
+Installing/removing tools preserves the current multiplier. Configuration and
+`geant:terrain.setMultiplier` remain available without the tools plugin.
+Both tool factories accept `{ panel: false }` for hosts supplying their own UI.
+The built-in panels are HTML; in immersive XR applications can author controller
+bindings or compose a Touch OS panel with the same actions.
+
+For a live viewer, `browser.controls?.setScheme(nextScheme)` replaces the scheme
+without adding another input owner. `describeGeantControlScheme(scheme)` derives
+help from its actual bindings. To remove an extension, replace its bindings
+first, then call the teardown returned by `await browser.install(plugin)`.
+Blur, visibility changes, navigation/focus changes, rebinding, XR transitions
+and source changes clear held inputs. Release keys/sticks/buttons before
+starting a new interaction. Disposal releases listeners, parts and captures.
+
+`GEANT_MOTION_ACTIONS` exposes device-independent move, orbit, orbit-distance,
+surface-drag, scale-adjustment and look commands. They use the public action
+registry, including canonical navigation adapters. Continuous commands accept
+`deltaSeconds`; movement components are `right`/`forward`, orbital components
+are `x`/`y`, adjustments use `value`, and look takes angular displacements
+`yawRadians`/`pitchRadians`. A binding's `component`, `multiplier`, `payload`
+and optional `timeScale` map input into those commands. One-shot key/button
+bindings use press edges; continuous key/button bindings specify `phase: "hold"`.
+Tracked XR cameras retain their head orientation; manual turning moves the rig.
+
+The alpha demo-specific `controllerIntent`/`freshButtonLatch` API was removed.
+`createGeantXrPlugin()` now owns sessions only. Install controls separately when
+using the explicit viewer route. The browser route installs standard controls
+automatically. Navigation mode remains independent of the control scheme.
+
 ## Datasets and surfaces
 
 Imagery and elevation are independent per-body selections. Use `datasets` with
@@ -92,8 +177,8 @@ plugin/part/action lifecycle. Call `install(createGeantWorldsPlugin(...))`, then
 `viewer.update()` and `viewer.render()` from the host's scheduler. `getGeantContext`
 exposes domain state and world handles to ordinary plugin objects.
 
-First-party factories include worlds, controls, stars, a Touch OS panel adapter,
-and SkyKit XR. `createGeantStarPass()` is the advanced explicit multipass path;
+First-party factories include worlds, controls, planner diagnostics, terrain
+tools, stars, a Touch OS panel adapter, and SkyKit XR. `createGeantStarPass()` is the advanced explicit multipass path;
 it retains the tested observer/projection behavior without importing an authored
 journey. Aircraft and satellite extensions remain separate packages.
 

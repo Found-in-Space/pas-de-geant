@@ -15,7 +15,7 @@ GitHub Pages app deployment has been removed.
 | Area | Disposition |
 | --- | --- |
 | Bodies, frames, ephemerides, surface contact, scale, streaming, source admission and workers | Remain in the public package with their unit tests. |
-| Navigation model, actions, policy functions and timed transitions | Remain in the package. Controls architecture is a subsequent task; existing workbench behaviour is not a compatibility target. |
+| Navigation model, actions, policy functions and timed transitions | Remain in the package. Controls now use composable schemes and shared motion commands; existing workbench behaviour is not a compatibility target. |
 | Browser, embed, SkyKit lifecycle, stars, panels and XR adapters | Remain in the package; isolated pages and consumer examples exercise the public composition paths. |
 | Tile-onion visual inspection | Moved to an isolated integration page using `/worlds`. The deterministic provider fixture moved to unit-test fixtures. |
 | Walking app, duplicate input/render loops, focused Moon/Apollo pages, eclipse observatory, supervisor, authored journeys, forest overlays, location pins, geolocation and page UI | Retired with app-only tests. No automatic migration into package defaults; future capabilities need explicit ownership and requirements. |
@@ -29,10 +29,15 @@ integration area uses its own small ignored config and has no access to old
 session configuration through application code. Existing running processes
 were not stopped or reconfigured.
 
-## Next controls task
+## Controls after retirement
 
-Define standard controls and composable schemes against package capabilities.
-Use the isolated controls/XR pages as consumers. Select useful navigation
-behaviour deliberately from the historical implementation. Planner diagnostics,
-terrain adjustment and voice shortcuts are optional features; the former demo
-does not decide default bindings or require its complete behaviour to survive.
+The isolated planner-overlay/XR pages now consume the standard scheme, with planner
+diagnostics and terrain tools as explicit removable extensions. The dataset
+case offers the same extensions for measured surfaces. The integration app owns
+their keyboard/XR bindings; the package plugins expose actions without assigning
+feature-specific inputs. Device input invokes
+shared motion actions; the session plugin supplies tracking independently.
+The former hard-coded controller intent was removed. Voice shortcuts remain
+authored bindings rather than defaults. The former demo does not require its
+complete behaviour to survive. See the package and integration READMEs for the
+binding contract and manual acceptance checks.
