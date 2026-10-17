@@ -1,8 +1,4 @@
 {
   "files": [],
-  "references": [
-    {
-      "path": "./apps/pas-de-geant"
-    }
-  ]
+  "references": []
 }

@@ -22,9 +22,9 @@ to 256px`) recorded 256 as the MapTiler default and `?imageryVariant=maptiler-51
 as an explicit diagnostic override. The documentation did not explain the
 performance finding or state a rule across bodies and providers.
 
-The implementation in `apps/pas-de-geant/src/imagery-variants.ts` applies the
-256 selection to the recognised MapTiler satellite source. Other sources pass
-through. `apps/pas-de-geant/src/lunar-configuration.ts` takes `tileSize` from the
+The retired implementation in `apps/pas-de-geant/src/imagery-variants.ts` applied the
+256 selection to the recognised MapTiler satellite source. Other sources passed
+through. `apps/pas-de-geant/src/lunar-configuration.ts` took `tileSize` from the
 admitted lunar product. The texture producer's baseline and
 `projects/moon/apollo11-preview-mercator-v2/preview.toml` specify 512 pixels.
 Together these allowed Apollo imagery to use 512 despite the existing Quest
@@ -78,3 +78,7 @@ retain their authentic metadata.
 The producer's structural validation is separate from physical Quest
 performance acceptance. Keep Earth and Moon on the common renderer and loading
 path when preparing the runtime derivatives.
+
+The private app and its source-selection code were retired on 17 October 2026.
+Integration cases now consume explicit external dataset bindings; this history
+explains the 256-pixel acceptance rule rather than current application wiring.

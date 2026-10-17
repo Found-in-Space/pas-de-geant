@@ -137,10 +137,10 @@ async function callDebugApi(method, args = []) {
   const { browser, page } = await connectToApp();
   try {
     const value = await page.evaluate(({ methodName, methodArgs }) => {
-      const api = window.pasDeGeantDebug;
+      const api = window.geantIntegration;
       if (!api) {
         throw new Error(
-          "Runtime controls are disabled. Use a development build or add ?debug=1 to the URL.",
+          "Open an integration case with public viewer inspection enabled.",
         );
       }
       const selectedMethod = api[methodName];
@@ -180,11 +180,7 @@ function usage() {
     "  npm run quest:debug -- call <method> '[arg1,arg2]'",
     "",
     "Examples:",
-    "  npm run quest:debug -- call setLocation '[45.88,6.89]'",
-    "  npm run quest:debug -- call setScaleDenominator '[80000]'",
-    "  npm run quest:debug -- call setTerrainMultiplier '[2]'",
-    "  npm run quest:debug -- call setMaxZ '[\"textures\",14]'",
-    "  npm run quest:debug -- call setRendering '[false]'",
+    "  npm run quest:debug -- call invoke '[\"world\",\"geant:scale.set\",{\"scaleDenominator\":80000}]'",
   ].join("\n");
 }
 

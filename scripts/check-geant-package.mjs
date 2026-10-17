@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,8 +12,10 @@ const offline = process.argv.includes('--offline') ? ['--offline'] : [];
 const lock = JSON.parse(await readFile(join(root, 'package-lock.json'), 'utf8'));
 const threeTypes = lock.packages['node_modules/@types/three'].resolved;
 try {
-  const packed = await exec('npm', ['pack', '--workspace', '@found-in-space/pas-de-geant', '--pack-destination', directory, '--json'], { cwd: root });
-  const [{ filename }] = JSON.parse(packed.stdout);
+  await exec('npm', ['pack', '--workspace', '@found-in-space/pas-de-geant', '--pack-destination', directory], { cwd: root });
+  const archives = (await readdir(directory)).filter(name => name.endsWith('.tgz'));
+  assert.equal(archives.length, 1, 'Packing must produce one Geant archive.');
+  const [filename] = archives;
   await writeFile(join(directory, 'package.json'), JSON.stringify({ name: 'geant-external-consumer', private: true, type: 'module',
     dependencies: { '@found-in-space/pas-de-geant': `file:${join(directory, filename)}`, three: '0.170.0' },
     devDependencies: { '@types/three': threeTypes } }));
@@ -59,4 +61,5 @@ console.log('Packed ESM exports, public lifecycle and one shared Three.js 0.170.
   await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--noEmit', '--skipLibCheck', '--strict', '--module', 'NodeNext', '--target', 'ES2022', 'consumer.ts'], { cwd: directory });
   const ai = await exec(process.execPath, ['--input-type=module', '-e', "await import('@found-in-space/pas-de-geant/ai'); console.log('Packed optional AI and external TypeScript consumer passed.');"], { cwd: directory });
   process.stdout.write(ai.stdout);
+  console.log('Packed consumer exports, shared Three.js, lifecycle, optional VoiceOS and TypeScript checks passed.');
 } finally { await rm(directory, { recursive: true, force: true }); }

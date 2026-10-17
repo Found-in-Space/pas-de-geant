@@ -1,9 +1,23 @@
 # Project workflow
 
+## Package and integration boundaries
+
+- The default build produces only `@found-in-space/pas-de-geant`. The former
+  private application was retired; see `docs/workbench-retirement.md`.
+- Keep independent functionality/integration cases in `integration/`. Use only
+  public package exports and explicit case builds. Do not add case code to the
+  library, recreate a master demo, or publish integration cases automatically.
+- Satellite and aircraft runtime examples belong in their independent projects.
+- Configure external imagery/elevation services through dataset bindings. Tile
+  production belongs to Planetary Surfaces; acquisition/proxying belongs to the
+  tile-cache project. Do not add local tile servers or producer scripts here.
+- VoiceOS owns AI transport, audio and token services. Geant owns its optional
+  domain action/state adapter; keep authored agents and service code elsewhere.
+
 ## Quest debugging
 
 - Before debugging the Quest, read the ADB and DevTools setup in
-  `apps/pas-de-geant/README.md` and use the repository helper in
+  `integration/README.md` and use the repository helper in
   `scripts/quest-debug.mjs`.
 - Use the Meta Quest Developer Hub ADB binary directly:
   `/Applications/Meta Quest Developer Hub.app/Contents/Resources/bin/adb`.
@@ -17,9 +31,8 @@
   start, stop, or replace it unless asked or unless local validation requires
   a separate process.
 - Development tile acquisition uses the independent cache service. Never
-  bypass a missing or unavailable cache with direct MapTiler requests. Direct
-  access requires the documented deliberate override; keep upstream provider
-  credentials out of application configuration.
+  bypass a missing or unavailable cache with direct MapTiler requests. Keep
+  upstream provider credentials out of browser configuration.
 - Good imagery and elevation persist indefinitely in browser Cache Storage.
   Upstream freshness must not expire retained tiles. Tile provider tests use
   local fixtures or fake fetchers rather than live paid endpoints.
@@ -41,10 +54,9 @@
   server must live on durable storage outside Git. Never point live dataset
   configuration at `/tmp` or a disposable build directory. Verify completed
   products before switching their configured roots.
-- The shared cache host runs only the upstream tile cache/proxy. Application
-  APIs, AI token issuance and local lunar products stay on development machines.
-  Never forward all application APIs to the cache host or deploy local product
-  datasets there.
+- The shared cache host runs only the upstream tile cache/proxy. AI token
+  services and local product hosting are configured externally; never forward
+  unrelated APIs to the cache host or deploy local product datasets there.
 - Do not run browser tests unless visual verification is genuinely necessary.
   When visual verification is necessary, prefer the embedded viewer. The user
   performs visual testing far faster than automated browser tests.

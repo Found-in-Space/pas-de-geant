@@ -1,0 +1,17 @@
+{
+  "datasets": {
+    "body": "moon",
+    "sources": {
+      "imagery": {
+        "productUrl": "https://tiles.example.test/products/moon/display/product.json",
+        "urlTemplate": "https://tiles.example.test/api/tiles/moon-display/{z}/{x}/{y}",
+        "attribution": "Replace with the configured source attribution",
+        "addressing": "xyz"
+      }
+    }
+  },
+  "voice": {
+    "sessionEndpoint": "https://voice.example.test/token",
+    "profile": "geant-integration"
+  }
+}

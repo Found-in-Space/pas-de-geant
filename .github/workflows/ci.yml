@@ -36,5 +36,11 @@ jobs:
       - name: Run unit tests
         run: npm test
 
-      - name: Build application
-        run: npm run build
+      - name: Check shared dependencies
+        run: npm run check:spatial-package
+
+      - name: Build static embed and examples
+        run: npm run build:embed && npm run build:examples
+
+      - name: Build integration cases
+        run: npm run build:integration

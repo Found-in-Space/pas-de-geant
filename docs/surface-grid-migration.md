@@ -1,5 +1,10 @@
 # Shared surface grid migration
 
+This records the surface contract and the historical migration work. The private
+app and its local GDAL/service helpers were retired on 17 October 2026. Current
+consumers use public dataset bindings and external services; isolated checks live
+in `integration/datasets.html`.
+
 The reusable worlds runtime uses one configurable surface path. Earth keeps
 its WGS84 geometry and Mercator scheme; the Moon's canonical model uses that
 scheme on its own sphere. Source admission chooses the explicit compatibility
@@ -30,8 +35,8 @@ Scientific elevation is a separate contract:
 ```
 
 The descriptor's identity must authenticate its controlled inputs, processing
-and payload. The app's GDAL helper records scratch evidence; it is not a citable
-publication. LOLA reprojection operates on UInt16 scalar values, with point
+and payload. The retired app's GDAL helper recorded scratch evidence; it was not
+a citable publication. Its LOLA reprojection operated on UInt16 scalar values, with point
 bilinear resampling, exact transforms and a fixed unit kernel scale, plus 0.5 m
 target quantization, before RG16 encoding. This keeps global and independent
 tile-window samples consistent at the longitude wrap; an adaptive kernel can
@@ -45,9 +50,10 @@ checksums are recorded. Other height encodings/datums need a separately admitted
 implementation rather than borrowing the display contract.
 
 The loader validates body radius, units/encoding and grid agreement before
-combining imagery with elevation. A failed descriptor fetch/admission retains
-the bundled base and flat height provider. Incompatible admitted grids fail
-explicitly. Provider identities and browser URLs include product/grid identity;
+combining imagery with elevation. An explicitly configured descriptor failure
+rejects startup or surface replacement; a failed replacement retains the active
+surface. Unconfigured viewers use the bundled base and flat reference height.
+Incompatible admitted grids fail explicitly. Provider identities and browser URLs include product/grid identity;
 local descriptor responses revalidate. Hosted migration needs new immutable
 prefixes, since neither URL query identity nor metadata can reproject old bytes.
 
@@ -69,7 +75,7 @@ by filename alone.
 
 ## Measured elevation refinement
 
-Prepared terrain detail now uses the sibling `terrain-pipeline` contract.
+Prepared terrain detail uses the `planetary-surfaces/elevation` contract.
 Terrarium scalar heights and optional sparse `availability` are admitted by the
 shared source loader. The height provider resolves the finest available ancestor
 and uses ordinary XYZ crop UVs. The Apollo example composes LOLA, SLDEM2015 and
@@ -109,9 +115,10 @@ source/work/output/evidence roots, free disk and preflight estimates. Pin the
 clean pushed producer before generating publication evidence. Existing payloads
 and publication manifests are immutable and remain geographic.
 
-After complete producer validation, select new global imagery and matching
-scientific elevation descriptors in application configuration. Set
-`PAS_DE_GEANT_LUNAR_RUNTIME_DIRECTORY` to the prepared Mercator Apollo root.
+After complete producer validation, configure externally hosted global imagery
+and matching scientific elevation descriptors through public dataset bindings.
+The integration case uses `datasets.sources` in its ignored local config; no
+application-local product server or dataset-directory environment variable is used.
 
 The implementation is developed in isolated worktrees. Local Quest preparation
 builds and validates the complete global and Apollo payloads and matching
@@ -130,11 +137,11 @@ nonlinear archive/mask sampling and descriptor identity checks. The generated
 producer/consumer fixture covers both projections and body radii, tile/pixel
 positions, parent crops and antimeridian wrapping.
 
-Application tests cover source admission, grid/cache mismatch rejection,
+Package tests cover source admission, grid/cache mismatch rejection,
 projected mesh elevation UVs, measured bounds/caches for both height encodings,
-real displaced triangle coverage through normal queues, HTTP metadata routing,
-and a full small GDAL numeric round-trip with negative/zero/positive/extreme
-samples. Type checking and production bundling verify shared package/worker
+and real displaced triangle coverage through normal queues. The former app's
+HTTP routing and GDAL producer round-trip tests were retired with those helpers.
+Type checking and embed/integration bundling verify shared package/worker
 integration. Complete payload validation authenticates every declared tile and
 reconstructs the global pyramid exactly; elevation checks compare independent
 point samples at Apollo, the longitude wrap and the Mercator latitude limits.

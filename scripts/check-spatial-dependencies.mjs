@@ -8,24 +8,21 @@ import { createSkykitStarPreloadRequestsFromSpatialHints, SKYKIT_ICRS_SPACE } fr
 import { relativeJ2000MetresToRender, WORLD_J2000_METRES, WORLD_Y_UP_METRES } from '@found-in-space/pas-de-geant/worlds';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const app = join(root, 'apps/pas-de-geant');
 const worlds = join(root, 'packages/pas-de-geant');
 const json = async (path) => JSON.parse(await readFile(path, 'utf8'));
 const manifest = await json(join(root, 'package.json'));
-const appManifest = await json(join(app, 'package.json'));
 const worldsManifest = await json(join(worlds, 'package.json'));
 const lock = await json(join(root, 'package-lock.json'));
-const fromApp = createRequire(join(app, 'package.json'));
 const fromWorlds = createRequire(join(worlds, 'package.json'));
-const skykitEntry = fromApp.resolve('@found-in-space/skykit');
+const skykitEntry = fromWorlds.resolve('@found-in-space/skykit');
 const fromSkykit = createRequire(skykitEntry);
 const skykitManifest = await json(join(dirname(dirname(skykitEntry)), 'package.json'));
 
 for (const name of ['@found-in-space/skykit', '@found-in-space/spatial',
   '@found-in-space/star-octree-provider', '@found-in-space/star-trees', '@found-in-space/three-star-field']) {
-  const expected = appManifest.dependencies[name];
+  const expected = worldsManifest.dependencies[name];
   assert.match(expected, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, `${name} must use an exact registry version.`);
-  const entry = fromApp.resolve(name);
+  const entry = fromWorlds.resolve(name);
   const installedRoot = dirname(dirname(entry));
   assert.equal((await lstat(installedRoot)).isSymbolicLink(), false);
   assert.ok((await realpath(installedRoot)).startsWith((await realpath(root)) + sep));
@@ -42,16 +39,12 @@ for (const name of ['@found-in-space/skykit', '@found-in-space/spatial',
   }
 }
 
-const spatialVersion = appManifest.dependencies['@found-in-space/spatial'];
+const spatialVersion = worldsManifest.dependencies['@found-in-space/spatial'];
 const fromRoot = createRequire(join(root, 'package.json'));
 assert.equal(manifest.devDependencies['@found-in-space/spatial'], spatialVersion);
-assert.equal(manifest.devDependencies['@found-in-space/skykit'], appManifest.dependencies['@found-in-space/skykit']);
+assert.equal(manifest.devDependencies['@found-in-space/skykit'], worldsManifest.dependencies['@found-in-space/skykit']);
 assert.equal(fromRoot.resolve('@found-in-space/skykit'), skykitEntry);
-assert.equal(fromRoot.resolve('@found-in-space/spatial'), fromApp.resolve('@found-in-space/spatial'));
-assert.equal(worldsManifest.dependencies['@found-in-space/spatial'], spatialVersion);
-assert.equal(fromWorlds.resolve('@found-in-space/spatial'), fromApp.resolve('@found-in-space/spatial'));
-assert.equal(worldsManifest.dependencies['@found-in-space/skykit'], appManifest.dependencies['@found-in-space/skykit']);
-assert.equal(fromWorlds.resolve('@found-in-space/skykit'), skykitEntry);
+assert.equal(fromRoot.resolve('@found-in-space/spatial'), fromWorlds.resolve('@found-in-space/spatial'));
 
 const pose = normalizeSpatialPose({ space: WORLD_J2000_METRES, position: { x: 12.5, y: -3.25, z: 8 } });
 const axes = transformSpatialDisplacement({ from: pose.space, to: WORLD_Y_UP_METRES,
@@ -67,4 +60,4 @@ const evaluator = preload.strategy.createEvaluator(preload.strategy.createAnchor
 const cell = { centerX: 0.5, centerY: 0, centerZ: 0, halfSize: 0, level: 0, mortonCode: '0' };
 assert.equal(evaluator.evaluateCell(cell).include, true);
 assert.equal(evaluator.evaluateCell({ ...cell, centerX: 2 }).include, false);
-console.log(`Registry SkyKit ${appManifest.dependencies['@found-in-space/skykit']} and shared spatial ${spatialVersion} verified in Geant.`);
+console.log(`Registry SkyKit ${worldsManifest.dependencies['@found-in-space/skykit']} and shared spatial ${spatialVersion} verified in Geant.`);

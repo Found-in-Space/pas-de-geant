@@ -3,7 +3,6 @@ import { ScheduledImageryProvider } from "../packages/pas-de-geant/src/worlds/im
 import type { ImageryProvider } from "../packages/pas-de-geant/src/worlds/imagery-provider.js";
 import { SparseImageryProvider } from "../packages/pas-de-geant/src/worlds/sparse-imagery-provider.js";
 import type { TileIdentity } from "../packages/pas-de-geant/src/worlds/tile-transition-planner.js";
-import { lunarImageryProviders, type LunarImageryTileProduct } from "../apps/pas-de-geant/src/lunar-imagery-providers.js";
 
 function source(id: string, maxZoom: number): ImageryProvider {
   return { id, attribution: id, tileSize: 512, minZoom: 0, maxZoom,
@@ -92,24 +91,4 @@ describe("available imagery source selection", () => {
     scheduled.dispose();
   });
 
-  it("loads one prepared Apollo XYZ tile through the ordinary provider", async () => {
-    const product: LunarImageryTileProduct = {
-      kind: "sparse-opaque-xyz", formatVersion: 1, identity: "fixture", tileSize: 512,
-      sources: [{ id: "landing", attribution: "NAC", priority: 200,
-        minimumZoom: 3, maximumZoom: 3, pathTemplate: "landing/{z}/{x}/{y}.png",
-        levels: [{ zoom: 3, tiles: [[4, 3]] }] }],
-    };
-    const fetcher = vi.fn(async (_input: RequestInfo | URL, _options?: RequestInit) =>
-      new Response(new Blob(["tile"], { type: "image/png" })));
-    vi.stubGlobal("fetch", fetcher);
-    try {
-      const provider = lunarImageryProviders({ ...source("global", 2), grid: { formatVersion: 1, projection: "geographic", radiusMetres: 1_737_400 } }, product, "https://tiles.example/runtime/product.json");
-      const tile = provider.resolveSource!({ z: 5, x: 17, y: 13 });
-      await provider.load(tile, new AbortController().signal);
-      expect(fetcher).toHaveBeenCalledTimes(1);
-      const requested = new URL(String(fetcher.mock.calls[0]![0]), "https://local.test");
-      expect(requested.pathname).toBe("/runtime/landing/3/4/3.png");
-      expect(requested.searchParams.get("surface-product")).toBe("geographic-xyz-v1-r1737400:fixture");
-    } finally { vi.unstubAllGlobals(); }
-  });
 });

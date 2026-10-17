@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   FakeTileProvider,
   type FakeTileResource,
-} from "../apps/pas-de-geant/src/fake-tile-provider.js";
+} from "./fixtures/fake-tile-provider.js";
 import type {
   TileProvider,
   TileProviderResult,

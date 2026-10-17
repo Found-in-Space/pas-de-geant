@@ -20,3 +20,4 @@ session-config.local.json
 .DS_Store
 Thumbs.db
 apps/pas-de-geant/public/data/amazon-forest-poc/
+integration/config.local.json

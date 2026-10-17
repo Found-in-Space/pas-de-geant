@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Configured imagery and elevation — Geant integration</title></head>
+<body>
+<nav><a href="./">Integration cases</a></nav>
+<h1>Configured imagery and elevation</h1><p>Configure datasets in config.local.json first. Check descriptor admission, tile loading, attribution and recovery using your external service. Invalid descriptors should report a startup error. Tile acquisition and serving belong to the external proxy; this case only supplies dataset bindings.</p>
+<p id="status" role="status">Starting case…</p>
+<main><div id="world" class="world"></div></main>
+<details><summary>Public viewer state</summary><pre id="state"></pre></details>
+<script type="module" src="./src/datasets.ts"></script>
+</body></html>

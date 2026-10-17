@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Independent lifetimes — Geant integration</title></head>
+<body>
+<nav><a href="./">Integration cases</a></nav>
+<h1>Independent lifetimes</h1><p>Change Moon scale, dispose and remount it, and pause Earth. Each viewer should retain its own state; removing one must leave the other usable.</p>
+<p id="status" role="status">Starting case…</p>
+<main><section><h2>Earth</h2><div id="earth" class="world"></div><button id="pause">Pause / resume Earth</button></section><section><h2>Moon</h2><div id="moon" class="world"></div><button id="scale">Halve scale denominator</button><button id="dispose">Dispose Moon</button><button id="remount">Remount Moon</button></section></main>
+<details><summary>Public viewer state</summary><pre id="state"></pre></details>
+<script type="module" src="./src/lifecycle.ts"></script>
+</body></html>

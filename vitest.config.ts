@@ -1,26 +1,10 @@
 import { defineConfig } from "vitest/config";
-import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
-
-const requireFromApp = createRequire(
-  new URL("./apps/pas-de-geant/package.json", import.meta.url),
-);
-const appThreeEsmEntry = resolve(
-  dirname(requireFromApp.resolve("three")),
-  "three.module.js",
-);
-
 export default defineConfig({
   resolve: {
-    alias: [
-      {
-        find: /^three$/,
-        replacement: appThreeEsmEntry,
-      },
-    ],
+    dedupe: ["three"],
   },
   test: {
-    exclude: ["tests/browser/**", "node_modules/**", "dist/**"],
+    include: ["tests/**/*.test.ts"],
     server: {
       deps: {
         inline: [

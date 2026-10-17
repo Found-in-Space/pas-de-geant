@@ -8,11 +8,11 @@ default:
 setup:
     npm ci
 
-# Start the Vite development server.
-dev port="5173":
-    npm run dev -- --port {{ port }}
+# Start the isolated integration cases on loopback.
+dev port="4197":
+    npm run dev:integration -- --port {{ port }}
 
-# Build the production application.
+# Build the reusable package.
 build:
     npm run build
 
@@ -21,23 +21,25 @@ test:
     npm run check
     npm test
 
-# Run the production application browser suite.
+# Run optional static embed browser acceptance when needed.
 test-browser:
-    npm run build
-    npm run test:browser
+    npm run build:embed
+    npm run check:embed
 
-# Validate types, unit tests, browser behavior, and the production build.
+# Validate types, unit tests, dependencies and distributable builds.
 validate:
     npm run check
     npm test
-    npm run build
-    npm run test:browser
+    npm run check:spatial-package
+    npm run build:embed
+    npm run build:examples
+    npm run build:integration
     @echo "Validation passed"
 
-# Serve the built production application locally.
+# Serve explicitly built integration cases locally.
 serve port="8000":
-    npm run build
-    npm run preview --workspace @found-in-space/pas-de-geant-app -- --port {{ port }}
+    npm run build:integration
+    npm exec --workspace @found-in-space/geant-integration -- vite preview --host 127.0.0.1 --port {{ port }}
 
 # Remove local environments, caches, test output, and compiled artifacts.
 clean:

@@ -14,10 +14,8 @@ const mime = { '.js': 'text/javascript', '.html': 'text/html', '.png': 'image/pn
 const server = createServer(async (request, response) => {
   const path = new URL(request.url, 'http://local').pathname;
   if (path === '/') { response.setHeader('Content-Type', 'text/html'); response.end(html); return; }
-  if (path === '/app/session-config.json') { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ formatVersion: 1, providers: {}, bindings: {} })); return; }
-  const kind = path.startsWith('/app/') ? 'pas-de-geant' : 'embed';
-  const relative = path.startsWith('/app/') ? path.slice(5) || 'index.html' : path.slice('/embed/'.length);
-  const directory = resolve(root, 'dist', kind); const file = resolve(directory, relative);
+  const directory = resolve(root, 'dist/embed');
+  const file = resolve(directory, path.slice('/embed/'.length));
   if (!file.startsWith(directory + '/')) { response.writeHead(404).end(); return; }
   try { response.setHeader('Content-Type', mime[extname(file)] ?? 'application/octet-stream'); response.end(await readFile(file)); }
   catch { response.writeHead(404).end(); }
@@ -101,12 +99,6 @@ try {
   }
   assert.equal(requests.some(url => /api\/|stars\.octree|spatial-star-pass-|\/ai-/.test(url)), false, 'Disabled capabilities performed acquisition.');
   assert.deepEqual(errors, []);
-  // The authored Moon launch also succeeds with no Earth provider configuration.
-  await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort());
-  await page.goto(`http://127.0.0.1:${port}/app/?world=moon&debug=1`);
-  await page.waitForFunction(() => document.querySelector('#world-check')?.dataset.state === 'ready');
-  await page.waitForFunction(() => window.pasDeGeantDebug?.snapshot().frame.sampleCount >= 3);
-  assert.deepEqual(errors, []);
   console.log('Static embed: independent worlds, actions, focus, resize, replacement, failure/retry, teardown and disabled acquisition passed.');
-  console.log('Authored Moon application starts with empty provider bindings. Screenshot: /tmp/geant-independent-worlds.png');
+  console.log('Screenshot: /tmp/geant-independent-worlds.png');
 } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }

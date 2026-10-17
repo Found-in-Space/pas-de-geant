@@ -2,7 +2,8 @@
 
 One public package for planetary models, streamed surfaces and composable
 browser experiences. This is a local alpha implementation; no npm or CDN release
-is implied. The private walking application is `@found-in-space/pas-de-geant-app`.
+is implied. Isolated development cases live in the repository's `integration/`
+workspace and use only public exports.
 
 | Export | Responsibility |
 | --- | --- |
@@ -96,11 +97,10 @@ and SkyKit XR. `createGeantStarPass()` is the advanced explicit multipass path;
 it retains the tested observer/projection behavior without importing an authored
 journey. Aircraft and satellite extensions remain separate packages.
 
-The walking application uses the browser's advanced `compose(viewer, signal)`
-hook to retain its authored frame order, journeys, eclipse tools and panel. It
-shares the public navigation model and adapts semantic actions to its canonical
-mutations. Page layout, URL interpretation and service policy remain in the app.
-The focused Moon and eclipse applications consume `/worlds` directly.
+Hosts can use the browser's advanced `compose(viewer, signal)` hook for
+explicit frame order and rendering. Page layout, URL interpretation, service
+policy and authored experiences belong to the host. Development cases have no
+special access to package internals and are excluded from the default build.
 
 ```ts
 await browser.install({
@@ -151,8 +151,7 @@ points starts no viewer and mutates no page state.
 The npm distribution contains ESM, declarations, workers and base assets for
 bundlers. Its tested Three.js baseline is **0.170.0**, matching the released
 SkyKit dependency peers. External consumers should share this instance. The
-existing full application retains its tested 0.185.1 renderer and Vite's single
-runtime check. The self-contained embed bundles its compatible Three instance;
+self-contained embed bundles its compatible Three instance;
 custom script add-ons should use the viewer context instead of introducing a
 second Three runtime. Mixing separate SkyKit/Geant script bundles needs a shared
 bundler/import-map build; two independently bundled runtimes are not supported.
@@ -178,7 +177,7 @@ issuance remain outside the browser graph. Service failure leaves worlds usable.
 
 From the repository root, run `npm run check`, `npm test`, `npm run build`,
 `npm run build:embed`, `npm run check:spatial-package`, and
-`npm run check:package -- --offline`. After building the app and embed,
+`npm run check:package -- --offline`. After building the embed,
 `npm run check:embed` runs the focused static-host acceptance check; it requires
 an installed Chromium (or `GEANT_BROWSER_EXECUTABLE`). `npm run examples` serves the independent
 instances and declarative examples; `npm run build:examples` builds static output.
@@ -188,11 +187,7 @@ resolution, exports/types and standalone workers/assets.
 Desktop and physical Quest acceptance are separate from unit/build checks.
 No physical Quest acceptance or npm publication is implied by this source tree.
 
-A local backend integration example is provided in the repository's
-`examples/ai-token-server.mjs`. Start it explicitly with `OPENAI_API_KEY` and
-`GEANT_AI_ALLOWED_ORIGIN` in the server environment; configure the browser with
-`ai: { sessionEndpoint: "http://127.0.0.1:4212/token", profile: "geant-moon" }`.
-Choose the profile matching the selected bodies (`geant-earth`, `geant-moon`, or
-`geant-earth-moon`). The backend and plugin derive their tools from `geantAiCapabilities(bodies)` so they
-advertise the same controls. This loopback example demonstrates token issuance;
-your hosting application owns deployment authorization.
+Use VoiceOS's external token-service tooling and configure its endpoint/profile.
+The service can derive matching Geant contracts from `geantAiCapabilities(bodies)`.
+The isolated `integration/voice.html` case exercises that public adapter; this
+repository contains no token server or authored voice agent.

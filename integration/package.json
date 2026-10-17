@@ -1,0 +1,16 @@
+{
+  "name": "@found-in-space/geant-integration",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated development cases for the public Geant package",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit --pretty false"
+  },
+  "dependencies": {
+    "@found-in-space/pas-de-geant": "0.1.0-alpha.0",
+    "@found-in-space/voice-os": "0.1.0-alpha.1"
+  }
+}

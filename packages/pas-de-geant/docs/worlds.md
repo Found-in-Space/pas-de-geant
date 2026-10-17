@@ -2,7 +2,7 @@
 
 `@found-in-space/pas-de-geant/worlds` is the reusable world capability owned by Pas de Géant.
 Earth, Moon, and the other registered Solar System bodies use the same runtime.
-The main experience, focused Moon demo, and Eclipse Observatory consume this
+Independent browser consumers and isolated development cases consume the public
 package rather than maintaining copies of its surface and coordinate code.
 This is an alpha workspace package; it has not been published to npm.
 
@@ -59,10 +59,9 @@ Omit `surface` to create a plain globe for any registered body. Supply a base
 texture to use the same streamed-surface implementation on another body;
 `createBodySurfaceModel(body, source)` derives its geometry from the body's
 shape and radius. Omitting an elevation provider gives a flat reference surface
-without contacting an Earth service. The Earth application explicitly supplies
-its Mapterhorn provider and WGS84/Mercator model. The lunar source uses its
-reference sphere, the same Mercator scheme as Earth, and LOLA red/green height
-encoding. `MOON_GEOGRAPHIC_SURFACE_MODEL` is the explicit compatibility model
+without contacting an Earth service. Hosts explicitly configure measured
+elevation and its model. Lunar sources may use their reference sphere with
+Mercator grids and LOLA red/green height encoding. `MOON_GEOGRAPHIC_SURFACE_MODEL` is the explicit compatibility model
 for existing geographic products.
 
 `WorldSurfaceSource` supplies source-specific projection, height decoding,
@@ -78,10 +77,9 @@ the renderer's output colour space, then applies a sigmoid contrast curve that
 preserves black, white and `contrastPivot`. `contrast: 1` leaves output contrast
 unchanged. `lighting: "neutral"` replaces the final solar modulation and blue
 fill with the existing balanced imagery; photographed shadows remain, and the
-adaptive balance still uses the light direction. The application uses this
-presentation for the Moon's base, polar caps and streamed detail. It does not
-apply renderer-wide tone mapping on top. Omitting the option retains the existing
-surface presentation, including Earth's current appearance.
+adaptive balance still uses the light direction. Hosts can select this
+presentation for base, polar caps and streamed detail and should account for
+renderer-wide tone mapping. Omitting the option retains the default presentation.
 
 `SparseImageryProvider` selects one available opaque tile from providers sharing
 the same XYZ grid and tile size. Source indexes declare exact coverage; the best
@@ -149,8 +147,6 @@ A streamed surface becomes ready after a terrain cut is committed and either
 the imagery cut is complete or a source failure allows its base fallback.
 Streaming can subsequently recover. `loadWorldBaseTexture` loads a source base
 with a bundled fallback and records the source failure for this readiness check.
-The main and focused Moon views share `lunarSurfaceSource` in the application,
-including their base image, providers, and tone curve.
 
 Call `world.dispose()` when finished. It disposes its terrain, providers, worker
 schedulers, and owned globe meshes, and removes its content from the supplied
@@ -226,7 +222,7 @@ npm pack --workspace @found-in-space/pas-de-geant --pack-destination /tmp
 
 The package ships ESM JavaScript, TypeScript declarations, and both worker
 modules in `dist`. A browser bundler must support module workers constructed
-with `new URL(..., import.meta.url)`; the app's Vite production build exercises
+with `new URL(..., import.meta.url)`; the embed and integration builds exercise
 this contract. Consumers supply one shared Three.js instance (Vite hosts can
 use `resolve.dedupe: ["three"]`). The optional adapter uses SkyKit's public lifecycle; the
 composition layer reuses the published SkyKit package directly.
@@ -260,10 +256,10 @@ retains the same origin; neither mapping establishes a catalog origin or an ICRS
 correction. A caller must explicitly establish those astronomical relationships.
 The raw body-attitude helper is named `bodyFixedToJ2000Quaternion` accordingly.
 
-The app, worlds and root tooling pin the same exact spatial version; SkyKit uses
+The package and root tooling pin the same exact spatial version; SkyKit uses
 that version as well. Direct star dependencies follow the compatible alpha
 batch. There are no local package archives or sibling links. Run `npm ci` and
 `npm run check:spatial-package` at the repository root to verify installed
 registry versions, shared resolution and the domain conversion/preload adapters.
-Root tooling declares SkyKit and its Three.js 0.170 peer explicitly; the app
-retains its Three.js 0.185.1 pin and existing Vite deduplication for the browser.
+Root tooling and integration cases share the Three.js 0.170 peer with SkyKit
+and Geant. Vite consumers deduplicate Three.js.

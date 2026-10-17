@@ -1,108 +1,69 @@
 # Pas de Géant
 
-_Walk around worlds, one small step at a time._
+Composable planetary worlds, navigation, and browser experiences for
+[Found in Space](https://foundin.space/).
 
-Pas de Géant is a room-scale WebXR experience that puts a relief globe beneath
-your feet. Walk through the room or use a controller to roll the world through
-the floor contact point, changing planetary scale while the terrain,
-atmosphere and sky move with it.
+The reusable [`@found-in-space/pas-de-geant` package](packages/pas-de-geant/README.md)
+provides Solar System bodies, physical coordinate frames, streamed surfaces,
+navigation, SkyKit plugins, browser viewers and an HTML embed. Defaults use
+bundled Earth/Moon imagery and reference surfaces; external services are opt-in.
+This is a local alpha implementation, with no npm publication implied.
 
-Earth and Moon have streamed ground surfaces, and the other registered major
-Solar System bodies have plain globes for orbit and free navigation. All use
-the shared [`@found-in-space/pas-de-geant/worlds` package](packages/pas-de-geant/README.md), which
-also provides a public Skykit lifecycle adapter for other Found in Space hosts.
+The former private master demo has been retired. This repository builds a
+package; [`integration/`](integration/README.md) contains isolated development
+cases and is excluded from the default build and package distribution.
+The [retirement inventory](docs/workbench-retirement.md) records what remains
+and what was removed.
 
-Part of [Found in Space](https://foundin.space/), a project that turns real
-astronomical measurements into interactive explorations.
+## Develop
 
-## Run locally
-
-Pas de Géant requires Node.js 22 or later:
+Use Node.js 22 or later:
 
 ```sh
 npm ci
-npm run dev -- --port 4197
+npm run build                 # reusable package only
+npm run dev:integration       # local cases at http://127.0.0.1:4197
 ```
 
-Both walking and eclipse voice guides use the published
-`@found-in-space/voice-os@0.1.0-alpha.1` package, pinned in the app manifest and
-npm lockfile. A standalone checkout needs no sibling VoiceOS repository.
-Shared voice runtime changes belong in the independent
-[VoiceOS repository](https://github.com/Found-in-Space/voice-os). See the
-[voice integration guide](apps/pas-de-geant/README.md#location-and-realtime-guide).
+`npm run dev` is an alias for the integration server. It binds to loopback and
+has no API middleware or service proxy. Dataset and VoiceOS cases consume
+explicit external URLs from an ignored local configuration file. Existing
+development servers are not automatically stopped or replaced.
 
-Open `http://127.0.0.1:4197`. The desktop fallback uses WASD to travel, Z/X to
-change planet scale, C/V to change the terrain multiplier, and Backspace to
-reset.
-
-Open `http://127.0.0.1:4197/moon/` for the focused Moon viewer. Its imagery,
-elevation, and display configuration are shared with the main experience.
-Open `http://127.0.0.1:4197/?world=moon` to start the walking experience on the
-Moon. In a headset, select **Enter VR** and use the same room-scale walking and
-controller controls as Earth.
-
-WebXR requires a secure context. A USB-connected Quest can use an Android
-reverse tunnel so its browser sees the local server as device-local:
-
-Before running any ADB command, open Meta Quest Developer Hub and confirm that
-the headset is connected and authorized there. Use the ADB associated with
-that working Developer Hub connection before trying another ADB installation;
-`adb` below refers to that executable.
+When changing package source with a case open, run
+`npm run dev --workspace @found-in-space/pas-de-geant` in another terminal
+to rebuild the package as files change.
 
 ```sh
-adb reverse tcp:4197 tcp:4197
+npm run check                # package, tests, tools and integration types
+npm test                     # package behaviour and local fixtures
+npm run check:spatial-package # pinned dependencies and shared spatial contract
+npm run build:embed          # standalone static embed in dist/embed
+npm run build:examples       # small consumer examples in dist/examples
+npm run build:integration    # explicit development build in dist/integration
+npm run check:package -- --offline
 ```
 
-Then open `http://localhost:4197` in the headset.
+`npm run examples` serves the minimal consumer examples. The optional
+`npm run check:embed` requires a built embed and an installed Chromium; use it
+when browser verification is needed. Physical Quest acceptance is separate.
+There is no application deployment workflow.
 
-The detailed app README documents the repository helper and how to open the
-Quest Browser JavaScript console through its DevTools connection.
+## Ownership
 
-## Quest controls
+- [Satellite](https://github.com/Found-in-Space/satellites) and
+  [aircraft](https://github.com/Found-in-Space/aircraft) runtimes and examples
+  belong in their independent repositories.
+- The [tile-cache service](https://github.com/kws/tile-cache) owns upstream
+  texture acquisition and proxying. Geant supplies dataset URL configuration
+  and owns loading, scientific source admission, browser persistence and rendering.
+- [Planetary Surfaces](https://github.com/Found-in-Space/planetary-surfaces)
+  owns imagery/elevation production, descriptors and validation. Geant contains
+  no tile producer or local product server.
+- [VoiceOS](https://github.com/Found-in-Space/voice-os) owns AI sessions, audio,
+  transport and token-service tooling. Geant's optional `/ai` adapter maps
+  domain state/actions to VoiceOS; no token server or authored agent lives here.
 
-- Left stick: head-relative travel
-- Left trigger + left stick left/right: turn the view
-- Left grip: faster travel
-- Right stick vertical: whole-planet scale
-- Right stick horizontal: orbital altitude, or surface terrain exaggeration
-- X: toggle committed terrain-tile tint and boundary outlines
-- Y: toggle photographic source-tile boundaries
-- Hold B: reset location and scale
-
-## What is modelled
-
-- A WGS 84 Earth whose sea-level ellipsoid meets the physical floor
-- Mapterhorn / Copernicus GLO-30 terrain with atomic quadtree transitions
-- Embedded NASA Blue Marble imagery with optional atomic XYZ refinement
-- A Gaia DR3 / Hipparcos celestial sphere through Found in Space SkyKit
-- Browser geolocation with an approximate network fallback
-
-The detailed terrain, imagery, and rendering design is documented in
-[`apps/pas-de-geant/README.md`](apps/pas-de-geant/README.md).
-
-## Development
-
-```sh
-npm run check              # TypeScript project references
-npm test                   # Focused unit regressions
-npm run build              # Pas de Géant production build
-npm run test:browser       # Pas de Géant browser suite
-```
-
-The production application is written to `dist/pas-de-geant`.
-The reusable package is built to `packages/pas-de-geant/dist`. When editing its source
-with the app already running, use `npm run dev --workspace @found-in-space/pas-de-geant`
-in another terminal to rebuild it as files change.
-
-## Data, licences, and limitations
-
-Source, licence, datum, DOI, checksum, and service-attribution details live in
-[`apps/pas-de-geant/public/THIRD_PARTY_LICENSES.txt`](apps/pas-de-geant/public/THIRD_PARTY_LICENSES.txt).
-
-Satellite and aircraft implementations now live in independent extension projects,
-with standalone examples using public SkyKit plugin APIs. They are not installed
-in the main application during this refactor.
-
-Terrain and imagery are not suitable for navigation or safety-critical use.
-
-The software is available under the [MIT License](LICENSE).
+Software: [MIT](LICENSE). Bundled source attribution and limitations:
+[`NOTICE.txt`](packages/pas-de-geant/NOTICE.txt). Terrain and imagery are not
+suitable for navigation or safety-critical use.
