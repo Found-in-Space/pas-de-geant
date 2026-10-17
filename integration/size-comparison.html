@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Moon, Earth and Sun sizes — Geant integration</title></head>
+<body>
+<nav><a href="./">Integration cases</a></nav>
+<h1>Moon, Earth and Sun to scale</h1>
+<p>Start close to Earth and the Moon, with a giant Sun off to your right. Their relative sizes are to scale. Spacing and lighting are chosen for comparison.</p>
+<p>Open on a headset through localhost or HTTPS and select <strong>Enter VR</strong>. Walk or lean closer to inspect the small bodies. The lineup stays fixed in the room. Labels are visible inside VR. This case uses head tracking only, with no stick or keyboard locomotion.</p>
+<p>Earth and Moon use reference imagery. The Sun's fiery surface, animated granulation and glowing edge are a stylized illustration.</p>
+<p id="status" role="status">Starting case…</p>
+<main><div id="world" class="world" style="height: min(70vh, 720px)"></div></main>
+<details><summary>Public viewer state</summary><pre id="state"></pre></details>
+<script type="module" src="./src/size-comparison.ts"></script>
+</body></html>

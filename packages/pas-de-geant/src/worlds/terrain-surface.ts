@@ -586,9 +586,12 @@ const VERTEX_SHADER = `
     vec3 baseNormalWorld = normalize(mat3(modelMatrix) * normal);
     vec3 elevationOffsetWorld = mat3(modelMatrix) *
       (normal * heightM * bodyLocalUnitsPerElevationMetre);
-    vec3 displaced =
-      position + normal * heightM * bodyLocalUnitsPerElevationMetre -
-      normal * bodyLocalSkirtDepth * skirt;
+    vec3 displaced = position + normal * heightM * bodyLocalUnitsPerElevationMetre;
+    // Close seams inward. At miniature scales a room-space skirt can exceed
+    // the entire body radius; stop at the centre plane instead of inverting
+    // the skirt onto the opposite side of the globe.
+    float centrePlaneDepth = max(0.0, dot(displaced, normal) / dot(normal, normal));
+    displaced -= normal * min(bodyLocalSkirtDepth, centrePlaneDepth) * skirt;
     vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
     vBlueMarbleUv = baseUv;
     vTileUv = tileUv;

@@ -22,6 +22,7 @@ Vite has no public directory and does not copy that private file into builds.
 | Page | Check |
 | --- | --- |
 | `lifecycle.html` | Scale Moon independently; dispose/remount it while Earth remains usable. Pause/resume Earth. Leaving the page disposes viewers. |
+| `size-comparison.html` | Compare Moon, Earth and Sun at one size scale, using authored positions and lighting. Enter VR, walk/lean closer, and check that the lineup stays fixed in the room and labels remain legible. |
 | `backgrounds.html` | Starts with no sky code/assets requested. Select the image and verify only the main map and two polar caps load, without catalog/renderer modules or octree requests; select catalog stars explicitly. Use Enter VR to preview the selected background in the headset; exit VR to switch or remove it. Inspect both celestial poles and the cap transitions while rotating. Confirm celestial orientation and no translational parallax for the image. |
 | `planner-overlays.html` | Inspect terrain tile boundaries and imagery source overlays across location, scale and navigation modes. Compare with a fixed reference; optionally adjust terrain exaggeration. No service configuration is required. |
 | `xr.html` | Check surface altitude, stable observation placement, and ship controls. The host supplies an explicit model selection function. |
@@ -34,6 +35,27 @@ Controls use the package's standard scheme and shared desktop/XR motion actions.
 The extension checkboxes start off. They install ordinary feature plugins and
 compose application-owned binding fragments through `extendGeantControlScheme`;
 no case implements navigation or input loops.
+The size-comparison case explicitly omits movement and manual controls. It
+composes the public `/worlds` runtime and `/worlds/skykit` lifecycle adapter with
+independent body poses. No ephemeris placement is installed. All three bodies
+use 1:63,781,370; Earth is 20 cm across its equator, the Moon is 5.4 cm across,
+and the Sun is about 22 m across off to the right. The starting eye is about
+85 cm in front of the Earth/Moon plane. Spacing and lighting are authored.
+The page and scene show body names without physical or display-size readouts.
+The Sun has a case-owned animated granulation material and a soft additive
+corona. Its photosphere retains the shared size scale. This is an artistic
+illustration, with exaggerated cells and animation, rather than measured solar
+imagery or a convection simulation. A small generated, repeating texture and
+two sphere draws supply the effect without external assets or postprocessing.
+The existing viewer scheduler advances its animation independently of the
+paused ephemeris clock; no second render loop is installed. Check the surface
+motion, smooth limb and glow in both eyes, including near the sphere's poles.
+Check the desktop view at narrow and wide widths, then enter VR and inspect
+both small bodies up close. Check the Moon's round outline as you lean and
+look around; terrain seam skirts must stay inside the body even at miniature
+scales. Exit VR to check that the desktop view returns. Leaving
+the page releases surfaces, base textures, Sun geometry/materials/texture,
+labels, grid and session resources.
 The [movement architecture](../packages/pas-de-geant/docs/movement.md) defines the integration contract.
 `src/xr.ts` supplies ordinary model objects through the browser's `movement` option.
 The library has no registry of all possible movement metaphors. `src/control-bindings.ts` selects
