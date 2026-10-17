@@ -1,5 +1,5 @@
-import type { SkykitPlugin } from "@found-in-space/skykit";
-import { createSkykitXrControlBindings } from "@found-in-space/skykit/xr";
+import type { SkykitPlugin } from "../skykit-runtime.js";
+import { createSkykitXrControlBindings } from "../skykit-runtime.js";
 import { getGeantContext, type GeantContext } from "../viewer.js";
 import {
   defineGeantControlScheme, geantControlInputKey, standardGeantControlScheme,

@@ -1,4 +1,4 @@
-import type { SkykitActionRegistry } from "@found-in-space/skykit";
+import type { SkykitActionRegistry } from "../skykit-runtime.js";
 import type { GeantContext } from "../viewer.js";
 import { GEANT_ACTIONS } from "./controller.js";
 import { scaleDenominatorAfterInput } from "./policy.js";

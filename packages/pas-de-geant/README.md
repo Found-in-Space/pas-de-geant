@@ -13,6 +13,8 @@ workspace and use only public exports.
 | `/browser` | `createGeantBrowser({ host, ...options })` |
 | `/embed` | Attributes, `mount`, `unmount`, `whenReady`, `mountAll`, and `Geant` |
 | `/ai` | Optional VoiceOS browser runtime/plugin |
+| `/sky-image` | Optional Deep Star Maps image background; no star dependencies |
+| `/stars` | Optional SkyKit catalog background and explicit star pass |
 
 See the [movement architecture and integration contract](docs/movement.md).
 Internal filenames are implementation details. See [world capabilities](docs/worlds.md)
@@ -29,7 +31,6 @@ const moon = await createGeantBrowser({
   location: { latitudeDegrees: 18, longitudeDegrees: -24 },
   scaleDenominator: 50, // physical metres per render metre: 1:50
   controls: { pointer: "grab" },
-  stars: false,
 });
 await moon.actions.invoke("geant:scale.set", { scaleDenominator: 100 });
 await moon.dispose();
@@ -59,8 +60,13 @@ UTC timestamp ending in Z; `timeRate` is a finite playback rate, including zero.
 Defaults use bundled NASA Earth/Moon base imagery and explicit reference
 surfaces with **no measured elevation or high-resolution tile service**. Other
 registered bodies have plain globes. This keeps startup independent of API routes
-and development tile-cache hosts. Stars, XR and AI are opt-in. Missing base
+and development tile-cache hosts. Both sky backgrounds, XR and AI are opt-in. Missing base
 imagery falls back to a plain reference colour.
+
+Install a background through the explicit `/sky-image` or `/stars` plugin
+subpath. Core imports load neither background code nor sky assets; the image
+plugin needs no star packages. See [sky backgrounds](docs/sky-backgrounds.md)
+for examples, optional peer installation and source provenance.
 
 ## Standard controls and extensions
 
@@ -190,7 +196,8 @@ The [integration procedure](docs/movement.md#integration-procedure) shows the co
 exposes domain state and world handles to ordinary plugin objects.
 
 First-party factories include worlds, movement, controls, planner diagnostics, terrain
-tools, stars, a Touch OS panel adapter, and SkyKit XR. `createGeantStarPass()` is the advanced explicit multipass path;
+tools, a Touch OS panel adapter, and SkyKit XR. Sky backgrounds have their own
+`/sky-image` and `/stars` exports. `createGeantStarPass()` from `/stars` is the advanced explicit multipass path;
 it retains the tested observer/projection behavior without importing an authored
 journey. Aircraft and satellite extensions remain separate packages.
 
@@ -228,7 +235,7 @@ Build with `npm run build:embed` at the repository root and copy the **entire**
 ```
 
 Attributes also include `data-geant-focus-body`, `data-geant-mode`,
-`data-geant-stars`, `data-geant-keyboard`, `data-geant-movement`, `data-geant-xr`,
+`data-geant-keyboard`, `data-geant-movement`, `data-geant-xr`,
 `data-geant-terrain-multiplier`, `data-geant-time`, `data-geant-time-rate`,
 `data-geant-datasets` (a per-body JSON object of explicit bindings), and
 `data-geant-ai-endpoint`, and `data-geant-ai-profile`. Boolean values are `true` or `false`.

@@ -47,7 +47,6 @@ export function parseGeantAttributes(host: HTMLElement): Omit<GeantBrowserOption
   const endpoint = attr("ai-endpoint");
   return { ...configuration, location: undefined, locations: configuration.locations, datasets,
     xr: boolean("xr") ?? false,
-    stars: boolean("stars") ?? false,
     controls: controls === "none" ? false : { pointer: (controls ?? "look") as "look" | "grab" | "orbit", keyboard: boolean("keyboard"), movement: boolean("movement") },
     ...(endpoint ? { ai: { sessionEndpoint: new URL(endpoint, host.ownerDocument.baseURI).href, profile: attr("ai-profile") ?? undefined } } : {}) };
 }

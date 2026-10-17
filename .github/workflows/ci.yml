@@ -39,6 +39,12 @@ jobs:
       - name: Check shared dependencies
         run: npm run check:spatial-package
 
+      - name: Check optional sky isolation
+        run: npm run check:sky-isolation
+
+      - name: Check packed consumers
+        run: npm run check:package
+
       - name: Build static embed and examples
         run: npm run build:embed && npm run build:examples
 

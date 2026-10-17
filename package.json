@@ -31,7 +31,8 @@
     "check:package": "node scripts/check-geant-package.mjs",
     "examples": "npm run build --workspace @found-in-space/pas-de-geant && vite --config vite.examples.config.ts",
     "build:examples": "npm run build --workspace @found-in-space/pas-de-geant && vite build --config vite.examples.config.ts",
-    "check:embed": "node scripts/check-geant-browser.mjs"
+    "check:embed": "node scripts/check-geant-browser.mjs",
+    "check:sky-isolation": "npm run build && node scripts/check-sky-isolation.mjs"
   },
   "engines": {
     "node": ">=22.0.0"

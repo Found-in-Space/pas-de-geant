@@ -28,7 +28,6 @@ export interface GeantBrowserOptions extends Omit<GeantViewerOptions, "renderer"
   readonly workers?: import("./worlds/workers.js").WorldWorkerFactory;
   readonly surfaces?: Readonly<Partial<Record<SolarSystemBodyId, GeantSurfaceFactory>>>;
   readonly xr?: boolean;
-  readonly stars?: boolean;
   readonly ai?: import("./config.js").GeantAiOptions;
   readonly controls?: false | GeantControlsOptions;
   /** Replace or omit the convenience navigation preset. The viewer has no default model. */
@@ -179,7 +178,6 @@ export async function createGeantBrowser(options: GeantBrowserOptions) {
       }
     }
     if (options.xr) { const { createGeantXrPlugin } = await import("./plugins/xr.js"); await geant.install(createGeantXrPlugin()); }
-    if (options.stars) { const { createGeantStarsPlugin } = await import("./plugins/stars.js"); await geant.install(createGeantStarsPlugin()); }
     if (options.ai) { const { createGeantAiPlugin } = await import("./ai.js"); await geant.install(createGeantAiPlugin(options.ai)); }
     for (const plugin of options.plugins ?? []) await geant.install(plugin);
     abort.signal.throwIfAborted();

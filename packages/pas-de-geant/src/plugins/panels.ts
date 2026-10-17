@@ -1,6 +1,6 @@
 import type { DisplayNode, RuntimeOutput, SurfaceMetrics, ThemeTokens, DisplayRuntime } from "@found-in-space/touch-os";
 import type { ThreePanelDriver, ThreePanelHostFrame } from "@found-in-space/touch-os/hosts/three";
-import type { SkykitPlugin, SkykitThreeFrame } from "@found-in-space/skykit";
+import type { SkykitPlugin, SkykitThreeFrame } from "../skykit-runtime.js";
 import { getGeantContext, type GeantContext } from "../viewer.js";
 import type { GeantSnapshot } from "../navigation/controller.js";
 export interface GeantPanelOptions {

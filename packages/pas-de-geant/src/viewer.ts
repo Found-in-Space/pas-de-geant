@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createSkykitViewer, type SkykitActionMetadata, type SkykitPluginContext, type SkykitPluginInput, type SkykitViewer, type SkykitViewerOptions } from "@found-in-space/skykit";
+import { createSkykitViewer, type SkykitActionMetadata, type SkykitPluginContext, type SkykitPluginInput, type SkykitViewer, type SkykitViewerOptions } from "./skykit-runtime.js";
 import { resolveGeantConfiguration, type GeantConfiguration } from "./config.js";
 import { createGeantNavigation, type GeantNavigation } from "./navigation/controller.js";
 import { registerGeantMotionActions } from "./navigation/motion.js";

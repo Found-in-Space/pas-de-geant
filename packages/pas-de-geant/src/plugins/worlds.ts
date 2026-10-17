@@ -1,6 +1,6 @@
 import { observeBodySurface } from "../worlds/surface-observation.js";
 import * as THREE from "three";
-import type { SkykitPlugin, SkykitThreeFrame } from "@found-in-space/skykit";
+import type { SkykitPlugin, SkykitThreeFrame } from "../skykit-runtime.js";
 import { getGeantContext, type GeantContext } from "../viewer.js";
 import type { GeantSurfaceFactory } from "../config.js";
 import { bodyPositionJ2000M, bodyRotation, celestialBody, type SolarSystemBodyId } from "../worlds/solar-system.js";

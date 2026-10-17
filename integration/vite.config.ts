@@ -1,13 +1,14 @@
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 
-const pages = ["index", "lifecycle", "planner-overlays", "xr", "datasets", "voice", "embed", "planner"];
+const pages = ["index", "lifecycle", "backgrounds", "planner-overlays", "xr", "datasets", "voice", "embed", "planner"];
 
 export default defineConfig({
   base: "./",
   publicDir: false,
   resolve: { dedupe: ["three"] },
-  server: { port: 4197, strictPort: true },
+  // Headset previews use HTTPS proxies with arbitrary hostnames.
+  server: { port: 4197, strictPort: true, allowedHosts: true },
   build: {
     outDir: "../dist/integration",
     emptyOutDir: true,

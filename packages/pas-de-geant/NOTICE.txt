@@ -74,7 +74,12 @@ SOFTWARE.
 
 FOUND IN SPACE SKYKIT STAR DATA
 
-The optional stars module uses @found-in-space/skykit 0.3.0-alpha.0 under the MIT License to
+The core lifecycle, controls and optional XR session bundle selected public
+exports from @found-in-space/skykit 0.3.0-alpha.0 under the MIT License.
+Three.js and spatial remain external/shared; star implementations are excluded.
+
+The optional /stars module uses the SkyKit star-octree-provider 0.3.0-alpha.0,
+star-trees 0.2.1-alpha.0 and three-star-field 0.3.0-alpha.0 optional peers to
 request the default Found in Space star octree at runtime:
 https://data.foundin.space/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree
 
@@ -109,6 +114,27 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+NASA DEEP STAR MAPS 2020
+
+The optional /sky-image plugin references a separately hosted WebP derivative of the celestial 4k
+Deep Star Maps 2020 image, prepared by Ernie Wright (USRA):
+https://svs.gsfc.nasa.gov/4851/
+
+Credit: NASA/Goddard Space Flight Center Scientific Visualization Studio.
+Gaia DR2: ESA/Gaia/DPAC.
+
+The image is not included in this package. Found in Space catalog publication
+20261017.2 owns its source/output hashes, recipe, credits and terms, including
+the matching north and south polar caps. Its immutable descriptor is
+https://data.foundin.space/textures/sky/deep-star-maps-2020/20261017.2/product.json
+Source data include Hipparcos-2, Tycho-2 and Gaia DR2.
+The public-domain guidance and exceptions are described at:
+https://svs.gsfc.nasa.gov/help/
+
+This asset does not imply NASA or ESA endorsement. It is display imagery;
+its colour mapping and lossy compression are not scientific measurements.
 
 
 ASTRONOMY ENGINE

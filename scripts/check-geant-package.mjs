@@ -22,9 +22,12 @@ try {
   await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...offline], { cwd: directory });
   const library = join(directory, 'node_modules/@found-in-space/pas-de-geant');
   const manifest = JSON.parse(await readFile(join(library, 'package.json'), 'utf8'));
-  assert.deepEqual(Object.keys(manifest.exports).sort(), ['.', './worlds', './worlds/skykit', './browser', './embed', './ai'].sort());
+  assert.deepEqual(Object.keys(manifest.exports).sort(), ['.', './worlds', './worlds/skykit', './browser', './embed', './ai', './stars', './sky-image'].sort());
   for (const entry of Object.values(manifest.exports)) { await access(join(library, entry.default)); await access(join(library, entry.types)); }
-  for (const name of ['assets/bluemarble-2048.png', 'assets/lroc-color-2k.jpg', 'worlds/tile-scheduler.worker.js', 'worlds/imagery-decoder.worker.js']) await access(join(library, 'dist', name));
+  for (const name of ['assets/bluemarble-2048.png', 'assets/lroc-color-2k.jpg',
+    'worlds/tile-scheduler.worker.js', 'worlds/imagery-decoder.worker.js']) await access(join(library, 'dist', name));
+  assert.ok((await readdir(library, { recursive: true })).every(path => !/deep-star-map.*\.(?:webp|json)$/.test(path)),
+    'The separately published sky texture and metadata must not be packed.');
   await writeFile(join(directory, 'check.mjs'), `
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -35,14 +38,16 @@ import { createGeantBrowser } from '@found-in-space/pas-de-geant/browser';
 import { mount } from '@found-in-space/pas-de-geant/embed';
 import { createWorldSkykitPlugin } from '@found-in-space/pas-de-geant/worlds/skykit';
 import { celestialBody } from '@found-in-space/pas-de-geant/worlds';
+import { createGeantSkyImagePlugin } from '@found-in-space/pas-de-geant/sky-image';
 const require = createRequire(import.meta.url);
 const geant = createRequire(require.resolve('@found-in-space/pas-de-geant'));
-const skykit = createRequire(require.resolve('@found-in-space/skykit'));
 assert.equal(geant.resolve('three'), require.resolve('three'));
-assert.equal(skykit.resolve('three'), require.resolve('three'));
+for (const name of ['skykit', 'star-trees', 'star-octree-provider', 'three-star-field', 'hr-diagram', 'meta-sidecar-provider']) {
+  assert.throws(() => require.resolve('@found-in-space/' + name), { code: 'MODULE_NOT_FOUND' }, name + ' was installed by default');
+}
 assert.throws(() => require.resolve('@found-in-space/pas-de-geant/worlds/terrain-surface'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
 assert.equal(celestialBody('moon').id, 'moon');
-const renderer = { render() {}, xr: { isPresenting: false }, getDrawingBufferSize(target) { return target.set(640, 480); } };
+const renderer = { render() {}, clearDepth() {}, xr: { isPresenting: false }, getDrawingBufferSize(target) { return target.set(640, 480); } };
 const viewer = await createGeantViewer({ renderer, bodies: ['moon'] });
 assert.ok(viewer.scene instanceof THREE.Scene);
 await viewer.install(createGeantWorldsPlugin());
@@ -51,11 +56,34 @@ viewer.viewer.frame(0);
 const result = await viewer.actions.invoke(GEANT_ACTIONS.setScale, { scaleDenominator: 50 });
 assert.equal(result[0].status, 'fulfilled');
 assert.equal(viewer.getSnapshot().scaleDenominator, 50);
+const texture = new THREE.Texture();
+const removeSky = await viewer.install(createGeantSkyImagePlugin({ texture }));
+viewer.render(); await removeSky();
 await viewer.dispose();
-console.log('Packed ESM exports, public lifecycle and one shared Three.js 0.170.0 passed.');
+console.log('Packed core and image lifecycle passed with no SkyKit aggregate or star packages installed.');
 `);
   const result = await exec(process.execPath, ['check.mjs'], { cwd: directory });
   process.stdout.write(result.stdout);
+  await writeFile(join(directory, 'image-consumer.ts'), `import { createGeantViewer } from '@found-in-space/pas-de-geant';\nimport { createGeantSkyImagePlugin } from '@found-in-space/pas-de-geant/sky-image';\nconst plugin = createGeantSkyImagePlugin();\nconst start = (renderer: import('three').WebGLRenderer) => createGeantViewer({ renderer, plugins: [plugin] });\n`);
+  // The pinned spatial alpha has a duplicate declaration; keep the existing
+  // consumer skipLibCheck policy, and separately verify Geant's declarations
+  // have no back-reference to the optional aggregate SkyKit package.
+  for (const path of await readdir(join(library, 'dist'), { recursive: true })) {
+    if (path.endsWith('.d.ts')) assert.doesNotMatch(await readFile(join(library, 'dist', path), 'utf8'), /["']@found-in-space\/skykit(?:["'])/);
+  }
+  await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--noEmit', '--skipLibCheck', '--strict', '--module', 'NodeNext', '--target', 'ES2022', 'image-consumer.ts'], { cwd: directory });
+  await exec('npm', ['install', '@found-in-space/star-octree-provider@0.3.0-alpha.0',
+    '@found-in-space/star-trees@0.2.1-alpha.0', '@found-in-space/three-star-field@0.3.0-alpha.0',
+    '--ignore-scripts', '--no-audit', '--no-fund', ...offline], { cwd: directory });
+  await exec(process.execPath, ['--input-type=module', '-e', `
+    import assert from 'node:assert/strict';
+    import { createGeantStarPass } from '@found-in-space/pas-de-geant/stars';
+    let disposed = false;
+    const session = { subscribe() { return () => {}; }, dispose() { disposed = true; } };
+    const pass = await createGeantStarPass({ provider: { createSession() { return session; } } });
+    await pass.dispose(); assert.ok(disposed);
+  `], { cwd: directory });
+  console.log('Packed catalog plugin imports and disposes with explicitly installed star peers.');
   // Optional VoiceOS is not needed to import core, worlds, browser or embed.
   await exec('npm', ['install', '@found-in-space/voice-os@0.1.0-alpha.1', '--ignore-scripts', '--no-audit', '--no-fund', ...offline], { cwd: directory });
   await writeFile(join(directory, 'consumer.ts'), `import { createGeantViewer, createGeantPanelPlugin } from '@found-in-space/pas-de-geant';\nimport { createGeantBrowser } from '@found-in-space/pas-de-geant/browser';\nimport { createGeantAiPlugin } from '@found-in-space/pas-de-geant/ai';\nimport { Geant } from '@found-in-space/pas-de-geant/embed';\nconst start = () => createGeantBrowser({ host: document.createElement('div'), bodies: ['moon'], controls: { pointer: 'grab' } });\n`);

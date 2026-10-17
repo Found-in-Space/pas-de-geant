@@ -6,13 +6,12 @@ import {
 } from "@found-in-space/star-octree-provider";
 import {
   createObserverShellStrategy,
+  createPathVolumeStrategy,
+  createSphereVolumeStrategy,
+  createWarmStrategy,
   type StarCellData,
   type StarCellDelta,
 } from "@found-in-space/star-trees";
-import {
-  createSkykitStarPreloadRequestsFromSpatialHints,
-  SKYKIT_ICRS_SPACE,
-} from "@found-in-space/skykit";
 import {
   createDefaultThreeStarFieldMaterialProfile,
   createThreeStarField,
@@ -221,27 +220,16 @@ export class SpatialStarPass {
     );
     // The authored journey supplies catalog-relative parsec coordinates here;
     // this warmup adapter does not calculate J2000/ICRS origin corrections.
-    const preloadRequests = createSkykitStarPreloadRequestsFromSpatialHints([
-      {
-        space: SKYKIT_ICRS_SPACE,
-        kind: "pathVolume",
-        points: Array.from(routePointsPc),
-        radius: 0.25,
-        priority: 1,
-      },
-      {
-        space: SKYKIT_ICRS_SPACE,
-        kind: "sphereVolume",
-        center: destinationPc,
-        radius: 30,
-        priority: 2,
-      },
-    ]);
-    const volumeWarmups = preloadRequests.map((request, index) =>
+    const strategies = [
+      createWarmStrategy(createPathVolumeStrategy({ pointsPc: Array.from(routePointsPc), radiusPc: 0.25 }),
+        { reason: "spatial-preload", scoreBias: 1 }),
+      createWarmStrategy(createSphereVolumeStrategy({ centerPc: destinationPc, radiusPc: 30 }),
+        { reason: "spatial-preload", scoreBias: 2 }),
+    ];
+    const volumeWarmups = strategies.map((strategy, index) =>
       this.provider.warmCells({
         id: `earth-to-gaia-volume-${index}`,
-        strategy: request.strategy,
-        ...(request.view ? { view: request.view } : {}),
+        strategy,
         attributes: ["position", "teffLog8", "magAbs"],
         signal,
       })

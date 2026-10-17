@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
+import { createGeantViewer } from "@found-in-space/pas-de-geant";
+import { createGeantStarsPlugin } from "@found-in-space/pas-de-geant/stars";
 import type { StarCellData, StarCellDelta } from "@found-in-space/star-trees";
 import type {
   StarOctreeProviderService,
@@ -131,6 +133,24 @@ function fakeProvider(
 }
 
 describe("SpatialStarPass", () => {
+  it("starts the catalog only when its public plugin is installed and tears it down on removal", async () => {
+    const fake = fakeProvider();
+    const graphics = { render: vi.fn(), clearDepth: vi.fn(), xr: { isPresenting: false } } as unknown as THREE.WebGLRenderer;
+    const plugin = createGeantStarsPlugin({ provider: fake.provider });
+    const viewer = await createGeantViewer({ renderer: graphics });
+    expect(fake.provider.createSession).not.toHaveBeenCalled();
+    expect(fake.provider.ensureBootstrap).not.toHaveBeenCalled();
+    expect(viewer.viewer.getSnapshot().parts).toHaveLength(0);
+    const uninstall = await viewer.install(plugin);
+    expect(fake.provider.createSession).toHaveBeenCalledOnce();
+    expect(fake.provider.ensureBootstrap).toHaveBeenCalledOnce();
+    viewer.render(); expect(graphics.render).toHaveBeenCalledTimes(2);
+    await uninstall();
+    expect(viewer.viewer.getSnapshot().parts).toHaveLength(0);
+    expect(fake.session.dispose).toHaveBeenCalledOnce();
+    await viewer.dispose(); expect(fake.session.dispose).toHaveBeenCalledOnce();
+    expect(fake.provider.dispose).not.toHaveBeenCalled();
+  });
   it("removes only the exact-origin Sun while preserving aligned star data", () => {
     const source = mixedOriginCell();
     const filtered = filterCatalogOriginStar(source);

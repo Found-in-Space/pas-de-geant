@@ -39,36 +39,56 @@
     "./embed": {
       "types": "./dist/embed.d.ts",
       "default": "./dist/embed.js"
+    },
+    "./stars": {
+      "types": "./dist/stars.d.ts",
+      "default": "./dist/stars.js"
+    },
+    "./sky-image": {
+      "types": "./dist/sky-image.d.ts",
+      "default": "./dist/sky-image.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
-    "dev": "tsc -p tsconfig.json --watch",
+    "build": "tsc -p tsconfig.json && node scripts/bundle-skykit.mjs && node scripts/copy-assets.mjs",
+    "dev": "node scripts/bundle-skykit.mjs && node scripts/copy-assets.mjs && tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepack": "npm run build"
   },
   "dependencies": {
     "@found-in-space/spatial": "0.3.0-alpha.1",
     "astronomy-engine": "2.1.19",
-    "@found-in-space/star-octree-provider": "0.3.0-alpha.0",
-    "@found-in-space/star-trees": "0.2.1-alpha.0",
-    "@found-in-space/three-star-field": "0.3.0-alpha.0",
-    "@found-in-space/skykit": "0.3.0-alpha.0",
     "@found-in-space/touch-os": "0.3.0"
   },
   "peerDependencies": {
     "three": "^0.170.0",
-    "@found-in-space/voice-os": "0.1.0-alpha.1"
+    "@found-in-space/voice-os": "0.1.0-alpha.1",
+    "@found-in-space/star-octree-provider": "0.3.0-alpha.0",
+    "@found-in-space/star-trees": "0.2.1-alpha.0",
+    "@found-in-space/three-star-field": "0.3.0-alpha.0"
   },
   "peerDependenciesMeta": {
     "@found-in-space/voice-os": {
+      "optional": true
+    },
+    "@found-in-space/star-octree-provider": {
+      "optional": true
+    },
+    "@found-in-space/star-trees": {
+      "optional": true
+    },
+    "@found-in-space/three-star-field": {
       "optional": true
     }
   },
   "devDependencies": {
     "@types/three": "0.185.1",
     "@found-in-space/voice-os": "0.1.0-alpha.1",
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.1",
+    "@found-in-space/star-octree-provider": "0.3.0-alpha.0",
+    "@found-in-space/star-trees": "0.2.1-alpha.0",
+    "@found-in-space/three-star-field": "0.3.0-alpha.0",
+    "@found-in-space/skykit": "0.3.0-alpha.0"
   },
   "sideEffects": [
     "./dist/embed.js"

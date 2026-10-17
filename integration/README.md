@@ -22,6 +22,7 @@ Vite has no public directory and does not copy that private file into builds.
 | Page | Check |
 | --- | --- |
 | `lifecycle.html` | Scale Moon independently; dispose/remount it while Earth remains usable. Pause/resume Earth. Leaving the page disposes viewers. |
+| `backgrounds.html` | Starts with no sky code/assets requested. Select the image and verify only the main map and two polar caps load, without catalog/renderer modules or octree requests; select catalog stars explicitly. Use Enter VR to preview the selected background in the headset; exit VR to switch or remove it. Inspect both celestial poles and the cap transitions while rotating. Confirm celestial orientation and no translational parallax for the image. |
 | `planner-overlays.html` | Inspect terrain tile boundaries and imagery source overlays across location, scale and navigation modes. Compare with a fixed reference; optionally adjust terrain exaggeration. No service configuration is required. |
 | `xr.html` | Check surface altitude, stable observation placement, and ship controls. The host supplies an explicit model selection function. |
 | `datasets.html` | Standard controls and optional planner/terrain tools with configured imagery/elevation. Check source admission, attribution, caching, invalid descriptors and unavailable proxies. |
@@ -115,6 +116,11 @@ installed here. Cross-project changes should be tested from the owning project.
 
 ## Quest and DevTools
 
+The integration dev server accepts arbitrary hostnames (`allowedHosts: true`)
+so it works through the HTTPS reverse proxy used for headset previews. Keep
+this setting when changing the development setup. Open the integration index
+or `/backgrounds.html` through your existing secure proxy.
+
 WebXR needs a secure context. A USB reverse tunnel lets Quest Browser use
 `http://localhost:4197/xr.html`. Confirm the headset is connected and authorized
 in Meta Quest Developer Hub, then use its ADB executable:
@@ -122,6 +128,12 @@ in Meta Quest Developer Hub, then use its ADB executable:
 ```sh
 "/Applications/Meta Quest Developer Hub.app/Contents/Resources/bin/adb" reverse tcp:4197 tcp:4197
 ```
+
+For the sky comparison, open `http://localhost:4197/backgrounds.html` in Quest
+Browser using that same tunnel. Select **Deep Star Maps image** or **SkyKit
+stars** before pressing **Enter VR**. Exit VR to change the HTML selection.
+The image and star data require network access; neither is requested until
+its background is selected.
 
 `npm run quest:debug -- targets`, `device`, and `snapshot` use the repository's
 ADB/DevTools helper. The helper expects an open integration case for snapshots.

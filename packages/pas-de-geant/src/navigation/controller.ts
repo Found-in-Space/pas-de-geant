@@ -1,5 +1,5 @@
 import { Vector2 } from "three";
-import type { SkykitActionRegistry } from "@found-in-space/skykit";
+import type { SkykitActionRegistry } from "../skykit-runtime.js";
 import { finiteNumber, geantLocation, type ResolvedGeantConfiguration } from "../config.js";
 import { celestialBody, type SolarSystemBodyId, type Vector3d } from "../worlds/solar-system.js";
 import { contactFrame, coordinatesForFrame, rollContactFrame, type ContactFrame } from "../worlds/planet-state.js";

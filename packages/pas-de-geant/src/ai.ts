@@ -1,7 +1,7 @@
 import { createVoiceRuntime, type VoiceRuntimeOptions, type VoiceSnapshot } from "@found-in-space/voice-os";
 import { createOpenAIRealtimeTransport } from "@found-in-space/voice-os/openai";
 import { bindVoiceButton, createBrowserVoiceAudio, type BrowserVoiceAudioOptions } from "@found-in-space/voice-os/browser";
-import type { SkykitPlugin } from "@found-in-space/skykit";
+import type { SkykitPlugin } from "./skykit-runtime.js";
 import { getGeantContext } from "./viewer.js";
 import { geantAiCapabilities } from "./ai-tools.js";
 

@@ -1,9 +1,9 @@
-import type { SkykitPlugin } from "@found-in-space/skykit";
+import type { SkykitPlugin } from "../skykit-runtime.js";
 import { getGeantContext } from "../viewer.js";
 /** Session, entry button and tracked eye height. Manual input belongs to controls. */
 export function createGeantXrPlugin(): SkykitPlugin {
   return { id: "geant:xr", async setup(context) {
-    const { createSkykitXrSessionPlugin } = await import("@found-in-space/skykit/xr");
+    const { createSkykitXrSessionPlugin } = await import("../skykit-runtime.js");
     const geant = getGeantContext(context);
     const session = createSkykitXrSessionPlugin({ renderer: geant.renderer, referenceSpaceType: "local-floor" });
     const uninstall = await context.viewer.addPlugin(session); context.addDisposable(uninstall);

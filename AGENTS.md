@@ -13,6 +13,13 @@
   tile-cache project. Do not add local tile servers or producer scripts here.
 - VoiceOS owns AI transport, audio and token services. Geant owns its optional
   domain action/state adapter; keep authored agents and service code elsewhere.
+- Sky backgrounds are optional plugins on `/sky-image` and `/stars`. Keep both
+  outside root/browser/embed import graphs and defaults. The image option must
+  work without star packages installed. SkyKit's aggregate is a build-time
+  dependency; star packages are optional peers. See the package's
+  `docs/sky-backgrounds.md`. Sky texture production, provenance and payloads
+  belong to catalog publications; do not bundle them in Geant. Earth-to-stars
+  journey restoration is separate work.
 
 ## Quest debugging
 
@@ -30,6 +37,9 @@
 - When the user already has the development server running, reuse it. Do not
   start, stop, or replace it unless asked or unless local validation requires
   a separate process.
+- Headset previews use HTTPS reverse proxies with arbitrary hostnames. Keep
+  wildcard hostname access enabled (`server.allowedHosts: true`) in the
+  integration Vite configuration when changing or migrating dev-server setup.
 - Development tile acquisition uses the independent cache service. Never
   bypass a missing or unavailable cache with direct MapTiler requests. Keep
   upstream provider credentials out of browser configuration.

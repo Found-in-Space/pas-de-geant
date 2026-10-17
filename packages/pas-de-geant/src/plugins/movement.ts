@@ -1,4 +1,4 @@
-import type { SkykitActionMetadata, SkykitPlugin } from "@found-in-space/skykit";
+import type { SkykitActionMetadata, SkykitPlugin } from "../skykit-runtime.js";
 import { getGeantContext } from "../viewer.js";
 import { celestialBody, type SolarSystemBodyId } from "../worlds/solar-system.js";
 import { createBodySurfaceModel } from "../worlds/surface-model.js";

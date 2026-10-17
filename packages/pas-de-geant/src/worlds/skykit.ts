@@ -1,5 +1,5 @@
 import { SPATIAL_METERS_PER_PARSEC, scaleSpatialVector, type SpatialVector3 } from "@found-in-space/spatial";
-import type { SkykitThreeFrame, SkykitThreePart, SkykitPlugin } from "@found-in-space/skykit";
+import type { SkykitThreeFrame, SkykitThreePart, SkykitPlugin } from "../skykit-runtime.js";
 import type * as THREE from "three";
 import type { WorldRuntime } from "./world-runtime.js";
 import type { TerrainSurfaceView } from "./terrain-surface.js";

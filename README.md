@@ -7,6 +7,9 @@ The reusable [`@found-in-space/pas-de-geant` package](packages/pas-de-geant/READ
 provides Solar System bodies, physical coordinate frames, streamed surfaces,
 navigation, SkyKit plugins, browser viewers and an HTML embed. Defaults use
 bundled Earth/Moon imagery and reference surfaces; external services are opt-in.
+Static sky imagery and SkyKit catalog stars are separate optional
+[background plugins](packages/pas-de-geant/docs/sky-backgrounds.md); neither
+loads by default, and the image option needs no star packages.
 This is a local alpha implementation, with no npm publication implied.
 
 The former private master demo has been retired. This repository builds a
@@ -41,6 +44,7 @@ to rebuild the package as files change.
 npm run check                # package, tests, tools and integration types
 npm test                     # package behaviour and local fixtures
 npm run check:spatial-package # pinned dependencies and shared spatial contract
+npm run check:sky-isolation   # default/image module graphs have no star dependencies
 npm run build:embed          # standalone static embed in dist/embed
 npm run build:examples       # small consumer examples in dist/examples
 npm run build:integration    # explicit development build in dist/integration

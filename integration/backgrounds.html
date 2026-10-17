@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Optional sky backgrounds — Geant integration</title></head>
+<body>
+<nav><a href="./">Integration cases</a></nav>
+<h1>Optional sky backgrounds</h1>
+<p>Starts without a sky. Choose the NASA image or catalog stars, then use Enter VR to preview it in the headset and look above the horizon. Exit VR to switch backgrounds or choose no sky.</p>
+<p id="status" role="status">Starting case…</p>
+<main><section><div id="world" class="world"></div>
+<button id="none">No sky</button><button id="image">Deep Star Maps image</button><button id="catalog">SkyKit stars</button>
+<p>Image credit: NASA/Goddard Space Flight Center Scientific Visualization Studio; Gaia DR2: ESA/Gaia/DPAC.
+<a href="https://svs.gsfc.nasa.gov/4851/">Deep Star Maps 2020</a>.</p>
+</section></main>
+<details><summary>Public viewer state</summary><pre id="state"></pre></details>
+<script type="module" src="./src/backgrounds.ts"></script>
+</body></html>

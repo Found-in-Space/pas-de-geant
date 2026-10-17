@@ -92,7 +92,7 @@ describe("declarative configuration", () => {
   it("passes the same normalized body, time, location and physical scale as JavaScript", () => {
     const parsed = parseGeantAttributes(attributes({ "data-geant-bodies": "moon", "data-geant-location": "18,-24", "data-geant-scale": "50", "data-geant-time": "2026-10-16T12:00:00Z", "data-geant-time-rate": "0", "data-geant-stars": "false", "data-geant-controls": "grab" }));
     expect(resolveGeantConfiguration(parsed)).toEqual(resolveGeantConfiguration({ bodies: ["moon"], location: { latitudeDegrees: 18, longitudeDegrees: -24 }, scaleDenominator: 50, time: "2026-10-16T12:00:00Z", timeRate: 0 }));
-    expect(parsed.stars).toBe(false); expect(parsed.controls).toMatchObject({ pointer: "grab" });
+    expect(parsed.controls).toMatchObject({ pointer: "grab" });
     expect(() => parseGeantAttributes(attributes({ "data-geant-scale": "" }))).toThrow();
     expect(() => parseGeantAttributes(attributes({ "data-geant-bodies": "moon", "data-geant-focus-body": "earth" }))).toThrow();
   });

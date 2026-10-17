@@ -1,4 +1,4 @@
-import type { SkykitPlugin } from "@found-in-space/skykit";
+import type { SkykitPlugin } from "../skykit-runtime.js";
 import { getGeantContext } from "../viewer.js";
 import { GEANT_ACTIONS } from "../navigation/controller.js";
 import { applyTerrainMultiplierRate } from "../navigation/policy.js";

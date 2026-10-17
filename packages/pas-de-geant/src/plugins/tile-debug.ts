@@ -1,4 +1,4 @@
-import type { SkykitPlugin } from "@found-in-space/skykit";
+import type { SkykitPlugin } from "../skykit-runtime.js";
 import { getGeantContext } from "../viewer.js";
 import type { TerrainSurface } from "../worlds/terrain-surface.js";
 

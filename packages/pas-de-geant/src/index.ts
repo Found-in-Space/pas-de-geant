@@ -7,7 +7,6 @@ export { defineGeantControlScheme, extendGeantControlScheme, describeGeantContro
   type GeantControlScheme, type GeantControlSchemeExtension, type GeantControlBinding, type GeantControlInput,
   type GeantButtonInput, type GeantPointerMode, type GeantXrButton } from "./navigation/control-scheme.js";
 export { GEANT_MOTION_ACTIONS } from "./navigation/motion.js";
-export { createGeantStarPass, createGeantStarsPlugin } from "./plugins/stars.js";
 export { createGeantPanelPlugin, type GeantPanelOptions } from "./plugins/panels.js";
 export { createGeantXrPlugin } from "./plugins/xr.js";
 export { createGeantTileDebugPlugin, GEANT_TILE_DEBUG_ACTIONS } from "./plugins/tile-debug.js";
