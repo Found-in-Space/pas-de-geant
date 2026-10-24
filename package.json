@@ -32,20 +32,34 @@
     "examples": "npm run build --workspace @found-in-space/pas-de-geant && vite --config vite.examples.config.ts",
     "build:examples": "npm run build --workspace @found-in-space/pas-de-geant && vite build --config vite.examples.config.ts",
     "check:embed": "node scripts/check-geant-browser.mjs",
-    "check:sky-isolation": "npm run build && node scripts/check-sky-isolation.mjs"
+    "check:sky-isolation": "npm run build && node scripts/check-sky-isolation.mjs",
+    "prepare:interaction": "node ../skykit/scripts/stage-interaction-development.mjs ../touch-os .",
+    "test:interaction:package": "node ../skykit/scripts/check-interaction-packed-consumer.mjs .packages/touch-os.tgz ."
   },
   "engines": {
     "node": ">=22.0.0"
   },
   "devDependencies": {
-    "@found-in-space/skykit": "0.3.0-alpha.0",
+    "@found-in-space/hr-diagram": "file:.packages/hr-diagram.tgz",
+    "@found-in-space/skykit": "file:.packages/skykit.tgz",
+    "@found-in-space/spatial": "0.3.0-alpha.1",
+    "@found-in-space/three-star-field": "file:.packages/three-star-field.tgz",
+    "@found-in-space/touch-os": "file:.packages/touch-os.tgz",
+    "@found-in-space/voice-os": "file:.packages/voice-os.tgz",
     "@playwright/test": "1.55.1",
+    "@pmndrs/pointer-events": "6.6.32",
     "@types/node": "22.18.6",
+    "esbuild": "0.28.1",
+    "three": "0.170.0",
     "typescript": "5.9.2",
     "vite": "7.3.6",
-    "vitest": "3.2.7",
-    "esbuild": "0.28.1",
-    "@found-in-space/spatial": "0.3.0-alpha.1",
-    "three": "0.170.0"
+    "vitest": "3.2.7"
+  },
+  "overrides": {
+    "@found-in-space/touch-os": "$@found-in-space/touch-os",
+    "@found-in-space/skykit": "$@found-in-space/skykit",
+    "@found-in-space/three-star-field": "$@found-in-space/three-star-field",
+    "@found-in-space/hr-diagram": "$@found-in-space/hr-diagram",
+    "@found-in-space/voice-os": "$@found-in-space/voice-os"
   }
 }

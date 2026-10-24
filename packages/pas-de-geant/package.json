@@ -62,14 +62,14 @@
   "dependencies": {
     "@found-in-space/spatial": "0.3.0-alpha.1",
     "astronomy-engine": "2.1.19",
-    "@found-in-space/touch-os": "0.3.0"
+    "@found-in-space/touch-os": "0.4.0-alpha.0"
   },
   "peerDependencies": {
     "three": "^0.170.0",
-    "@found-in-space/voice-os": "0.1.0-alpha.1",
+    "@found-in-space/voice-os": "0.1.0-alpha.2",
     "@found-in-space/star-octree-provider": "0.3.0-alpha.0",
     "@found-in-space/star-trees": "0.2.1-alpha.0",
-    "@found-in-space/three-star-field": "0.3.0-alpha.0"
+    "@found-in-space/three-star-field": "0.3.0-alpha.1"
   },
   "peerDependenciesMeta": {
     "@found-in-space/voice-os": {
@@ -87,12 +87,12 @@
   },
   "devDependencies": {
     "@types/three": "0.185.1",
-    "@found-in-space/voice-os": "0.1.0-alpha.1",
+    "@found-in-space/voice-os": "0.1.0-alpha.2",
     "esbuild": "0.28.1",
     "@found-in-space/star-octree-provider": "0.3.0-alpha.0",
     "@found-in-space/star-trees": "0.2.1-alpha.0",
-    "@found-in-space/three-star-field": "0.3.0-alpha.0",
-    "@found-in-space/skykit": "0.3.0-alpha.0"
+    "@found-in-space/three-star-field": "0.3.0-alpha.1",
+    "@found-in-space/skykit": "0.3.0-alpha.1"
   },
   "sideEffects": [
     "./dist/embed.js"

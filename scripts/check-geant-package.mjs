@@ -1,23 +1,30 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { openSync, closeSync, readFileSync } from 'node:fs';
 import { access, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
-const exec = promisify(execFile);
+async function exec(command, args, options) {
+  const output = join(directory, 'command-output.txt'), fd = openSync(output, 'w');
+  try { execFileSync(command, args, { ...options, stdio: ['ignore', fd, fd] }); }
+  catch (error) { process.stderr.write(readFileSync(output, 'utf8')); throw error; }
+  finally { closeSync(fd); }
+  return { stdout: readFileSync(output, 'utf8') };
+}
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = await mkdtemp(join(tmpdir(), 'geant-packed-'));
 const offline = process.argv.includes('--offline') ? ['--offline'] : [];
 const lock = JSON.parse(await readFile(join(root, 'package-lock.json'), 'utf8'));
-const threeTypes = lock.packages['node_modules/@types/three'].resolved;
+const threeTypes = lock.packages['node_modules/@types/three'].version;
 try {
   await exec('npm', ['pack', '--workspace', '@found-in-space/pas-de-geant', '--pack-destination', directory], { cwd: root });
   const archives = (await readdir(directory)).filter(name => name.endsWith('.tgz'));
   assert.equal(archives.length, 1, 'Packing must produce one Geant archive.');
   const [filename] = archives;
   await writeFile(join(directory, 'package.json'), JSON.stringify({ name: 'geant-external-consumer', private: true, type: 'module',
-    dependencies: { '@found-in-space/pas-de-geant': `file:${join(directory, filename)}`, three: '0.170.0' },
+    dependencies: { '@found-in-space/pas-de-geant': `file:${join(directory, filename)}`, three: '0.170.0',
+      '@found-in-space/touch-os': `file:${join(root, '.packages/touch-os.tgz')}`, '@pmndrs/pointer-events': '6.6.32' },
     devDependencies: { '@types/three': threeTypes } }));
   await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...offline], { cwd: directory });
   const library = join(directory, 'node_modules/@found-in-space/pas-de-geant');
@@ -76,7 +83,7 @@ console.log('Packed core and image lifecycle passed with no SkyKit aggregate or 
   }
   await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--noEmit', '--skipLibCheck', '--strict', '--module', 'NodeNext', '--target', 'ES2022', 'image-consumer.ts'], { cwd: directory });
   await exec('npm', ['install', '@found-in-space/star-octree-provider@0.3.0-alpha.0',
-    '@found-in-space/star-trees@0.2.1-alpha.0', '@found-in-space/three-star-field@0.3.0-alpha.0',
+    '@found-in-space/star-trees@0.2.1-alpha.0', `file:${join(root, '.packages/three-star-field.tgz')}`,
     '--ignore-scripts', '--no-audit', '--no-fund', ...offline], { cwd: directory });
   await exec(process.execPath, ['--input-type=module', '-e', `
     import assert from 'node:assert/strict';
@@ -88,10 +95,11 @@ console.log('Packed core and image lifecycle passed with no SkyKit aggregate or 
   `], { cwd: directory });
   console.log('Packed catalog plugin imports and disposes with explicitly installed star peers.');
   // Optional VoiceOS is not needed to import core, worlds, browser or embed.
-  await exec('npm', ['install', '@found-in-space/voice-os@0.1.0-alpha.1', '--ignore-scripts', '--no-audit', '--no-fund', ...offline], { cwd: directory });
+  await exec('npm', ['install', `file:${join(root, '.packages/voice-os.tgz')}`, '--ignore-scripts', '--no-audit', '--no-fund', ...offline], { cwd: directory });
   await writeFile(join(directory, 'consumer.ts'), `import { createGeantViewer, createGeantPanelPlugin } from '@found-in-space/pas-de-geant';\nimport { createGeantBrowser } from '@found-in-space/pas-de-geant/browser';\nimport { createGeantAiPlugin } from '@found-in-space/pas-de-geant/ai';\nimport { Geant } from '@found-in-space/pas-de-geant/embed';\nconst start = () => createGeantBrowser({ host: document.createElement('div'), bodies: ['moon'], controls: { pointer: 'grab' } });\n`);
   await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--noEmit', '--skipLibCheck', '--strict', '--module', 'NodeNext', '--target', 'ES2022', 'consumer.ts'], { cwd: directory });
   const ai = await exec(process.execPath, ['--input-type=module', '-e', "await import('@found-in-space/pas-de-geant/ai'); console.log('Packed optional AI and external TypeScript consumer passed.');"], { cwd: directory });
   process.stdout.write(ai.stdout);
+  await exec('npm', ['ls', '--all'], { cwd: directory });
   console.log('Packed consumer exports, shared Three.js, lifecycle, optional VoiceOS and TypeScript checks passed.');
 } finally { await rm(directory, { recursive: true, force: true }); }

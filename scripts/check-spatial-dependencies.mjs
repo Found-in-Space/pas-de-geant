@@ -31,7 +31,9 @@ for (const name of ['@found-in-space/skykit', '@found-in-space/spatial',
   assert.equal(installed.version, expected);
   const locked = lock.packages[relative(root, installedRoot).split(sep).join('/')];
   assert.equal(locked.version, expected);
-  assert.ok(locked.resolved.startsWith('https://registry.npmjs.org/'));
+  const developmentArchive = manifest.devDependencies[name];
+  if (developmentArchive?.startsWith('file:')) assert.equal(locked.resolved, developmentArchive);
+  else assert.ok(locked.resolved.startsWith('https://registry.npmjs.org/'));
   assert.ok(locked.integrity.startsWith('sha512-'));
   if (name !== '@found-in-space/skykit') {
     assert.equal(skykitManifest.dependencies[name], expected);
@@ -42,7 +44,7 @@ for (const name of ['@found-in-space/skykit', '@found-in-space/spatial',
 const spatialVersion = worldsManifest.dependencies['@found-in-space/spatial'];
 const fromRoot = createRequire(join(root, 'package.json'));
 assert.equal(manifest.devDependencies['@found-in-space/spatial'], spatialVersion);
-assert.equal(manifest.devDependencies['@found-in-space/skykit'], worldsManifest.devDependencies['@found-in-space/skykit']);
+assert.equal(manifest.devDependencies['@found-in-space/skykit'], 'file:.packages/skykit.tgz');
 assert.equal(fromRoot.resolve('@found-in-space/skykit'), skykitEntry);
 assert.equal(fromRoot.resolve('@found-in-space/spatial'), fromWorlds.resolve('@found-in-space/spatial'));
 
@@ -60,4 +62,4 @@ const evaluator = preload.strategy.createEvaluator(preload.strategy.createAnchor
 const cell = { centerX: 0.5, centerY: 0, centerZ: 0, halfSize: 0, level: 0, mortonCode: '0' };
 assert.equal(evaluator.evaluateCell(cell).include, true);
 assert.equal(evaluator.evaluateCell({ ...cell, centerX: 2 }).include, false);
-console.log(`Build-time registry SkyKit ${worldsManifest.devDependencies['@found-in-space/skykit']} and shared spatial ${spatialVersion} verified in Geant.`);
+console.log(`Build-time packed SkyKit ${worldsManifest.devDependencies['@found-in-space/skykit']} and shared spatial ${spatialVersion} verified in Geant.`);

@@ -174,3 +174,33 @@ npm run quest:debug -- call invoke '["world","geant:scale.set",{"scaleDenominato
 The default ADB path above is the Developer Hub binary. Existing explicit
 `PAS_DE_GEANT_ADB` and `PAS_DE_GEANT_DEVTOOLS_PORT` overrides remain supported
 for an established connection. Do not start or replace servers to inspect them.
+
+### TouchOS shared-interaction development batch
+
+The standard panel now mounts independent desktop and XR views through the
+shared TouchOS 0.4 environment. Geant supplies the map, log-scale binding and
+left-grip placement; the libraries own pointer events, WebXR selection,
+capture, cancellation and beam/marker feedback. Panel actions apply continuous
+value requests during the `update` phase, with rendered values read back from
+navigation state. Map bitmap handles are allocated separately per runtime.
+
+Run `npm run prepare:interaction` from Geant before `npm ci`. This builds
+TouchOS and packs the changed SkyKit packages into ignored `.packages` archives.
+Normal npm installation records their versions and integrity; a subsequent
+`npm ci` keeps the prepared batch. Re-run preparation after producer changes.
+The private workspace uses explicit file dependencies and overrides, while the
+public Geant manifest requires TouchOS 0.4.0-alpha.0 and the changed SkyKit
+versions. Registry-only installation awaits those publications.
+
+Run the normal typecheck, tests and integration build. For an isolated consumer
+with no workspace overrides or source aliases, run from SkyKit:
+`node scripts/check-interaction-packed-consumer.mjs .packages/touch-os.tgz ../pas-de-geant`.
+It exercises continuous scale edits, blocked button releases, spatial occlusion
+and recovery through packed Geant, SkyKit and TouchOS public exports.
+The standard panel still requires a physical headset check for pointer/marker
+alignment, readable targets, comfortable placement and frame cost.
+
+The Geant development batch also prepares the sibling VoiceOS 0.1.0-alpha.2
+archive, whose optional peer admits TouchOS 0.4.0-alpha.0. Its published
+predecessor only admits TouchOS 0.3; coordinated publication must include this
+metadata update. Voice transport behavior is unchanged and tested offline.

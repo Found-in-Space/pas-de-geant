@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@found-in-space/pas-de-geant": "0.1.0-alpha.0",
-    "@found-in-space/voice-os": "0.1.0-alpha.1"
+    "@found-in-space/touch-os": "0.4.0-alpha.0",
+    "@found-in-space/voice-os": "0.1.0-alpha.2"
   }
 }

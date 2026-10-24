@@ -25,7 +25,12 @@ The [movement contract](packages/pas-de-geant/docs/movement.md) describes custom
 
 Use Node.js 22 or later:
 
+The current interaction batch requires sibling TouchOS, SkyKit and VoiceOS checkouts.
+Preparation builds and packs their public packages into ignored `.packages`,
+then updates normal npm lock integrity. Repeat preparation after producer edits.
+
 ```sh
+npm run prepare:interaction
 npm ci
 npm run build                 # reusable package only
 npm run dev:integration       # local cases at http://127.0.0.1:4197
@@ -74,3 +79,8 @@ There is no application deployment workflow.
 Software: [MIT](LICENSE). Bundled source attribution and limitations:
 [`NOTICE.txt`](packages/pas-de-geant/NOTICE.txt). Terrain and imagery are not
 suitable for navigation or safety-critical use.
+
+The Geant development batch also prepares the sibling VoiceOS 0.1.0-alpha.2
+archive, whose optional peer admits TouchOS 0.4.0-alpha.0. Its published
+predecessor only admits TouchOS 0.3; coordinated publication must include this
+metadata update. Voice transport behavior is unchanged and tested offline.
