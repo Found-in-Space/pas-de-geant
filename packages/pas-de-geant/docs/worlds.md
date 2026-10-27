@@ -275,3 +275,13 @@ batch. There are no local package archives or sibling links. Run `npm ci` and
 registry versions, shared resolution and the domain conversion/preload adapters.
 Root tooling and integration cases share the Three.js 0.170 peer with SkyKit
 and Geant. Vite consumers deduplicate Three.js.
+
+### Continuous grid coordinates for adapters
+
+`projectedTilePoint(latitudeDegrees, longitudeDegrees, zoom, projection)` and
+`tilePointToGeographic(x, y, zoom, projection)` are public `/worlds` functions.
+Coordinates are continuous tile units with a north-west origin; zoom zero is a
+normalized grid. The forward function wraps longitude and clamps latitude to
+the grid domain. The inverse preserves the distinct -180/+180 degree edges.
+`tileBounds(tile, projection)` is public for adapters that do not need a body mesh.
+These conversions do not change vertical datums or apply a local map projection.

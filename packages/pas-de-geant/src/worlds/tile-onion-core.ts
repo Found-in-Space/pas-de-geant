@@ -155,6 +155,19 @@ export function mercatorTileY(
   );
 }
 
+/** Invert continuous tile coordinates. East/west grid edges remain distinct;
+ * wrapping is a source-addressing policy, not an inverse projection operation. */
+export function tilePointToGeographic(
+  x: number, y: number, zoom: number, projection: TileProjection = "web-mercator",
+): { latitudeDegrees: number; longitudeDegrees: number } {
+  const width = 2 ** zoom;
+  return {
+    longitudeDegrees: x / width * 360 - 180,
+    latitudeDegrees: projection === "geographic" ? 90 - y / width * 180
+      : Math.atan(Math.sinh(Math.PI * (1 - 2 * y / width))) * 180 / Math.PI,
+  };
+}
+
 export function tileBounds(
   address: TileAddress,
   projection: TileProjection = "web-mercator",
