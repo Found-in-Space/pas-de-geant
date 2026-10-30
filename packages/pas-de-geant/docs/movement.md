@@ -218,6 +218,19 @@ preserving the current orbital offset. Free flight retains inertial placement.
 Desktop free travel follows the view direction.
 The desktop model does not run in an immersive session.
 
+`createGeantDesktopMovementModel({ freeUp: frame => upInRenderAxes })` opts free
+flight into a host-selected horizon. Use the same up reference when placing
+bookmarks. Horizontal look turns about that up; vertical look tilts about camera
+right, with pitch measured from that horizon and no roll. The model levels a
+rolled entry without changing the viewing direction. It approaches vertical
+views without crossing their undefined bearing and flipping upside down.
+Omitting `freeUp` retains the existing desktop look policy.
+
+Desktop free `move` commands also accept `up`, alongside `forward` and `right`.
+Vertical travel uses the supplied up (world Y by default), scale, speed and boost.
+Hosts can bind E/Q or other keys by extending the standard control scheme.
+This does not change surface, orbit or immersive ship navigation.
+
 The browser preset maps these labels:
 
 | Label | XR model | Desktop behavior |

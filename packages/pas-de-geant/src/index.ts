@@ -26,4 +26,4 @@ export type { GeantHeightReference } from "./navigation/model-geometry.js";
 export { createGeantSurfaceMovementModel, type GeantSurfaceMovementOptions } from "./navigation/surface-movement.js";
 export { createGeantObservationMovementModel, type GeantObservationMovementOptions } from "./navigation/observation-movement.js";
 export { createGeantShipMovementModel, type GeantShipMovementOptions } from "./navigation/ship-movement.js";
-export { createGeantDesktopMovementModel } from "./navigation/desktop-movement.js";
+export { createGeantDesktopMovementModel, type GeantDesktopMovementOptions } from "./navigation/desktop-movement.js";

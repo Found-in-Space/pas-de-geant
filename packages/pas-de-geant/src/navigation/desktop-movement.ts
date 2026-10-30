@@ -7,12 +7,36 @@ import { movementNumber as number, type GeantMovementFrame, type GeantMovementMo
 import { relativeJ2000MetresToRender, translatedObserverJ2000M } from "../worlds/world-navigation.js";
 import { orbitalAngularStepRadians, orbitalDragRadiansPerPixel, orbitalLogarithmicValue, spaceTravelSpeedHeadsetMPerSecond } from "./policy.js";
 
+export interface GeantDesktopMovementOptions {
+  /** Free-flight up in render axes. Enables horizon-relative look and vertical travel.
+   * Supply the same reference used to orient authored viewpoints; XR is unaffected. */
+  readonly freeUp?: (frame: GeantMovementFrame) => Vector3;
+}
+
 /** Desktop policy is separate from the XR metaphors. This model retains centre-based orbit controls. */
-export function createGeantDesktopMovementModel(): GeantMovementModel {
+export function createGeantDesktopMovementModel(options: GeantDesktopMovementOptions = {}): GeantMovementModel {
   const surface = createGeantSurfaceMovementModel({ retainObserverOnEntry: true });
   let orientation: Quaternion | undefined;
   let orbitCentre: { x: number; y: number; z: number } | undefined;
   const isOrbit = (frame: GeantMovementFrame) => frame.state.mode === "orbit" || frame.state.mode === "observation";
+  function freeUp(frame: GeantMovementFrame) {
+    return options.freeUp?.(frame).clone().normalize() ?? new Vector3(0, 1, 0);
+  }
+  function horizonLook(frame: GeantMovementFrame, yaw = 0, pitch = 0) {
+    const up = freeUp(frame), view = orientation ?? frame.tracking.orientation;
+    const forward = new Vector3(0, 0, -1).applyQuaternion(view);
+    const elevation = Math.asin(Math.max(-1, Math.min(1, forward.dot(up))));
+    const heading = forward.clone().addScaledVector(up, -forward.dot(up));
+    // At a vertical view, retain the previous right axis as the bearing.
+    if (heading.lengthSq() < 1e-12) heading.crossVectors(up, new Vector3(1, 0, 0).applyQuaternion(view));
+    heading.normalize().applyAxisAngle(up, yaw);
+    // A horizon has no bearing exactly at the poles. Approach either pole
+    // without crossing it and flipping the camera upside down.
+    const limit = Math.PI / 2 - 1e-6;
+    const tilt = Math.max(-limit, Math.min(limit, elevation + pitch));
+    forward.copy(heading).multiplyScalar(Math.cos(tilt)).addScaledVector(up, Math.sin(tilt));
+    return new Quaternion().setFromRotationMatrix(new Matrix4().lookAt(new Vector3(), forward, up));
+  }
   function orbitalFrame(frame: GeantMovementFrame) {
     const focus = focusFrame(frame).origin;
     let observer = frame.navigation.observerJ2000M ?? { x: focus.x + frame.surface(frame.state.focusBody).body.referenceRadiusM * 3, y: focus.y, z: focus.z };
@@ -48,7 +72,7 @@ export function createGeantDesktopMovementModel(): GeantMovementModel {
       if (isOrbit(frame)) {
         const target = relativeJ2000MetresToRender({ x: focus.x - observer.x, y: focus.y - observer.y, z: focus.z - observer.z }, frame.state.scaleDenominator);
         orientation = new Quaternion().setFromRotationMatrix(new Matrix4().lookAt(new Vector3(), new Vector3(target.x, target.y, target.z), new Vector3(0, 1, 0)));
-      }
+      } else if (options.freeUp) orientation = horizonLook(frame);
       return { originJ2000M: observer, systemRotation: new Quaternion(), translation: new Vector3(), rig: identityRig(),
         desktopPosition: new Vector3(), ...(orientation ? { desktopOrientation: orientation } : {}) };
     },
@@ -58,9 +82,10 @@ export function createGeantDesktopMovementModel(): GeantMovementModel {
       if (action === GEANT_MOTION_ACTIONS.move) {
         if (isOrbit(frame)) throw new RangeError("Use orbitStep for desktop orbit movement.");
         const direction = new Vector3(number(input, "right"), 0, -number(input, "forward"));
+        direction.applyQuaternion(headOrientation(frame));
+        direction.addScaledVector(freeUp(frame), number(input, "up"));
         if (direction.lengthSq() > 1) direction.normalize();
         if (!direction.lengthSq()) return frame.state;
-        direction.applyQuaternion(headOrientation(frame));
         const boost = number(input, "boost") > 0;
         const speed = input.speedHeadsetMPerSecond !== undefined ? number(input, "speedHeadsetMPerSecond") * (boost ? 4 : 1)
           : spaceTravelSpeedHeadsetMPerSecond("free", frame.surface(frame.state.focusBody).body.referenceRadiusM / frame.state.scaleDenominator,
@@ -91,6 +116,9 @@ export function createGeantDesktopMovementModel(): GeantMovementModel {
         return frame.invoke(GEANT_ACTIONS.setObserver, translatedObserverJ2000M(focus, offset.multiplyScalar(next / distance), 1));
       }
       if (action === GEANT_MOTION_ACTIONS.look) {
+        if (options.freeUp && !isOrbit(frame)) {
+          orientation = horizonLook(frame, number(input, "yawRadians"), number(input, "pitchRadians")); return;
+        }
         const angles = new Euler().setFromQuaternion(orientation ?? frame.tracking.orientation, "YXZ");
         angles.y += number(input, "yawRadians"); angles.x = Math.max(-1.35, Math.min(1.1, angles.x + number(input, "pitchRadians")));
         orientation = new Quaternion().setFromEuler(angles); return;
