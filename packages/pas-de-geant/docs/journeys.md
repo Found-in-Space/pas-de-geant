@@ -57,9 +57,21 @@ time advances. Manual input releases travel to the existing ship movement model;
 the current placement is retained. Driver disposal borrows rather than disposes
 the viewer. Dispose the journey, then its driver, before disposing the host.
 
-This first adapter covers surface destinations. Inter-body route design,
-moving-target following and scripted sequence ownership are later capabilities;
-the adapter does not reinterpret stellar parsecs as planetary metres.
+`camera.kind: 'body-pose'` accepts the same frame-labelled `SpatialPose` used by
+SkyKit's spatial tools. Use `geantBodyFixedSpace(body)`: body-centred metres,
+x at longitude zero, +y north and -z east. The camera looks along local -Z with
+local +Y up. Transform source coordinates explicitly before combining them;
+incompatible frames/units fail. Physical position interpolates linearly from the
+live eye, orientation interpolates through the current body attitude, and scale
+remains logarithmic. This is a direct transfer, not terrain avoidance or an
+inter-body flight planner. Authored shots must choose suitable offsets and entry
+paths. No terrain adjustment is applied to the tracked target.
+
+Successful direct navigation dispatches and action-registry commands release
+journey ownership. Invalid commands leave it intact. A newer explicit mode or
+movement model remains selected after release/disposal. Callers coordinating
+their own state writers can use `navigation.subscribeCommands`; its optional
+`source` identity distinguishes those writers without depending on action names.
 
 ## Readiness and time
 
@@ -76,11 +88,62 @@ arrival. The next host frame uses that epoch for both movement and body placemen
 Leaving/cancelling restores the previous rate at the current instant, without
 rewinding the clock. A later explicit clock edit is left intact. This is not
 presentation-sequence playback; `durationSecs` remains presentation seconds.
-The shared `/sequence` player now provides pause/seek/rate/rejoin separately;
-its protocol is documented in SkyKit's guided-journey package. A Geant sequence
-participant, including moving-target following, is still required before those
-controls can drive planetary camera sequences. Surface chapters do not acquire
-sequence behavior merely by setting a world-clock rate.
+Surface chapters do not acquire sequence behavior merely by setting a world-clock
+rate. Use the shared `/sequence` player for explicit presentation time.
+
+## Sequence playback and tracked targets
+
+```ts
+import { createJourneySequencePlayer } from '@found-in-space/guided-journey/sequence';
+import { mountSequenceControls } from '@found-in-space/guided-journey/dom';
+import { createGeantJourneyNavigation, createGeantSequenceParticipant,
+  createGeantSequencePlugin, createGeantTrackingSequence } from '@found-in-space/pas-de-geant/journey';
+
+const navigation = createGeantJourneyNavigation(browser);
+const participant = createGeantSequenceParticipant({browser, navigation});
+const sequence = createGeantTrackingSequence({sequence: targetSequence, shot});
+const player = createJourneySequencePlayer({sequence, participant});
+const remove = await browser.install(createGeantSequencePlugin({player,
+  onFrame(frame) { presentTarget(frame.value.target); },
+}));
+const controls = mountSequenceControls({root, player});
+// Explicitly player.join(), then player.play(); neither happens on installation.
+// Cleanup: controls.destroy(); await remove(); player.dispose();
+// participant.dispose(); navigation.dispose(); then dispose the host.
+```
+
+Use one journey navigation object per host; share it with chapter and sequence
+participants. The generic participant accepts `{camera, atMs?}` values and may
+also consume any other domain fields. The optional clock mapping uses explicit
+UTC milliseconds, held at rate zero. Presentation time, mission time and the
+world's display epoch remain distinct. An omitted mapping leaves the world clock
+alone. Releasing an owned clock restores its prior rate at the current instant;
+a later explicit clock edit wins. Arrival and playback end have distinct
+operations; the latter resolves after the endpoint reaches world measurement.
+
+The plugin runs the shared player's `update(deltaSecs)` at priority -175, after
+resource publication and before movement selection. Its synchronous `onFrame`
+callback receives that same evaluated sample for targets/captions. Movement and
+worlds then consume the same sampled epoch. No extra timer or render loop is
+installed. The plugin borrows the player; removal stops scheduling, and the owner
+disposes the player and participant. Pause retains the shot, cancellation frees
+the live scene, detached seeks never acquire it, and rejoin captures the new live
+pose. Negative rates and repeated/out-of-order seeks use the same evaluator.
+
+`createGeantTrackingSequence` composes a pure target evaluator with an authored
+`GeantTrackingShot`. Targets declare body, body-fixed space, position in metres
+and rotating-frame velocity in metres per source second. Shot data declares
+right/up/behind offsets, radial or explicit up, look-ahead seconds and scale.
+Heading follows an explicit reference tangent or the tangent-plane velocity.
+Velocity heading requires an explicit positive `blendSpeedMPerSec`: below that
+speed a smooth angular blend approaches the reference tangent, so stationary
+targets do not depend on the previous frame or seek order. These are camera
+choices; no source position, velocity or attitude is modified. Degenerate authored
+up/tangent/aim combinations fail instead of choosing an unreported orientation.
+
+The optional `worldTime(timeSecs, target)` mapping supplies the scene epoch. Apollo
+can therefore retain nominal GET and a deliberately fixed illustrative lighting
+epoch without pretending that pre-1972 UTC labels are an ephemeris conversion.
 
 ## Paired example and validation
 
@@ -97,3 +160,11 @@ interruption, clock cleanup and unchanged headset orientation with desktop and
 emulated-XR fixtures. These checks establish runtime behavior, not physical Quest
 comfort or imagery quality. The current controls are desktop DOM controls; an
 immersive chapter panel is still required for a complete headset presentation.
+
+`integration/earth-sequence.html` pairs with SkyKit's stellar sequence example:
+both import `createJourneySequencePlayer` and `mountSequenceControls` from the
+same package. The Earth example follows an explicitly authored marker through
+the public tracking evaluator and participant. Additional controlled desktop/XR
+checks verify body-relative pose, measured height, target/camera/epoch coherence,
+reverse playback, independent head motion, manual rejoin, newer-owner survival,
+clock cleanup, host disposal and separate arrival/end acknowledgement.

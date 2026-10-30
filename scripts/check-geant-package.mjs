@@ -48,8 +48,10 @@ import { createWorldSkykitPlugin } from '@found-in-space/pas-de-geant/worlds/sky
 import { celestialBody } from '@found-in-space/pas-de-geant/worlds';
 import { createGeantSkyImagePlugin } from '@found-in-space/pas-de-geant/sky-image';
 import { createSunAppearance } from '@found-in-space/pas-de-geant/appearances';
-import { createGeantJourneyDriver } from '@found-in-space/pas-de-geant/journey';
+import { createGeantJourneyDriver, createGeantTrackingSequence, createGeantSequenceParticipant,
+  createGeantSequencePlugin, geantBodyFixedSpace } from '@found-in-space/pas-de-geant/journey';
 import { exerciseJourneyDriver } from '@found-in-space/guided-journey/testing';
+import { createJourneySequencePlayer } from '@found-in-space/guided-journey/sequence';
 const require = createRequire(import.meta.url);
 const geant = createRequire(require.resolve('@found-in-space/pas-de-geant'));
 assert.equal(geant.resolve('three'), require.resolve('three'));
@@ -73,7 +75,22 @@ await exerciseJourneyDriver({ driver, scenes: [0, 20, -35].map(latitudeDegrees =
     viewer.frame(0); viewer.frame(.2); viewer.frame(0);
     for (let i = 0; i < 30; i++) await Promise.resolve(); },
 });
-driver.dispose();
+const sequence = createGeantTrackingSequence({ sequence: { durationSecs: 1, evaluate: timeSecs => ({ body: 'moon',
+  space: geantBodyFixedSpace('moon'), position: { x: 1747400, y: 0, z: -1000 * timeSecs }, velocityMPerSec: { x: 0, y: 0, z: -1000 } }) },
+  shot: { up: 'radial', heading: { kind: 'reference', forward: { x: 0, y: 0, z: -1 } },
+    offset: { rightM: 100, upM: 300, behindM: 600 }, lookAheadSecs: 0, scaleDenominator: 100000 } });
+const participant = createGeantSequenceParticipant({ browser: { ...viewer, movement }, navigation: driver.navigation, durationSecs: 0 });
+const player = createJourneySequencePlayer({ sequence, participant });
+let presented;
+const removeSequence = await viewer.install(createGeantSequencePlugin({ player, onFrame: sample => { presented = sample; } }));
+const joined = player.join(); viewer.frame(0); await joined.finished;
+const ended = player.play(); viewer.frame(1); await ended.finished;
+assert.equal(player.getSnapshot().frame.timeSecs, 1);
+assert.equal(presented, player.getSnapshot().frame);
+const body = viewer.worlds.get('moon').object3d;
+const eye = viewer.camera.getWorldPosition(new THREE.Vector3()).applyMatrix4(body.matrixWorld.clone().invert()).multiplyScalar(celestialBody('moon').referenceRadiusM);
+assert(eye.distanceTo(new THREE.Vector3().copy(presented.value.camera.pose.position)) < .002);
+await removeSequence(); player.dispose(); participant.dispose(); driver.dispose();
 const result = await viewer.actions.invoke(GEANT_ACTIONS.setScale, { scaleDenominator: 50 });
 assert.equal(result[0].status, 'fulfilled');
 assert.equal(viewer.getSnapshot().scaleDenominator, 50);

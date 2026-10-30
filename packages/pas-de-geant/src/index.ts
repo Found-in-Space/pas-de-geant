@@ -1,6 +1,6 @@
 export { createGeantViewer, getGeantContext, type GeantViewer, type GeantViewerOptions, type GeantContext } from "./viewer.js";
 export { resolveGeantConfiguration, type GeantConfiguration, type ResolvedGeantConfiguration, type GeantSurfaceFactory, type SurfaceFactoryContext } from "./config.js";
-export { createGeantNavigation, GEANT_ACTIONS, type GeantNavigation, type GeantSnapshot } from "./navigation/controller.js";
+export { createGeantNavigation, GEANT_ACTIONS, type GeantNavigation, type GeantSnapshot, type GeantNavigationCommand } from "./navigation/controller.js";
 export { createGeantWorldsPlugin, type GeantWorldsOptions } from "./plugins/worlds.js";
 export { createGeantControlsPlugin, type GeantControlsOptions, type GeantControlsPlugin } from "./plugins/controls.js";
 export { defineGeantControlScheme, extendGeantControlScheme, describeGeantControlScheme, standardGeantControlScheme,
