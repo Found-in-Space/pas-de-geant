@@ -12,7 +12,7 @@ const sources = {
   skykit: '74ea437bbaf551b646a1b7d22f65a29430d06191',
   // The shared controller is packed independently of Geant's embedded SkyKit
   // lifecycle subset. Keep the other already-pinned archives byte-identical.
-  journey: 'ac947a35f71c4ce37b7364e15a5ecb293f2ca363',
+  journey: 'd810b35cad7970b2a942603041ae81832fc72cc5',
   'touch-os': 'a18e75b71727bdd71cfe95b1d456b0ca625ad606',
   'voice-os': '383f51702f2ad92713ec89913fa00d784d3de1fe',
 };

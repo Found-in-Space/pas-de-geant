@@ -83,6 +83,15 @@ desired high-resolution terrain, route coverage or night tiles. An additional
 scoped cleanup. `readiness: 'none'` explicitly skips the usability gate for an
 independently prepared host or a controlled fixture.
 
+Motion actions and external navigation commands cancel the shared chapter scope
+from the beginning of preparation, including while world readiness or a custom
+asset hook waits. A late preparation result cannot start movement. The driver
+connects these events to the shared `context.cancel()` method and unregisters
+them with scope cleanup; older callbacks cannot cancel a replacement chapter.
+Terrain exaggeration commands remain independent of journey ownership. The
+navigation adapter exposes `subscribeInterruption(listener)` for hosts that need
+the same external-command signal, including before a movement exists.
+
 `world.getSurfaceReadiness()` separates base usability from `imagery`,
 `nightImagery` and `terrain`. Each layer reports `absent`, `loading`, `ready`,
 `degraded` or `suspended`, its acknowledged planner target/revision, and required,

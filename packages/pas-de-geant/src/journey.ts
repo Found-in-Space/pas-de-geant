@@ -9,12 +9,15 @@ import type { GeantMovementFrame, GeantMovementModel, GeantPlacement } from "./n
 import { createGeantShipMovementModel } from "./navigation/ship-movement.js";
 import { copyRig, headOrientation, headPosition } from "./navigation/model-geometry.js";
 import { GEANT_ACTIONS } from "./navigation/controller.js";
+import { GEANT_MOTION_ACTIONS } from "./navigation/motion.js";
 import { sampleScaleTransition, sampleWarpTransition } from "./navigation/transitions.js";
 import { bodyPositionJ2000M, bodyRotation, type SolarSystemBodyId } from "./worlds/solar-system.js";
 import { bodyFixedToJ2000Quaternion, bodyFixedToRenderQuaternion } from "./worlds/body-attitude.js";
 import { referenceSurfaceObservation } from "./worlds/surface-observation.js";
 import { translatedObserverJ2000M } from "./worlds/world-navigation.js";
 import type { SimulationClockState } from "./navigation/simulation-clock.js";
+
+const motionActions = new Set<string>(Object.values(GEANT_MOTION_ACTIONS));
 
 export { createGeantSequenceParticipant, createGeantSequencePlugin, type GeantSequenceValue } from "./sequence.js";
 export { waitForGeantSurface, GeantSurfaceReadinessError, type GeantSurfacePreparation } from "./journey-readiness.js";
@@ -58,6 +61,8 @@ export interface GeantJourneyNavigation {
   cancel(): void;
   getSnapshot(): GeantJourneyNavigationSnapshot;
   subscribe(listener: (snapshot: GeantJourneyNavigationSnapshot) => void): () => void;
+  /** External navigation commands also interrupt preparation before motion exists. */
+  subscribeInterruption(listener: () => void): () => void;
   /** Apply an exact sample after body-pose arrival, without restarting live-pose capture. */
   applyPose(camera: GeantBodyPoseCamera): void;
   /** Own the world clock until release. Releasing restores its former rate at the current instant. */
@@ -90,6 +95,8 @@ export function createGeantJourneyNavigation(browser: GeantJourneyHost): GeantJo
   let request: { camera: GeantJourneyCamera; durationSecs: number } | null = null;
   let elapsed = 0, arrival = false;
   const source = Symbol("geant:journey"), listeners = new Set<(snapshot: GeantJourneyNavigationSnapshot) => void>();
+  const interruptions = new Set<() => void>();
+  const interrupt = () => { for (const listener of [...interruptions]) listener(); };
   let ownedClock: SimulationClockState | null = null, previousRate = 0;
   const write = (action: string, payload: unknown) => browser.navigation.dispatch(action, payload, source);
   const snapshot = (): GeantJourneyNavigationSnapshot => ({ operation: operation?.operation ?? null,
@@ -185,6 +192,7 @@ export function createGeantJourneyNavigation(browser: GeantJourneyHost): GeantJo
     },
     command(action, payload) {
       cancel();
+      interrupt();
       // Transfer input in the same frame through the adapter's selection path.
       return browser.context.movement!.command(action, payload);
     },
@@ -199,10 +207,11 @@ export function createGeantJourneyNavigation(browser: GeantJourneyHost): GeantJo
     if (arrival && operation && !operation.settled) { arrival = false; operation.settle("completed"); publish(); }
   } });
   const removeCommands = browser.navigation.subscribeCommands(command => {
-    if (request && command.source !== source && command.action !== GEANT_ACTIONS.setTerrainMultiplier) {
+    if (command.source !== source && command.action !== GEANT_ACTIONS.setTerrainMultiplier) {
       // A newer explicit mode wins. Other commands enter free exploration with
       // their newly applied quantities, rather than being overwritten next frame.
       cancel(command.action === GEANT_ACTIONS.setMode);
+      interrupt();
     }
   });
   const navigation: GeantJourneyNavigation = {
@@ -229,6 +238,7 @@ export function createGeantJourneyNavigation(browser: GeantJourneyHost): GeantJo
     },
     cancel: () => cancel(), getSnapshot: snapshot,
     subscribe(listener) { if (disposed) throw new Error("Journey navigation is disposed."); listeners.add(listener); return () => { listeners.delete(listener); }; },
+    subscribeInterruption(listener) { if (disposed) throw new Error("Journey navigation is disposed."); interruptions.add(listener); return () => { interruptions.delete(listener); }; },
     applyPose(camera) {
       const normalized = validateCamera(camera, browser);
       if (normalized.kind !== "body-pose") throw new TypeError("Sequence samples require a body-pose camera.");
@@ -247,7 +257,7 @@ export function createGeantJourneyNavigation(browser: GeantJourneyHost): GeantJo
     },
     dispose() {
       if (disposed) return;
-      cancel(movement.getModel() !== selection); disposed = true; removeArrival(); removeCommands(); removeSelection(); listeners.clear();
+      cancel(movement.getModel() !== selection); interrupt(); disposed = true; removeArrival(); removeCommands(); removeSelection(); listeners.clear(); interruptions.clear();
       // Keep the live manual placement when the driver is removed. Restoring a
       // former orbit/surface selection could reapply an old authored anchor.
       if (installedSelection && movement.getModel() === selection) movement.setModel(released ? freeSelection : original);
@@ -283,6 +293,11 @@ export function createGeantJourneyDriver(options: {
       validateCamera(scene.camera, browser);
       if (scene.time && (!Number.isFinite(scene.time.atMs) || !Number.isFinite(scene.time.rate ?? 0))) throw new RangeError("Invalid world clock.");
       if (scene.readiness !== "none" && !browser.worlds.has(scene.camera.body)) throw new Error("Install the target world before preparing its journey.");
+      context.addCleanup(navigation.subscribeInterruption(() => context.cancel()));
+      context.addCleanup(browser.viewer.actions.subscribe(event => {
+        if ((event.type === "action/invoke" || event.type === "action/press")
+          && motionActions.has(event.id)) context.cancel();
+      }));
       if (scene.readiness !== "none") await new Promise<void>((resolve, reject) => {
         let remove = () => {};
         const abort = () => { remove(); reject(context.signal.reason); };
