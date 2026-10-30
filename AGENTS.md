@@ -1,5 +1,13 @@
 # Project workflow
 
+## Default discussion context
+
+- Assume all Geant conversations, reported issues, visual comparisons and
+  performance investigations concern VR unless the owner explicitly specifies
+  otherwise. Reproduce and evaluate the VR composition, including tracked eye
+  poses, per-eye projections and viewports. Distinguish physical-headset evidence
+  from emulated VR evidence when reporting results.
+
 ## Package and integration boundaries
 
 - The default build produces only `@found-in-space/pas-de-geant`. The former

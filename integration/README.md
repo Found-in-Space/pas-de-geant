@@ -15,14 +15,15 @@ npm run dev:integration
 
 Open `http://127.0.0.1:4197`. `npm run build:integration` explicitly builds these
 cases into `dist/integration` for local static-host checks. It does not deploy.
-`config.local.json` is fetched when custom datasets or VoiceOS are selected on their pages.
+`config.local.json` supplies an optional imagery override for the standard demo,
+and is also fetched when custom datasets or VoiceOS are selected on their pages.
 Vite has no public directory and does not copy that private file into builds.
 
 ## Cases and manual acceptance
 
 | Page | Check |
 | --- | --- |
-| `standard.html` | Blue Marble, Mapterhorn terrain, automatic device/IP location, clickable TouchOS map and logarithmic scale slider, standard navigation modes and VR. No local configuration required. |
+| `standard.html` | Blue Marble or configured proxy imagery, Mapterhorn terrain, automatic device/IP location, clickable TouchOS map and logarithmic scale slider, standard navigation modes and VR. No local configuration required for Blue Marble. |
 | `earth-day-night.html` | Orbit the terminator; inspect night city lights and polar caps. Seek UTC, play at 600×, pause, compare day-only, and enter/exit VR. Both products use 256-pixel tiles. Block external data and reload to check the bundled day fallback and dark night side. |
 | `lifecycle.html` | Scale Moon independently; dispose/remount it while Earth remains usable. Pause/resume Earth. Leaving the page disposes viewers. |
 | `size-comparison.html` | Compare Moon, Earth and Sun at one size scale, using authored positions and lighting. Enter VR, walk/lean closer, and check that the lineup stays fixed in the room and labels remain legible. |
@@ -61,7 +62,8 @@ conceal a bad measured view or incomplete resource publication.
 Every Earth viewer uses the same medium-resolution Blue Marble day product
 (256-pixel tiles, zoom 0–9) and measured Mapterhorn Terrarium elevation
 (512-pixel height tiles, zoom 0–12), unless a diagnostic case explicitly supplies
-other datasets. Moon-specific views retain their lunar reference source.
+other datasets. The standard demo also accepts the local proxy imagery override
+described below. Moon-specific views retain their lunar reference source.
 
 Start with `standard.html`. The page requests device location while the viewer
 loads; permission denial or an unavailable device location falls back to an
@@ -184,6 +186,16 @@ cp integration/config.local.example.json integration/config.local.json
 Replace the example URLs with your service URLs; remove unused sections.
 This file is ignored. It contains browser-visible configuration, so keep
 upstream API credentials and token-service secrets on their owning servers.
+
+`standardImagery` binds an XYZ imagery source to `standard.html`. The example
+uses the independent proxy's `textures` provider: satellite imagery with
+256-pixel tiles and zoom levels 0–22. Set its URL to the existing cache service;
+its public `/api/providers` metadata supplies the provider identity, attribution,
+tile size and zoom range. Only display imagery changes: Mapterhorn terrain,
+the Blue Marble base/map, default scale and VR navigation remain the same.
+Open `standard.html?imagery=blue-marble` for the original imagery comparison.
+Without `standardImagery` (or without the local file), the demo uses Blue Marble.
+An unavailable configured proxy is never bypassed with direct provider requests.
 
 `datasets.body` selects a body and `datasets.sources` accepts the public
 `BodySurfaceDatasets` configuration: `imagery` and/or `elevation`, each with

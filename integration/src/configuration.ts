@@ -1,16 +1,23 @@
-import { resolveSurfaceUrl, type BodySurfaceDatasets, type SolarSystemBodyId } from "@found-in-space/pas-de-geant/worlds";
+import { resolveSurfaceUrl, type BodySurfaceDatasets, type SolarSystemBodyId, type XyzImageryConfiguration } from "@found-in-space/pas-de-geant/worlds";
 import type { GeantAiOptions } from "@found-in-space/pas-de-geant/ai";
 
 export interface IntegrationConfiguration {
   readonly datasets?: { readonly body: SolarSystemBodyId; readonly sources: BodySurfaceDatasets };
+  readonly standardImagery?: XyzImageryConfiguration;
   readonly voice?: GeantAiOptions;
 }
 
-/** Only service-specific cases call this; ordinary cases need no local configuration. */
-async function loadConfiguration(url: string, fetcher: typeof fetch): Promise<IntegrationConfiguration> {
+/** The standard imagery override is optional; service-specific cases require configuration. */
+async function loadConfiguration(url: string, fetcher: typeof fetch, optional = false): Promise<IntegrationConfiguration> {
   const response = await fetcher(url, { cache: "no-store", headers: { Accept: "application/json" } });
+  if (optional && response.status === 404) return {};
   if (!response.ok) throw new Error("Create integration/config.local.json from config.local.example.json before running this case.");
   return response.json();
+}
+
+export async function loadStandardImageryConfiguration(url: string, fetcher: typeof fetch = fetch) {
+  const { standardImagery } = await loadConfiguration(url, fetcher, true);
+  return standardImagery && { ...standardImagery, urlTemplate: resolveSurfaceUrl(standardImagery.urlTemplate, url) };
 }
 
 export async function loadDatasetConfiguration(url: string, fetcher: typeof fetch = fetch) {

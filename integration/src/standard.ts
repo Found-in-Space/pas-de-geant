@@ -1,7 +1,9 @@
 import { describeGeantControlScheme, GEANT_ACTIONS } from "@found-in-space/pas-de-geant";
 import { createDefaultSurfaceFactory } from "@found-in-space/pas-de-geant/browser";
+import { configuredXyzImageryProvider } from "@found-in-space/pas-de-geant/worlds";
 import type { BitmapAllocation } from "@found-in-space/touch-os";
 import { button, element, mountViewer, reportError, runCase } from "./case.js";
+import { loadStandardImageryConfiguration, localConfigurationUrl } from "./configuration.js";
 import { detectLocation } from "./location.js";
 import { installStandardPanel } from "./standard-panel.js";
 
@@ -12,12 +14,17 @@ runCase(async () => {
   const initialLocation = detectLocation({ signal: abort.signal });
   // Attach a rejection handler while startup is pending; disposal can abort location first.
   void initialLocation.catch(() => {});
+  const imagery = configuredXyzImageryProvider(new URLSearchParams(window.location.search).get("imagery") === "blue-marble"
+    ? undefined : await loadStandardImageryConfiguration(localConfigurationUrl()));
+  if (imagery) {
+    element("imagery-source").textContent = `Satellite imagery: ${imagery.attribution}. ${imagery.tileSize}-pixel tiles, zoom ${imagery.minZoom}–${imagery.maxZoom}.`;
+  }
   let map: BitmapAllocation | undefined;
   const surface = createDefaultSurfaceFactory();
   const browser = await mountViewer("world", { bodies: ["earth"], xr: true, surfaces: { earth: async context => {
     const source = await surface(context), image = source.baseTexture.image;
     if (image instanceof ImageBitmap || image instanceof HTMLImageElement) map = { image, width: image.width, height: image.height };
-    return source;
+    return imagery ? { ...source, imageryProvider: imagery } : source;
   } } });
   browser.addDisposable(() => abort.abort());
   await installStandardPanel(browser, element("touch-panel"), map);

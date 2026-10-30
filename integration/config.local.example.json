@@ -1,4 +1,12 @@
 {
+  "standardImagery": {
+    "id": "maptiler-satellite-v2:maptiler-satellite-v4-256",
+    "urlTemplate": "https://cache.example.test/api/tiles/textures/{z}/{x}/{y}",
+    "attribution": "© MapTiler © OpenStreetMap contributors",
+    "tileSize": 256,
+    "minZoom": 0,
+    "maxZoom": 22
+  },
   "datasets": {
     "body": "moon",
     "sources": {
