@@ -2,6 +2,8 @@
 
 This document describes the package boundaries.
 The [movement architecture](../packages/pas-de-geant/docs/movement.md) defines placement, input, and host integration.
+The [composition contract](../packages/pas-de-geant/docs/composition.md) defines
+rendered-view ownership, units, frame order and behavioral validation.
 
 The prose uses ASD-STE100 controlled English.
 API names and the defined software terms are technical nouns.
@@ -18,6 +20,12 @@ Code examples retain the syntax of their programming language.
 | Controls | Device input, conditions, input reset, and action calls |
 | Browser | Optional default composition and a local animation loop |
 | Integration case | Host policy, model selection, optional tools, and external service configuration |
+
+The world runtime's `updateFromCamera()` applies a complete body pose and
+measures its own surface from the rendered camera before tile selection.
+Both the normal Geant world plugin and the authored SkyKit `getFrame` path use
+this operation. An integration case supplies placement without reproducing
+camera projection or eye-height calculations.
 
 Worlds do not select a movement model.
 Worlds do not read the navigation label.
@@ -61,6 +69,8 @@ The case does not implement a second input loop or renderer.
 
 - [Movement architecture and procedures](../packages/pas-de-geant/docs/movement.md)
 - [World data and renderer contracts](../packages/pas-de-geant/docs/worlds.md)
+- [Rendered-world composition](../packages/pas-de-geant/docs/composition.md)
+- [18 October surface composition review](composition-review-20261018.md)
 - [Public package API](../packages/pas-de-geant/README.md)
 - [Integration procedures](../integration/README.md)
 - [ASD-STE100](https://www.asd-ste100.org/)

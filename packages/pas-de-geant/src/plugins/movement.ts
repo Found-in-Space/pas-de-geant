@@ -61,7 +61,7 @@ export function createGeantMovementPlugin(options: GeantMovementOptions) {
           rig: { position: geant.cameraRoot.position.clone(), orientation: geant.cameraRoot.quaternion.clone() },
           observerJ2000M: geant.presentation.observerJ2000M, previousSystemRotation: geant.presentation.systemRotation.clone(), reason,
           viewportHeight: geant.host?.clientHeight ?? 600,
-          focalLengthPixels: (geant.host?.clientHeight ?? 600) / (2 * Math.tan(geant.camera.fov * Math.PI / 360)),
+          focalLengthPixels: (geant.host?.clientHeight ?? 600) * geant.camera.projectionMatrix.elements[5]! * 0.5,
           surface, invoke: (action, payload) => invoke(action, payload, metadata) };
       }
       function select(metadata?: SkykitActionMetadata) {

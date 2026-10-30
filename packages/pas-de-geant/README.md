@@ -5,6 +5,11 @@ browser experiences. This is a local alpha implementation; no npm or CDN release
 is implied. Isolated development cases live in the repository's `integration/`
 workspace and use only public exports.
 
+The [composition contract](docs/composition.md) defines placement, rendered-view
+measurement and validation. Camera-driven hosts use `world.updateFromCamera()`
+or the SkyKit adapter's `getFrame` callback. The package owns the projection and
+terrain measurements that determine tile detail.
+
 | Export | Responsibility |
 | --- | --- |
 | `@found-in-space/pas-de-geant` | Explicit viewer composition, state/actions and plugin factories |

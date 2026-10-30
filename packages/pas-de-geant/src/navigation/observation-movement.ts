@@ -38,7 +38,9 @@ export function createGeantObservationMovementModel(options: GeantObservationMov
     update(frame) {
       if (!anchor || capturePending && frame.tracking.tracked) { capture(frame); capturePending = !frame.tracking.tracked; }
       const state = frame.navigation.getSnapshot(), location = state.locations[state.focusBody]!;
-      const surface = frame.surface(state.focusBody), focus = focusFrame({ ...frame, state });
+      // Keep placement at the renderer's sampled frame time. A fresh navigation
+      // snapshot advances the clock while retaining up-to-date location input.
+      const surface = frame.surface(state.focusBody), focus = focusFrame(frame);
       const { position, normal } = surface.geometry.positionAndNormal(location.latitudeDegrees, location.longitudeDegrees);
       const elevation = (options.heightReference ?? "terrain") === "terrain" ? surface.sampleElevationMetres(location.latitudeDegrees, location.longitudeDegrees) * state.terrainMultiplier : 0;
       position.addScaledVector(normal, (elevation + location.altitudeM) / surface.geometry.referenceRadiusM).multiplyScalar(surface.geometry.referenceRadiusM / state.scaleDenominator);

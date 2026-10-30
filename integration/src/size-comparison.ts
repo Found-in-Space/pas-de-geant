@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { createGeantBodyAppearancePlugin, type GeantViewer } from "@found-in-space/pas-de-geant";
 import { createDefaultSurfaceFactory } from "@found-in-space/pas-de-geant/browser";
 import {
-  celestialBody, createWorldRuntime, observeBodySurface,
+  celestialBody, createWorldRuntime,
   type TerrainSurfaceView, type WorldRuntime,
 } from "@found-in-space/pas-de-geant/worlds";
 import { createWorldSkykitPlugin } from "@found-in-space/pas-de-geant/worlds/skykit";
@@ -50,7 +50,6 @@ async function compose(viewer: GeantViewer, signal: AbortSignal) {
   });
 
   const reference = createDefaultSurfaceFactory();
-  const bufferSize = new THREE.Vector2();
   const illumination = new THREE.Vector3(0.3, 0.5, 1).normalize();
   for (const { body, radiusM } of entries) {
     signal.throwIfAborted();
@@ -70,18 +69,11 @@ async function compose(viewer: GeantViewer, signal: AbortSignal) {
       try { world = createWorldRuntime({ body, renderer: viewer.renderer, initialView, surface }); }
       catch (error) { if (surface?.disposeBaseTexture) surface.baseTexture.dispose(); throw error; }
       // Authored per-body poses. No ephemeris or common Solar System placement is installed.
-      world.object3d.position.set(centreX, centreY, rowZ);
-      world.object3d.rotation.y = -Math.PI / 2;
+      const pose = { position: new THREE.Vector3(centreX, centreY, rowZ),
+        orientation: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2), displayRadiusM };
       world.setSunlightDirection(illumination);
       await viewer.install(createWorldSkykitPlugin({ world, disposeWorld: true,
-        getView() {
-          const camera = viewer.renderer.xr.isPresenting ? viewer.renderer.xr.getCamera() : viewer.camera;
-          const observed = observeBodySurface({ bodyId: body.id, root: world.object3d, camera,
-            surface: world.surface ?? { sampleElevationMetres: () => 0 }, terrainMultiplier: 1 });
-          viewer.renderer.getDrawingBufferSize(bufferSize);
-          return { ...initialView, ...observed,
-            focalLengthPixels: bufferSize.y / (2 * Math.tan(THREE.MathUtils.degToRad(viewer.camera.fov / 2))) };
-        },
+        getFrame: () => ({ pose, terrainMultiplier: 1 }),
       }));
     }
 

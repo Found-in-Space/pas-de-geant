@@ -1,4 +1,3 @@
-import { observeBodySurface } from "../worlds/surface-observation.js";
 import * as THREE from "three";
 import type { SkykitPlugin, SkykitThreeFrame } from "../skykit-runtime.js";
 import { getGeantContext, type GeantContext } from "../viewer.js";
@@ -21,18 +20,12 @@ export function createGeantWorldsPlugin(options: GeantWorldsOptions = {}) {
   const controllers = new Map<SolarSystemBodyId, AbortController>();
   let disposed = false;
   const replacements = new Map<SolarSystemBodyId, { world: WorldRuntime; resolve(): void; reject(error: unknown): void }>();
-  const size = new THREE.Vector2();
-  function view(body: SolarSystemBodyId): TerrainSurfaceView {
+  function initialView(body: SolarSystemBodyId): TerrainSurfaceView {
     const state = geant.navigation.getSnapshot(); const location = state.locations[body]!;
-    const buffer = geant.renderer.getDrawingBufferSize(size);
-    const runtime = runtimes.get(body);
-    const observed = runtime ? observeBodySurface({ bodyId: body,
-      root: runtime.object3d, camera: geant.renderer.xr?.isPresenting ? geant.renderer.xr.getCamera() : geant.camera,
-      surface: runtime.surface ?? { sampleElevationMetres: () => 0 }, terrainMultiplier: state.terrainMultiplier }) : undefined;
-    return { ...location, ...(observed ?? {}), terrainMultiplier: state.terrainMultiplier,
+    // Construction needs a seed before placement exists. Every live update is measured by the runtime.
+    return { ...location, terrainMultiplier: state.terrainMultiplier,
       displayRadiusM: displayRadiusForScale(body, state.scaleDenominator),
-      observerHeightWorldM: observed?.observerHeightWorldM ?? Math.max(0.001, geant.camera.position.y),
-      focalLengthPixels: Math.max(1, buffer.y) / (2 * Math.tan(geant.camera.fov * Math.PI / 360)) };
+      observerHeightWorldM: Math.max(0.001, geant.camera.position.y), focalLengthPixels: 1 };
   }
   function retire(world: WorldRuntime) { world.object3d.removeFromParent(); world.dispose(); }
   function releaseSource(source: WorldSurfaceSource) {
@@ -43,7 +36,7 @@ export function createGeantWorldsPlugin(options: GeantWorldsOptions = {}) {
   async function construct(body: SolarSystemBodyId, factory: GeantSurfaceFactory | undefined, signal: AbortSignal): Promise<WorldRuntime> {
     const source = await factory?.({ body, renderer: geant.renderer, signal });
     if (signal.aborted || disposed) { if (source) releaseSource(source); throw new DOMException("World loading was cancelled.", "AbortError"); }
-    try { return createWorldRuntime({ body: celestialBody(body), renderer: geant.renderer, initialView: view(body), ...(source ? { surface: { ...source, workers: source.workers ?? options.workers } } : {}) }); }
+    try { return createWorldRuntime({ body: celestialBody(body), renderer: geant.renderer, initialView: initialView(body), ...(source ? { surface: { ...source, workers: source.workers ?? options.workers } } : {}) }); }
     catch (error) { if (source) releaseSource(source); throw error; }
   }
   async function setSurface(body: SolarSystemBodyId, factory: GeantSurfaceFactory): Promise<void> {
@@ -62,22 +55,24 @@ export function createGeantWorldsPlugin(options: GeantWorldsOptions = {}) {
     for (const [body, world] of runtimes) {
       const physical = bodyPositionJ2000M(body, at);
       const relative = relativeJ2000MetresToRender({ x: physical.x - origin.x, y: physical.y - origin.y, z: physical.z - origin.z }, state.scaleDenominator);
-      world.object3d.position.set(relative.x, relative.y, relative.z).applyQuaternion(frameRotation).add(focusCentre);
-      world.object3d.quaternion.copy(frameRotation).multiply(bodyFixedToRenderQuaternion(bodyRotation(body, at)));
-      world.update(view(body));
+      const frame = { camera: geant.camera, terrainMultiplier: state.terrainMultiplier, pose: {
+        position: new THREE.Vector3(relative.x, relative.y, relative.z).applyQuaternion(frameRotation).add(focusCentre),
+        orientation: frameRotation.clone().multiply(bodyFixedToRenderQuaternion(bodyRotation(body, at))),
+        displayRadiusM: displayRadiusForScale(body, state.scaleDenominator),
+      } };
+      world.updateFromCamera(frame);
       const sun = relativeJ2000MetresToRender({ x: -physical.x, y: -physical.y, z: -physical.z }, 1);
-      world.setSunlightDirection(new THREE.Vector3(sun.x, sun.y, sun.z).applyQuaternion(frameRotation).normalize());
-    }
-    for (const [body, pending] of replacements) {
-      const active = runtimes.get(body)!;
-      pending.world.object3d.position.copy(active.object3d.position); pending.world.object3d.quaternion.copy(active.object3d.quaternion);
-      pending.world.update(view(body)); pending.world.object3d.updateMatrixWorld(true);
-      pending.world.beforeRender(geant.renderer.xr?.isPresenting ? geant.renderer.xr.getCamera() : geant.camera);
+      const sunlight = new THREE.Vector3(sun.x, sun.y, sun.z).applyQuaternion(frameRotation).normalize();
+      world.setSunlightDirection(sunlight);
+      const pending = replacements.get(body);
+      if (!pending) continue;
       pending.world.processFrame();
+      // The candidate measures its own elevation, at the same complete pose as the active world.
+      pending.world.updateFromCamera(frame);
+      pending.world.setSunlightDirection(sunlight);
+      pending.world.beforeRender(geant.renderer.xr?.isPresenting ? geant.renderer.xr.getCamera() : geant.camera);
       if (!pending.world.getReadiness().ready) continue;
-      const old = runtimes.get(body)!;
-      pending.world.object3d.position.copy(old.object3d.position); pending.world.object3d.quaternion.copy(old.object3d.quaternion);
-      geant.scene.add(pending.world.object3d); retire(old);
+      geant.scene.add(pending.world.object3d); retire(world);
       runtimes.set(body, pending.world);
       (geant.worlds as Map<SolarSystemBodyId, WorldRuntime>).set(body, pending.world);
       replacements.delete(body); pending.resolve();

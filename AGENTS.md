@@ -25,6 +25,26 @@
   belong to catalog publications; do not bundle them in Geant. Earth-to-stars
   journey restoration is separate work.
 
+## Composition changes
+
+- Read `packages/pas-de-geant/docs/composition.md` before changing body
+  placement, camera/XR handling, frame order or tile-view construction.
+- Camera-driven worlds use `world.updateFromCamera()` or the SkyKit adapter's
+  `getFrame`. The runtime owns complete pose application, XR synchronization,
+  terrain measurement and rendered projection. Do not duplicate those
+  calculations in an integration case. Keep CSS pointer pixels separate from
+  framebuffer pixels used for tile detail.
+- When extracting an application capability, transfer its rendering invariants
+  and behavioral coverage into the package path. Record deliberate control or
+  experience changes separately. Lifecycle or algorithm tests alone do not
+  establish that the assembled composition supplies correct planner inputs.
+- Agree the intended behavior and acceptance criteria with the owner before
+  writing or extending tests. Code and documentation proposals can proceed
+  independently; test results do not establish an unconfirmed behavior contract.
+  Once agreed, verify relevant boundaries through public composition APIs with
+  controlled sources and platform fixtures. Physical Quest acceptance remains
+  separate.
+
 ## Quest debugging
 
 - Before debugging the Quest, read the ADB and DevTools setup in

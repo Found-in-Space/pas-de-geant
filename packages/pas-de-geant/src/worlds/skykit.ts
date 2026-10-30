@@ -1,7 +1,7 @@
 import { SPATIAL_METERS_PER_PARSEC, scaleSpatialVector, type SpatialVector3 } from "@found-in-space/spatial";
 import type { SkykitThreeFrame, SkykitThreePart, SkykitPlugin } from "../skykit-runtime.js";
 import type * as THREE from "three";
-import type { WorldRuntime } from "./world-runtime.js";
+import type { WorldCameraFrame, WorldRuntime } from "./world-runtime.js";
 import type { TerrainSurfaceView } from "./terrain-surface.js";
 import type { Vector3d } from "./solar-system.js";
 
@@ -17,15 +17,27 @@ export function physicalJ2000MetresToSkykitPosition(
   return scaleSpatialVector(positionM, scale);
 }
 
-export interface WorldSkykitOptions {
+interface WorldSkykitCommonOptions {
   readonly world: WorldRuntime;
-  /** Explicit application boundary for scale, observer location, projection, and exaggeration. */
-  readonly getView: (frame: SkykitThreeFrame) => TerrainSurfaceView;
-  readonly present?: (frame: SkykitThreeFrame, world: WorldRuntime) => void;
   readonly parent?: "origin" | "observer";
   /** Supplied worlds are borrowed unless the host explicitly transfers ownership. */
   readonly disposeWorld?: boolean;
 }
+
+export type WorldSkykitOptions = WorldSkykitCommonOptions & (
+  | {
+    /** Supply placement and exaggeration; the runtime owns camera/terrain measurement. */
+    readonly getFrame: (frame: SkykitThreeFrame) => Omit<WorldCameraFrame, "camera">;
+    readonly getView?: never;
+    readonly present?: never;
+  }
+  | {
+    /** Low-level path: the host owns measurement and its ordering relative to presentation. */
+    readonly getView: (frame: SkykitThreeFrame) => TerrainSurfaceView;
+    readonly present?: (frame: SkykitThreeFrame, world: WorldRuntime) => void;
+    readonly getFrame?: never;
+  }
+);
 
 /** Works with Skykit's public lifecycle; does not create a camera or a render loop. */
 export function createWorldSkykitPart(options: WorldSkykitOptions): SkykitThreePart {
@@ -38,9 +50,12 @@ export function createWorldSkykitPart(options: WorldSkykitOptions): SkykitThreeP
         ? context.roots.observerContentRoot : context.roots.originContentRoot).add(world.object3d);
     },
     update(frame) {
-      world.update(options.getView(frame));
-      options.present?.(frame, world);
       world.processFrame();
+      if (options.getFrame) world.updateFromCamera({ ...options.getFrame(frame), camera: frame.camera });
+      else {
+        world.update(options.getView(frame));
+        options.present?.(frame, world);
+      }
     },
     beforeRender(frame) {
       const renderer = frame.renderer as THREE.WebGLRenderer;
@@ -52,7 +67,7 @@ export function createWorldSkykitPart(options: WorldSkykitOptions): SkykitThreeP
       world.object3d.removeFromParent();
       if (options.disposeWorld) world.dispose();
     },
-    getSnapshot() { return { bodyId: world.body.id, ...world.getReadiness() }; },
+    getSnapshot() { return { bodyId: world.body.id, ...world.getReadiness(), view: world.getView() }; },
   };
 }
 

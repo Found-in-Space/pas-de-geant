@@ -24,6 +24,8 @@ and what was removed.
 
 The [architecture](docs/architecture.md) defines the component boundaries.
 The [movement contract](packages/pas-de-geant/docs/movement.md) describes custom models and integration.
+The [composition contract](packages/pas-de-geant/docs/composition.md) defines how
+rendered poses, XR eyes and terrain measurements reach tile selection.
 
 ## Develop
 

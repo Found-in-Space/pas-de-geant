@@ -88,6 +88,7 @@ export interface TerrainSurfaceView {
   readonly terrainMultiplier: number;
   /** Eye height above the local terrain contact in render metres. */
   readonly observerHeightWorldM: number;
+  /** Rendered projection scale in framebuffer pixels, including pixel ratio or XR eye viewport. */
   readonly focalLengthPixels: number;
   readonly projection?: "web-mercator" | "geographic";
 }

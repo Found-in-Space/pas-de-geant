@@ -24,6 +24,8 @@ The [movement architecture](movement.md) defines the model interface and integra
 Surface, observation, ship, and desktop models are optional implementations.
 A host can supply another model through the public interface.
 A custom surface adapter can supply geometry without a world renderer.
+The [composition contract](composition.md) defines the shared path from a
+complete pose and rendered camera to measured planner inputs.
 
 ## Create a world
 
@@ -34,19 +36,21 @@ import {
   MOON_SURFACE_MODEL,
   type TerrainSurfaceView,
 } from "@found-in-space/pas-de-geant/worlds";
+import * as THREE from "three";
 
-const view: TerrainSurfaceView = {
+// Construction seed only. Live views are measured by updateFromCamera().
+const initialView: TerrainSurfaceView = {
   latitudeDegrees: 18,
   longitudeDegrees: -24,
   displayRadiusM: 2.25,
   observerHeightWorldM: 3.55,
-  focalLengthPixels: 1_000, // drawing-buffer pixels, including pixel ratio
+  focalLengthPixels: 1_000,
   terrainMultiplier: 1,
 };
 const world = createWorldRuntime({
   body: celestialBody("moon"),
   renderer,
-  initialView: view,
+  initialView,
   surface: {
     baseTexture,
     surfaceModel: MOON_SURFACE_MODEL,
@@ -59,13 +63,24 @@ const world = createWorldRuntime({
   },
 });
 scene.add(world.object3d);
+const pose = {
+  position: new THREE.Vector3(0, 0, -4),
+  orientation: new THREE.Quaternion(),
+  displayRadiusM: 2.25,
+};
 
 // Each host frame, before rendering:
-world.update(view);
-world.processFrame(); // advances asynchronous publication even when stationary
-world.beforeRender(camera); // supply the XR ArrayCamera when presenting
+world.processFrame(); // publish before any ground-anchored pose calculation
+world.updateFromCamera({ camera, pose, terrainMultiplier: 1 });
+world.beforeRender(renderer.xr.isPresenting ? renderer.xr.getCamera() : camera);
 renderer.render(scene, camera);
 ```
+
+Supply the host's desktop perspective camera to `updateFromCamera()` during
+both desktop and XR rendering. The runtime applies the full pose, refreshes XR
+eyes from the final rig and measures its own terrain. `world.getView()` returns
+the last measured planner inputs. Keep `initialView` as a construction seed.
+Use `update(view)` only when the host already owns a coherent measured view.
 
 Omit `surface` to create a plain globe for any registered body. Supply a base
 texture to use the same streamed-surface implementation on another body;
@@ -115,8 +130,8 @@ bounds, not a measured terrain horizon.
 terrain and imagery admission, enclosing the XR eyes in an observer sphere. Head direction
 and frusta affect only render visibility. Admission hydrates the existing
 complete planner cut and replacement dependencies; it does not create tiles or
-change the planner's grid or LOD. Eye height is measured from the actual posed terrain.
-This calculation is independent of the selected movement model.
+change the planner's grid or LOD. `updateFromCamera()` measures eye height from
+the actual posed terrain, independently of the selected movement model.
 
 `TileGrid` identifies projection, version and reference radius. Display format
 2 products must declare it; `displayTextureSource` admits their opaque XYZ
@@ -170,7 +185,7 @@ The host removes the root from its scene and disposes its camera/renderer.
 
 The optional `@found-in-space/pas-de-geant/worlds/skykit` entry point uses Skykit's public
 part/plugin lifecycle. It has no separate camera, renderer, or animation loop.
-The host supplies an explicit view mapping and presentation callback:
+The host supplies a complete pose and terrain multiplier through `getFrame`:
 
 ```ts
 import {
@@ -186,21 +201,17 @@ import {
 
 const unregister = await viewer.addPlugin(createWorldSkykitPlugin({
   world,
-  getView(frame) {
+  getFrame(frame) {
     const unitsPerMetre = frame.view.coordinateUnitsPerParsec / WORLD_METRES_PER_PARSEC;
-    return {
-      ...view,
-      displayRadiusM: world.body.referenceRadiusM * unitsPerMetre,
-      observerHeightWorldM: physicalObserverAltitudeM * unitsPerMetre,
-    };
-  },
-  present(frame, runtime) {
     const at = simulationDate();
     const position = physicalJ2000MetresToSkykitPosition(
-      bodyPositionJ2000M(runtime.body.id, at), frame.view.coordinateUnitsPerParsec,
+      bodyPositionJ2000M(world.body.id, at), frame.view.coordinateUnitsPerParsec,
     );
-    runtime.object3d.position.set(position.x, position.y, position.z);
-    runtime.object3d.quaternion.copy(bodyFixedToIcrsQuaternion(bodyRotation(runtime.body.id, at)));
+    return { pose: {
+      position: new THREE.Vector3(position.x, position.y, position.z),
+      orientation: bodyFixedToIcrsQuaternion(bodyRotation(world.body.id, at)),
+      displayRadiusM: world.body.referenceRadiusM * unitsPerMetre,
+    }, terrainMultiplier: 1 };
   },
   disposeWorld: true,
 }));
@@ -211,7 +222,9 @@ retain those axes while converting physical metres to render units. Pas de
 Géant's Y-up mapping stays at its own presentation boundary. Observer altitude,
 surface location, physical versus illustrative scale, time, and lighting remain
 explicit host choices. A close-range host may supply a different display scale
-or camera-relative position through these same callbacks.
+or camera-relative position through this callback. `getView`/`present` remains
+the explicit path for a host that owns its view measurement; see the composition
+contract for its ordering requirements.
 
 The default parent is `originContentRoot`; `parent: "observer"` mounts on
 `observerContentRoot` for an observer-relative experience. The adapter uses the
@@ -276,7 +289,6 @@ batch. There are no local package archives or sibling links. Run `npm ci` and
 registry versions, shared resolution and the domain conversion/preload adapters.
 Root tooling and integration cases share the Three.js 0.170 peer with SkyKit
 and Geant. Vite consumers deduplicate Three.js.
-
 
 ## Earth day and night imagery
 

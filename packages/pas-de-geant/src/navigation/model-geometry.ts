@@ -21,7 +21,9 @@ export function focusFrame(frame: GeantMovementFrame) {
 }
 export function surfacePlacement(frame: GeantMovementFrame, rig: GeantRigPose, reference: GeantHeightReference): GeantPlacement {
   const state = frame.navigation.getSnapshot(), surface = frame.surface(state.focusBody), location = state.locations[state.focusBody]!;
-  const head = headPosition(frame, rig), focus = focusFrame({ ...frame, state });
+  // Navigation reads include wall-clock progress; ephemerides must use the
+  // same sampled frame time as world presentation, even after slow frame work.
+  const head = headPosition(frame, rig), focus = focusFrame(frame);
   const elevation = reference === "terrain" ? surface.sampleElevationMetres(location.latitudeDegrees, location.longitudeDegrees) : 0;
   const pose = solveBodySurfacePose({ contact: frame.navigation.getContact(), terrainMultiplier: state.terrainMultiplier },
     new Vector2(head.x, head.z), displayRadiusForScale(state.focusBody, state.scaleDenominator), surface.geometry, elevation);

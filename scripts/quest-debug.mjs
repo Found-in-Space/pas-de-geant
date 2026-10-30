@@ -180,6 +180,7 @@ function usage() {
     "  npm run quest:debug -- call <method> '[arg1,arg2]'",
     "",
     "Examples:",
+    "  npm run quest:debug -- call terrain '[\"world\"]'",
     "  npm run quest:debug -- call invoke '[\"world\",\"geant:scale.set\",{\"scaleDenominator\":80000}]'",
   ].join("\n");
 }

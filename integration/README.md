@@ -35,6 +35,29 @@ Vite has no public directory and does not copy that private file into builds.
 | `planner.html` | Inspect the provider-independent tile cut and polar anchor using only `/worlds`, without remote tiles or WebGL. |
 
 Controls use the package's standard scheme and shared desktop/XR motion actions.
+Camera-driven cases use the package's [composition contract](../packages/pas-de-geant/docs/composition.md).
+Authored placement uses the SkyKit adapter's `getFrame`; cases do not calculate
+live tile views from desktop dimensions or navigation state.
+
+`window.geantIntegration.snapshot()` reads current public state. Worlds owned
+by the Geant world plugin include `worlds.<body>.view`, `readiness` and `tiles`.
+The view exposes measured eye height, display radius, location and focal length;
+the tile readback exposes effective terrain and imagery targets. For example,
+`window.geantIntegration.snapshot().world.worlds.earth` inspects the standard
+Earth case after a frame update. These values help distinguish a wrong measured
+view from source resolution or pending loading. The authored SkyKit adapter
+includes its measured view in its own part snapshot.
+
+For terrain geometry investigations, `window.geantIntegration.terrain("world")`
+also reports the committed mesh grids, visible patches, triangle counts and
+actual elevation source zoom bound to each mesh, alongside the measured view
+and terrain planner state. It runs only when called. Capture it through the
+existing Quest connection with
+`npm run quest:debug -- call terrain '["world"]'` near a feature and again after
+retreating. Compare loaded geometry and elevation with the requested terrain
+cut; imagery zoom is a separate quantity. Do not increase quality settings to
+conceal a bad measured view or incomplete resource publication.
+
 Every Earth viewer uses the same medium-resolution Blue Marble day product
 (256-pixel tiles, zoom 0–9) and measured Mapterhorn Terrarium elevation
 (512-pixel height tiles, zoom 0–12), unless a diagnostic case explicitly supplies

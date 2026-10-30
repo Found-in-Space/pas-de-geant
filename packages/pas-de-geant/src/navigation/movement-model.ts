@@ -23,6 +23,7 @@ export interface GeantPlacement {
   readonly desktopPosition?: Vector3;
 }
 export interface GeantMovementFrame {
+  /** Navigation state with time sampled once for this viewer frame, shared with world presentation. */
   readonly state: GeantSnapshot;
   readonly navigation: GeantNavigation;
   readonly deltaSeconds: number;
@@ -34,7 +35,9 @@ export interface GeantMovementFrame {
   /** Preceding physical-to-room rotation, for a continuous change of navigation frame. */
   readonly previousSystemRotation: Quaternion;
   readonly reason: "initial" | "selection" | "focus" | "tracking";
+  /** Desktop pointer viewport in CSS pixels; independent of framebuffer/XR tile detail. */
   readonly viewportHeight: number;
+  /** Desktop pointer projection in CSS pixels, for orbit-drag input. */
   readonly focalLengthPixels: number;
   surface(body: SolarSystemBodyId): GeantMovementSurface;
   invoke(action: string, payload: Record<string, unknown>): Promise<unknown>;

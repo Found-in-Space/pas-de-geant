@@ -312,6 +312,14 @@ Model selection precedes input processing.
 Movement placement follows input processing.
 World transforms and surface queries follow placement.
 The XR adapter updates eye matrices before world surface queries.
+World roots apply their current position, orientation and scale before measuring
+eye height for tile selection. Tile detail uses the rendered projection matrix
+and drawing-buffer height on desktop, or the greatest focal length from the XR
+eye projections and their individual viewport heights.
+The world runtime owns this sequence through `updateFromCamera()`. Authored
+hosts use the same operation directly or through the SkyKit adapter's
+`getFrame`. See the [composition contract](composition.md) for ownership,
+pixel units, diagnostics and boundary validation.
 
 The adapter calls `leave()` and removes its frame parts on uninstall.
 The adapter restores the preceding rig and presentation state.
