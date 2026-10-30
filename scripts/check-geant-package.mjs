@@ -45,11 +45,11 @@ import { createGeantViewer, createGeantWorldsPlugin, createGeantMovementPlugin, 
 import { createGeantBrowser } from '@found-in-space/pas-de-geant/browser';
 import { mount } from '@found-in-space/pas-de-geant/embed';
 import { createWorldSkykitPlugin } from '@found-in-space/pas-de-geant/worlds/skykit';
-import { celestialBody } from '@found-in-space/pas-de-geant/worlds';
+import { celestialBody, assessSurfaceReadiness } from '@found-in-space/pas-de-geant/worlds';
 import { createGeantSkyImagePlugin } from '@found-in-space/pas-de-geant/sky-image';
 import { createSunAppearance } from '@found-in-space/pas-de-geant/appearances';
 import { createGeantJourneyDriver, createGeantTrackingSequence, createGeantSequenceParticipant,
-  createGeantSequencePlugin, geantBodyFixedSpace } from '@found-in-space/pas-de-geant/journey';
+  createGeantSequencePlugin, geantBodyFixedSpace, waitForGeantSurface, GeantSurfaceReadinessError } from '@found-in-space/pas-de-geant/journey';
 import { exerciseJourneyDriver } from '@found-in-space/guided-journey/testing';
 import { createJourneySequencePlayer } from '@found-in-space/guided-journey/sequence';
 const require = createRequire(import.meta.url);
@@ -67,6 +67,13 @@ await viewer.install(createGeantWorldsPlugin());
 const movement = createGeantMovementPlugin({ model: createGeantSurfaceMovementModel() });
 await viewer.install(movement);
 viewer.viewer.frame(0);
+const surface = viewer.worlds.get('moon').getSurfaceReadiness();
+assert.equal(assessSurfaceReadiness(surface, []).status, 'ready');
+assert.equal(assessSurfaceReadiness(surface, ['terrain']).status, 'degraded');
+const partCount = viewer.viewer.getSnapshot().partCount;
+await assert.rejects(waitForGeantSurface({ browser: viewer, body: 'moon', required: ['imagery'],
+  signal: new AbortController().signal, onDegraded: 'fail' }), GeantSurfaceReadinessError);
+assert.equal(viewer.viewer.getSnapshot().partCount, partCount);
 const driver = createGeantJourneyDriver({ browser: { ...viewer, movement } });
 await exerciseJourneyDriver({ driver, scenes: [0, 20, -35].map(latitudeDegrees => ({ readiness: 'none',
   camera: { kind: 'surface', body: 'moon', latitudeDegrees, longitudeDegrees: 25,
@@ -112,6 +119,16 @@ console.log('Packed core and image lifecycle passed with no SkyKit aggregate or 
     if (path.endsWith('.d.ts')) assert.doesNotMatch(await readFile(join(library, 'dist', path), 'utf8'), /["']@found-in-space\/skykit(?:["'])/);
   }
   await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--noEmit', '--skipLibCheck', '--strict', '--module', 'NodeNext', '--target', 'ES2022', 'image-consumer.ts'], { cwd: directory });
+  await writeFile(join(directory, 'readiness-consumer.ts'), `import type {GeantViewer} from '@found-in-space/pas-de-geant';
+import {assessSurfaceReadiness, type SurfaceLayer} from '@found-in-space/pas-de-geant/worlds';
+import {waitForGeantSurface} from '@found-in-space/pas-de-geant/journey';
+declare const browser: GeantViewer;
+const required: SurfaceLayer[] = ['imagery', 'terrain', 'nightImagery'];
+const assessment = assessSurfaceReadiness(browser.worlds.get('moon')!.getSurfaceReadiness(), required);
+void waitForGeantSurface({browser, body: 'moon', required, onDegraded: 'continue', signal: new AbortController().signal,
+  onProgress(result) { const currentHeight: number = result.readiness.view.observerHeightWorldM; }});
+`);
+  await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--noEmit', '--skipLibCheck', '--strict', '--module', 'NodeNext', '--target', 'ES2022', 'readiness-consumer.ts'], { cwd: directory });
   await exec('npm', ['install', '@found-in-space/star-octree-provider@0.3.0-alpha.0',
     '@found-in-space/star-trees@0.2.1-alpha.0', `file:${join(root, '.packages/three-star-field.tgz')}`,
     '--ignore-scripts', '--no-audit', '--no-fund', ...offline], { cwd: directory });

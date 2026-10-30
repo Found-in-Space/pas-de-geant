@@ -33,6 +33,8 @@ export interface ImageryProvider {
    * The mapping must be stable for this provider's lifetime and idempotent.
    */
   resolveSource?(address: TileIdentity): TileIdentity;
+  /** A usable temporary display payload, not the requested source imagery. */
+  isTemporaryFallback?(payload: Blob): boolean;
   /** Returns an exact persistent-cache hit without starting network work. */
   loadFromCache?(
     address: TileIdentity,
@@ -129,6 +131,7 @@ async function imageBlob(response: Response): Promise<Blob> {
 }
 
 export class XyzImageryProvider implements ImageryProvider {
+  private readonly temporaryFallbacks = new WeakSet<Blob>();
   readonly id: string;
   readonly attribution: string;
   readonly tileSize: number;
@@ -253,11 +256,13 @@ export class XyzImageryProvider implements ImageryProvider {
     // A black fallback is a usable temporary display result. Upstream backoff
     // belongs to the cache server, so it must not trip the client circuit or
     // prevent requests for other tiles already held by that server.
-    const cache = isFallbackResponse(response)
+    const temporaryFallback = isFallbackResponse(response);
+    const cache = temporaryFallback
       ? undefined
       : await this.responseCache(signal);
     const responseForCache = cache ? response.clone() : undefined;
     const blob = await imageBlob(response);
+    if (temporaryFallback) this.temporaryFallbacks.add(blob);
     ensureNotAborted(signal);
     if (cache && responseForCache) {
       try {
@@ -269,6 +274,8 @@ export class XyzImageryProvider implements ImageryProvider {
     }
     return blob;
   }
+
+  isTemporaryFallback(payload: Blob): boolean { return this.temporaryFallbacks.has(payload); }
 
   async load(address: TileIdentity, signal: AbortSignal): Promise<Blob> {
     const cached = await this.loadFromCache(address, signal);

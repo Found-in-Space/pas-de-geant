@@ -1,4 +1,5 @@
 import type { WorldWorkerFactory } from "./workers.js";
+import { absentSurfaceLayer, tileLayerReadiness, type SurfaceLayerReadiness } from "./surface-readiness.js";
 import * as THREE from "three";
 import { sourceRefinementLimits } from "./tile-refinement.js";
 import {
@@ -346,6 +347,7 @@ export interface ImageryTileResource {
   readonly sourceTile?: TileIdentity;
   readonly pixels?: Uint8Array;
   readonly fallbackFromNotFound?: boolean;
+  readonly temporaryFallback?: boolean;
 }
 
 export interface ImageryVirtualTextureUpdateOptions {
@@ -356,6 +358,7 @@ interface SourceResult {
   readonly sourceTile: TileIdentity;
   readonly pixels: Uint8Array;
   readonly fallbackFromNotFound?: boolean;
+  readonly temporaryFallback?: boolean;
 }
 
 /** Imagery adapter over the shared cache-first source queue. */
@@ -492,6 +495,7 @@ export class ScheduledImageryProvider
           ...(event.value.fallbackFromNotFound
             ? { fallbackFromNotFound: true }
             : {}),
+          ...(event.value.temporaryFallback ? { temporaryFallback: true } : {}),
         }),
       });
     });
@@ -511,6 +515,7 @@ export class ScheduledImageryProvider
     return {
       sourceTile: Object.freeze({ ...sourceTile }),
       pixels,
+      ...(this.source.isTemporaryFallback?.(blob) ? { temporaryFallback: true } : {}),
     };
   }
 }
@@ -1220,6 +1225,22 @@ export class ImageryVirtualTexture {
 
   get hasFailure(): boolean {
     return (this.provider?.metrics.failureTotal ?? 0) > 0;
+  }
+
+  /** Published current-view detail, independently of the usable base texture. */
+  getReadiness(): SurfaceLayerReadiness {
+    if (!this.scheduler) return absentSurfaceLayer();
+    const snapshot = this.scheduler.snapshot;
+    const workingSet = this.scheduler.workingSetTiles;
+    const working = new Set(workingSet.map(tileIdentityKey));
+    const fallbackTileCount = snapshot.committedCut.filter(tile => {
+      if (!working.has(tileIdentityKey(tile))) return false;
+      const resource = this.scheduler!.committedResource(tile);
+      return resource && (!resource.sourceTile || resource.fallbackFromNotFound || resource.temporaryFallback);
+    }).length;
+    return tileLayerReadiness({ snapshot, scheduling: this.scheduler.debugState, workingSet,
+      suspended: this.loadingSuspended || !this.debugControls.recalculationEnabled,
+      published: this.hasCompleteImagery, failedTileCount: this.scheduler.failedTileCount, fallbackTileCount });
   }
 
   get failureTotal(): number {

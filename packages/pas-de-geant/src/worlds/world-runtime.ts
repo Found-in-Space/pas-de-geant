@@ -4,6 +4,7 @@ import { createBodySurfaceModel, type SurfaceModel } from "./surface-model.js";
 import { TerrainSurface, type TerrainSurfaceOptions, type TerrainSurfaceView } from "./terrain-surface.js";
 import { FlatElevationTileProvider } from "./elevation-tile-provider.js";
 import { observeBodySurface } from "./surface-observation.js";
+import { absentSurfaceLayer, type WorldSurfaceReadiness } from "./surface-readiness.js";
 
 export interface WorldSurfaceSource extends Omit<TerrainSurfaceOptions, "renderer" | "initialView"> {
   /** A failed initial source-base request also permits the supplied fallback to become ready. */
@@ -84,6 +85,8 @@ export interface WorldRuntime {
   beforeRender(camera: THREE.Camera): void;
   setSunlightDirection(directionWorld: THREE.Vector3): void;
   getReadiness(): WorldReadiness;
+  /** Separate base usability and current-view detail for each source layer. */
+  getSurfaceReadiness(): WorldSurfaceReadiness;
   dispose(): void;
 }
 
@@ -188,6 +191,13 @@ export function createWorldRuntime(options: WorldRuntimeOptions): WorldRuntime {
         completeImagery: surface.hasCompleteImagery,
         imageryFailed: Boolean(options.surface?.baseFallback) || surface.hasImageryFailure,
       });
+    },
+    getSurfaceReadiness() {
+      return { disposed, view: { ...latestView },
+        base: { usable: !disposed && (!surface || surface.hasCommittedSurface), fallback: Boolean(options.surface?.baseFallback) },
+        layers: surface?.getReadiness() ?? {
+          imagery: absentSurfaceLayer(), nightImagery: absentSurfaceLayer(), terrain: absentSurfaceLayer(),
+        } };
     },
     dispose() {
       if (disposed) return;

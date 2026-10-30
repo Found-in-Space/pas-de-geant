@@ -1,4 +1,5 @@
 import type { WorldWorkerFactory } from "./workers.js";
+import { absentSurfaceLayer, tileLayerReadiness, type SurfaceLayer, type SurfaceLayerReadiness } from "./surface-readiness.js";
 import * as THREE from "three";
 import { ImageTexturePool } from "./image-texture-pool.js";
 import type { ImageTileResource } from "./image-tile-provider.js";
@@ -1130,6 +1131,30 @@ export class TerrainSurface {
 
   get hasImageryFailure(): boolean {
     return this.imagery.hasFailure || (this.nightImagery?.hasFailure ?? false);
+  }
+
+  /** Observe the current measured view; this does not prefetch a future destination. */
+  getReadiness(): Readonly<Record<SurfaceLayer, SurfaceLayerReadiness>> {
+    const snapshot = this.scheduler.snapshot;
+    const workingSet = this.scheduler.workingSetTiles;
+    const working = new Set(workingSet.map(tileIdentityKey));
+    const visible = snapshot.committedCut.filter(tile => working.has(tileIdentityKey(tile)));
+    const fallbackTileCount = visible.filter(tile => {
+      const resource = this.scheduler.committedResource(tile);
+      return resource && !resource.elevation;
+    }).length;
+    const published = visible.length > 0 && visible.every(tile => {
+      const resource = this.scheduler.committedResource(tile);
+      return resource !== undefined && this.meshes.get(tileIdentityKey(tile))?.elevationResource === resource;
+    });
+    return {
+      imagery: this.imagery.getReadiness(),
+      nightImagery: this.nightImagery?.getReadiness() ?? absentSurfaceLayer(),
+      terrain: this.provider instanceof FlatElevationTileProvider ? absentSurfaceLayer()
+        : tileLayerReadiness({ snapshot, scheduling: this.scheduler.debugState, workingSet,
+          suspended: this.loadingSuspended || !this.debugControls.terrain.recalculationEnabled,
+          published, failedTileCount: this.scheduler.failedTileCount, fallbackTileCount }),
+    };
   }
 
   /** Advances bounded imagery publication while the camera remains still. */
