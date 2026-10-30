@@ -63,6 +63,10 @@ export {
   WEB_MERCATOR_MAX_LATITUDE,
   calculateTileOnionPlan,
   wrapLongitude,
+  projectedTilePoint,
+  tilePointToGeographic,
+  tileBounds,
+  type TileProjection,
   type TileAddress,
   type TileOnionPlan,
   type TileOnionState,
@@ -70,3 +74,11 @@ export {
 export { createWorldWorkerFactory, createModuleWorldWorkerFactory, type WorldWorkerFactory, type WorldWorkerKind } from "./workers.js";
 export { resolveBodySurfaceDatasets, resolveSurfaceUrl, type BodySurfaceDatasets, type SurfaceDatasetBinding } from "./datasets.js";
 export { observeBodySurface, referenceSurfaceObservation, type BodySurfaceView } from "./surface-observation.js";
+
+// Renderer adapters can share the planner and mesh topology without a WebGL host.
+export { observerTileZoom, selectZoomWithVerticalHysteresis } from "./observer-tile-zoom.js";
+export { selectImageryZoom } from "./imagery-core.js";
+export { terrainSegmentsForZoom, terrainRefinementLimits } from "./terrain-lod.js";
+export { availableElevationAncestor } from "./elevation-availability.js";
+export { terrainPatchGeometry, terrainTargetForView } from "./terrain-surface.js";
+export { constrainTileRefinement } from "./tile-refinement.js";
