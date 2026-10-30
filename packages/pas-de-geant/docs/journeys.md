@@ -76,7 +76,11 @@ arrival. The next host frame uses that epoch for both movement and body placemen
 Leaving/cancelling restores the previous rate at the current instant, without
 rewinding the clock. A later explicit clock edit is left intact. This is not
 presentation-sequence playback; `durationSecs` remains presentation seconds.
-The shared sequence-player protocol will provide pause/seek/rejoin separately.
+The shared `/sequence` player now provides pause/seek/rate/rejoin separately;
+its protocol is documented in SkyKit's guided-journey package. A Geant sequence
+participant, including moving-target following, is still required before those
+controls can drive planetary camera sequences. Surface chapters do not acquire
+sequence behavior merely by setting a world-clock rate.
 
 ## Paired example and validation
 
