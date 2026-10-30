@@ -2,6 +2,8 @@ import { createDefaultSurfaceFactory } from "@found-in-space/pas-de-geant/browse
 import { createGeantJourneyDriver } from "@found-in-space/pas-de-geant/journey";
 import { createGuidedJourneyController } from "@found-in-space/guided-journey";
 import { mountJourneyControls } from "@found-in-space/guided-journey/dom";
+import { createJourneyTouchControls } from "@found-in-space/guided-journey/touch-os";
+import { installJourneyPanel } from "./journey-panel.js";
 import { earthJourney as definition } from "./earth-journey-chapters.js";
 import { element, mountViewer, runCase } from "./case.js";
 
@@ -12,6 +14,8 @@ runCase(async () => {
   const driver = createGeantJourneyDriver({ browser });
   const journey = createGuidedJourneyController({ definition, driver });
   const controls = mountJourneyControls({ root: element("journey"), definition, journey });
+  const removePanel = await installJourneyPanel(browser,
+    createJourneyTouchControls({ id: "earth-chapters", definition, journey }), journey.subscribe);
   const labels = { absent: "no detail source", loading: "loading detail", ready: "requested detail ready",
     degraded: "some source data unavailable", suspended: "detail loading suspended" };
   const removeReadout = await browser.install({ id: "earth:surface-readiness", setup(context) {
@@ -23,7 +27,7 @@ runCase(async () => {
       if (text !== previous) { previous = text; element("detail").textContent = text; }
     } });
   } });
-  browser.addDisposable(async () => { controls.destroy(); await removeReadout(); await journey.dispose(); driver.dispose(); });
+  browser.addDisposable(async () => { controls.destroy(); await removePanel(); await removeReadout(); await journey.dispose(); driver.dispose(); });
   // Continuous travel in VR is opt-in: select a chapter after entering the session.
   // The same controls and controller handle desktop, XR interruption and rejoin.
 });

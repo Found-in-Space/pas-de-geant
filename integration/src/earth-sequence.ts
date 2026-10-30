@@ -3,6 +3,8 @@ import { createDefaultSurfaceFactory } from "@found-in-space/pas-de-geant/browse
 import { createGeantJourneyNavigation, createGeantSequenceParticipant, createGeantSequencePlugin } from "@found-in-space/pas-de-geant/journey";
 import { createJourneySequencePlayer } from "@found-in-space/guided-journey/sequence";
 import { mountSequenceControls } from "@found-in-space/guided-journey/dom";
+import { createSequenceTouchControls } from "@found-in-space/guided-journey/touch-os";
+import { installJourneyPanel } from "./journey-panel.js";
 import { earthTrackingSequence as sequence } from "./earth-tracking-sequence.js";
 import { element, mountViewer, runCase } from "./case.js";
 
@@ -14,6 +16,8 @@ runCase(async () => {
   const participant = createGeantSequenceParticipant({ browser, navigation });
   const player = createJourneySequencePlayer({ sequence, participant });
   const controls = mountSequenceControls({ root: element("sequence"), player });
+  const removePanel = await installJourneyPanel(browser,
+    createSequenceTouchControls({ id: "earth-sequence", player }), player.subscribe);
   const world = browser.worlds.get("earth")!;
   const marker = new Mesh(new SphereGeometry(.012, 16, 8), new MeshBasicMaterial({ color: 0xffa64d }));
   world.object3d.add(marker);
@@ -25,7 +29,7 @@ runCase(async () => {
   const visibility = () => { if (document.hidden) player.pause(); };
   document.addEventListener("visibilitychange", visibility);
   browser.addDisposable(async () => {
-    document.removeEventListener("visibilitychange", visibility); controls.destroy(); await remove();
+    document.removeEventListener("visibilitychange", visibility); controls.destroy(); await removePanel(); await remove();
     player.dispose(); participant.dispose(); navigation.dispose(); marker.removeFromParent(); marker.geometry.dispose(); marker.material.dispose();
   });
 });

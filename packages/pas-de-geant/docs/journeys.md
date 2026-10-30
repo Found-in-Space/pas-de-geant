@@ -204,6 +204,19 @@ the independent live layer states instead of equating fallback with detail.
 SkyKit's `packages/skykit/examples/guided-journey` uses the same controller,
 chapter envelope and DOM controls with a stellar driver.
 
+Both Earth examples also mount the shared package's optional `/touch-os` controls
+on the left-controller panel, using the right-hand interaction input. The panels
+borrow the same controller/player as the DOM controls. Geant supplies placement,
+input and external-state subscriptions through `createGeantPanelPlugin`; the
+shared package supplies chapter/playback presentation and commands. SkyKit's
+stellar examples show the same TouchOS content in canvas previews.
+
+Nothing starts automatically when the panel mounts. Rejoin moves into a sequence
+sample; Play advances it, Pause holds it and Explore freely releases ownership.
+Chapter selection explicitly starts travel and arrival holds the destination.
+These are development controls awaiting physical Quest reach, readability and
+comfort acceptance, including support for alternatives to left-grip placement.
+
 The common `/testing` fixture runs against each real host. Geant additionally
 checks rendered camera/world continuity at zero/tiny time, geographic arrival,
 interruption, clock cleanup and unchanged headset orientation with desktop and

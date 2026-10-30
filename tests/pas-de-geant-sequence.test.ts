@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArrayCamera, Camera, Matrix4, Object3D, Quaternion, Vector2, Vector3, type WebGLRenderer } from "three";
 import { createJourneySequencePlayer } from "@found-in-space/guided-journey/sequence";
+import { createSequenceTouchControls } from "@found-in-space/guided-journey/touch-os";
+import { createThreeUIEnvironment, type CanvasContextLike } from "@found-in-space/touch-os/hosts/three";
+import type { DisplayRuntime, InteractionSource } from "@found-in-space/touch-os";
 import { createGeantViewer, createGeantWorldsPlugin, createGeantMovementPlugin, createGeantSurfaceMovementModel,
-  createGeantDesktopMovementModel, GEANT_ACTIONS, GEANT_MOTION_ACTIONS } from "@found-in-space/pas-de-geant";
+  createGeantDesktopMovementModel, createGeantPanelPlugin, GEANT_ACTIONS, GEANT_MOTION_ACTIONS } from "@found-in-space/pas-de-geant";
 import { createGeantJourneyNavigation, createGeantSequenceParticipant, createGeantTrackingSequence,
   createGeantSequencePlugin, evaluateGeantTrackingShot, geantBodyFixedSpace, type GeantTrackingShot, type GeantTrackingTarget } from "@found-in-space/pas-de-geant/journey";
 
@@ -72,6 +75,45 @@ function sameView(actual: Matrix4, expected: Matrix4, tolerance = 1e-7) {
 }
 
 describe.each([false, true])("planetary shared sequence, XR=%s", xr => {
+  it("routes shared panel input into the actual participant and refreshes independent playback state until removal", async () => {
+    const f = await fixture(xr), before = f.viewMatrix(), head = f.head.quaternion.clone();
+    const controls = createSequenceTouchControls({ id: "shared", player: f.player });
+    const ui = createThreeUIEnvironment({ parent: f.host.scene });
+    let runtime: DisplayRuntime | undefined, subscriptions = 0;
+    const context = new Proxy({ measureText: (text: string) => ({ width: text.length * 8 }) }, {
+      get(object, key) { return key === "measureText" ? object.measureText : () => {}; }
+    }) as unknown as CanvasContextLike;
+    const remove = await f.host.install(createGeantPanelPlugin({ id: "shared", environment: ui,
+      root: controls.render, surface: { width: 480, height: 640 }, initialize(value) { runtime = value; },
+      action(output) { controls.handleOutput(output); return null; },
+      subscribe(refresh) { subscriptions++; const unsubscribe = f.player.subscribe(refresh);
+        return () => { subscriptions--; unsubscribe(); }; },
+      placement: { createCanvas: metrics => ({ width: metrics.width, height: metrics.height, getContext: () => context }) },
+    }));
+    cleanups.push(async () => { await remove(); ui.dispose(); });
+    let time = 0;
+    function click(control: string) {
+      runtime!.render(); const bounds = runtime!.getBounds(`shared:${control}`)!;
+      const source: InteractionSource = { id: "right", space: "world-metres", tracked: true, pointerType: "controller",
+        surface: { targetId: "shared", x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 } };
+      ui.update({ timestamp: ++time, sources: [source], edges: [{ phase: "begin", timestamp: time, source }] });
+      ui.update({ timestamp: ++time, sources: [source], edges: [{ phase: "complete", timestamp: time, source }] });
+    }
+    ui.update({ timestamp: time });
+    click("play"); f.host.frame(1); await flush();
+    expect(f.player.getSnapshot()).toMatchObject({ ownership: "detached", frame: { timeSecs: 1 } });
+    sameView(f.viewMatrix(), before);
+    expect(runtime!.render().commands).toContainEqual(expect.objectContaining({ text: "1.0 / 10.0 seconds" }));
+    click("play"); click("join"); f.host.frame(0); sameView(f.viewMatrix(), before);
+    await f.arrive(); f.expectSample(); expect(f.head.quaternion.equals(head)).toBe(true);
+    click("play"); f.host.frame(2); await flush(); f.expectSample();
+    click("play"); expect(f.player.getSnapshot().ownership).toBe("attached");
+    click("cancel"); expect(f.player.getSnapshot().ownership).toBe("detached");
+    const held = f.viewMatrix(); f.host.frame(0); sameView(f.viewMatrix(), held);
+    expect(subscriptions).toBe(1); await remove(); expect(subscriptions).toBe(0);
+    f.player.seek(4); expect(f.player.getSnapshot().disposed).toBe(false);
+  });
+
   it("joins from the rendered pose and applies body-fixed position/orientation without editing the tracked head", async () => {
     const f = await fixture(xr), before = f.viewMatrix(), head = f.head.quaternion.clone();
     const join = f.player.join(); f.host.frame(0); sameView(f.viewMatrix(), before);
