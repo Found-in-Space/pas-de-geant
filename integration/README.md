@@ -1,7 +1,8 @@
-# Isolated Geant integration cases
+# Geant integration cases
 
 This private development workspace exercises the built public package. Each
-page starts only its selected capability and owns its lifetime. The index
+page owns its lifetime. The first case combines the standard experience; the
+remaining pages focus on individual capabilities. The index
 starts no viewer. Nothing here is imported by the package, included by the
 default build, packed for npm, or automatically published.
 
@@ -14,24 +15,48 @@ npm run dev:integration
 
 Open `http://127.0.0.1:4197`. `npm run build:integration` explicitly builds these
 cases into `dist/integration` for local static-host checks. It does not deploy.
-`config.local.json` is fetched at runtime only by the datasets/voice pages;
+`config.local.json` is fetched when custom datasets or VoiceOS are selected on their pages.
 Vite has no public directory and does not copy that private file into builds.
 
 ## Cases and manual acceptance
 
 | Page | Check |
 | --- | --- |
+| `standard.html` | Blue Marble, Mapterhorn terrain, automatic device/IP location, clickable TouchOS map and logarithmic scale slider, standard navigation modes and VR. No local configuration required. |
+| `earth-day-night.html` | Orbit the terminator; inspect night city lights and polar caps. Seek UTC, play at 600×, pause, compare day-only, and enter/exit VR. Both products use 256-pixel tiles. Block external data and reload to check the bundled day fallback and dark night side. |
 | `lifecycle.html` | Scale Moon independently; dispose/remount it while Earth remains usable. Pause/resume Earth. Leaving the page disposes viewers. |
 | `size-comparison.html` | Compare Moon, Earth and Sun at one size scale, using authored positions and lighting. Enter VR, walk/lean closer, and check that the lineup stays fixed in the room and labels remain legible. |
 | `backgrounds.html` | Starts with no sky code/assets requested. Select the image and verify only the main map and two polar caps load, without catalog/renderer modules or octree requests; select catalog stars explicitly. Use Enter VR to preview the selected background in the headset; exit VR to switch or remove it. Inspect both celestial poles and the cap transitions while rotating. Confirm celestial orientation and no translational parallax for the image. |
-| `planner-overlays.html` | Inspect terrain tile boundaries and imagery source overlays across location, scale and navigation modes. Compare with a fixed reference; optionally adjust terrain exaggeration. No service configuration is required. |
+| `planner-overlays.html` | Inspect Earth terrain tile boundaries and Blue Marble source overlays across location, scale and navigation modes. Compare with a fixed reference; optionally adjust terrain exaggeration. No local configuration is required. |
 | `xr.html` | Check surface altitude, stable observation placement, and ship controls. The host supplies an explicit model selection function. |
-| `datasets.html` | Standard controls and optional planner/terrain tools with configured imagery/elevation. Check source admission, attribution, caching, invalid descriptors and unavailable proxies. |
+| `datasets.html` | Starts with the default Earth surface. Load configured datasets to check source admission, attribution, caching, invalid descriptors and unavailable proxies; restore default Earth afterward. |
 | `voice.html` | VoiceOS remains inactive until selected; check state queries/actions and teardown against an external token service. |
 | `embed.html` | Declarative attributes, focus, resizing and teardown through `/embed`. |
 | `planner.html` | Inspect the provider-independent tile cut and polar anchor using only `/worlds`, without remote tiles or WebGL. |
 
 Controls use the package's standard scheme and shared desktop/XR motion actions.
+Every Earth viewer uses the same medium-resolution Blue Marble day product
+(256-pixel tiles, zoom 0–9) and measured Mapterhorn Terrarium elevation
+(512-pixel height tiles, zoom 0–12), unless a diagnostic case explicitly supplies
+other datasets. Moon-specific views retain their lunar reference source.
+
+Start with `standard.html`. The page requests device location while the viewer
+loads; permission denial or an unavailable device location falls back to an
+approximate IP location through GeoJS. The status identifies the source. If both
+fail, the viewer stays usable and the map selects a location manually. Location
+detection belongs to this example, not the library. Use localhost or HTTPS for
+device location and XR. The same TouchOS runtime renders the desktop canvas and
+the left-controller panel in VR. Aim the right controller and use its trigger
+to select the map, move the scale slider or cycle navigation mode. The panel
+reflects keyboard and XR scale actions; changing scale retains the selected
+location.
+
+For manual acceptance, allow device location, retry after denying it, and block
+GeoJS to check the unavailable status and manual map selection. Change scale
+from the panel slider and Z/X, then enter VR and test the panel map/slider with the
+right trigger. Walk and turn in observation mode to check the world remains
+fixed. Exit VR and confirm the desktop panel still works.
+
 The extension checkboxes start off. They install ordinary feature plugins and
 compose application-owned binding fragments through `extendGeantControlScheme`;
 no case implements navigation or input loops.
@@ -76,22 +101,24 @@ Planner overlay and interaction acceptance:
   imagery overlays separately. Navigate and change scale to inspect the tile
   cut, with the fixed reference alongside. Switch surface/orbit/free modes. In
   orbit, movement rotates around the focused body and C/V/wheel changes distance
-  independently of scale. Use `datasets.html` with configured imagery to inspect
-  streamed source-tile boundaries.
+  independently of scale. The default Blue Marble source provides streamed
+  source-tile boundaries without local configuration.
 - Standard controls leave F8/F9, XR X/Y and surface C/V terrain adjustment
   unbound. Enable planner tools, toggle overlays, then disable the extension;
   overlays and shortcuts must stop. Re-enable it to check a fresh lifecycle.
 - Enable terrain tools and change the multiplier with the panel or C/V outside
   orbit. Restore 1× explicitly. Removing the tools preserves the multiplier.
-  The bundled Moon is a reference surface; use `datasets.html` with measured
-  elevation to inspect relief and imagery boundaries.
+  The Earth inspection case uses measured Mapterhorn elevation; its starting
+  location in the Alps makes relief visible without extra configuration.
 - In XR surface mode, verify left-stick travel and right-stick altitude.
   The horizontal right stick produces one snap turn after neutral.
   Physical altitude changes must preserve scale.
 - In XR observation mode, walk, crouch, and turn your head.
   The map must remain fixed in the room.
   The left stick changes the surface contact.
-  The vertical right stick changes map height without changing physical altitude.
+  The vertical right stick changes physical altitude above the ground, just as in
+  surface mode: approach and retreat along the observation normal, without
+  shifting the anchor vertically or changing scale.
 - In XR ship mode, verify right-stick travel and left-stick pitch/yaw.
   Hold the left grip to substitute roll for yaw.
   Hold the right grip for faster travel.
@@ -114,6 +141,16 @@ Browser cases expose `window.geantIntegration.snapshot()` and
 Both use public package APIs; this helper is development code only. The planner
 has its own visible readouts. Add future cases as separate pages and register
 them in `vite.config.ts`; avoid growing a shared master application.
+
+Earth cases use the hosted Blue Marble day product by default, including the
+size-comparison composition. The bundled low-resolution reference is retained
+for disconnected use. The day/night case additionally loads Black Marble 2016;
+it needs no private configuration or provider key. These historical composites
+are described in the package's [world contract](../packages/pas-de-geant/docs/worlds.md#earth-day-and-night-imagery).
+Check time-dependent terminator motion and stable city locations across day/night
+switches, pole crossings and zoom changes. After switching, leaving the page must
+release both imagery pools, workers and owned base bitmaps. Physical Quest
+performance and appearance still require headset acceptance.
 
 ## External services
 

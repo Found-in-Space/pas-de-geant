@@ -3,9 +3,9 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Declarative embed — Geant integration</title></head>
 <body>
 <nav><a href="./">Integration cases</a></nav>
-<h1>Declarative embed</h1><p>This case mounts a Moon viewer through HTML attributes. Check loading, focus, resize and cleanup when leaving the page. No external services are configured.</p>
+<h1>Declarative embed</h1><p>This case mounts an Earth viewer through HTML attributes, with the default Blue Marble imagery and Mapterhorn elevation. Check loading, focus, resize and cleanup when leaving the page.</p>
 <p id="status" role="status">Starting case…</p>
-<main><div id="world" class="world" data-geant-browser data-geant-bodies="moon" data-geant-location="18,-24" data-geant-controls="grab"></div></main>
+<main><div id="world" class="world" data-geant-browser data-geant-bodies="earth" data-geant-location="46.58,7.99" data-geant-controls="grab"></div></main>
 <details><summary>Public viewer state</summary><pre id="state"></pre></details>
 <script type="module" src="./src/embed.ts"></script>
 </body></html>

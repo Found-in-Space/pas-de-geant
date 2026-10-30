@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Standard experience — Geant integration</title></head>
+<body>
+<p><a href="./">All integration cases</a></p>
+<h1>Standard experience</h1>
+<p>Explore Earth with measured terrain. Your location is detected when this page opens. Use the map and scale slider on the TouchOS panel, or enter VR and find the panel on your left controller.</p>
+<p id="imagery-source">Imagery: NASA Blue Marble Next Generation, July 2004.</p>
+<main class="standard-layout"><section><div id="world" class="world standard-world"></div>
+<label>Navigation <select id="mode"><option value="surface">Surface</option><option value="observation">Observation</option><option value="ship">Ship</option></select></label>
+<button id="locate">Use my location</button><p id="location-status" role="status" aria-live="polite">Detecting your location…</p>
+</section><section aria-label="TouchOS map and scale"><h2>Map and scale</h2><div id="touch-panel"></div>
+<p>Base map: NASA Blue Marble Next Generation, July 2004. Elevation: Mapterhorn, Terrarium tiles.</p></section></main>
+<details><summary>Controls</summary><ul id="control-help"></ul></details>
+<p id="status" role="status">Starting…</p><details><summary>Public state</summary><pre id="state"></pre></details>
+<script type="module" src="./src/standard.ts"></script>
+</body></html>

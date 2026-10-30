@@ -2,9 +2,10 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Geant integration cases</title><link rel="stylesheet" href="./src/case.css"></head>
 <body><h1>Geant integration cases</h1>
-<p>Open one case to test a capability independently. Each page consumes the public package and owns its viewers. The index starts no runtime or external services.</p>
-<ul><li><a href="./lifecycle.html">Independent lifetimes</a></li>
+<p>Start with the standard experience, then use the focused cases to inspect individual capabilities. Each page consumes the public package and owns its viewers. Earth viewers use Blue Marble imagery and measured elevation by default.</p>
+<ul><li><a href="./standard.html">Standard experience</a> — Blue Marble, measured terrain, TouchOS map, location detection, scale slider and VR.</li>
 <li><a href="./earth-day-night.html">Earth day and night</a> — terminator, city lights and simulation time.</li>
+<li><a href="./lifecycle.html">Independent lifetimes</a></li>
 <li><a href="./backgrounds.html">Optional sky backgrounds</a> — no sky, Deep Star Maps image, or catalog stars.</li>
 <li><a href="./size-comparison.html">Moon, Earth and Sun sizes</a> — one size scale, authored spacing and VR head tracking.</li>
 <li><a href="./planner-overlays.html">Planner overlays</a> — inspect terrain tile boundaries and imagery source tiles in the world viewer.</li>
@@ -13,6 +14,6 @@
 <li><a href="./voice.html">VoiceOS integration</a></li>
 <li><a href="./embed.html">Declarative embed</a></li>
 <li><a href="./planner.html">Tile planner</a> — inspect the provider-independent quadtree cut without a renderer or network source.</li></ul>
-<p>Dataset and VoiceOS cases require a private <code>config.local.json</code>. See the integration README for setup and manual acceptance steps.</p>
+<p>Custom dataset checks and VoiceOS require a private <code>config.local.json</code>; their pages start with the default Earth surface. See the integration README for setup and manual acceptance steps.</p>
 <p>Satellite and aircraft examples live in their respective projects.</p>
 </body></html>

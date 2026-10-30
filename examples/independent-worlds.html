@@ -2,7 +2,7 @@
 <style>
 body{margin:0;background:#07111a;color:#e8f8fb;font:16px system-ui;padding:24px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}.world{height:420px;border:1px solid #456}button{margin-top:12px}output{display:block;white-space:pre-wrap}
 </style>
-<h1>Two independent worlds</h1><p>Reference surfaces and bundled NASA imagery. Click a viewer before using WASD; each has its own scale and lifetime.</p>
+<h1>Two independent worlds</h1><p>Earth uses Blue Marble imagery and Mapterhorn elevation; the Moon uses its bundled reference source. Click a viewer before using WASD; each has its own scale and lifetime.</p>
 <main><section><h2>Earth</h2><div class="world" id="earth"></div><button id="earth-dispose">Dispose Earth</button></section>
 <section><h2>Moon</h2><div class="world" id="moon"></div><button id="moon-scale">Change Moon scale</button><button id="moon-dispose">Dispose Moon</button></section></main><output id="state"></output>
 <script type="module">

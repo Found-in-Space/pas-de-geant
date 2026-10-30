@@ -9,3 +9,9 @@ button { padding: 8px 14px; margin: 12px 8px 0 0; font: inherit; cursor: pointer
 pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
 [role="alert"] { color: #ffb4a9; }
 li { margin-bottom: 12px; }
+.standard-layout { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+.standard-world { height: 560px; }
+#touch-panel { max-width: 480px; }
+#scale { display: block; width: 100%; margin: 12px 0; }
+select { padding: 8px; font: inherit; }
+@media (max-width: 760px) { .standard-layout { grid-template-columns: 1fr; } .standard-world { height: 440px; } }

@@ -9,7 +9,7 @@ runCase(async () => {
   const surface = createGeantSurfaceMovementModel(), observation = createGeantObservationMovementModel();
   const ship = createGeantShipMovementModel(), desktop = createGeantDesktopMovementModel();
   // The host selects ordinary model objects. No library registry owns this list.
-  const browser = await mountViewer("world", { bodies: ["moon"], xr: true, movement: frame => {
+  const browser = await mountViewer("world", { bodies: ["earth"], xr: true, movement: frame => {
     if (!frame.xr) return desktop;
     if (frame.state.mode === "surface") return surface;
     if (frame.state.mode === "observation") return observation;

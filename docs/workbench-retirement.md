@@ -29,6 +29,12 @@ integration area uses its own small ignored config and has no access to old
 session configuration through application code. Existing running processes
 were not stopped or reconfigured.
 
+On 18 October the owner selected a standard integration baseline: medium-resolution
+Blue Marble, the former Mapterhorn elevation source, a TouchOS map, location
+detection and scale sliders. `integration/standard.html` presents that baseline
+first; focused Earth cases share the browser's imagery/elevation defaults.
+Location detection and panel composition belong to the integration consumer.
+
 ## Controls after retirement
 
 The isolated planner-overlay/XR pages now consume the standard scheme, with planner

@@ -3,13 +3,13 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Planner overlays — Geant integration</title></head>
 <body>
 <nav><a href="./">Integration cases</a></nav>
-<h1>Planner overlays</h1><p>Inspect terrain tile boundaries and imagery source tiles while moving around the Moon. Enable planner diagnostics, then toggle terrain and imagery overlays separately in the viewer panel. Compare the result with the fixed reference view and inspect how the tile cut changes with location, scale and navigation mode.</p>
+<h1>Planner overlays</h1><p>Inspect terrain tile boundaries and imagery source tiles while moving around Earth with default Blue Marble imagery and Mapterhorn elevation. Enable planner diagnostics, then toggle terrain and imagery overlays separately in the viewer panel. Compare the result with the fixed reference view and inspect how the tile cut changes with location, scale and navigation mode.</p>
 <p><label>Navigation <select id="mode"><option value="surface">Surface</option><option value="orbit">Orbit</option><option value="free">Free</option></select></label></p>
 <p><label><input id="planner-tools" type="checkbox"> Planner diagnostics</label> <label><input id="terrain-tools" type="checkbox"> Terrain exaggeration tools</label></p>
-<p>The bundled Moon uses a reference surface without measured relief. Use the <a href="./datasets.html">datasets case</a> to inspect streamed imagery boundaries and measured elevation. Disabling terrain tools preserves the chosen multiplier; Restore 1× resets it explicitly.</p>
+<p>Measured terrain and streamed imagery are enabled by default. Disabling terrain tools preserves the chosen multiplier; Restore 1× resets it explicitly.</p>
 <p id="status" role="status">Starting case…</p>
 <main><section><h2>Overlay inspection</h2><div id="world" class="world"></div></section><section><h2>Fixed reference</h2><div id="reference" class="world"></div></section></main>
 <details><summary>Public viewer state</summary><pre id="state"></pre></details>
-<details><summary>Navigation and shortcuts</summary><p>Focus the inspection viewer to navigate with WASD, Z/X, drag and wheel. In orbit mode, WASD/drag orbits the Moon and C/V/wheel changes distance. Release held inputs after changing mode or extensions.</p><ul id="control-help"></ul></details>
+<details><summary>Navigation and shortcuts</summary><p>Focus the inspection viewer to navigate with WASD, Z/X, drag and wheel. In orbit mode, WASD/drag orbits Earth and C/V/wheel changes distance. Release held inputs after changing mode or extensions.</p><ul id="control-help"></ul></details>
 <script type="module" src="./src/planner-overlays.ts"></script>
 </body></html>

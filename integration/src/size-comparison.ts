@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createGeantBodyAppearancePlugin, type GeantViewer } from "@found-in-space/pas-de-geant";
-import { createReferenceSurfaceFactory } from "@found-in-space/pas-de-geant/browser";
+import { createDefaultSurfaceFactory } from "@found-in-space/pas-de-geant/browser";
 import {
   celestialBody, createWorldRuntime, observeBodySurface,
   type TerrainSurfaceView, type WorldRuntime,
@@ -49,7 +49,7 @@ async function compose(viewer: GeantViewer, signal: AbortSignal) {
     for (const material of Array.isArray(grid.material) ? grid.material : [grid.material]) material.dispose();
   });
 
-  const reference = createReferenceSurfaceFactory();
+  const reference = createDefaultSurfaceFactory();
   const bufferSize = new THREE.Vector2();
   const illumination = new THREE.Vector3(0.3, 0.5, 1).normalize();
   for (const { body, radiusM } of entries) {

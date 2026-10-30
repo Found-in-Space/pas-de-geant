@@ -7,6 +7,10 @@
 - Keep independent functionality/integration cases in `integration/`. Use only
   public package exports and explicit case builds. Do not add case code to the
   library, recreate a master demo, or publish integration cases automatically.
+- Put the standard experience first in the integration index: Earth with
+  medium-resolution Blue Marble, Mapterhorn elevation, TouchOS map, location
+  detection and a scale slider. Earth demos use the same imagery and elevation
+  defaults; focused cases can select other bodies or explicit diagnostic sources.
 - Satellite and aircraft runtime examples belong in their independent projects.
 - Configure external imagery/elevation services through dataset bindings. Tile
   production belongs to Planetary Surfaces; acquisition/proxying belongs to the

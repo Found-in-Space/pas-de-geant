@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 
-const pages = ["index", "earth-day-night", "lifecycle", "backgrounds", "size-comparison", "planner-overlays", "xr", "datasets", "voice", "embed", "planner"];
+const pages = ["index", "standard", "earth-day-night", "lifecycle", "backgrounds", "size-comparison", "planner-overlays", "xr", "datasets", "voice", "embed", "planner"];
 
 export default defineConfig({
   base: "./",

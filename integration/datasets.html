@@ -3,7 +3,8 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Configured imagery and elevation — Geant integration</title></head>
 <body>
 <nav><a href="./">Integration cases</a></nav>
-<h1>Configured imagery and elevation</h1><p>Configure datasets in config.local.json first. Check descriptor admission, tile loading, attribution and recovery using your external service. Invalid descriptors should report a startup error. Tile acquisition and serving belong to the external proxy; this case only supplies dataset bindings.</p>
+<h1>Configured imagery and elevation</h1><p>Starts with the standard Blue Marble imagery and Mapterhorn elevation. To check your own datasets, set datasets in config.local.json and select Load configured datasets. Check descriptor admission, tile loading, attribution and recovery; invalid descriptors should report an error.</p>
+<p><button id="load-datasets">Load configured datasets</button><button id="restore-defaults">Restore default Earth</button></p>
 <p id="status" role="status">Starting case…</p>
 <p><label><input id="planner-tools" type="checkbox"> Planner overlays (F8/F9 or XR X/Y)</label> <label><input id="terrain-tools" type="checkbox"> Terrain adjustment tools</label></p>
 <p>Controls start with the standard scheme. Optional terrain tools expose a multiplier and Restore 1×; in XR hold right grip while moving the right stick horizontally.</p>

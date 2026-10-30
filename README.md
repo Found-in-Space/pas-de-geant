@@ -16,7 +16,9 @@ This is a local alpha implementation, with no npm publication implied.
 
 The former private master demo has been retired. This repository builds a
 package; [`integration/`](integration/README.md) contains isolated development
-cases and is excluded from the default build and package distribution.
+cases and is excluded from the default build and package distribution. Its first
+case, `standard.html`, combines the default Earth surface, TouchOS map, location
+detection, scale sliders and VR.
 The [retirement inventory](docs/workbench-retirement.md) records what remains
 and what was removed.
 
