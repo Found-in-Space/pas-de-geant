@@ -4,7 +4,7 @@ import { projectedTilePoint, tilePointToGeographic, WEB_MERCATOR_MAX_LATITUDE } 
 describe("public grid conversion used by renderer adapters", () => {
   it("round trips geographic and Mercator points across resolutions", () => {
     for (const projection of ["web-mercator", "geographic"] as const) {
-      for (const z of [0, 5, 17]) for (const [lat, lon] of [[54.5,-2.5],[0,0],[-70,170]]) {
+      for (const z of [0, 5, 17]) for (const [lat, lon] of [[54.5,-2.5],[0,0],[-70,170]] as const) {
         const p = projectedTilePoint(lat, lon, z, projection);
         const q = tilePointToGeographic(p.x, p.y, z, projection);
         expect(q.latitudeDegrees).toBeCloseTo(lat, 10);
