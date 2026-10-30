@@ -15,6 +15,8 @@ export interface GeantPanelOptions {
   readonly desktop?: HTMLElement;
   readonly inputs?: readonly InteractionInputAdapter[];
   readonly initialize?: (runtime: DisplayRuntime) => void;
+  /** Refresh independent application state (for example journey progress) in every mounted view. */
+  readonly subscribe?: (refresh: () => void) => () => void;
   readonly frame?: (frame: SkykitThreeFrame, context: GeantContext) => ThreePanelHostFrame;
   readonly action?: (output: RuntimeOutput) => { readonly id: string; readonly payload?: unknown } | null;
   /** Borrow an existing context to arbitrate with scene targets and other panels. */
@@ -27,6 +29,15 @@ export function createGeantPanelPlugin(options: GeantPanelOptions): SkykitPlugin
     const geant = getGeantContext(context);
     const environment = options.environment ?? createThreeUIEnvironment({ parent: geant.scene, inputs: options.inputs,
       ...(options.mode ? { mode: options.mode } : {}) });
+    const cleanups: Array<() => void | Promise<void>> = [];
+    const teardown = async () => {
+      const errors: unknown[] = [];
+      for (const cleanup of cleanups.splice(0).reverse()) {
+        try { await cleanup(); } catch (error) { errors.push(error); }
+      }
+      if (errors.length) throw new AggregateError(errors, "Panel cleanup failed.");
+    };
+    if (!options.environment) cleanups.push(() => environment.dispose());
     const create = (id: string, desktop?: HTMLElement) => {
       let mountedRuntime: DisplayRuntime | undefined;
       const view = environment.mountPanel({ id,
@@ -34,18 +45,21 @@ export function createGeantPanelPlugin(options: GeantPanelOptions): SkykitPlugin
         ...(desktop ? { canvas: desktop } : { placement: options.placement, anchor: options.anchor }),
         ...(options.mode ? { mode: options.mode } : {}),
         bind(output) { const action = options.action?.(output); if (action) void context.actions.invoke(action.id, action.payload, { source: "panel" }); } });
-      context.addDisposable(() => view.dispose());
+      cleanups.push(() => view.dispose());
       mountedRuntime = view.runtime;
       options.initialize?.(view.runtime);
       view.setContent(options.root(geant.navigation.getSnapshot(), view.runtime));
-      context.addDisposable(geant.navigation.subscribe(snapshot => view.setContent(options.root(snapshot, view.runtime))));
+      cleanups.push(geant.navigation.subscribe(snapshot => view.setContent(options.root(snapshot, view.runtime))));
+      if (options.subscribe) cleanups.push(options.subscribe(() => view.setContent(options.root(geant.navigation.getSnapshot(), view.runtime))));
       return view;
     };
-    if (!options.environment) context.addDisposable(() => environment.dispose());
-    create(options.id);
-    if (options.desktop) create(`${options.id}:desktop`, options.desktop);
-    if (!options.environment) context.addPart({ id: options.id, priority: 200, update(frame) {
-      environment.update(options.frame?.(frame, geant) ?? { timestamp: performance.now(), scene: geant.scene, camera: geant.camera });
-    } });
+    try {
+      create(options.id);
+      if (options.desktop) create(`${options.id}:desktop`, options.desktop);
+      if (!options.environment) cleanups.push(context.addPart({ id: options.id, priority: 200, update(frame) {
+        environment.update(options.frame?.(frame, geant) ?? { timestamp: performance.now(), scene: geant.scene, camera: geant.camera });
+      } }));
+      return teardown;
+    } catch (error) { await teardown(); throw error; }
   } };
 }

@@ -160,6 +160,10 @@ supplied one). Provide `root`, `action`, `placement`, and optional `inputs`,
 removed. Desktop and spatial views have separate runtime/input state, with
 navigation subscriptions publishing the same applied values. `initialize`
 allocates view-local assets; `root(snapshot, runtime)` can look them up.
+An optional `subscribe(refresh)` connects independent application state, such as
+journey/playback progress, to every mounted view. Return its unsubscription;
+the panel plugin removes it before disposing that view. It does not require a
+navigation action or another frame loop to refresh an external store.
 
 The environment prepares panel transforms, resolves panel and scene ownership,
 delivers ordered semantic events, applies synchronous bindings, advances runtime
