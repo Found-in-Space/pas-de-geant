@@ -14,12 +14,18 @@ export interface GeantMovementOptions {
 export function createGeantMovementPlugin(options: GeantMovementOptions) {
   let selection = options.model, invalidate = () => {};
   let disposed = false, installed = false;
+  const listeners = new Set<(model: GeantMovementSelection) => void>();
   return {
     id: "geant:movement",
     getModel() { return selection; },
     setModel(model: GeantMovementSelection) {
       if (disposed) throw new Error("Movement is disposed.");
       selection = model; invalidate();
+      for (const listener of [...listeners]) if (listeners.has(listener)) listener(model);
+    },
+    subscribeModel(listener: (model: GeantMovementSelection) => void) {
+      if (disposed) throw new Error("Movement is disposed.");
+      listeners.add(listener); return () => { listeners.delete(listener); };
     },
     setup(context) {
       const geant = getGeantContext(context);
@@ -92,7 +98,7 @@ export function createGeantMovementPlugin(options: GeantMovementOptions) {
       const removers: Array<() => void> = [];
       const teardown = context.addDisposable(() => {
         if (disposed) return;
-        disposed = true; invalidate = () => {};
+        disposed = true; invalidate = () => {}; listeners.clear();
         for (const remove of removers.reverse()) remove();
         reference?.removeEventListener("reset", reset);
         try { if (active && lastFrame) active.leave?.(lastFrame); }
@@ -120,5 +126,6 @@ export function createGeantMovementPlugin(options: GeantMovementOptions) {
       } }));
       return teardown;
     },
-  } satisfies SkykitPlugin & { getModel(): GeantMovementSelection; setModel(model: GeantMovementSelection): void };
+  } satisfies SkykitPlugin & { getModel(): GeantMovementSelection; setModel(model: GeantMovementSelection): void;
+    subscribeModel(listener: (model: GeantMovementSelection) => void): () => void };
 }

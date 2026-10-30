@@ -105,10 +105,12 @@ placement and rendering calculations.
 | Priority | Operation |
 | --- | --- |
 | -200 | Publish completed active-world resources |
+| -175 | Optional shared sequence player: evaluate one presentation sample and apply its explicit world epoch/target |
 | -150 | Select the movement model and process tracking changes |
 | -100 | Invoke manual input actions |
 | -50 | Apply movement placement and the final camera rig |
 | 0 | Apply each complete world pose, measure its view and update its planners |
+| 1 / 2 | Settle journey arrival / acknowledge the sequence sample after placement and measurement |
 | Before render | Update resource admission and render visibility from the current eyes |
 
 A host that disables Geant movement supplies placement before world updates.

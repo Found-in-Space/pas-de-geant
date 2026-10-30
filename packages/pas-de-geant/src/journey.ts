@@ -1,4 +1,5 @@
 import { Matrix4, Quaternion, Vector3 } from "three";
+import { normalizeSpatialPose, type SpatialPose, type SpatialCoordinateSpace } from "@found-in-space/spatial";
 import { createJourneyOperation, type JourneyOperation, type OperationControl } from "@found-in-space/guided-journey/operations";
 import type { Cleanup, JourneyContext, JourneyDriver } from "@found-in-space/guided-journey";
 import type { GeantBrowser } from "./browser.js";
@@ -13,8 +14,12 @@ import { bodyPositionJ2000M, bodyRotation, type SolarSystemBodyId } from "./worl
 import { bodyFixedToJ2000Quaternion, bodyFixedToRenderQuaternion } from "./worlds/body-attitude.js";
 import { referenceSurfaceObservation } from "./worlds/surface-observation.js";
 import { translatedObserverJ2000M } from "./worlds/world-navigation.js";
+import type { SimulationClockState } from "./navigation/simulation-clock.js";
 
-export interface GeantJourneyCamera {
+export { createGeantSequenceParticipant, createGeantSequencePlugin, type GeantSequenceValue } from "./sequence.js";
+export { createGeantTrackingSequence, evaluateGeantTrackingShot, type GeantTrackingTarget, type GeantTrackingShot } from "./tracking.js";
+
+export interface GeantSurfaceJourneyCamera {
   readonly kind: "surface";
   readonly body: SolarSystemBodyId;
   readonly latitudeDegrees: number;
@@ -24,6 +29,19 @@ export interface GeantJourneyCamera {
   readonly altitudeReference: "reference" | "terrain";
   readonly scaleDenominator: number;
   readonly durationSecs?: number;
+}
+export interface GeantBodyPoseCamera {
+  readonly kind: "body-pose";
+  readonly body: SolarSystemBodyId;
+  /** Physical body-fixed metres; camera looks along local -Z, with local +Y up. */
+  readonly pose: SpatialPose;
+  readonly scaleDenominator: number;
+  readonly durationSecs?: number;
+}
+export type GeantJourneyCamera = GeantSurfaceJourneyCamera | GeantBodyPoseCamera;
+/** Body-centred, x at longitude zero, +y north, -z east; orientation follows the body's model at the world epoch. */
+export function geantBodyFixedSpace(body: SolarSystemBodyId): SpatialCoordinateSpace {
+  return { frameId: `geant:${body}:body-fixed`, metersPerUnit: 1 };
 }
 export interface GeantJourneyScene {
   readonly camera: GeantJourneyCamera;
@@ -37,8 +55,18 @@ export interface GeantJourneyServices { readonly browser: GeantJourneyHost; read
 export interface GeantJourneyNavigation {
   transitionTo(camera: GeantJourneyCamera, options?: { signal?: AbortSignal; durationSecs?: number }): JourneyOperation;
   cancel(): void;
-  getSnapshot(): { operation: JourneyOperation | null; moving: boolean; holding: boolean };
+  getSnapshot(): GeantJourneyNavigationSnapshot;
+  subscribe(listener: (snapshot: GeantJourneyNavigationSnapshot) => void): () => void;
+  /** Apply an exact sample after body-pose arrival, without restarting live-pose capture. */
+  applyPose(camera: GeantBodyPoseCamera): void;
+  /** Own the world clock until release. Releasing restores its former rate at the current instant. */
+  setTime(time: { readonly atMs: number; readonly rate?: number }): void;
   dispose(): void;
+}
+export interface GeantJourneyNavigationSnapshot {
+  readonly operation: JourneyOperation | null;
+  readonly moving: boolean;
+  readonly holding: boolean;
 }
 export type GeantJourneyDriver = JourneyDriver<GeantJourneyScene, GeantJourneyServices> & {
   readonly navigation: GeantJourneyNavigation;
@@ -60,21 +88,38 @@ export function createGeantJourneyNavigation(browser: GeantJourneyHost): GeantJo
   let operation: OperationControl | null = null;
   let request: { camera: GeantJourneyCamera; durationSecs: number } | null = null;
   let elapsed = 0, arrival = false;
+  const source = Symbol("geant:journey"), listeners = new Set<(snapshot: GeantJourneyNavigationSnapshot) => void>();
+  let ownedClock: SimulationClockState | null = null, previousRate = 0;
+  const write = (action: string, payload: unknown) => browser.navigation.dispatch(action, payload, source);
+  const snapshot = (): GeantJourneyNavigationSnapshot => ({ operation: operation?.operation ?? null,
+    moving: Boolean(operation && !operation.settled), holding: Boolean(request) });
+  const publish = () => { const state = snapshot(); for (const listener of [...listeners]) if (listeners.has(listener)) listener(state); };
+  function releaseClock() {
+    const owned = ownedClock; ownedClock = null;
+    if (!owned) return;
+    const current = browser.navigation.getClock();
+    if (current.anchorWallTimeMs === owned.anchorWallTimeMs && current.offsetMs === owned.offsetMs && current.scale === owned.scale) {
+      write(GEANT_ACTIONS.setTime, { atMs: browser.navigation.getSnapshot().time, rate: previousRate });
+    }
+  }
   let start: {
     placement: GeantPlacement; eye: Vector3; orientation: Quaternion; scale: number;
+    localEye: Vector3;
     location: ReturnType<typeof referenceSurfaceObservation>;
   } | null = null;
 
-  function cancel() {
+  function cancel(preserveMode = false) {
     const owned = Boolean(request);
     const pending = operation;
     operation = null; arrival = false; request = null; start = null;
     pending?.abort();
+    releaseClock();
     if (!owned || disposed) return;
     released = true;
     // Ship entry reconstructs the physical observer and rig from the live
     // placement. It does not restore the chapter's authored or saved pose.
-    browser.navigation.dispatch(GEANT_ACTIONS.setMode, { mode: "free" });
+    if (!preserveMode) write(GEANT_ACTIONS.setMode, { mode: "free" });
+    publish();
   }
   const model: GeantMovementModel = {
     id: "geant:journey",
@@ -88,7 +133,7 @@ export function createGeantJourneyNavigation(browser: GeantJourneyHost): GeantJo
         .applyQuaternion(bodyFixedToJ2000Quaternion(bodyRotation(request.camera.body, at)).invert());
       start = {
         placement: { originJ2000M: observer, systemRotation: presentation.systemRotation.clone(), translation: eye.clone(), rig: copyRig(frame.rig) },
-        eye, orientation: headOrientation(frame), scale: frame.state.scaleDenominator,
+        eye, orientation: headOrientation(frame), scale: frame.state.scaleDenominator, localEye: local,
         location: referenceSurfaceObservation(frame.surface(request.camera.body).body, local),
       };
       elapsed = 0;
@@ -100,23 +145,29 @@ export function createGeantJourneyNavigation(browser: GeantJourneyHost): GeantJo
       const progress = durationSecs === 0 ? 1 : Math.min(1, elapsed / durationSecs);
       const eased = progress * progress * (3 - 2 * progress);
       const timing = { startedAtMs: 0, durationSeconds: durationSecs };
-      const location = sampleWarpTransition({ ...timing, from: start.location, to: camera }, elapsed * 1000).value;
-      const ground = camera.altitudeReference === "terrain"
-        ? surface.sampleElevationMetres(camera.latitudeDegrees, camera.longitudeDegrees) * frame.state.terrainMultiplier : 0;
-      const altitude = start.location.heightMetres + (camera.altitudeM + ground - start.location.heightMetres) * eased;
       const scale = sampleScaleTransition({ ...timing, from: start.scale, to: camera.scaleDenominator }, elapsed * 1000).value;
-      const point = surface.geometry.positionAndNormal(location.latitudeDegrees, location.longitudeDegrees);
-      const localEye = point.position.clone().multiplyScalar(surface.geometry.referenceRadiusM).addScaledVector(point.normal, altitude);
       const rotation = bodyRotation(camera.body, at), centre = bodyPositionJ2000M(camera.body, at);
-      const eyeJ2000 = localEye.clone().applyQuaternion(bodyFixedToJ2000Quaternion(rotation));
-      const latitude = location.latitudeDegrees * Math.PI / 180, longitude = location.longitudeDegrees * Math.PI / 180;
-      const north = new Vector3(-Math.sin(latitude) * Math.cos(longitude), Math.cos(latitude), Math.sin(latitude) * Math.sin(longitude));
       const bodyToRender = bodyFixedToRenderQuaternion(rotation);
-      const outward = point.normal.clone().applyQuaternion(bodyToRender);
-      north.applyQuaternion(bodyToRender);
-      const physicalOrientation = new Quaternion().setFromRotationMatrix(new Matrix4().lookAt(outward, new Vector3(), north));
+      let localEye: Vector3, physicalOrientation: Quaternion;
+      if (camera.kind === "body-pose") {
+        localEye = start.localEye.clone().lerp(new Vector3().copy(camera.pose.position), eased);
+        physicalOrientation = bodyToRender.multiply(new Quaternion().copy(camera.pose.orientation));
+      } else {
+        const location = sampleWarpTransition({ ...timing, from: start.location, to: camera }, elapsed * 1000).value;
+        const ground = camera.altitudeReference === "terrain"
+          ? surface.sampleElevationMetres(camera.latitudeDegrees, camera.longitudeDegrees) * frame.state.terrainMultiplier : 0;
+        const altitude = start.location.heightMetres + (camera.altitudeM + ground - start.location.heightMetres) * eased;
+        const point = surface.geometry.positionAndNormal(location.latitudeDegrees, location.longitudeDegrees);
+        localEye = point.position.clone().multiplyScalar(surface.geometry.referenceRadiusM).addScaledVector(point.normal, altitude);
+        const latitude = location.latitudeDegrees * Math.PI / 180, longitude = location.longitudeDegrees * Math.PI / 180;
+        const north = new Vector3(-Math.sin(latitude) * Math.cos(longitude), Math.cos(latitude), Math.sin(latitude) * Math.sin(longitude));
+        const outward = point.normal.clone().applyQuaternion(bodyToRender);
+        north.applyQuaternion(bodyToRender);
+        physicalOrientation = new Quaternion().setFromRotationMatrix(new Matrix4().lookAt(outward, new Vector3(), north));
+      }
+      const eyeJ2000 = localEye.clone().applyQuaternion(bodyFixedToJ2000Quaternion(rotation));
       const destinationRotation = start.orientation.clone().multiply(physicalOrientation.invert());
-      browser.navigation.dispatch(GEANT_ACTIONS.setScale, { scaleDenominator: scale });
+      write(GEANT_ACTIONS.setScale, { scaleDenominator: scale });
       const placement = progress === 0 ? start.placement : {
         originJ2000M: { x: centre.x + eyeJ2000.x, y: centre.y + eyeJ2000.y, z: centre.z + eyeJ2000.z },
         systemRotation: start.placement.systemRotation.clone().slerp(destinationRotation, eased),
@@ -124,10 +175,11 @@ export function createGeantJourneyNavigation(browser: GeantJourneyHost): GeantJo
       };
       elapsed += Math.max(0, frame.deltaSeconds);
       if (progress === 1 && operation && !operation.settled) arrival = true;
-      if (arrival) browser.navigation.dispatch(GEANT_ACTIONS.setLocation, {
-        body: camera.body, latitudeDegrees: camera.latitudeDegrees, longitudeDegrees: camera.longitudeDegrees,
-        altitudeM: camera.altitudeM,
-      });
+      if (arrival || progress === 1 && camera.kind === "body-pose") {
+        const location = camera.kind === "surface" ? camera : referenceSurfaceObservation(surface.body, localEye);
+        write(GEANT_ACTIONS.setLocation, { body: camera.body, latitudeDegrees: location.latitudeDegrees,
+          longitudeDegrees: location.longitudeDegrees, altitudeM: "altitudeM" in location ? location.altitudeM : location.heightMetres });
+      }
       return placement;
     },
     command(action, payload) {
@@ -140,37 +192,64 @@ export function createGeantJourneyNavigation(browser: GeantJourneyHost): GeantJo
     ? manual : typeof original === "function" ? original(frame) : original;
   const selection = (frame: GeantMovementFrame) => request ? model
     : released ? freeSelection(frame) : typeof original === "function" ? original(frame) : original;
+  const removeSelection = movement.subscribeModel(next => { if (request && next !== selection) cancel(true); });
   const removeArrival = browser.viewer.addPart({ id: "geant:journey-arrival", priority: 1, update() {
     // Runs after movement (-50) and world placement (0). No second frame loop.
-    if (arrival && operation && !operation.settled) { arrival = false; operation.settle("completed"); }
+    if (arrival && operation && !operation.settled) { arrival = false; operation.settle("completed"); publish(); }
   } });
+  const removeCommands = browser.navigation.subscribeCommands(command => {
+    if (request && command.source !== source && command.action !== GEANT_ACTIONS.setTerrainMultiplier) {
+      // A newer explicit mode wins. Other commands enter free exploration with
+      // their newly applied quantities, rather than being overwritten next frame.
+      cancel(command.action === GEANT_ACTIONS.setMode);
+    }
+  });
   const navigation: GeantJourneyNavigation = {
     transitionTo(camera, options = {}) {
       if (options.signal?.aborted) return createJourneyOperation({ signal: options.signal }).operation;
-      const control = createJourneyOperation({ signal: options.signal, lanes: ["movement", "orientation", "scale"], onCancel: cancel });
+      const control = createJourneyOperation({ signal: options.signal, lanes: ["movement", "orientation", "scale"], onCancel: () => cancel() });
       if (control.settled) return control.operation;
       try {
-        validateCamera(camera, browser);
+        camera = validateCamera(camera, browser);
         const durationSecs = options.durationSecs ?? camera.durationSecs ?? 4;
         if (!Number.isFinite(durationSecs) || durationSecs < 0) throw new RangeError("Duration must be nonnegative seconds.");
         if (disposed) throw new Error("Journey navigation is disposed.");
         const previous = operation;
         operation = null; previous?.abort("superseded");
+        // A completed operation can still own a held pose and clock.
+        if (request) cancel();
         request = { camera, durationSecs }; start = null; elapsed = 0; arrival = false; operation = control;
-        browser.navigation.dispatch(GEANT_ACTIONS.focusBody, { body: camera.body });
+        write(GEANT_ACTIONS.focusBody, { body: camera.body });
         installedSelection = true;
         movement.setModel(selection);
+        publish();
       } catch (error) { control.settle("failed", error); }
       return control.operation;
     },
-    cancel,
-    getSnapshot: () => ({ operation: operation?.operation ?? null, moving: Boolean(operation && !operation.settled), holding: Boolean(request) }),
+    cancel: () => cancel(), getSnapshot: snapshot,
+    subscribe(listener) { if (disposed) throw new Error("Journey navigation is disposed."); listeners.add(listener); return () => { listeners.delete(listener); }; },
+    applyPose(camera) {
+      const normalized = validateCamera(camera, browser);
+      if (normalized.kind !== "body-pose") throw new TypeError("Sequence samples require a body-pose camera.");
+      if (!request || request.camera.kind !== "body-pose" || !start || !operation?.settled || disposed) throw new Error("Join a body pose before applying sequence samples.");
+      if (normalized.body !== request.camera.body) throw new RangeError("Rejoin explicitly before changing the sequence body.");
+      request = { camera: normalized, durationSecs: 0 };
+    },
+    setTime(time) {
+      if (!request || disposed) throw new Error("Own a journey pose before adopting its clock.");
+      const rate = time.rate ?? browser.navigation.getClock().scale;
+      if (!Number.isFinite(time.atMs) || !Number.isFinite(rate)) throw new RangeError("Invalid world clock.");
+      if (!ownedClock) previousRate = browser.navigation.getClock().scale;
+      if (browser.time.getSnapshot().atMs === time.atMs && browser.navigation.getClock().scale === rate) return;
+      write(GEANT_ACTIONS.setTime, { atMs: time.atMs, rate });
+      ownedClock = browser.navigation.getClock();
+    },
     dispose() {
       if (disposed) return;
-      cancel(); disposed = true; removeArrival();
+      cancel(movement.getModel() !== selection); disposed = true; removeArrival(); removeCommands(); removeSelection(); listeners.clear();
       // Keep the live manual placement when the driver is removed. Restoring a
       // former orbit/surface selection could reapply an old authored anchor.
-      if (installedSelection) movement.setModel(released ? freeSelection : original);
+      if (installedSelection && movement.getModel() === selection) movement.setModel(released ? freeSelection : original);
       removeOwner();
     },
   };
@@ -178,11 +257,17 @@ export function createGeantJourneyNavigation(browser: GeantJourneyHost): GeantJo
   return navigation;
 }
 
-function validateCamera(camera: GeantJourneyCamera, browser: GeantJourneyHost) {
-  if (camera.kind !== "surface" || !browser.configuration.bodies.includes(camera.body)) throw new RangeError("Select a configured body surface.");
+function validateCamera(camera: GeantJourneyCamera, browser: GeantJourneyHost): GeantJourneyCamera {
+  if (!browser.configuration.bodies.includes(camera.body) || !Number.isFinite(camera.scaleDenominator) || camera.scaleDenominator <= 0) throw new RangeError("Select a configured body and positive scale denominator.");
+  if (camera.kind === "body-pose") {
+    if (!camera.pose?.space || !camera.pose.position || !camera.pose.orientation) throw new TypeError("Declare a complete body-fixed camera pose and coordinate space.");
+    return { ...camera, pose: normalizeSpatialPose(camera.pose, geantBodyFixedSpace(camera.body)) };
+  }
+  if (camera.kind !== "surface") throw new RangeError("Select a surface or body-pose camera.");
   if (![camera.latitudeDegrees, camera.longitudeDegrees, camera.altitudeM, camera.scaleDenominator].every(Number.isFinite)
     || Math.abs(camera.latitudeDegrees) > 90 || camera.scaleDenominator <= 0) throw new RangeError("Invalid geographic camera quantities.");
   if (camera.altitudeReference !== "reference" && camera.altitudeReference !== "terrain") throw new TypeError("Declare the altitude reference.");
+  return { ...camera };
 }
 
 export function createGeantJourneyDriver(options: {
@@ -222,20 +307,7 @@ export function createGeantJourneyDriver(options: {
         // Adopt the chapter epoch once body-relative arrival is established.
         // The next host frame samples that epoch for movement and worlds alike.
         if (result.status === "completed" && context.isCurrent() && scene.time) {
-          const previousRate = browser.navigation.getClock().scale;
-          browser.navigation.dispatch(GEANT_ACTIONS.setTime, scene.time);
-          const ownedClock = browser.navigation.getClock();
-          context.addCleanup(() => {
-            const current = browser.navigation.getClock();
-            // Restore the borrowed rate at the current instant. A subsequent
-            // explicit clock edit belongs to its caller and is left intact.
-            if (current.anchorWallTimeMs === ownedClock.anchorWallTimeMs
-              && current.offsetMs === ownedClock.offsetMs && current.scale === ownedClock.scale) {
-              browser.navigation.dispatch(GEANT_ACTIONS.setTime, {
-                atMs: browser.navigation.getSnapshot().time, rate: previousRate,
-              });
-            }
-          });
+          navigation.setTime(scene.time);
         }
       });
       return operation;
