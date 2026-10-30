@@ -171,17 +171,20 @@ describe("standard controls", () => {
     expect(new THREE.Vector3().copy(f.viewer.getSnapshot().observerJ2000M!).distanceTo(new THREE.Vector3().copy(focus))).toBeCloseTo(20_000_000, 3);
     expect(f.viewer.getSnapshot().scaleDenominator).toBe(50);
   });
-  it("latches observation turning and height adjustment until neutral", async () => {
+  it("latches observation turning and ground-altitude adjustment until neutral", async () => {
     const f = await fixture({}, "orbit"); f.xr.isPresenting = true; f.tick(0);
     f.right.gamepad.axes[2] = 0.9; f.right.gamepad.axes[3] = -0.6; f.tick(0.5);
     expect(f.viewer.getSnapshot().scaleDenominator).toBe(50);
     const anchor = f.observation.getAnchor()!, yaw = f.viewer.cameraRoot.rotation.y;
+    const altitude = f.viewer.getSnapshot().locations.moon!.altitudeM;
     f.right.gamepad.axes[2] = 0; f.right.gamepad.axes[3] = -0.9; f.tick(0.5);
     expect(f.observation.getAnchor()!.position.equals(anchor.position)).toBe(true);
     expect(f.viewer.cameraRoot.rotation.y).toBe(yaw);
+    expect(f.viewer.getSnapshot().locations.moon!.altitudeM).toBe(altitude);
     f.right.gamepad.axes[3] = 0; f.tick(0);
     f.right.gamepad.axes[3] = -0.9; f.tick(0.5);
-    expect(f.observation.getAnchor()!.position.y).toBeGreaterThan(anchor.position.y);
+    expect(f.viewer.getSnapshot().locations.moon!.altitudeM).toBeGreaterThan(altitude);
+    expect(f.observation.getAnchor()).toEqual(anchor);
     expect(f.viewer.getSnapshot().scaleDenominator).toBe(50);
   });
   it("isolates viewers, editable targets and disabled keyboard/pointer input", async () => {

@@ -136,12 +136,21 @@ describe("observation movement", () => {
     expect(f.viewer.getSnapshot().locations).not.toEqual(location);
     expect(f.contact().point.distanceTo(anchor.position)).toBeLessThan(1e-8);
   });
-  it("adjusts observation height in room metres without changing physical altitude, scale or the camera", async () => {
-    const model = createGeantObservationMovementModel(), f = await fixture(model, { altitude: 100 });
-    const anchor = model.getAnchor()!, head = f.head.position.clone(), orientation = f.head.quaternion.clone(), state = f.viewer.getSnapshot();
-    await f.command(GEANT_MOTION_ACTIONS.altitude, { value: 1, deltaSeconds: 2 });
-    expect(model.getAnchor()!.position.y - anchor.position.y).toBeCloseTo(1);
-    expect(f.viewer.getSnapshot()).toEqual(state); expect(f.head.position.equals(head)).toBe(true); expect(f.head.quaternion.equals(orientation)).toBe(true);
+  it("changes physical altitude along the ground normal without shifting the observation anchor or headset", async () => {
+    const model = createGeantObservationMovementModel(), f = await fixture(model, { altitude: 100, elevation: 500 });
+    const anchor = model.getAnchor()!, head = f.head.position.clone(), orientation = f.head.quaternion.clone();
+    const state = f.viewer.getSnapshot(), ground = f.contact(500);
+    // At 1:50 the initial 100 m altitude puts ground 2 room metres behind the anchor.
+    const outward = new THREE.Vector3(0, 0, 1).applyQuaternion(anchor.orientation);
+    expect(ground.point.distanceTo(anchor.position.clone().addScaledVector(outward, -2))).toBeLessThan(1e-8);
+    await f.command(GEANT_MOTION_ACTIONS.altitude, { value: -1, deltaSeconds: 2 });
+    expect(f.viewer.getSnapshot().locations.moon!.altitudeM).toBe(50);
+    expect(f.contact(500).point.distanceTo(ground.point.clone().addScaledVector(outward, 1))).toBeLessThan(1e-8);
+    expect(model.getAnchor()).toEqual(anchor);
+    expect(f.viewer.getSnapshot().scaleDenominator).toBe(state.scaleDenominator);
+    expect(f.head.position.equals(head)).toBe(true); expect(f.head.quaternion.equals(orientation)).toBe(true);
+    f.head.position.x += 0.2; f.tick();
+    expect(f.viewer.getSnapshot().locations.moon!.altitudeM).toBe(50);
   });
   it("waits for a tracked eye pose before retaining the initial observation height", async () => {
     const model = createGeantObservationMovementModel(), f = await fixture(model, { tracked: false });
@@ -190,7 +199,6 @@ describe("ship movement", () => {
     expect(f.head.quaternion.equals(head)).toBe(true); expect(f.viewer.cameraRoot.quaternion.angleTo(new THREE.Quaternion())).toBeGreaterThan(0.5);
   });
 });
-
 
 describe("desktop orbit time tracking", () => {
   it("retains the orbital offset through time seeks and preserves independent orbital input", async () => {

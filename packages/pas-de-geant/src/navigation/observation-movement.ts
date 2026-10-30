@@ -9,6 +9,7 @@ export interface GeantObservationMovementOptions {
   readonly id?: string;
   readonly distanceRoomM?: number;
   readonly heightReference?: GeantHeightReference;
+  /** Altitude speed in room metres per second, converted to physical metres. */
   readonly heightSpeedRoomMPerSecond?: number;
   readonly speedRoomMPerSecond?: number;
   /** Local +Z is the outward surface normal. Local +Y is the top of the map. */
@@ -39,8 +40,8 @@ export function createGeantObservationMovementModel(options: GeantObservationMov
       const state = frame.navigation.getSnapshot(), location = state.locations[state.focusBody]!;
       const surface = frame.surface(state.focusBody), focus = focusFrame({ ...frame, state });
       const { position, normal } = surface.geometry.positionAndNormal(location.latitudeDegrees, location.longitudeDegrees);
-      const elevation = options.heightReference === "terrain" ? surface.sampleElevationMetres(location.latitudeDegrees, location.longitudeDegrees) * state.terrainMultiplier : 0;
-      position.addScaledVector(normal, elevation / surface.geometry.referenceRadiusM).multiplyScalar(surface.geometry.referenceRadiusM / state.scaleDenominator);
+      const elevation = (options.heightReference ?? "terrain") === "terrain" ? surface.sampleElevationMetres(location.latitudeDegrees, location.longitudeDegrees) * state.terrainMultiplier : 0;
+      position.addScaledVector(normal, (elevation + location.altitudeM) / surface.geometry.referenceRadiusM).multiplyScalar(surface.geometry.referenceRadiusM / state.scaleDenominator);
       // The shared contact frame maps normal to +Y and north to -Z.
       const contact = frame.navigation.getContact();
       const bodyToWorld = earthToWorldQuaternion(contact);
@@ -58,9 +59,11 @@ export function createGeantObservationMovementModel(options: GeantObservationMov
         return frame.invoke(GEANT_ACTIONS.travel, { eastM: direction.x, northM: direction.y });
       }
       if (action === GEANT_MOTION_ACTIONS.altitude) {
-        if (!anchor) capture(frame);
-        anchor!.position.y += number(input, "value") * (options.heightSpeedRoomMPerSecond ?? 0.5) * number(input, "deltaSeconds");
-        return;
+        const rate = (options.heightSpeedRoomMPerSecond ?? 0.5) * frame.state.scaleDenominator;
+        return frame.invoke(GEANT_ACTIONS.setAltitude, {
+          altitudeM: frame.state.locations[frame.state.focusBody]!.altitudeM +
+            number(input, "value") * rate * number(input, "deltaSeconds"),
+        });
       }
       if (action === GEANT_MOTION_ACTIONS.recenter) { authored = false; capturePending = !frame.tracking.tracked; capture(frame); return; }
       if (action === GEANT_MOTION_ACTIONS.look) { rig = turnRig(rig, frame, number(input, "yawRadians")); return; }

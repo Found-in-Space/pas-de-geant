@@ -168,7 +168,7 @@ for (const axis of ["x", "y"] as const) {
 bindings.push({ id: "xr.turn", label: "Snap turn 30 degrees", input: { kind: "xr-axis", hand: "right", axis: "x" },
   action: GEANT_MOTION_ACTIONS.look, component: "yawRadians", multiplier: -Math.PI / 6, phase: "press",
   modes: surfaceModes, category: "look", exclusiveGroup: "surface-right-stick" });
-bindings.push({ id: "xr.altitude", label: "Adjust surface altitude or observation height", input: { kind: "xr-axis", hand: "right", axis: "y" },
+bindings.push({ id: "xr.altitude", label: "Adjust altitude above planetary ground", input: { kind: "xr-axis", hand: "right", axis: "y" },
   action: GEANT_MOTION_ACTIONS.altitude, multiplier: -1, modes: surfaceModes, exclusiveGroup: "surface-right-stick" });
 bindings.push({ id: "xr.boost", label: "Faster surface travel", input: { kind: "xr-button", hand: "left", button: "grip" },
   action: move, component: "boost", phase: "hold", modes: surfaceModes });

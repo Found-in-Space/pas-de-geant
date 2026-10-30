@@ -140,19 +140,21 @@ Head pitch and roll do not tilt the default plane.
 The surface normal points toward the initial observing position.
 The plane remains fixed when the user walks, leans, or turns their head.
 The model does not continuously align the plane with the current head position.
-The reference surface supplies the default contact height.
-`heightReference: "terrain"` uses available terrain instead.
+Available terrain supplies the default ground height, matching surface mode.
+`heightReference: "reference"` explicitly uses the reference surface instead.
 
 The movement command changes the contact on the body.
 Right input moves east in the transported contact frame.
 Forward input moves north, toward the top of the map.
-The selected contact remains at the observation anchor.
+At zero altitude the selected ground contact lies at the observation anchor.
+Positive physical altitude moves the ground behind that anchor along its normal.
 Current head direction does not change this input frame.
 
-The altitude command raises or lowers the observation anchor in room metres.
-The default rate is 0.5 room metres per second.
-This command does not change physical altitude, contact location, viewing distance, or scale.
-Initial radial alignment is not a continuous constraint after height adjustment.
+The altitude command changes physical altitude above planetary ground, matching
+surface mode. The default rate is 0.5 room metres per second converted through
+the current scale. Decreasing altitude brings the ground closer along the
+observation normal; increasing it moves the ground farther away. The observation
+anchor, contact latitude/longitude, scale and headset pose remain fixed.
 
 `getAnchor()` returns a copy of the current anchor, or `null` before initial placement.
 `setAnchor(pose)` supplies an application-defined position and orientation.
@@ -195,7 +197,7 @@ A custom plugin can register additional actions through SkyKit.
 | --- | --- | --- |
 | Left stick | Contact travel | Pitch and yaw |
 | Left grip | Faster contact travel | Roll modifier |
-| Right stick | Horizontal snap turn and vertical altitude or height adjustment | Forward, backward, and sideways travel |
+| Right stick | Horizontal snap turn and vertical altitude above ground | Forward, backward, and sideways travel |
 | Right grip | No standard command | Faster ship travel |
 
 The default snap angle is 30 degrees.

@@ -96,7 +96,7 @@ XR session setup is separate: `xr: true` adds the entry button and tracking;
 | Left stick / left grip in surface and observation | Contact travel / faster travel |
 | Right stick horizontal in surface and observation | Snap turn, with 30 degrees per deflection |
 | Right stick vertical in surface | Physical altitude above terrain or the reference surface |
-| Right stick vertical in observation | Map height in room metres |
+| Right stick vertical in observation | Physical altitude above the selected ground |
 | Right stick / right grip in ship | Ship travel / faster travel |
 | Left stick / left grip in ship | Pitch and yaw / roll modifier |
 
