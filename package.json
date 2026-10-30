@@ -18,6 +18,7 @@
     "packages/*"
   ],
   "scripts": {
+    "prepare:development": "node scripts/prepare-development-dependencies.mjs",
     "build": "npm run build --workspace @found-in-space/pas-de-geant",
     "check": "npm run typecheck",
     "dev": "npm run dev:integration --",

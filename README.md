@@ -31,12 +31,17 @@ rendered poses, XR eyes and terrain measurements reach tile selection.
 
 Use Node.js 22 or later:
 
-The current interaction batch requires sibling TouchOS, SkyKit and VoiceOS checkouts.
-Preparation builds and packs their public packages into ignored `.packages`,
-then updates normal npm lock integrity. Repeat preparation after producer edits.
+A clean checkout can reconstruct its ignored dependency archives from exact
+public TouchOS, SkyKit and VoiceOS commits. Use Node 24 for this reproducible
+preparation; it verifies that the manifests and lock remain unchanged. No
+unpublished npm versions or sibling checkouts are required.
+
+For active sibling development, `npm run prepare:interaction` builds and packs
+the sibling sources and updates npm lock integrity. Review those changes after
+producer edits.
 
 ```sh
-npm run prepare:interaction
+npm run prepare:development
 npm ci
 npm run build                 # reusable package only
 npm run dev:integration       # local cases at http://127.0.0.1:4197
