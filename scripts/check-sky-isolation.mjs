@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 
-for (const entry of ['.', '/browser', '/embed', '/sky-image', '/appearances']) {
+for (const entry of ['.', '/browser', '/embed', '/sky-image', '/appearances', '/journey']) {
   const specifier = `@found-in-space/pas-de-geant${entry === '.' ? '' : entry}`;
   const result = await build({ stdin: { contents: `export * from '${specifier}';`, resolveDir: process.cwd() },
     bundle: true, format: 'esm', platform: 'browser', splitting: true,

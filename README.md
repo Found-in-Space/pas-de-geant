@@ -26,19 +26,29 @@ The [architecture](docs/architecture.md) defines the component boundaries.
 The [movement contract](packages/pas-de-geant/docs/movement.md) describes custom models and integration.
 The [composition contract](packages/pas-de-geant/docs/composition.md) defines how
 rendered poses, XR eyes and terrain measurements reach tile selection.
+The [journey adapter](packages/pas-de-geant/docs/journeys.md) shares its chapter
+controller and controls with SkyKit; `integration/earth-journey.html` is the
+paired geographic example.
 
 ## Develop
 
 Use Node.js 22 or later:
 
 A clean checkout can reconstruct its ignored dependency archives from exact
-public TouchOS, SkyKit and VoiceOS commits. Use Node 24 for this reproducible
+public TouchOS, SkyKit (including the shared guided-journey package) and VoiceOS
+commits. Use Node 24 for this reproducible
 preparation; it verifies that the manifests and lock remain unchanged. No
 unpublished npm versions or sibling checkouts are required.
 
 For active sibling development, `npm run prepare:interaction` builds and packs
 the sibling sources and updates npm lock integrity. Review those changes after
 producer edits.
+
+To reconstruct exactly the pinned commits from local Git repositories, use
+`npm run prepare:development -- --sources-root /path/to/workspace`. This reads
+committed objects, not working-tree edits; the same manifest/lock identity check
+still applies. The new journey source commit must be pushed before the default
+GitHub reconstruction can fetch it.
 
 ```sh
 npm run prepare:development

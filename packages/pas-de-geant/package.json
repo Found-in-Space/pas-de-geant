@@ -16,6 +16,10 @@
     "NOTICE.txt"
   ],
   "exports": {
+    "./journey": {
+      "types": "./dist/journey.d.ts",
+      "default": "./dist/journey.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
@@ -60,6 +64,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
+    "@found-in-space/guided-journey": "0.1.0-alpha.0",
     "@found-in-space/spatial": "0.3.0-alpha.1",
     "astronomy-engine": "2.1.19",
     "@found-in-space/touch-os": "0.4.0-alpha.0"

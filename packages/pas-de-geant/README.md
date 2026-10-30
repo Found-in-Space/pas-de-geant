@@ -19,10 +19,13 @@ terrain measurements that determine tile detail.
 | `/embed` | Attributes, `mount`, `unmount`, `whenReady`, `mountAll`, and `Geant` |
 | `/ai` | Optional VoiceOS browser runtime/plugin |
 | `/appearances` | Optional procedural body appearances; initially the Sun |
+| `/journey` | Geographic navigation driver for the shared guided-journey controller |
 | `/sky-image` | Optional Deep Star Maps image background; no star dependencies |
 | `/stars` | Optional SkyKit catalog background and explicit star pass |
 
 See the [movement architecture and integration contract](docs/movement.md).
+See [shared guided journeys](docs/journeys.md) for chapter authoring, cancellation,
+readiness, clock ownership and the paired SkyKit/Earth example.
 See [replaceable body appearances and simulation time](docs/appearances.md)
 for custom body visuals, observation-provider subscriptions and model replacement.
 Internal filenames are implementation details. See [world capabilities](docs/worlds.md)
