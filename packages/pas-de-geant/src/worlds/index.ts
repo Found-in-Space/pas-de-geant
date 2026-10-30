@@ -1,4 +1,6 @@
 export * from "./world-runtime.js";
+export { assessSurfaceReadiness, type SurfaceLayer, type SurfaceLayerReadiness,
+  type WorldSurfaceReadiness, type SurfaceReadinessAssessment } from "./surface-readiness.js";
 export * from "./surface-model.js";
 export * from "./surface-visibility-geometry.js";
 export * from "./tile-grid.js";

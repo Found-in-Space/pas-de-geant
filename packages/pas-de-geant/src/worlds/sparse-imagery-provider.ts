@@ -81,6 +81,11 @@ export class SparseImageryProvider implements ImageryProvider {
     return this.select(address).tile;
   }
 
+  isTemporaryFallback(payload: Blob): boolean {
+    return this.fallback.isTemporaryFallback?.(payload) === true ||
+      this.sources.some(({ provider }) => provider.isTemporaryFallback?.(payload) === true);
+  }
+
   async loadFromCache(address: TileIdentity, signal: AbortSignal): Promise<Blob | undefined> {
     const { provider, tile } = this.select(address);
     return await provider.loadFromCache?.(tile, signal);

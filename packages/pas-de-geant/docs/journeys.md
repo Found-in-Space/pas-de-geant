@@ -83,6 +83,53 @@ desired high-resolution terrain, route coverage or night tiles. An additional
 scoped cleanup. `readiness: 'none'` explicitly skips the usability gate for an
 independently prepared host or a controlled fixture.
 
+`world.getSurfaceReadiness()` separates base usability from `imagery`,
+`nightImagery` and `terrain`. Each layer reports `absent`, `loading`, `ready`,
+`degraded` or `suspended`, its acknowledged planner target/revision, and required,
+pending, failed and fallback tile counts. Readiness requires the current requested cut
+and its published resources; decoded imagery awaiting GPU publication is not
+ready. Failures refer to current requirements, not lifetime failure counters.
+Temporary cache placeholders remain usable for display but retain their fallback
+identity through sparse source selection and decoding. Confirmed terrain no-data
+renders flat and remains distinguishable from measured terrain. A supplied flat
+provider is not a measured-elevation source.
+Counts and completion use the planner's horizon/transition working set;
+off-horizon refinement does not block a visible shot. No selected coverage in
+that working set is degraded. Custom imagery providers returning temporary
+placeholders can implement `isTemporaryFallback(blob)`; wrappers must forward it.
+
+Use `waitForGeantSurface` in a shared chapter's `arrive` hook to wait at the
+destination without adding a timer or render loop:
+
+```ts
+import {waitForGeantSurface} from '@found-in-space/pas-de-geant/journey';
+
+const arrive = async context => {
+  const result = await waitForGeantSurface({browser: context.services.browser,
+    body: context.scene.camera.body, required: ['imagery', 'terrain'],
+    signal: context.signal, onDegraded: 'fail', onProgress: context.reportProgress});
+  // result.readiness contains the measured view and independent source states.
+};
+```
+
+The helper follows surface replacements through the host's world map. It aborts
+with the chapter, rejects if the host is disposed, and removes its frame part and
+abort listener on every exit. `onDegraded: 'fail'` rejects with a
+`GeantSurfaceReadinessError` carrying the evidence. Explicit `'continue'` resolves
+with a degraded assessment once the base is usable, even if another layer is
+still loading; the consumer must keep that limitation visible. Requiring an
+unconfigured layer is degraded, not successful detail. An empty `required` array
+waits only for a usable base. This does not change the legacy `getReadiness()`
+contract used for atomic surface replacement.
+
+This is **current-view** readiness. Call it after navigation arrival; waiting
+before travel would inspect the starting view. `ready` means the detail selected
+by the existing planners within admitted source coverage, not a new guarantee of
+metres per pixel or scientific accuracy. Body scale, terrain, stereo projections
+and viewports reach those planners through the ordinary world measurement. This
+API neither downloads the globe nor adds a prefetch cache. Upcoming-route
+preparation within shared streaming budgets remains a separate integration step.
+
 `scene.time: {atMs, rate?}` adopts UTC milliseconds and world-clock rate at
 arrival. The next host frame uses that epoch for both movement and body placement.
 Leaving/cancelling restores the previous rate at the current instant, without
@@ -151,6 +198,9 @@ epoch without pretending that pre-1972 UTC labels are an ephemeris conversion.
 chapters. It uses the standard Blue Marble/Mapterhorn defaults and optional night
 imagery. Authored coordinates, scales and time are in
 `integration/src/earth-journey-chapters.ts`; no page-owned camera loop is needed.
+Arrival hooks require day imagery, mountain terrain or night imagery as authored.
+The example explicitly continues with a degraded result when needed, and shows
+the independent live layer states instead of equating fallback with detail.
 SkyKit's `packages/skykit/examples/guided-journey` uses the same controller,
 chapter envelope and DOM controls with a stellar driver.
 

@@ -17,6 +17,7 @@ import { translatedObserverJ2000M } from "./worlds/world-navigation.js";
 import type { SimulationClockState } from "./navigation/simulation-clock.js";
 
 export { createGeantSequenceParticipant, createGeantSequencePlugin, type GeantSequenceValue } from "./sequence.js";
+export { waitForGeantSurface, GeantSurfaceReadinessError, type GeantSurfacePreparation } from "./journey-readiness.js";
 export { createGeantTrackingSequence, evaluateGeantTrackingShot, type GeantTrackingTarget, type GeantTrackingShot } from "./tracking.js";
 
 export interface GeantSurfaceJourneyCamera {

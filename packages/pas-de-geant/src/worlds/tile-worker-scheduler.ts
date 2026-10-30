@@ -166,6 +166,9 @@ export class TileWorkerScheduler<Resource> {
     return this.snapshotValue;
   }
 
+  /** Current failures include worker progress events between topology snapshots. */
+  get failedTileCount(): number { return this.plannerFailureKeys.size; }
+
   get debugState(): TileWorkerSchedulerDebugState {
     let requested = 0;
     let inFlight = 0;

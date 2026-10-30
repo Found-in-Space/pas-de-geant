@@ -72,10 +72,14 @@ describe("XYZ imagery provider cache", () => {
     }));
     const provider = new XyzImageryProvider({ ...configuration, urlTemplate: "/api/tiles/textures/{z}/{x}/{y}" }, { cacheStorage: cacheStorage(cache), fetcher });
     const tile = { z: 6, x: 32, y: 20 };
-    expect((await provider.load(tile, new AbortController().signal)).size).toBe(1);
+    const temporary = await provider.load(tile, new AbortController().signal);
+    expect(temporary.size).toBe(1);
+    expect(provider.isTemporaryFallback(temporary)).toBe(true);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(cache.responses.size).toBe(0);
-    expect((await provider.load(tile, new AbortController().signal)).size).toBe(2);
+    const recovered = await provider.load(tile, new AbortController().signal);
+    expect(recovered.size).toBe(2);
+    expect(provider.isTemporaryFallback(recovered)).toBe(false);
     expect((await cache.match(url))?.headers.get("content-type")).toBe("image/jpeg");
     expect((await provider.load(tile, new AbortController().signal)).size).toBe(2);
     expect(fetcher).toHaveBeenCalledTimes(2);
