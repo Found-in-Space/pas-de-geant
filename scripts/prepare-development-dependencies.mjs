@@ -5,8 +5,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const sourceArgument = process.argv.indexOf('--sources-root');
+const sourcesRoot = sourceArgument === -1 ? null : process.argv[sourceArgument + 1];
+if (sourceArgument !== -1 && !sourcesRoot) throw new Error('--sources-root requires a directory containing the source repositories.');
 const sources = {
   skykit: '74ea437bbaf551b646a1b7d22f65a29430d06191',
+  // The shared controller is packed independently of Geant's embedded SkyKit
+  // lifecycle subset. Keep the other already-pinned archives byte-identical.
+  journey: '21b8ca7cf4e1e7f97422cc3c5b2a2ca99776bc9b',
   'touch-os': 'a18e75b71727bdd71cfe95b1d456b0ca625ad606',
   'voice-os': '383f51702f2ad92713ec89913fa00d784d3de1fe',
 };
@@ -23,10 +29,16 @@ try {
     const source = path.join(temporary, name);
     mkdirSync(source);
     run('git', ['init', '--quiet'], source);
-    run('git', ['remote', 'add', 'origin', `https://github.com/Found-in-Space/${name}.git`], source);
+    const repository = name === 'journey' ? 'skykit' : name;
+    const remote = sourcesRoot ? path.resolve(sourcesRoot, repository) : `https://github.com/Found-in-Space/${repository}.git`;
+    run('git', ['remote', 'add', 'origin', remote], source);
     run('git', ['fetch', '--quiet', '--depth=1', '--no-tags', 'origin', revision], source);
     run('git', ['checkout', '--quiet', '--detach', 'FETCH_HEAD'], source);
   }
+  // Stage the new archive before the ordinary install resolves the root graph.
+  run(process.execPath, [
+    path.join(temporary, 'journey/scripts/stage-journey-development.mjs'), root, '--pack-only',
+  ], path.join(temporary, 'journey'));
   run(process.execPath, [
     path.join(temporary, 'skykit/scripts/stage-interaction-development.mjs'),
     path.join(temporary, 'touch-os'), root,
@@ -36,7 +48,7 @@ try {
       throw new Error(`${file} changed while reconstructing the pinned dependencies; review the archive identities before updating the lock.`);
     }
   }
-  console.log('Prepared the pinned public dependency sources without changing the recorded dependency graph.');
+  console.log('Prepared the pinned dependency sources without changing the recorded dependency graph.');
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

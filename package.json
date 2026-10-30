@@ -41,6 +41,7 @@
     "node": ">=22.0.0"
   },
   "devDependencies": {
+    "@found-in-space/guided-journey": "file:.packages/guided-journey.tgz",
     "@found-in-space/hr-diagram": "file:.packages/hr-diagram.tgz",
     "@found-in-space/skykit": "file:.packages/skykit.tgz",
     "@found-in-space/spatial": "0.3.0-alpha.1",
@@ -57,6 +58,7 @@
     "vitest": "3.2.7"
   },
   "overrides": {
+    "@found-in-space/guided-journey": "$@found-in-space/guided-journey",
     "@found-in-space/touch-os": "$@found-in-space/touch-os",
     "@found-in-space/skykit": "$@found-in-space/skykit",
     "@found-in-space/three-star-field": "$@found-in-space/three-star-field",

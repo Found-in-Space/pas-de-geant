@@ -16,6 +16,7 @@ export function createGeantMovementPlugin(options: GeantMovementOptions) {
   let disposed = false, installed = false;
   return {
     id: "geant:movement",
+    getModel() { return selection; },
     setModel(model: GeantMovementSelection) {
       if (disposed) throw new Error("Movement is disposed.");
       selection = model; invalidate();
@@ -119,5 +120,5 @@ export function createGeantMovementPlugin(options: GeantMovementOptions) {
       } }));
       return teardown;
     },
-  } satisfies SkykitPlugin & { setModel(model: GeantMovementSelection): void };
+  } satisfies SkykitPlugin & { getModel(): GeantMovementSelection; setModel(model: GeantMovementSelection): void };
 }

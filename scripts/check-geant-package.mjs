@@ -24,12 +24,13 @@ try {
   const [filename] = archives;
   await writeFile(join(directory, 'package.json'), JSON.stringify({ name: 'geant-external-consumer', private: true, type: 'module',
     dependencies: { '@found-in-space/pas-de-geant': `file:${join(directory, filename)}`, three: '0.170.0',
+      '@found-in-space/guided-journey': `file:${join(root, '.packages/guided-journey.tgz')}`,
       '@found-in-space/touch-os': `file:${join(root, '.packages/touch-os.tgz')}`, '@pmndrs/pointer-events': '6.6.32' },
     devDependencies: { '@types/three': threeTypes } }));
   await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...offline], { cwd: directory });
   const library = join(directory, 'node_modules/@found-in-space/pas-de-geant');
   const manifest = JSON.parse(await readFile(join(library, 'package.json'), 'utf8'));
-  assert.deepEqual(Object.keys(manifest.exports).sort(), ['.', './worlds', './worlds/skykit', './browser', './embed', './ai', './stars', './sky-image', './appearances'].sort());
+  assert.deepEqual(Object.keys(manifest.exports).sort(), ['.', './worlds', './worlds/skykit', './browser', './embed', './ai', './stars', './sky-image', './appearances', './journey'].sort());
   for (const entry of Object.values(manifest.exports)) { await access(join(library, entry.default)); await access(join(library, entry.types)); }
   for (const name of ['assets/bluemarble-2048.png', 'assets/lroc-color-2k.jpg',
     'worlds/tile-scheduler.worker.js', 'worlds/imagery-decoder.worker.js']) await access(join(library, 'dist', name));
@@ -47,6 +48,8 @@ import { createWorldSkykitPlugin } from '@found-in-space/pas-de-geant/worlds/sky
 import { celestialBody } from '@found-in-space/pas-de-geant/worlds';
 import { createGeantSkyImagePlugin } from '@found-in-space/pas-de-geant/sky-image';
 import { createSunAppearance } from '@found-in-space/pas-de-geant/appearances';
+import { createGeantJourneyDriver } from '@found-in-space/pas-de-geant/journey';
+import { exerciseJourneyDriver } from '@found-in-space/guided-journey/testing';
 const require = createRequire(import.meta.url);
 const geant = createRequire(require.resolve('@found-in-space/pas-de-geant'));
 assert.equal(geant.resolve('three'), require.resolve('three'));
@@ -59,8 +62,18 @@ const renderer = { render() {}, clearDepth() {}, xr: { isPresenting: false }, ge
 const viewer = await createGeantViewer({ renderer, bodies: ['moon'] });
 assert.ok(viewer.scene instanceof THREE.Scene);
 await viewer.install(createGeantWorldsPlugin());
-await viewer.install(createGeantMovementPlugin({ model: createGeantSurfaceMovementModel() }));
+const movement = createGeantMovementPlugin({ model: createGeantSurfaceMovementModel() });
+await viewer.install(movement);
 viewer.viewer.frame(0);
+const driver = createGeantJourneyDriver({ browser: { ...viewer, movement } });
+await exerciseJourneyDriver({ driver, scenes: [0, 20, -35].map(latitudeDegrees => ({ readiness: 'none',
+  camera: { kind: 'surface', body: 'moon', latitudeDegrees, longitudeDegrees: 25,
+    altitudeM: 1e6, altitudeReference: 'reference', scaleDenominator: 1e6 } })),
+  async advance() { for (let i = 0; i < 30; i++) await Promise.resolve();
+    viewer.frame(0); viewer.frame(.2); viewer.frame(0);
+    for (let i = 0; i < 30; i++) await Promise.resolve(); },
+});
+driver.dispose();
 const result = await viewer.actions.invoke(GEANT_ACTIONS.setScale, { scaleDenominator: 50 });
 assert.equal(result[0].status, 'fulfilled');
 assert.equal(viewer.getSnapshot().scaleDenominator, 50);
