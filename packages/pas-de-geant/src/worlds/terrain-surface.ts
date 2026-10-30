@@ -5,6 +5,7 @@ import type { ImageTileResource } from "./image-tile-provider.js";
 import type { ImageryProvider } from "./imagery-provider.js";
 import {
   IMAGERY_FRAGMENT_DECLARATIONS,
+  imageryFragmentDeclarations,
   ImageryVirtualTexture,
   imageryBoundsForGeographicBounds,
   normalizedMercatorYForLatitude,
@@ -97,6 +98,7 @@ export interface TerrainRuntimeMetrics {
   readonly horizonClassificationTotal: number;
   readonly renderVisibility: TerrainRenderVisibilityMetrics;
   readonly imagery: ReturnType<ImageryVirtualTexture["getMetrics"]>;
+  readonly nightImagery?: ReturnType<ImageryVirtualTexture["getMetrics"]>;
   readonly elevation: {
     readonly decodedSourceCount: number;
     readonly textureCount: number;
@@ -124,6 +126,9 @@ export interface TerrainSurfaceOptions {
   readonly renderer: THREE.WebGLRenderer;
   readonly baseTexture: THREE.Texture;
   readonly imageryProvider?: ImageryProvider;
+  /** Optional equirectangular night composite, blended by solar incidence. */
+  readonly nightTexture?: THREE.Texture;
+  readonly nightImageryProvider?: ImageryProvider;
   readonly elevationProvider?: TerrainElevationProvider;
   readonly surfaceModel?: SurfaceModel;
   readonly terrainLod?: TerrainLodOptions;
@@ -610,6 +615,9 @@ const FRAGMENT_SHADER = `
   #include <logdepthbuf_pars_fragment>
 
   ${IMAGERY_FRAGMENT_DECLARATIONS}
+  #ifdef SURFACE_NIGHT_IMAGERY
+    ${imageryFragmentDeclarations("night")}
+  #endif
   uniform float photographicImageryAllowed;
   uniform float tileOverlayVisible;
   uniform float textureOverlayVisible;
@@ -698,6 +706,9 @@ const FRAGMENT_SHADER = `
       ? outwardFaceNormal(baseNormal)
       : smoothNormal;
     float direct = max(0.0, dot(lightingNormal, normalize(sunlight)));
+    // Use the smooth geodetic normal for the global terminator, independent of
+    // terrain/skirt normals. The soft twilight band is illustrative.
+    float solarIncidence = dot(baseNormal, normalize(sunlight));
     float luminance = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
     float darkSurface = 1.0 - smoothstep(0.12, 0.5, luminance);
     float liftedLuminance = mix(
@@ -712,6 +723,13 @@ const FRAGMENT_SHADER = `
     colour += vec3(0.025, 0.045, 0.065) * (1.0 - direct);
     #ifdef SURFACE_DISPLAY_PRESENTATION
       colour = mix(colour, balanced, neutralLighting);
+    #endif
+    #ifdef SURFACE_NIGHT_IMAGERY
+      vec3 nightColour = photographicImageryAllowed > 0.5
+        ? nightResolvedImageryAlbedo()
+        : texture(nightBlueMarbleMap, vBlueMarbleUv).rgb;
+      float nightAmount = 1.0 - smoothstep(-0.10, 0.06, solarIncidence);
+      colour = mix(balanced * (0.02 + direct * 1.1), nightColour, nightAmount);
     #endif
     float tileEdge = edgeOverlay(vTileUv);
     colour = mix(colour, tileTint, tileOverlayVisible * (0.14 + tileEdge * 0.72));
@@ -737,7 +755,11 @@ const FRAGMENT_SHADER = `
       );
       surfaceColour.rgb = low / (low + high * pivotOdds);
     #else
-      surfaceColour = vec4(colour, 1.0);
+      #ifdef SURFACE_NIGHT_IMAGERY
+        surfaceColour = linearToOutputTexel(vec4(colour, 1.0));
+      #else
+        surfaceColour = vec4(colour, 1.0);
+      #endif
     #endif
   }
 `;
@@ -749,6 +771,7 @@ export class TerrainSurface {
   private readonly provider: TerrainElevationProvider;
   private readonly surfaceModel: SurfaceModel;
   private readonly imagery: ImageryVirtualTexture;
+  private readonly nightImagery?: ImageryVirtualTexture;
   private readonly scheduler: TileWorkerScheduler<ElevationTileResource>;
   private readonly meshes = new Map<string, SurfaceMesh>();
   private readonly elevationTextures = new ImageTexturePool<
@@ -850,6 +873,15 @@ export class TerrainSurface {
       this.horizonView,
       options.workers,
     );
+    if (options.nightTexture) {
+      options.nightTexture.colorSpace = THREE.SRGBColorSpace;
+      options.nightTexture.flipY = false;
+      options.nightTexture.wrapS = THREE.RepeatWrapping;
+      options.nightTexture.wrapT = THREE.ClampToEdgeWrapping;
+      options.nightTexture.needsUpdate = true;
+      this.nightImagery = new ImageryVirtualTexture(options.renderer, options.nightTexture,
+        options.nightImageryProvider, initialView, this.horizonView, options.workers);
+    }
     this.provider = elevationProvider;
     this.currentTarget = terrainTargetForView(
       initialView,
@@ -918,6 +950,7 @@ export class TerrainSurface {
     if (this.surfaceModel.hasPolarCaps) this.addPolarCaps();
     this.syncRenderVisibilityEntries();
     this.imagery.update(initialView, this.horizonView);
+    this.nightImagery?.update(initialView, this.horizonView);
     this.unsubscribe = this.scheduler.subscribe((snapshot, event) => {
       const committedChanged =
         !event && !sameCut(this.snapshot.committedCut, snapshot.committedCut);
@@ -958,6 +991,9 @@ export class TerrainSurface {
     this.horizonView = this.createHorizonView(view);
     if (this.loadingSuspended) return;
     this.imagery.update(view, this.horizonView, {
+      recalculateTopology: this.debugControls.textures.recalculationEnabled,
+    });
+    this.nightImagery?.update(view, this.horizonView, {
       recalculateTopology: this.debugControls.textures.recalculationEnabled,
     });
     this.applyHorizonCulling();
@@ -1042,6 +1078,7 @@ export class TerrainSurface {
       horizonClassificationTotal: horizon.classificationTotal,
       renderVisibility: this.renderVisibility.metrics,
       imagery: this.imagery.getMetrics(),
+      nightImagery: this.nightImagery?.getMetrics(),
       elevation: {
         decodedSourceCount: elevation.decodedSourceCount,
         textureCount: this.elevationTextures.size,
@@ -1056,7 +1093,7 @@ export class TerrainSurface {
   }
 
   getTileFailureTotal(): number {
-    return this.imagery.failureTotal + this.provider.failureTotal;
+    return this.imagery.failureTotal + (this.nightImagery?.failureTotal ?? 0) + this.provider.failureTotal;
   }
 
   setTileOverlayVisible(visible: boolean): void {
@@ -1087,16 +1124,17 @@ export class TerrainSurface {
   }
 
   get hasCompleteImagery(): boolean {
-    return this.imagery.hasCompleteImagery;
+    return this.imagery.hasCompleteImagery && (this.nightImagery?.hasCompleteImagery ?? true);
   }
 
   get hasImageryFailure(): boolean {
-    return this.imagery.hasFailure;
+    return this.imagery.hasFailure || (this.nightImagery?.hasFailure ?? false);
   }
 
   /** Advances bounded imagery publication while the camera remains still. */
   processFrame(): void {
     this.imagery.processFrame();
+    this.nightImagery?.processFrame();
   }
 
   get renderCullingEnabled(): boolean {
@@ -1113,6 +1151,7 @@ export class TerrainSurface {
     this.loadingSuspended = suspended;
     this.scheduler.setSuspended(suspended);
     this.imagery.setLoadingSuspended(suspended);
+    this.nightImagery?.setLoadingSuspended(suspended);
     if (!suspended) this.update(this.latestView);
     return this.loadingSuspended;
   }
@@ -1124,6 +1163,7 @@ export class TerrainSurface {
       this.horizonView = this.createHorizonView(this.latestView);
       if (!this.loadingSuspended) {
         this.imagery.updateHorizonView(this.horizonView);
+        this.nightImagery?.updateHorizonView(this.horizonView);
         this.applyHorizonCulling();
       }
     }
@@ -1184,6 +1224,7 @@ export class TerrainSurface {
     );
     this.horizonView = this.createHorizonView(view);
     this.imagery.updateHorizonView(this.horizonView);
+    this.nightImagery?.updateHorizonView(this.horizonView);
   }
 
   setRenderCullingEnabled(enabled: boolean): boolean {
@@ -1266,6 +1307,7 @@ export class TerrainSurface {
     this.scheduler.dispose();
     this.provider.dispose();
     this.imagery.dispose();
+    this.nightImagery?.dispose();
     for (const entry of this.meshes.values()) {
       this.releaseTexture(this.elevationTextures, entry.elevation?.image);
       this.group.remove(entry.mesh);
@@ -1353,6 +1395,7 @@ export class TerrainSurface {
     ) this.desiredZoom = undefined;
     this.debugControls = controls;
     this.imagery.setDebugControls(controls.textures);
+    this.nightImagery?.setDebugControls(controls.textures);
     this.update(this.latestView);
     return this.getTileDebugControls();
   }
@@ -1385,6 +1428,7 @@ export class TerrainSurface {
       material,
       imageryBounds,
     );
+    this.nightImagery?.configureMaterial(material, imageryBounds, "night");
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `surface-tile:${tileIdentityKey(tile)}`;
     mesh.frustumCulled = false;
@@ -1435,13 +1479,15 @@ export class TerrainSurface {
   }): THREE.ShaderMaterial {
     return new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      defines: this.displayPresentationEnabled ? { SURFACE_DISPLAY_PRESENTATION: 1 } : {},
+      defines: { ...(this.displayPresentationEnabled ? { SURFACE_DISPLAY_PRESENTATION: 1 } : {}),
+        ...(this.nightImagery ? { SURFACE_NIGHT_IMAGERY: 1 } : {}) },
       side: THREE.DoubleSide,
       depthTest: true,
       depthWrite: true,
       uniforms: {
         ...this.sharedUniforms,
         ...this.imagery.materialUniforms(),
+        ...this.nightImagery?.materialUniforms("night"),
         elevationMap: { value: values.elevationMap },
         elevationEnabled: { value: values.elevationEnabled },
         elevationUvTransform: {

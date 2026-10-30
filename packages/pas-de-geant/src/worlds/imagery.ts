@@ -329,6 +329,17 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
   }
 `;
 
+/** A second display layer shares UVs and the same virtual-texture implementation. */
+export function imageryUniformName(name: string, prefix = ""): string {
+  return prefix ? prefix + name[0]!.toUpperCase() + name.slice(1) : name;
+}
+export function imageryFragmentDeclarations(prefix: string): string {
+  return IMAGERY_FRAGMENT_DECLARATIONS
+    .replace(/  in vec2 v(?:BlueMarble|Imagery)Uv;\n/g, "")
+    .replace(/\b(?:blueMarbleMap|imagery[A-Z]\w*|resolvedImagery[A-Z]\w*)\b/g,
+      name => imageryUniformName(name, prefix));
+}
+
 export interface ImageryTileResource {
   readonly kind: "imagery";
   readonly tile: TileIdentity;
@@ -1097,18 +1108,20 @@ export class ImageryVirtualTexture {
     }
   }
 
-  materialUniforms(): Record<string, THREE.IUniform> {
-    return {
+  materialUniforms(prefix = ""): Record<string, THREE.IUniform> {
+    const uniforms = {
       ...this.sharedUniforms,
       imageryGlobalOriginScale: new THREE.Uniform(new THREE.Vector4()),
     };
+    return Object.fromEntries(Object.entries(uniforms).map(([name, uniform]) => [imageryUniformName(name, prefix), uniform]));
   }
 
   configureMaterial(
     material: THREE.ShaderMaterial,
     bounds: ImageryCoordinateBounds,
+    prefix = "",
   ): void {
-    const transform = material.uniforms.imageryGlobalOriginScale
+    const transform = material.uniforms[imageryUniformName("imageryGlobalOriginScale", prefix)]
       ?.value as THREE.Vector4 | undefined;
     if (!transform) return;
     transform.set(
@@ -1924,7 +1937,8 @@ export class ImageryVirtualTexture {
         pool.texture,
         null,
         new THREE.Vector3(0, 0, upload.slot),
-        0,
+        // Three r170 (our peer range) takes ONE mip argument: the destination
+        // level for a DataTexture upload. A sixth argument is silently ignored.
         upload.destinationMip,
       );
     }

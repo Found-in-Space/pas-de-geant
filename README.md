@@ -6,7 +6,9 @@ Composable planetary worlds, navigation, and browser experiences for
 The reusable [`@found-in-space/pas-de-geant` package](packages/pas-de-geant/README.md)
 provides Solar System bodies, physical coordinate frames, streamed surfaces,
 navigation, SkyKit plugins, browser viewers and an HTML embed. Defaults use
-bundled Earth/Moon imagery and reference surfaces; external services are opt-in.
+medium-resolution NASA Blue Marble and measured Mapterhorn elevation for Earth,
+with bundled imagery as a disconnected fallback. Other bodies retain their
+reference sources; hosts can replace surface datasets explicitly.
 Static sky imagery and SkyKit catalog stars are separate optional
 [background plugins](packages/pas-de-geant/docs/sky-backgrounds.md); neither
 loads by default, and the image option needs no star packages.

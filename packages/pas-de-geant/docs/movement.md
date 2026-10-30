@@ -210,7 +210,9 @@ Reference-space resets do not count as walking.
 The surface model also discards walking deltas during tracking loss.
 
 `createGeantDesktopMovementModel()` retains separate desktop behavior.
-Desktop orbit uses a body-centred observer and distance controls.
+Desktop orbit uses a body-centred observer and distance controls. Its observer
+follows the focused body’s ephemeris translation during playback and UTC seeks,
+preserving the current orbital offset. Free flight retains inertial placement.
 Desktop free travel follows the view direction.
 The desktop model does not run in an immersive session.
 

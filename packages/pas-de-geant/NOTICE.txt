@@ -1,3 +1,11 @@
+DEFAULT EARTH ELEVATION
+
+The browser convenience factory requests Mapterhorn Terrarium elevation tiles
+from https://tiles.mapterhorn.com/{z}/{x}/{y}.webp, using the same 512-pixel,
+zoom-12 source as the former main application. Tiles are acquired at runtime;
+this package does not bundle the elevation dataset.
+
+
 NASA BLUE MARBLE IMAGERY
 
 The bundled texture is derived from NASA's Blue Marble data:
@@ -172,3 +180,19 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+
+NASA EARTH DAY AND NIGHT DISPLAY PRODUCTS
+
+The browser's Earth default requests a separately hosted Blue Marble Next
+Generation July 2004 derivative. The optional night layer requests NASA's
+Black Marble 2016 colour display composite, including background geography.
+Credit: NASA Earth Observatory; NOAA National Geophysical Data Center.
+These immutable development products are not bundled in the npm package:
+https://data.foundin.space/textures/earth/blue-marble-200407-500m-mercator-256-v1/dev-20261017-9c0211ef/product.json
+https://data.foundin.space/textures/earth/black-marble-2016-500m-mercator-256-v1/dev-20261017-27a0cd31/product.json
+
+Their source information, preparation and attribution remain in the producer
+descriptors. These are historical display imagery, not scientific radiance
+measurements, current observations or simulated weather. Their use does not
+imply NASA or NOAA endorsement.

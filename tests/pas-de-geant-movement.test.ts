@@ -190,3 +190,25 @@ describe("ship movement", () => {
     expect(f.head.quaternion.equals(head)).toBe(true); expect(f.viewer.cameraRoot.quaternion.angleTo(new THREE.Quaternion())).toBeGreaterThan(0.5);
   });
 });
+
+
+describe("desktop orbit time tracking", () => {
+  it("retains the orbital offset through time seeks and preserves independent orbital input", async () => {
+    const { createGeantDesktopMovementModel } = await import("@found-in-space/pas-de-geant");
+    const f = await fixture(createGeantObservationMovementModel(), { body: "earth", scale: 10_000_000 });
+    // The fixture starts in XR; select the desktop orbit after leaving XR.
+    f.xr.isPresenting = false;
+    f.movement.setModel(createGeantDesktopMovementModel());
+    f.viewer.navigation.dispatch(GEANT_ACTIONS.setMode, { mode: "orbit" }); f.tick();
+    const position = f.viewer.worlds.get("earth")!.object3d.position.clone();
+    const distance = position.length();
+    await f.command(GEANT_ACTIONS.setTime, { atMs: Date.parse("2026-10-18T00:00:00Z"), rate: 0 });
+    expect(f.viewer.worlds.get("earth")!.object3d.position.distanceTo(position)).toBeLessThan(1e-8);
+    await f.command(GEANT_MOTION_ACTIONS.orbit, { x: 1, y: 0, deltaSeconds: 1, boost: 0 });
+    const moved = f.viewer.worlds.get("earth")!.object3d.position.clone();
+    expect(moved.distanceTo(position)).toBeGreaterThan(0.1);
+    expect(moved.length()).toBeCloseTo(distance, 8);
+    await f.command(GEANT_ACTIONS.setTime, { atMs: Date.parse("2026-10-19T00:00:00Z"), rate: 0 });
+    expect(f.viewer.worlds.get("earth")!.object3d.position.distanceTo(moved)).toBeLessThan(1e-8);
+  });
+});

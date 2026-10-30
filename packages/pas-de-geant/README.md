@@ -39,6 +39,14 @@ await moon.actions.invoke("geant:scale.set", { scaleDenominator: 100 });
 await moon.dispose();
 ```
 
+Earth uses the hosted medium-resolution NASA Blue Marble day pyramid and
+Mapterhorn elevation by default, retaining the bundled low-resolution texture
+for disconnected fallback. All Earth integration examples share those defaults.
+The optional day/night
+factory adds Black Marble city lights and a simulation-time terminator; see
+[Earth imagery](docs/worlds.md#earth-day-and-night-imagery) and the isolated
+`integration/earth-day-night.html` case.
+
 Hosts may provide their own dimensions; an empty unstyled host receives a
 420-pixel-high viewer. Each instance owns a generated subtree, renderer,
 configuration, navigation, providers, workers, resize observation and animation

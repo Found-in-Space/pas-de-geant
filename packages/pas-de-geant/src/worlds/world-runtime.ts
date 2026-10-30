@@ -8,6 +8,7 @@ export interface WorldSurfaceSource extends Omit<TerrainSurfaceOptions, "rendere
   /** A failed initial source-base request also permits the supplied fallback to become ready. */
   readonly baseFallback?: boolean;
   readonly disposeBaseTexture?: boolean;
+  readonly disposeNightTexture?: boolean;
 }
 
 export interface WorldRuntimeOptions {
@@ -128,7 +129,7 @@ export function createWorldRuntime(options: WorldRuntimeOptions): WorldRuntime {
       if (!surface) return { ready: true, imagery: "base" };
       return worldSurfaceReadiness({
         committedSurface: surface.hasCommittedSurface,
-        configuredImagery: Boolean(options.surface?.imageryProvider),
+        configuredImagery: Boolean(options.surface?.imageryProvider || options.surface?.nightImageryProvider),
         completeImagery: surface.hasCompleteImagery,
         imageryFailed: Boolean(options.surface?.baseFallback) || surface.hasImageryFailure,
       });
@@ -141,6 +142,7 @@ export function createWorldRuntime(options: WorldRuntimeOptions): WorldRuntime {
       globe?.material.dispose();
       object3d.remove(content);
       if (options.surface?.disposeBaseTexture) options.surface.baseTexture.dispose();
+      if (options.surface?.disposeNightTexture) options.surface.nightTexture?.dispose();
     },
   };
 }

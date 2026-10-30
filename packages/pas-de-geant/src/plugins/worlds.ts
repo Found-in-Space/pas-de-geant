@@ -38,6 +38,7 @@ export function createGeantWorldsPlugin(options: GeantWorldsOptions = {}) {
   function releaseSource(source: WorldSurfaceSource) {
     source.elevationProvider?.dispose();
     if (source.disposeBaseTexture) source.baseTexture.dispose();
+    if (source.disposeNightTexture) source.nightTexture?.dispose();
   }
   async function construct(body: SolarSystemBodyId, factory: GeantSurfaceFactory | undefined, signal: AbortSignal): Promise<WorldRuntime> {
     const source = await factory?.({ body, renderer: geant.renderer, signal });

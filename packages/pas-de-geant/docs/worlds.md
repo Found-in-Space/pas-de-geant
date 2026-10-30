@@ -254,7 +254,8 @@ rejected and retried rather than retained as imagery or elevation. Source URLs
 (including product/grid identity) distinguish versions; change that identity
 or explicitly invalidate retained entries when replacing source content.
 `TerrainSurface` uses a flat elevation provider unless its host supplies a
-configured one; the package has no application tile-service default.
+configured one. The browser convenience factory supplies Mapterhorn terrain for
+Earth; lower-level world construction still requires explicit providers.
 
 ## Shared spatial alpha
 
@@ -275,3 +276,70 @@ batch. There are no local package archives or sibling links. Run `npm ci` and
 registry versions, shared resolution and the domain conversion/preload adapters.
 Root tooling and integration cases share the Three.js 0.170 peer with SkyKit
 and Geant. Vite consumers deduplicate Three.js.
+
+
+## Earth day and night imagery
+
+The browser convenience preset now uses the separately hosted NASA Blue Marble
+Next Generation July 2004 product: 256 × 256 opaque RGB PNG tiles, XYZ Web Mercator,
+zoom 0–9. Its 4096 × 2048 equirectangular `base.png` covers the complete globe,
+including polar caps outside Mercator. The bundled 2048-pixel Blue Marble remains
+the disconnected fallback. `createReferenceSurfaceFactory()` explicitly selects
+that bundled reference with flat height; `createDefaultSurfaceFactory()` selects
+the online day product with reference fallback and measured Mapterhorn terrain.
+Authored compositions, including the size
+comparison case, use the latter. Other bodies retain their reference sources.
+Explicit `surfaces` or `datasets` bindings still take precedence.
+
+The default elevation is the former main application's Mapterhorn Terrarium
+source at `https://tiles.mapterhorn.com/{z}/{x}/{y}.webp`, XYZ Web Mercator,
+512 × 512 elevation tiles through zoom 12. It uses `EARTH_SURFACE_MODEL`'s
+Terrarium encoding and elevation metadata, independent of the 256-pixel display
+imagery contract. The binding is exported as `EARTH_MAPTERHORN_ELEVATION`.
+Tile requests remain lazy and use persistent browser caching. A failed Blue
+Marble descriptor does not remove the elevation provider. Disconnected terrain
+depends on retained elevation tiles; the bundled fallback contains imagery only.
+
+For a day/night Earth, use public browser exports:
+
+```ts
+import { createGeantBrowser, createDefaultSurfaceFactory } from "@found-in-space/pas-de-geant/browser";
+
+const browser = await createGeantBrowser({
+  host, bodies: ["earth"], mode: "orbit", xr: true,
+  surfaces: { earth: createDefaultSurfaceFactory({ night: true }) },
+});
+```
+
+Alternatively, configure `BodySurfaceDatasets.imagery` and `.nightImagery` with
+`EARTH_BLUE_MARBLE_DATASET` and `EARTH_BLACK_MARBLE_DATASET` (both exported by
+`/browser`), or supply independent product bindings. The resolver admits all
+sources and checks day/night/elevation grid compatibility before acquiring base
+textures. It loads each admitted equirectangular base and distinct tile provider;
+custom `loadTexture` supports hosts with their own image loading. A failed day
+base retains the supplied fallback; a failed night base is black. Valid tile
+providers remain available to recover detail. Invalid explicit descriptors fail
+admission rather than being reinterpreted. The convenience default can fall back
+to the bundled reference if descriptors are unavailable.
+
+Night imagery is optional. It uses the same visible hemisphere, source queue,
+256-pixel decoding, virtual texture, mesh UVs, suspension and disposal path as day
+imagery, with a separate pool and product cache identity. It adds no shell mesh,
+second scene pass or render loop. Close views can therefore stream both pyramids;
+the extra night texture pool also consumes GPU memory. `disposeNightTexture: true`
+transfers ownership of a supplied night base to the world runtime.
+
+The signed dot product of the smooth world-space geodetic normal and sunlight
+direction drives the global terminator. The world plugin already derives sunlight
+and body rotation from the shared simulation time. A soft blend over solar
+incidence −0.10 to +0.06 is an illustrative twilight band, independent of terrain
+normals. Day albedo receives solar lighting; the night composite retains its own
+brightness instead of being multiplied by daylight. Polar caps sample the night
+base, never wrapped Mercator tiles.
+
+Black Marble is NASA's 2016 **display composite**, including background geography
+and city lights. It is not a calibrated lights-only emission product or current
+light-use data. Blue Marble is a July 2004 composite. Neither source simulates
+clouds, weather, seasonal changes or changing city illumination. The independent
+`integration/earth-day-night.html` case exposes UTC seeking, accelerated playback,
+pause, day-only comparison and VR using only public APIs.

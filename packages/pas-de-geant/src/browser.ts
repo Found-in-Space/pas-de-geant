@@ -5,7 +5,9 @@ import { createGeantWorldsPlugin } from "./plugins/worlds.js";
 import { createGeantControlsPlugin, type GeantControlsOptions } from "./plugins/controls.js";
 import type { SolarSystemBodyId } from "./worlds/solar-system.js";
 import type { WorldSurfaceSource } from "./worlds/world-runtime.js";
-import { createBodySurfaceModel } from "./worlds/surface-model.js";
+import { createBodySurfaceModel, EARTH_SURFACE_MODEL } from "./worlds/surface-model.js";
+import { createElevationTileProvider } from "./worlds/image-tile-provider.js";
+import { ElevationTileProvider } from "./worlds/elevation-tile-provider.js";
 import { celestialBody } from "./worlds/solar-system.js";
 import { createGeantMovementPlugin } from "./plugins/movement.js";
 import { createGeantSurfaceMovementModel } from "./navigation/surface-movement.js";
@@ -59,6 +61,49 @@ export function createReferenceSurfaceFactory(): GeantSurfaceFactory {
     if (signal.aborted) { texture.dispose(); throw new DOMException("Surface loading was cancelled.", "AbortError"); }
     return { baseTexture: texture, disposeBaseTexture: true, baseFallback,
       surfaceModel: createBodySurfaceModel(celestialBody(body)) } satisfies WorldSurfaceSource;
+  };
+}
+/** Immutable 256-pixel NASA display products; no provider keys or quota service. */
+export const EARTH_BLUE_MARBLE_DATASET = Object.freeze({
+  productUrl: "https://data.foundin.space/textures/earth/blue-marble-200407-500m-mercator-256-v1/dev-20261017-9c0211ef/product.json",
+  urlTemplate: "./imagery/{z}/{x}/{y}.png", attribution: "NASA Blue Marble Next Generation, July 2004",
+});
+export const EARTH_BLACK_MARBLE_DATASET = Object.freeze({
+  productUrl: "https://data.foundin.space/textures/earth/black-marble-2016-500m-mercator-256-v1/dev-20261017-27a0cd31/product.json",
+  urlTemplate: "./imagery/{z}/{x}/{y}.png", attribution: "NASA Earth Observatory / NOAA NGDC, Black Marble 2016",
+});
+/** The measured terrain source used by the former main application. */
+export const EARTH_MAPTERHORN_ELEVATION = Object.freeze({
+  urlTemplate: "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
+  addressing: "xyz" as const,
+});
+function withDefaultEarthElevation(source: WorldSurfaceSource): WorldSurfaceSource {
+  return { ...source, surfaceModel: createBodySurfaceModel(celestialBody("earth"), {
+    ...source.surfaceModel, heightEncoding: EARTH_SURFACE_MODEL.heightEncoding,
+    elevationMetadata: EARTH_SURFACE_MODEL.elevationMetadata,
+    minimumProjectedWorldSegments: EARTH_SURFACE_MODEL.minimumProjectedWorldSegments,
+  }), elevationProvider: new ElevationTileProvider(createElevationTileProvider(
+    EARTH_SURFACE_MODEL.elevationMetadata, EARTH_SURFACE_MODEL.elevationMetadata.maxSourceZoom,
+    EARTH_MAPTERHORN_ELEVATION,
+  )) };
+}
+/** Blue Marble and measured Earth terrain, with bundled imagery retained for disconnected use. */
+export function createDefaultSurfaceFactory(options: { readonly night?: boolean; readonly workers?: GeantBrowserOptions["workers"] } = {}): GeantSurfaceFactory {
+  const reference = createReferenceSurfaceFactory();
+  return async context => {
+    const base = await reference(context);
+    if (context.body !== "earth") return { ...base, workers: options.workers };
+    try {
+      const { resolveBodySurfaceDatasets } = await import("./worlds/datasets.js");
+      return withDefaultEarthElevation(await resolveBodySurfaceDatasets({ body: "earth", datasets: {
+        imagery: EARTH_BLUE_MARBLE_DATASET, ...(options.night ? { nightImagery: EARTH_BLACK_MARBLE_DATASET } : {}),
+      }, baseTexture: base.baseTexture, disposeBaseTexture: true, signal: context.signal, workers: options.workers }));
+    } catch (error) {
+      if (context.signal.aborted) { base.baseTexture.dispose(); context.signal.throwIfAborted(); }
+      const nightTexture = options.night ? new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1) : undefined;
+      if (nightTexture) nightTexture.needsUpdate = true;
+      return withDefaultEarthElevation({ ...base, baseFallback: true, nightTexture, disposeNightTexture: Boolean(nightTexture), workers: options.workers });
+    }
   };
 }
 function solidBase(body: SolarSystemBodyId): THREE.Texture {
@@ -146,9 +191,10 @@ export async function createGeantBrowser(options: GeantBrowserOptions) {
     if (options.compose) composition = await options.compose(geant, abort.signal);
     else {
       const reference = createReferenceSurfaceFactory();
+      const defaultSurface = createDefaultSurfaceFactory({ workers: options.workers });
       const surfaces = Object.fromEntries(geant.configuration.bodies.filter(body => celestialBody(body).surface || options.surfaces?.[body] || options.datasets?.[body]).map(body => [body, options.surfaces?.[body] ?? (async (context) => {
+        if (!options.datasets?.[body]) return defaultSurface(context);
         const base = await reference(context);
-        if (!options.datasets?.[body]) return { ...base, workers: options.workers };
         try {
           const { resolveBodySurfaceDatasets } = await import("./worlds/datasets.js");
           return await resolveBodySurfaceDatasets({ body, datasets: options.datasets[body]!, baseTexture: base.baseTexture,

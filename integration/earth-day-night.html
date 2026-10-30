@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Earth day and night — Geant integration</title></head>
+<body>
+<nav><a href="./">Integration cases</a></nav>
+<h1>Earth day and night</h1>
+<p>Orbit Earth to explore the terminator and city lights. Drag to orbit and use the wheel to approach. In VR, the left stick travels across the globe and the vertical right stick changes altitude above the ground, bringing Earth closer or farther away. The demo starts at the current time.</p>
+<p id="status" role="status">Starting case…</p>
+<main><section><div id="world" class="world"></div>
+<label>Earth imagery <select id="appearance"><option value="day-night">Day and night</option><option value="day">Day only</option></select></label>
+<p><label>UTC time <input id="utc-time" type="datetime-local" required></label>
+<button id="apply-time">Set UTC time</button><button id="now">Now</button><button id="animate">Play at 600×</button><button id="pause">Pause</button></p>
+<p>Simulation UTC: <output id="simulation-time"></output></p>
+<p>NASA Blue Marble Next Generation (July 2004) and NASA Earth Observatory / NOAA NGDC Black Marble (2016).
+These are static historical composites. The night image includes background geography and city lights; it is not a calibrated emission map.
+The Sun direction and Earth rotation follow the simulation time; the soft twilight blend is illustrative. Clouds, weather and changing light use are not simulated.</p>
+<p>Both layers stream 256-pixel tiles from Found in Space. The bundled low-resolution Earth remains available when disconnected; unavailable night imagery stays dark.</p>
+</section></main>
+<details><summary>Public viewer state</summary><pre id="state"></pre></details>
+<script type="module" src="./src/earth-day-night.ts"></script>
+</body></html>

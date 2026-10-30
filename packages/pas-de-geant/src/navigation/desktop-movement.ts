@@ -11,10 +11,21 @@ import { orbitalAngularStepRadians, orbitalDragRadiansPerPixel, orbitalLogarithm
 export function createGeantDesktopMovementModel(): GeantMovementModel {
   const surface = createGeantSurfaceMovementModel({ retainObserverOnEntry: true });
   let orientation: Quaternion | undefined;
+  let orbitCentre: { x: number; y: number; z: number } | undefined;
   const isOrbit = (frame: GeantMovementFrame) => frame.state.mode === "orbit" || frame.state.mode === "observation";
   function orbitalFrame(frame: GeantMovementFrame) {
     const focus = focusFrame(frame).origin;
-    const observer = frame.navigation.observerJ2000M ?? { x: focus.x + frame.surface(frame.state.focusBody).body.referenceRadiusM * 3, y: focus.y, z: focus.z };
+    let observer = frame.navigation.observerJ2000M ?? { x: focus.x + frame.surface(frame.state.focusBody).body.referenceRadiusM * 3, y: focus.y, z: focus.z };
+    if (isOrbit(frame)) {
+      // Preserve the orbit offset when the body's ephemeris position changes,
+      // including clock seeks. Free flight remains in the inertial frame.
+      if (orbitCentre && (focus.x !== orbitCentre.x || focus.y !== orbitCentre.y || focus.z !== orbitCentre.z)) {
+        observer = { x: focus.x + (observer.x - orbitCentre.x),
+          y: focus.y + (observer.y - orbitCentre.y), z: focus.z + (observer.z - orbitCentre.z) };
+        frame.navigation.dispatch(GEANT_ACTIONS.setObserver, observer);
+      }
+      orbitCentre = { ...focus };
+    }
     const offset = relativeJ2000MetresToRender({ x: observer.x - focus.x, y: observer.y - focus.y, z: observer.z - focus.z }, 1);
     return { focus, observer, offset: new Vector3(offset.x, offset.y, offset.z) };
   }
@@ -22,6 +33,7 @@ export function createGeantDesktopMovementModel(): GeantMovementModel {
     id: "desktop",
     enter(frame) {
       orientation = undefined;
+      orbitCentre = undefined;
       if (frame.xr) throw new Error("Use an XR movement model for an immersive session.");
       if (frame.state.mode === "surface") surface.enter?.(frame);
       else {
@@ -29,7 +41,7 @@ export function createGeantDesktopMovementModel(): GeantMovementModel {
         frame.navigation.dispatch(GEANT_ACTIONS.setObserver, observer);
       }
     },
-    leave(frame) { surface.leave?.(frame); },
+    leave(frame) { orbitCentre = undefined; surface.leave?.(frame); },
     update(frame) {
       if (frame.state.mode === "surface") return surface.update(frame);
       const { focus, observer } = orbitalFrame(frame);
