@@ -66,10 +66,12 @@ export function createReferenceSurfaceFactory(): GeantSurfaceFactory {
 /** Immutable 256-pixel NASA display products; no provider keys or quota service. */
 export const EARTH_BLUE_MARBLE_DATASET = Object.freeze({
   productUrl: "https://data.foundin.space/textures/earth/blue-marble-200407-500m-mercator-256-v1/dev-20261017-9c0211ef/product.json",
+  productSha256: "5d5fd4f5f3c9302575ec745ea7a81760913e98eb74bac74a6f426338392d56ec",
   urlTemplate: "./imagery/{z}/{x}/{y}.png", attribution: "NASA Blue Marble Next Generation, July 2004",
 });
 export const EARTH_BLACK_MARBLE_DATASET = Object.freeze({
   productUrl: "https://data.foundin.space/textures/earth/black-marble-2016-500m-mercator-256-v1/dev-20261017-27a0cd31/product.json",
+  productSha256: "f3da975a7add498020107e5dc8fbcd87330d61459f8957c32eee635559435bd4",
   urlTemplate: "./imagery/{z}/{x}/{y}.png", attribution: "NASA Earth Observatory / NOAA NGDC, Black Marble 2016",
 });
 /** The measured terrain source used by the former main application. */

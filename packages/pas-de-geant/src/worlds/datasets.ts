@@ -11,9 +11,16 @@ import type { WorldWorkerFactory } from "./workers.js";
 import type { TileAddressing } from "./tile-url.js";
 export interface SurfaceDatasetBinding {
   readonly productUrl: string;
+  /** SHA-256 of the exact descriptor bytes, from the producer/delivery record. */
+  readonly productSha256?: string;
   readonly urlTemplate: string;
   readonly attribution: string;
   readonly addressing?: TileAddressing;
+}
+async function authenticate(bytes: ArrayBuffer, expected: string | undefined): Promise<void> {
+  if (expected === undefined) return;
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), byte => byte.toString(16).padStart(2, "0")).join("");
+  if (hash !== expected) throw new Error("Surface asset SHA-256 differs from its admitted identity.");
 }
 export interface BodySurfaceDatasets {
   readonly imagery?: SurfaceDatasetBinding;
@@ -35,14 +42,24 @@ export async function resolveBodySurfaceDatasets(options: {
   readonly signal?: AbortSignal;
   readonly fetcher?: typeof fetch;
   readonly workers?: WorldWorkerFactory;
-  readonly loadTexture?: (url: string, signal?: AbortSignal) => Promise<THREE.Texture>;
+  /** Custom loaders must authenticate the supplied hash before decoding. */
+  readonly loadTexture?: (url: string, signal?: AbortSignal, sha256?: string) => Promise<THREE.Texture>;
 }): Promise<WorldSurfaceSource> {
   const body = celestialBody(options.body), fetcher = options.fetcher ?? fetch;
+  for (const binding of Object.values(options.datasets)) {
+    if (binding?.productSha256 !== undefined && !/^[a-f0-9]{64}$/.test(binding.productSha256)) {
+      throw new Error("Surface descriptor SHA-256 must be 64 lowercase hexadecimal characters.");
+    }
+  }
   async function descriptor(binding: SurfaceDatasetBinding | undefined) {
     if (!binding) return undefined;
+    options.signal?.throwIfAborted();
     const response = await fetcher(binding.productUrl, { signal: options.signal });
     if (!response.ok) throw new Error(`Surface descriptor unavailable (HTTP ${response.status}).`);
-    return response.json();
+    const bytes = await response.arrayBuffer();
+    await authenticate(bytes, binding.productSha256);
+    options.signal?.throwIfAborted();
+    return JSON.parse(new TextDecoder().decode(bytes));
   }
   const [imageValue, heightValue, nightValue] = await Promise.all([descriptor(options.datasets.imagery), descriptor(options.datasets.elevation), descriptor(options.datasets.nightImagery)]);
   const imagery = imageValue ? displayTextureSource(imageValue, body) : undefined;
@@ -58,10 +75,13 @@ export async function resolveBodySurfaceDatasets(options: {
   const imageBinding = options.datasets.imagery, heightBinding = options.datasets.elevation;
   const surfaceModel = createBodySurfaceModel(body, { projection: grid?.projection, heightEncoding: elevation?.heightEncoding,
     elevationMetadata: elevation?.metadata });
-  const load = options.loadTexture ?? (async (url: string, signal?: AbortSignal) => {
+  const load = options.loadTexture ?? (async (url: string, signal?: AbortSignal, sha256?: string) => {
     const response = await fetcher(url, { signal });
     if (!response.ok) throw new Error(`Surface base unavailable (HTTP ${response.status}).`);
-    const bitmap = await createImageBitmap(await response.blob(), { colorSpaceConversion: "none" });
+    const bytes = await response.arrayBuffer();
+    await authenticate(bytes, sha256);
+    signal?.throwIfAborted();
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: response.headers.get("content-type") ?? "" }), { colorSpaceConversion: "none" });
     const texture = new THREE.Texture(bitmap); texture.needsUpdate = true;
     texture.addEventListener("dispose", () => bitmap.close());
     return texture;
@@ -72,13 +92,13 @@ export async function resolveBodySurfaceDatasets(options: {
   try {
     if (imagery && imageBinding) {
       try {
-        baseTexture = await load(resolveSurfaceUrl(imagery.basePath, imageBinding.productUrl), options.signal);
+        baseTexture = await load(resolveSurfaceUrl(imagery.basePath, imageBinding.productUrl), options.signal, imagery.baseSha256);
         owned.push(baseTexture);
       } catch (error) { options.signal?.throwIfAborted(); baseFallback = true; }
     }
     if (night && options.datasets.nightImagery) {
       try {
-        nightTexture = await load(resolveSurfaceUrl(night.basePath, options.datasets.nightImagery.productUrl), options.signal);
+        nightTexture = await load(resolveSurfaceUrl(night.basePath, options.datasets.nightImagery.productUrl), options.signal, night.baseSha256);
       } catch (error) {
         options.signal?.throwIfAborted(); baseFallback = true;
         // Missing night imagery stays dark; the day map is never emitted as lights.

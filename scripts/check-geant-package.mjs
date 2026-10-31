@@ -45,7 +45,7 @@ import { createGeantViewer, createGeantWorldsPlugin, createGeantMovementPlugin, 
 import { createGeantBrowser } from '@found-in-space/pas-de-geant/browser';
 import { mount } from '@found-in-space/pas-de-geant/embed';
 import { createWorldSkykitPlugin } from '@found-in-space/pas-de-geant/worlds/skykit';
-import { celestialBody, assessSurfaceReadiness } from '@found-in-space/pas-de-geant/worlds';
+import { celestialBody, assessSurfaceReadiness, resolveBodySurfaceDatasets } from '@found-in-space/pas-de-geant/worlds';
 import { createGeantSkyImagePlugin } from '@found-in-space/pas-de-geant/sky-image';
 import { createSunAppearance } from '@found-in-space/pas-de-geant/appearances';
 import { createGeantJourneyDriver, createGeantTrackingSequence, createGeantSequenceParticipant,
@@ -60,6 +60,14 @@ for (const name of ['skykit', 'star-trees', 'star-octree-provider', 'three-star-
 }
 assert.throws(() => require.resolve('@found-in-space/pas-de-geant/worlds/terrain-surface'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
 assert.equal(celestialBody('moon').id, 'moon');
+const fallback = new THREE.Texture();
+await assert.rejects(resolveBodySurfaceDatasets({ body: 'earth', baseTexture: fallback,
+  datasets: { imagery: { productUrl: 'https://fixture.test/product.json', productSha256: 'a'.repeat(64),
+    urlTemplate: './{z}/{x}/{y}.png', attribution: 'Fixture' } },
+  fetcher: async () => new Response('changed bytes'),
+  loadTexture: async () => { throw new Error('Image loading preceded descriptor admission'); },
+}), /SHA-256 differs/);
+fallback.dispose();
 const renderer = { render() {}, clearDepth() {}, xr: { isPresenting: false }, getDrawingBufferSize(target) { return target.set(640, 480); } };
 const viewer = await createGeantViewer({ renderer, bodies: ['moon'] });
 assert.ok(viewer.scene instanceof THREE.Scene);
@@ -120,11 +128,16 @@ console.log('Packed core and image lifecycle passed with no SkyKit aggregate or 
   }
   await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--noEmit', '--skipLibCheck', '--strict', '--module', 'NodeNext', '--target', 'ES2022', 'image-consumer.ts'], { cwd: directory });
   await writeFile(join(directory, 'readiness-consumer.ts'), `import type {GeantViewer} from '@found-in-space/pas-de-geant';
-import {assessSurfaceReadiness, type SurfaceLayer} from '@found-in-space/pas-de-geant/worlds';
+import {assessSurfaceReadiness, resolveBodySurfaceDatasets, type SurfaceDatasetBinding, type SurfaceLayer} from '@found-in-space/pas-de-geant/worlds';
 import {waitForGeantSurface} from '@found-in-space/pas-de-geant/journey';
 declare const browser: GeantViewer;
 const required: SurfaceLayer[] = ['imagery', 'terrain', 'nightImagery'];
 const assessment = assessSurfaceReadiness(browser.worlds.get('moon')!.getSurfaceReadiness(), required);
+const binding: SurfaceDatasetBinding = { productUrl: 'https://fixture.test/product.json', productSha256: 'a'.repeat(64),
+  urlTemplate: './{z}/{x}/{y}.png', attribution: 'Fixture' };
+declare const texture: import('three').Texture;
+void resolveBodySurfaceDatasets({ body: 'earth', datasets: { imagery: binding }, baseTexture: texture,
+  async loadTexture(url, signal, sha256) { const expected: string | undefined = sha256; return texture; } });
 void waitForGeantSurface({browser, body: 'moon', required, onDegraded: 'continue', signal: new AbortController().signal,
   onProgress(result) { const currentHeight: number = result.readiness.view.observerHeightWorldM; }});
 `);

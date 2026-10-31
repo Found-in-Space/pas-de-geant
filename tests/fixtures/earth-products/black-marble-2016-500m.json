@@ -1,0 +1,249 @@
+{
+  "baseTexture": {
+    "height": 2048,
+    "path": "base.png",
+    "projection": "equirectangular",
+    "sha256": "9da563aef7c038f6ec14fadd2160b57bc3ff2e04fc17f67ea4bb72ecc3b5d55e",
+    "width": 4096
+  },
+  "created_at": "2026-10-17T18:01:29Z",
+  "format_version": 2,
+  "grid": {
+    "formatVersion": 1,
+    "projection": "web-mercator",
+    "radiusMetres": 6378137.0
+  },
+  "levels": [
+    {
+      "dimension": 256,
+      "level_raster_sha256": "4093c07f22365c22fb2c8461bb016c704fc6458d949b85cb9279b33f8739c9c2",
+      "manifest": "manifests/tiles-z0.sha256",
+      "manifest_sha256": "1693fc9b6c1a0122a39d3e26547446dd929dbc6d51b440332b4ed657ce0c864e",
+      "tile_bytes": 34818,
+      "tile_count": 1,
+      "zoom": 0
+    },
+    {
+      "dimension": 512,
+      "level_raster_sha256": "69f4295a74be8fff0e7733db43b546efea96bcd619a74a0e0fe102fdff0d2f02",
+      "manifest": "manifests/tiles-z1.sha256",
+      "manifest_sha256": "d44a0949da5bba23ad90e9e79063c3f83cbf90b953dc848f64a47bc2be0f4814",
+      "tile_bytes": 117305,
+      "tile_count": 4,
+      "zoom": 1
+    },
+    {
+      "dimension": 1024,
+      "level_raster_sha256": "63f7f2731c7d37f5e9d3c88f67350e31a7a3c25e09202719f4081b2c609f06cd",
+      "manifest": "manifests/tiles-z2.sha256",
+      "manifest_sha256": "acd902abdb0ea0cc2b7df7c9573531a0a4a6a761633369986196b953a971530e",
+      "tile_bytes": 449789,
+      "tile_count": 16,
+      "zoom": 2
+    },
+    {
+      "dimension": 2048,
+      "level_raster_sha256": "d276c10c3611c78f70b9812c9c0f73cef4cd1e8ba0ce43da77a92ac9ca225890",
+      "manifest": "manifests/tiles-z3.sha256",
+      "manifest_sha256": "36ea92f973653ed7580684886b98e2494772d6c6545a759d6d0bf971b2c302c6",
+      "tile_bytes": 2084820,
+      "tile_count": 64,
+      "zoom": 3
+    },
+    {
+      "dimension": 4096,
+      "level_raster_sha256": "60a56c4058a44f9476037c53f73d9f8a5f13263ab4066a697db0dec21a8eb32a",
+      "manifest": "manifests/tiles-z4.sha256",
+      "manifest_sha256": "f0ff04617be9856af93e75397a909af71848ad0f26d6c578d568855169727bac",
+      "tile_bytes": 9935054,
+      "tile_count": 256,
+      "zoom": 4
+    },
+    {
+      "dimension": 8192,
+      "level_raster_sha256": "5f5e684266bfa206eedca7cd113abd035489ec9a039a86db319e7c66c1425a82",
+      "manifest": "manifests/tiles-z5.sha256",
+      "manifest_sha256": "41c50386ca633686102fc1d487e21cd70815c02c575505e7f9db7545379213c9",
+      "tile_bytes": 45201295,
+      "tile_count": 1024,
+      "zoom": 5
+    },
+    {
+      "dimension": 16384,
+      "level_raster_sha256": "a87e90bbf35833eff0338101838c9a72424a15e0f5527c665208546139b252e3",
+      "manifest": "manifests/tiles-z6.sha256",
+      "manifest_sha256": "5e8c7ace1b849605a7ac77781b63e6f71a42e1dc3cbf1f9bc41beee5a567c16a",
+      "tile_bytes": 184943715,
+      "tile_count": 4096,
+      "zoom": 6
+    },
+    {
+      "dimension": 32768,
+      "level_raster_sha256": "6b78236947beec22ba74b42718e5ac9f304f186b2885ce3bee6c7e64a86dfd5d",
+      "manifest": "manifests/tiles-z7.sha256",
+      "manifest_sha256": "961ffd8ef2877ce59d06f57048608855e0d4eee6db387972b803f440ec6e44a0",
+      "tile_bytes": 663747172,
+      "tile_count": 16384,
+      "zoom": 7
+    },
+    {
+      "dimension": 65536,
+      "level_raster_sha256": "351768b60894e7549b047d9879f17a01a11ce2aac5eb3ce64dce7740787f93d9",
+      "manifest": "manifests/tiles-z8.sha256",
+      "manifest_sha256": "087cabd9cfad5d31cb4233b5586b7d3990571aea46bf25d8578be23309cf15a6",
+      "tile_bytes": 2074738444,
+      "tile_count": 65536,
+      "zoom": 8
+    },
+    {
+      "dimension": 131072,
+      "level_raster_sha256": "c6f140ad09540d55416694708d90f618b16d4990cfcd7fc6bd0f811a61ac4565",
+      "manifest": "manifests/tiles-z9.sha256",
+      "manifest_sha256": "5517b8d18e225e13ad19f1bc4028835d1ebd11488a7900451cc8bc27feaab48e",
+      "tile_bytes": 5673674212,
+      "tile_count": 262144,
+      "zoom": 9
+    }
+  ],
+  "manifest_set_sha256": "42aca14a2c82b8045efb3a1c083f848a0328643bfc144f5b6aba956e17627141",
+  "processing": {
+    "lower_levels_derived_directly_from_maximum": true,
+    "png_zlevel": 6,
+    "pyramid_resampling": "average",
+    "reprojection_resampling": "bilinear",
+    "tile_emission_resampling": "none"
+  },
+  "producer": {
+    "code_tree_sha256": "e6be9eaba892640616bb5392405eb5cc8a954b1624f1d8230017ccefa36e995b",
+    "git_dirty": false,
+    "git_sha": "b734ead8951145c2d85471e777a5bcdd5e4de060",
+    "package_version": "0.1.0"
+  },
+  "product_id": "earth-black-marble-2016-500m-mercator-256-v1",
+  "product_identity_sha256": "27a0cd31c799e8dbef4aeda3fddeab0588198dc2c8b5f8404e811cd0413fa627",
+  "project_identity_sha256": "f351fae65fccbb16968e30fdec95ca7c4386a5d4b6b8754496dbba7620f39498",
+  "sources": [
+    {
+      "citation": "NASA Earth Observatory; Joshua Stevens, using Suomi NPP VIIRS data from Miguel Roman (NASA/GSFC), Black Marble 2016.",
+      "id": "earth-black-marble-2016-500m-a1",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "5fdf5ed5b54efe4ab26a89c32d3b76823868f56fab7e31f442a626b44a8285f3",
+      "size_bytes": 321170093,
+      "title": "NASA Black Marble 2016 A1",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/imagerecords/144000/144898/BlackMarble_2016_A1_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Joshua Stevens, using Suomi NPP VIIRS data from Miguel Roman (NASA/GSFC), Black Marble 2016.",
+      "id": "earth-black-marble-2016-500m-a2",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "55b5b0e035c66566c190b780b58fd4a3676c02c7297bb4b33d5b4f3fc6ec9474",
+      "size_bytes": 171407332,
+      "title": "NASA Black Marble 2016 A2",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/imagerecords/144000/144898/BlackMarble_2016_A2_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Joshua Stevens, using Suomi NPP VIIRS data from Miguel Roman (NASA/GSFC), Black Marble 2016.",
+      "id": "earth-black-marble-2016-500m-b1",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "64cf02bc6f90a583ea6695167ab4b24084f82d80266eee3cadfec75b65eff3ec",
+      "size_bytes": 310401888,
+      "title": "NASA Black Marble 2016 B1",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/imagerecords/144000/144898/BlackMarble_2016_B1_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Joshua Stevens, using Suomi NPP VIIRS data from Miguel Roman (NASA/GSFC), Black Marble 2016.",
+      "id": "earth-black-marble-2016-500m-b2",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "4db1112fe6c959f2789256ca176e137f6678a8a83fc4ab61359da86f0f4fdfd5",
+      "size_bytes": 270956469,
+      "title": "NASA Black Marble 2016 B2",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/imagerecords/144000/144898/BlackMarble_2016_B2_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Joshua Stevens, using Suomi NPP VIIRS data from Miguel Roman (NASA/GSFC), Black Marble 2016.",
+      "id": "earth-black-marble-2016-500m-c1",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "ab4114432971c19ff079c656a31997ec159572657db605028dc5b6b65d3c9ac6",
+      "size_bytes": 503603258,
+      "title": "NASA Black Marble 2016 C1",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/imagerecords/144000/144898/BlackMarble_2016_C1_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Joshua Stevens, using Suomi NPP VIIRS data from Miguel Roman (NASA/GSFC), Black Marble 2016.",
+      "id": "earth-black-marble-2016-500m-c2",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "9942b433d60ec1578c47ff1eb5eae16f52c194cc6a9b70f467a4d0a6e5ba58f9",
+      "size_bytes": 230172417,
+      "title": "NASA Black Marble 2016 C2",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/imagerecords/144000/144898/BlackMarble_2016_C2_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Joshua Stevens, using Suomi NPP VIIRS data from Miguel Roman (NASA/GSFC), Black Marble 2016.",
+      "id": "earth-black-marble-2016-500m-d1",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "7e07f7d7de87e80feb76acfd607a3939ad6e927c7a7cf79a25f175b7269fb7f5",
+      "size_bytes": 387774688,
+      "title": "NASA Black Marble 2016 D1",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/imagerecords/144000/144898/BlackMarble_2016_D1_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Joshua Stevens, using Suomi NPP VIIRS data from Miguel Roman (NASA/GSFC), Black Marble 2016.",
+      "id": "earth-black-marble-2016-500m-d2",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "0f6f770a37a066bf934ca0cec334f46526a86db0cf06de7e51c8a9f847da4146",
+      "size_bytes": 237917468,
+      "title": "NASA Black Marble 2016 D2",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/imagerecords/144000/144898/BlackMarble_2016_D2_geo.tif"
+    }
+  ],
+  "target": {
+    "axis_conventions": {
+      "x": "eastward longitude",
+      "y": "southward latitude"
+    },
+    "bounds": [
+      -180.0,
+      -85.0511287798066,
+      180.0,
+      85.0511287798066
+    ],
+    "crs_sha256": "47d7c378fc82d9095bc8ead00cbeeaf641b76971e30d6a93adf8a7e2eacc137b",
+    "id": "earth"
+  },
+  "tiles": {
+    "addressing": "XYZ",
+    "channels": "rgb",
+    "format": "png",
+    "matrix": "2^z x 2^z",
+    "maximum_zoom": 9,
+    "minimum_zoom": 0,
+    "missing_pixel": 0,
+    "opaque": true,
+    "path_template": "imagery/{z}/{x}/{y}.png",
+    "pixel_type": "uint8",
+    "tile_size": 256,
+    "total_bytes": 8654926624,
+    "total_count": 349525
+  },
+  "tools": {
+    "gdal": "GDAL 3.4.1, released 2021/12/27",
+    "gdal_retile.py_sha256": "39e068c52e96b0fc6ef0506d2f89faf0cb7cef11a178e2fada2572d56082eb76",
+    "proj": "Rel. 8.2.1, January 1st, 2022"
+  }
+}

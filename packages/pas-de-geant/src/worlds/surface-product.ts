@@ -14,6 +14,7 @@ export interface DisplayTextureSource {
   readonly tileSize: number;
   readonly maximumZoom: number;
   readonly basePath: string;
+  readonly baseSha256?: string;
 }
 export interface ElevationSource {
   readonly identity: string;
@@ -42,7 +43,8 @@ export function displayTextureSource(value: unknown, body: ProductBody): Display
   }
   return { identity: product.product_identity_sha256, formatVersion: product.format_version, grid, tileSize: product.tiles.tile_size,
     maximumZoom: product.tiles.maximum_zoom,
-    basePath: product.format_version === 1 ? "imagery/0/0/0.png" : base.path };
+    basePath: product.format_version === 1 ? "imagery/0/0/0.png" : base.path,
+    ...(product.format_version === 1 ? {} : { baseSha256: base.sha256 }) };
 }
 
 /** Heights use their own value-preserving contract, never the display contract. */

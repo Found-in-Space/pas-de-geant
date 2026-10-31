@@ -313,6 +313,13 @@ Authored compositions, including the size
 comparison case, use the latter. Other bodies retain their reference sources.
 Explicit `surfaces` or `datasets` bindings still take precedence.
 
+Both public Earth imagery bindings include `productSha256`, taken from their
+delivery records. The shared resolver authenticates those exact descriptor bytes
+before parsing and the version 2 base-image hash before decoding. Optional pins
+on explicit imagery, night imagery and elevation bindings use the same path.
+Unpinned descriptors retain legacy admission behavior. Hashing uses Web Crypto
+in a secure browser context (HTTPS or localhost).
+
 The default elevation is the former main application's Mapterhorn Terrarium
 source at `https://tiles.mapterhorn.com/{z}/{x}/{y}.webp`, XYZ Web Mercator,
 512 × 512 elevation tiles through zoom 12. It uses `EARTH_SURFACE_MODEL`'s
@@ -338,11 +345,15 @@ Alternatively, configure `BodySurfaceDatasets.imagery` and `.nightImagery` with
 `/browser`), or supply independent product bindings. The resolver admits all
 sources and checks day/night/elevation grid compatibility before acquiring base
 textures. It loads each admitted equirectangular base and distinct tile provider;
-custom `loadTexture` supports hosts with their own image loading. A failed day
+custom `loadTexture(url, signal, sha256)` supports hosts with their own image
+loading and must verify the supplied hash. A failed day
 base retains the supplied fallback; a failed night base is black. Valid tile
 providers remain available to recover detail. Invalid explicit descriptors fail
 admission rather than being reinterpreted. The convenience default can fall back
-to the bundled reference if descriptors are unavailable.
+to the bundled reference if descriptors are unavailable or differ from their
+pins. Corrupt base bytes are not decoded; the same base-fallback readiness state
+applies. Descriptor/base authentication does not verify streamed tile bytes or
+establish an immutable Mapterhorn snapshot. Those remain separate delivery gates.
 
 Night imagery is optional. It uses the same visible hemisphere, source queue,
 256-pixel decoding, virtual texture, mesh UVs, suspension and disposal path as day
