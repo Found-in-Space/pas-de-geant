@@ -91,6 +91,21 @@ async function image(provider: TerrainElevationProvider, requested: TileIdentity
 }
 
 describe("Earth PMTiles dataset composition", () => {
+  it("calls a receiver-sensitive browser fetch function without binding it to the range reader", async () => {
+    const fixture = server();
+    const fetcher: typeof fetch = function(this: unknown, ...args) {
+      // Window.fetch rejects an arbitrary object receiver; Node fetch does not.
+      if (this !== undefined) throw new TypeError("Illegal invocation");
+      return fixture.fetcher(...args);
+    };
+    const source = await surface(fetcher);
+    try {
+      const result = await image(source.elevationProvider!, { z: 2, x: 0, y: 0 });
+      expect(result.sourceTile).toEqual({ z: 2, x: 0, y: 0 });
+      expect(fixture.ranges.length).toBeGreaterThan(2);
+    } finally { source.elevationProvider!.dispose(); source.baseTexture.dispose(); }
+  });
+
   it("uses the producer's sparse directory and shared ancestor UVs, including present zero tiles", async () => {
     const fixture = server(), source = await surface(fixture.fetcher), provider = source.elevationProvider!;
     try {

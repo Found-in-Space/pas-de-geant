@@ -112,7 +112,9 @@ class ArchiveRanges implements Source {
       }
     } catch (error) { signal?.throwIfAborted(); cache = undefined; }
     if (cacheOnly) return undefined;
-    const response = await this.fetcher(this.url, { signal, mode: "cors", headers: { Range: `bytes=${offset}-${offset + length - 1}` } });
+    // Native Window.fetch must not receive this range reader as its receiver.
+    const fetcher = this.fetcher;
+    const response = await fetcher(this.url, { signal, mode: "cors", headers: { Range: `bytes=${offset}-${offset + length - 1}` } });
     signal?.throwIfAborted();
     let etag: string;
     try { etag = this.admitResponse(response, offset, length, false); }
