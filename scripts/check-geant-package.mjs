@@ -36,8 +36,12 @@ try {
     'worlds/tile-scheduler.worker.js', 'worlds/imagery-decoder.worker.js']) await access(join(library, 'dist', name));
   assert.ok((await readdir(library, { recursive: true })).every(path => !/deep-star-map.*\.(?:webp|json)$/.test(path)),
     'The separately published sky texture and metadata must not be packed.');
+  for (const name of ['product.json', 'earth.pmtiles']) await writeFile(join(directory, name),
+    await readFile(join(root, 'tests/fixtures/earth-pmtiles', name)));
   await writeFile(join(directory, 'check.mjs'), `
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import * as THREE from 'three';
@@ -67,6 +71,25 @@ await assert.rejects(resolveBodySurfaceDatasets({ body: 'earth', baseTexture: fa
   fetcher: async () => new Response('changed bytes'),
   loadTexture: async () => { throw new Error('Image loading preceded descriptor admission'); },
 }), /SHA-256 differs/);
+{
+  const document = readFileSync(new URL('./product.json', import.meta.url), 'utf8');
+  const archive = readFileSync(new URL('./earth.pmtiles', import.meta.url));
+  const terrain = await resolveBodySurfaceDatasets({ body: 'earth', baseTexture: fallback,
+    datasets: { elevation: { transport: 'pmtiles', productUrl: 'https://fixture.test/product.json',
+      productSha256: createHash('sha256').update(document).digest('hex'),
+      attribution: 'Synthetic terrain', verticalReference: 'preserve-upstream' } },
+    fetcher: async (url, init) => {
+      if (String(url).endsWith('/product.json')) return new Response(document);
+      const [start, end] = new Headers(init.headers).get('range').slice(6).split('-').map(Number);
+      return new Response(new Uint8Array(archive.subarray(start, end + 1)), { status: 206,
+        headers: { 'content-range': 'bytes ' + start + '-' + end + '/' + archive.length, etag: '"fixture"' } });
+    },
+  });
+  assert.equal(terrain.elevationProvider.tilePixels, 256);
+  assert.match(terrain.surfaceModel.elevationMetadata.attribution, /unresolved upstream height reference/);
+  assert.ok(terrain.elevationProvider.coverage.ranges.length > 0);
+  terrain.elevationProvider.dispose();
+}
 fallback.dispose();
 const renderer = { render() {}, clearDepth() {}, xr: { isPresenting: false }, getDrawingBufferSize(target) { return target.set(640, 480); } };
 const viewer = await createGeantViewer({ renderer, bodies: ['moon'] });
@@ -128,7 +151,7 @@ console.log('Packed core and image lifecycle passed with no SkyKit aggregate or 
   }
   await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--noEmit', '--skipLibCheck', '--strict', '--module', 'NodeNext', '--target', 'ES2022', 'image-consumer.ts'], { cwd: directory });
   await writeFile(join(directory, 'readiness-consumer.ts'), `import type {GeantViewer} from '@found-in-space/pas-de-geant';
-import {assessSurfaceReadiness, resolveBodySurfaceDatasets, type SurfaceDatasetBinding, type SurfaceLayer} from '@found-in-space/pas-de-geant/worlds';
+import {assessSurfaceReadiness, resolveBodySurfaceDatasets, type SurfaceDatasetBinding, type EarthPmtilesDatasetBinding, type SurfaceLayer} from '@found-in-space/pas-de-geant/worlds';
 import {waitForGeantSurface} from '@found-in-space/pas-de-geant/journey';
 declare const browser: GeantViewer;
 const required: SurfaceLayer[] = ['imagery', 'terrain', 'nightImagery'];
@@ -136,7 +159,9 @@ const assessment = assessSurfaceReadiness(browser.worlds.get('moon')!.getSurface
 const binding: SurfaceDatasetBinding = { productUrl: 'https://fixture.test/product.json', productSha256: 'a'.repeat(64),
   urlTemplate: './{z}/{x}/{y}.png', attribution: 'Fixture' };
 declare const texture: import('three').Texture;
-void resolveBodySurfaceDatasets({ body: 'earth', datasets: { imagery: binding }, baseTexture: texture,
+const elevation: EarthPmtilesDatasetBinding = { transport: 'pmtiles', productUrl: 'https://fixture.test/product.json',
+  productSha256: 'b'.repeat(64), attribution: 'Fixture', verticalReference: 'preserve-upstream' };
+void resolveBodySurfaceDatasets({ body: 'earth', datasets: { imagery: binding, elevation }, baseTexture: texture,
   async loadTexture(url, signal, sha256) { const expected: string | undefined = sha256; return texture; } });
 void waitForGeantSurface({browser, body: 'moon', required, onDegraded: 'continue', signal: new AbortController().signal,
   onProgress(result) { const currentHeight: number = result.readiness.view.observerHeightWorldM; }});

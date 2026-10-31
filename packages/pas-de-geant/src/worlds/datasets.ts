@@ -4,12 +4,15 @@ import { displayTextureSource, elevationSource, requireCompatibleSurfaceSources 
 import { createBodySurfaceModel } from "./surface-model.js";
 import { surfaceSourceUrl, tileGridKey } from "./tile-grid.js";
 import { XyzImageryProvider } from "./imagery-provider.js";
-import { ElevationTileProvider } from "./elevation-tile-provider.js";
+import { ElevationTileProvider, type TerrainElevationProvider } from "./elevation-tile-provider.js";
 import { createXyzElevationTileProvider } from "./image-tile-provider.js";
 import type { WorldSurfaceSource } from "./world-runtime.js";
 import type { WorldWorkerFactory } from "./workers.js";
 import type { TileAddressing } from "./tile-url.js";
+import { createEarthPmtilesElevationProvider, earthPmtilesElevationSource, type EarthPmtilesDatasetBinding } from "./pmtiles-elevation.js";
+export type { EarthPmtilesDatasetBinding } from "./pmtiles-elevation.js";
 export interface SurfaceDatasetBinding {
+  readonly transport?: "xyz";
   readonly productUrl: string;
   /** SHA-256 of the exact descriptor bytes, from the producer/delivery record. */
   readonly productSha256?: string;
@@ -24,7 +27,7 @@ async function authenticate(bytes: ArrayBuffer, expected: string | undefined): P
 }
 export interface BodySurfaceDatasets {
   readonly imagery?: SurfaceDatasetBinding;
-  readonly elevation?: SurfaceDatasetBinding;
+  readonly elevation?: SurfaceDatasetBinding | EarthPmtilesDatasetBinding;
   readonly nightImagery?: SurfaceDatasetBinding;
 }
 /** Resolves relative templates while preserving literal tile tokens. */
@@ -51,7 +54,7 @@ export async function resolveBodySurfaceDatasets(options: {
       throw new Error("Surface descriptor SHA-256 must be 64 lowercase hexadecimal characters.");
     }
   }
-  async function descriptor(binding: SurfaceDatasetBinding | undefined) {
+  async function descriptor(binding: Pick<SurfaceDatasetBinding, "productUrl" | "productSha256"> | undefined) {
     if (!binding) return undefined;
     options.signal?.throwIfAborted();
     const response = await fetcher(binding.productUrl, { signal: options.signal });
@@ -64,7 +67,10 @@ export async function resolveBodySurfaceDatasets(options: {
   const [imageValue, heightValue, nightValue] = await Promise.all([descriptor(options.datasets.imagery), descriptor(options.datasets.elevation), descriptor(options.datasets.nightImagery)]);
   const imagery = imageValue ? displayTextureSource(imageValue, body) : undefined;
   const night = nightValue ? displayTextureSource(nightValue, body) : undefined;
-  const elevation = heightValue ? elevationSource(heightValue, body) : undefined;
+  const heightBinding = options.datasets.elevation;
+  const pmtiles = heightBinding?.transport === "pmtiles"
+    ? earthPmtilesElevationSource(heightValue, body.id, heightBinding) : undefined;
+  const elevation = pmtiles ?? (heightValue ? elevationSource(heightValue, body) : undefined);
   requireCompatibleSurfaceSources(imagery, elevation);
   requireCompatibleSurfaceSources(night, elevation);
   if (night && !imagery) throw new Error("Night imagery requires a day imagery source.");
@@ -72,7 +78,7 @@ export async function resolveBodySurfaceDatasets(options: {
     throw new Error("Day and night imagery use different body grids.");
   }
   const grid = imagery?.grid ?? elevation?.grid;
-  const imageBinding = options.datasets.imagery, heightBinding = options.datasets.elevation;
+  const imageBinding = options.datasets.imagery;
   const surfaceModel = createBodySurfaceModel(body, { projection: grid?.projection, heightEncoding: elevation?.heightEncoding,
     elevationMetadata: elevation?.metadata });
   const load = options.loadTexture ?? (async (url: string, signal?: AbortSignal, sha256?: string) => {
@@ -89,7 +95,18 @@ export async function resolveBodySurfaceDatasets(options: {
   let baseTexture = options.baseTexture, nightTexture: THREE.Texture | undefined;
   let baseFallback = false;
   const owned: THREE.Texture[] = [];
+  let elevationProvider: TerrainElevationProvider | undefined;
   try {
+    if (elevation && heightBinding) {
+      if (pmtiles) {
+        elevationProvider = new ElevationTileProvider(await createEarthPmtilesElevationProvider(pmtiles,
+          { productUrl: heightBinding.productUrl, signal: options.signal, fetcher }), { missingTile: "failure" });
+      } else if (heightBinding.transport !== "pmtiles") {
+        elevationProvider = new ElevationTileProvider(createXyzElevationTileProvider(elevation.metadata, elevation.metadata.maxSourceZoom,
+          { urlTemplate: surfaceSourceUrl(resolveSurfaceUrl(heightBinding.urlTemplate, heightBinding.productUrl), elevation.grid, elevation.identity),
+            addressing: heightBinding.addressing ?? "xyz", availability: elevation.availability }), { missingTile: "failure" });
+      }
+    }
     if (imagery && imageBinding) {
       try {
         baseTexture = await load(resolveSurfaceUrl(imagery.basePath, imageBinding.productUrl), options.signal, imagery.baseSha256);
@@ -115,10 +132,8 @@ export async function resolveBodySurfaceDatasets(options: {
     const result: WorldSurfaceSource = { baseTexture, disposeBaseTexture: baseTexture !== options.baseTexture || options.disposeBaseTexture,
       nightTexture, disposeNightTexture: Boolean(nightTexture), baseFallback, workers: options.workers, surfaceModel,
       imageryProvider: provider(imagery, imageBinding), nightImageryProvider: provider(night, options.datasets.nightImagery),
-      elevationProvider: elevation && heightBinding ? new ElevationTileProvider(createXyzElevationTileProvider(elevation.metadata, elevation.metadata.maxSourceZoom,
-        { urlTemplate: surfaceSourceUrl(resolveSurfaceUrl(heightBinding.urlTemplate, heightBinding.productUrl), elevation.grid, elevation.identity),
-          addressing: heightBinding.addressing ?? "xyz", availability: elevation.availability }), { missingTile: "failure" }) : undefined };
+      elevationProvider };
     if (baseTexture !== options.baseTexture && options.disposeBaseTexture) options.baseTexture.dispose();
     return result;
-  } catch (error) { for (const texture of owned) texture.dispose(); throw error; }
+  } catch (error) { elevationProvider?.dispose(); for (const texture of owned) texture.dispose(); throw error; }
 }
