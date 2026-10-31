@@ -182,11 +182,16 @@ automatically. Navigation mode remains independent of the control scheme.
 
 Imagery and elevation are independent per-body selections. Use `datasets` with
 explicit `imagery` and/or `elevation` bindings containing `productUrl`,
-`urlTemplate`, `attribution`, and optional `addressing` (`xyz` or `tms`). Source
+`urlTemplate`, `attribution`, optional `addressing` (`xyz` or `tms`), and optional
+`productSha256` from the producer/delivery record. A supplied SHA-256 authenticates
+the exact response bytes before JSON parsing. Source
 descriptors are admitted before tile bytes are interpreted; mismatched grids,
 units or datums fail startup. Configured descriptor errors are surfaced to the
-caller. Checksums in descriptors identify sources; the runtime does not claim
-cryptographic payload verification. Use 256-pixel display products for Quest;
+caller. The standard loader also authenticates version 2 base images before
+decoding; failed bases retain the existing fallback and report degraded readiness.
+Custom `loadTexture(url, signal, sha256)` implementations must honour that hash.
+Streamed imagery/elevation tiles are not yet checked against per-file hashes.
+Use 256-pixel display products for Quest;
 scientific elevation keeps its separately admitted dimensions.
 
 For custom XYZ services, prepared sparse products and application-specific

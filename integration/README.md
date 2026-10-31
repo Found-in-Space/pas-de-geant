@@ -16,7 +16,8 @@ npm run dev:integration
 Open `http://127.0.0.1:4197`. `npm run build:integration` explicitly builds these
 cases into `dist/integration` for local static-host checks. It does not deploy.
 `config.local.json` supplies an optional imagery override for the standard demo,
-and is also fetched when custom datasets or VoiceOS are selected on their pages.
+and is also fetched when custom datasets or VoiceOS are selected on their pages,
+or when the Earth journey is opened with `?datasets=configured`.
 Vite has no public directory and does not copy that private file into builds.
 
 ## Cases and manual acceptance
@@ -25,7 +26,7 @@ Vite has no public directory and does not copy that private file into builds.
 | --- | --- |
 | `standard.html` | Blue Marble or configured proxy imagery, Mapterhorn terrain, automatic device/IP location, clickable TouchOS map and logarithmic scale slider, standard navigation modes and VR. No local configuration required for Blue Marble. |
 | `earth-day-night.html` | Orbit the terminator; inspect night city lights and polar caps. Seek UTC, play at 600×, pause, compare day-only, and enter/exit VR. Both products use 256-pixel tiles. Block external data and reload to check the bundled day fallback and dark night side. |
-| `earth-journey.html` | Select overview, Himalaya, Andes and terminator chapters using the same controller and DOM controls as SkyKit's stellar example. Interrupt, reverse, revisit and explore freely; check that rejoining begins at the current view. Night-chapter clock rate is released without rewinding. Desktop controls are available; an immersive chapter panel and physical Quest acceptance remain pending. |
+| `earth-journey.html` | Select overview, Himalaya, Andes and terminator chapters using the same controller and DOM controls as SkyKit's stellar example. Interrupt, reverse, revisit and explore freely; check that rejoining begins at the current view. Night-chapter clock rate is released without rewinding. The left-controller panel uses the shared TouchOS controls. Add `?datasets=configured` to review an explicit Earth terrain product through the same journey. Physical Quest acceptance remains pending. |
 | `earth-sequence.html` | Follow an explicitly illustrative Earth-fixed target using the same sequence player and DOM controls as SkyKit's stellar sequence. Rejoin, play/pause, scrub, reverse, replay and interrupt through ordinary controls. The package schedules camera/target/world samples in one host frame. Fixed world epoch; standard Earth imagery/elevation; physical Quest and immersive controls pending. |
 | `lifecycle.html` | Scale Moon independently; dispose/remount it while Earth remains usable. Pause/resume Earth. Leaving the page disposes viewers. |
 | `size-comparison.html` | Compare Moon, Earth and Sun at one size scale, using authored positions and lighting. Enter VR, walk/lean closer, and check that the lineup stays fixed in the room and labels remain legible. |
@@ -200,11 +201,64 @@ Without `standardImagery` (or without the local file), the demo uses Blue Marble
 An unavailable configured proxy is never bypassed with direct provider requests.
 
 `datasets.body` selects a body and `datasets.sources` accepts the public
-`BodySurfaceDatasets` configuration: `imagery` and/or `elevation`, each with
-`productUrl`, `urlTemplate`, `attribution`, and optional `addressing`.
+`BodySurfaceDatasets` configuration: `imagery`, `nightImagery` and/or `elevation`.
+XYZ bindings have `productUrl`, `urlTemplate`, `attribution`, optional
+`productSha256` and optional `addressing`. Earth PMTiles elevation instead has
+`transport: "pmtiles"`, `productUrl`, required `productSha256`, `attribution`
+and explicit `verticalReference: "preserve-upstream"`.
 Descriptor URLs resolve relative to this config file; relative tile templates
 resolve relative to their descriptor through the package's existing contract.
 Use admitted 256 × 256 display imagery for Quest; elevation keeps its own dimensions.
+
+For `earth-journey.html?datasets=configured`, set `datasets.body` to `earth`
+and supply `datasets.sources.elevation`. Day and night imagery keep the pinned
+defaults unless also supplied in `datasets.sources`. The unqualified journey
+URL keeps all standard sources and does not read the local file. A configured
+admission error is shown on the page; it does not silently select default terrain.
+The same chapter definition, shared controller, desktop/XR controls and
+current-view readiness apply to either source selection.
+
+For example, replace the URL and descriptor hash in this local configuration
+with the exact identity of a reviewed, externally hosted bounded product:
+
+```json
+{
+  "datasets": {
+    "body": "earth",
+    "sources": {
+      "elevation": {
+        "transport": "pmtiles",
+        "productUrl": "https://terrain.example.test/earth-landscapes/product.json",
+        "productSha256": "REPLACE_WITH_64_LOWERCASE_HEX_CHARACTERS",
+        "verticalReference": "preserve-upstream",
+        "attribution": "Mapterhorn source heights; upstream vertical reference is unresolved and encoded zeros may include missing data."
+      }
+    }
+  }
+}
+```
+
+Preserve the product's source credits and limitations in its attribution. This
+height policy performs no datum conversion; it displays upstream metre values
+above the Earth model ellipsoid. Archive range responses require exact HTTP 206,
+Content-Range and a consistent strong ETag; expose those response headers through
+CORS. Authenticate the complete archive before serving it from an immutable
+location. The runtime authenticates the descriptor but does not hash the entire
+archive during range access. Configuring a scratch product does not admit its
+source rights or make it ready for public delivery. See the package's
+[Earth PMTiles contract](../packages/pas-de-geant/docs/worlds.md).
+
+Review all four chapter views and their connecting travel, including sparse
+terrain fallback. Capture `geantIntegration.terrain("world")` after each settled
+view to compare actual elevation source zooms and planner targets. Repeat with
+retained browser caches and inspect both eye views on the physical headset;
+chapter-centre byte checks alone do not establish view coverage or comfort.
+
+The landscape chapter scenes set fixed daylight times (30 October 2026 at
+12:00 UTC for the overview, 06:00 for Himalaya and 18:00 for Andes). The night
+chapter starts at 12:00 UTC and advances at 600×. Revisit restores the chapter's
+authored lighting through the shared journey driver. These are presentation
+choices; the July 2004/2016 imagery remains historical.
 
 The independent tile proxy serves configured tile URLs. Product descriptors and
 payloads are hosted externally. Geant adds no relay, provider registry, token

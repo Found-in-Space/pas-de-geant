@@ -74,7 +74,7 @@ export {
   type TileOnionState,
 } from "./tile-onion-core.js";
 export { createWorldWorkerFactory, createModuleWorldWorkerFactory, type WorldWorkerFactory, type WorldWorkerKind } from "./workers.js";
-export { resolveBodySurfaceDatasets, resolveSurfaceUrl, type BodySurfaceDatasets, type SurfaceDatasetBinding } from "./datasets.js";
+export { resolveBodySurfaceDatasets, resolveSurfaceUrl, type BodySurfaceDatasets, type SurfaceDatasetBinding, type EarthPmtilesDatasetBinding } from "./datasets.js";
 export { observeBodySurface, referenceSurfaceObservation, type BodySurfaceView } from "./surface-observation.js";
 
 // Renderer adapters can share the planner and mesh topology without a WebGL host.

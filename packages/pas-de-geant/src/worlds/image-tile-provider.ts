@@ -255,7 +255,7 @@ function abortError(): Error {
   return error;
 }
 
-async function decodeBlobImage(
+export async function decodeBlobImage(
   blob: Blob,
   expectedPixels: number,
   signal: AbortSignal,

@@ -143,6 +143,49 @@ grids. Provider identities include product/grid identity; migration requires new
 payload paths. Mercator covers ±85.05112878°; the shared polar caps use the
 equirectangular base and flat reference height beyond that limit.
 
+For an admitted bounded Earth PMTiles product, `BodySurfaceDatasets.elevation`
+also accepts an explicit transport and height policy:
+
+```ts
+const elevation = {
+  transport: "pmtiles" as const,
+  productUrl: immutableProductUrl,
+  productSha256: exactDescriptorSha256,
+  attribution: "Mapterhorn · see the source notices",
+  verticalReference: "preserve-upstream" as const,
+};
+const surface = await resolveBodySurfaceDatasets({
+  body: "earth", datasets: { elevation }, baseTexture, signal,
+});
+```
+
+This admits Planetary Surfaces' `earth-elevation-pmtiles` version 1 contract:
+256-pixel RGB PNG Terrarium values, PMTiles v3, and an unresolved upstream height
+reference. The policy applies the encoded metre values above the Earth model's
+ellipsoid without a datum conversion. It is a visualisation approximation, not
+evidence that these are ellipsoidal heights. Attribution retains that limitation
+and the ambiguity of upstream zero values. Hosts should show those source notes;
+`scratch`/`uploadReady: false` products remain exploratory when viewed here.
+
+Preparation reads the archive directory and derives exact sparse availability.
+The directory index is held in memory, so use bounded journey products rather
+than the full upstream archive. Payloads stream afterwards through the existing
+terrain source queue, decoder and ancestor UV mapping. Missing fine tiles use
+their finest actual ancestor; missing root coverage rejects admission. A failed
+declared payload is a failure, not an instruction to render flat terrain. This
+uses the same readiness, cancellation and journey outcomes as XYZ terrain.
+Earth defaults continue to select their existing independent XYZ source.
+
+Successful HTTP ranges persist indefinitely in browser Cache Storage, keyed by
+archive URL and descriptor-declared archive SHA-256. Cached terrain remains
+accessible during provider backoff. Delivery must support HTTP 206 and expose
+`Content-Range` and a strong `ETag` through CORS; changed validators, range totals
+or payload lengths fail. Descriptor bytes are SHA-256 checked before archive
+access. Range validation does **not** recompute the full archive hash: authenticate
+that hash during delivery, retain its receipt, and use an immutable archive URL.
+The reader uses the public [PMTiles API](https://pmtiles.io/typedoc/) for header
+and directory interpretation, not a second archive parser.
+
 Mesh elevation UVs and CPU ground sampling both use projected coordinates,
 matching imagery. The mesh layout and height shader remain shared across bodies.
 
@@ -313,6 +356,13 @@ Authored compositions, including the size
 comparison case, use the latter. Other bodies retain their reference sources.
 Explicit `surfaces` or `datasets` bindings still take precedence.
 
+Both public Earth imagery bindings include `productSha256`, taken from their
+delivery records. The shared resolver authenticates those exact descriptor bytes
+before parsing and the version 2 base-image hash before decoding. Optional pins
+on explicit imagery, night imagery and elevation bindings use the same path.
+Unpinned descriptors retain legacy admission behavior. Hashing uses Web Crypto
+in a secure browser context (HTTPS or localhost).
+
 The default elevation is the former main application's Mapterhorn Terrarium
 source at `https://tiles.mapterhorn.com/{z}/{x}/{y}.webp`, XYZ Web Mercator,
 512 × 512 elevation tiles through zoom 12. It uses `EARTH_SURFACE_MODEL`'s
@@ -338,11 +388,15 @@ Alternatively, configure `BodySurfaceDatasets.imagery` and `.nightImagery` with
 `/browser`), or supply independent product bindings. The resolver admits all
 sources and checks day/night/elevation grid compatibility before acquiring base
 textures. It loads each admitted equirectangular base and distinct tile provider;
-custom `loadTexture` supports hosts with their own image loading. A failed day
+custom `loadTexture(url, signal, sha256)` supports hosts with their own image
+loading and must verify the supplied hash. A failed day
 base retains the supplied fallback; a failed night base is black. Valid tile
 providers remain available to recover detail. Invalid explicit descriptors fail
 admission rather than being reinterpreted. The convenience default can fall back
-to the bundled reference if descriptors are unavailable.
+to the bundled reference if descriptors are unavailable or differ from their
+pins. Corrupt base bytes are not decoded; the same base-fallback readiness state
+applies. Descriptor/base authentication does not verify streamed tile bytes or
+establish an immutable Mapterhorn snapshot. Those remain separate delivery gates.
 
 Night imagery is optional. It uses the same visible hemisphere, source queue,
 256-pixel decoding, virtual texture, mesh UVs, suspension and disposal path as day

@@ -1,0 +1,249 @@
+{
+  "baseTexture": {
+    "height": 2048,
+    "path": "base.png",
+    "projection": "equirectangular",
+    "sha256": "4f1848f5ced173930775e8b973ba170ddc179433612e69a52bfe68922e0a24ed",
+    "width": 4096
+  },
+  "created_at": "2026-10-17T17:03:59Z",
+  "format_version": 2,
+  "grid": {
+    "formatVersion": 1,
+    "projection": "web-mercator",
+    "radiusMetres": 6378137.0
+  },
+  "levels": [
+    {
+      "dimension": 256,
+      "level_raster_sha256": "652ab0f00ef3e6909a7affab35694185caf4e9b532e70b0b36366cce7972b945",
+      "manifest": "manifests/tiles-z0.sha256",
+      "manifest_sha256": "4fa378e77f5d90ba657e568b2ccf4e9c3e61294fdaa73ba74f3650f01379ebaf",
+      "tile_bytes": 65143,
+      "tile_count": 1,
+      "zoom": 0
+    },
+    {
+      "dimension": 512,
+      "level_raster_sha256": "6a8c4642714df79849783ff3151ed47ed16cbba345b59c16ae56af87a2c17c41",
+      "manifest": "manifests/tiles-z1.sha256",
+      "manifest_sha256": "4d6337117c61acf7302e4ace5b4ee458b4ea33d4a9ebfb4b9360484014d25263",
+      "tile_bytes": 230775,
+      "tile_count": 4,
+      "zoom": 1
+    },
+    {
+      "dimension": 1024,
+      "level_raster_sha256": "ce69806bdcaf26530162ebfc96fc83f249ca31b02312108e75fd2d6a93c72eaa",
+      "manifest": "manifests/tiles-z2.sha256",
+      "manifest_sha256": "85383df6ebddf5829e52b36f087a84e62922201c9507b04d8b29b4b8628f210d",
+      "tile_bytes": 837332,
+      "tile_count": 16,
+      "zoom": 2
+    },
+    {
+      "dimension": 2048,
+      "level_raster_sha256": "8662d108ff8b539e1dfe721ad1760c0039f52160ed1de19388795ca467455584",
+      "manifest": "manifests/tiles-z3.sha256",
+      "manifest_sha256": "1c65b8d550675dd057329418192b37bca5ba3c690b7e30f4bd1cd6f61b533990",
+      "tile_bytes": 3073895,
+      "tile_count": 64,
+      "zoom": 3
+    },
+    {
+      "dimension": 4096,
+      "level_raster_sha256": "1893932eb7d19229d417b1509af78b94edf3029deea9fd3bb4a3af229d1e0557",
+      "manifest": "manifests/tiles-z4.sha256",
+      "manifest_sha256": "6f065819067e76eada200360585698a3cda5563f9b7bb6caf3266555ce9d34c0",
+      "tile_bytes": 11251006,
+      "tile_count": 256,
+      "zoom": 4
+    },
+    {
+      "dimension": 8192,
+      "level_raster_sha256": "20ff0053279afb4839bfd218a8782b1718c547e98c98da10e6375e825126da35",
+      "manifest": "manifests/tiles-z5.sha256",
+      "manifest_sha256": "7fe75e5ce4a7350fdf1d7c32dca1d8af25a800148959527b280d1a5c1f787df4",
+      "tile_bytes": 40801733,
+      "tile_count": 1024,
+      "zoom": 5
+    },
+    {
+      "dimension": 16384,
+      "level_raster_sha256": "5adb04e5af3955f91ec76c477929cce71cf8b93f18e8fad390f0dcd25ccbe185",
+      "manifest": "manifests/tiles-z6.sha256",
+      "manifest_sha256": "f3a3ad65ccbdee646eae313a96641358513fc217ee5b18f52857637ae630274a",
+      "tile_bytes": 145406672,
+      "tile_count": 4096,
+      "zoom": 6
+    },
+    {
+      "dimension": 32768,
+      "level_raster_sha256": "e75a8f9c417de4a1362af3dc587249f930093e7f7d6b747f2dd95b46c817a32a",
+      "manifest": "manifests/tiles-z7.sha256",
+      "manifest_sha256": "94562c130f7869d3ec098609147b09e3408de61ba8f026f6395b908ce7b325a6",
+      "tile_bytes": 493293888,
+      "tile_count": 16384,
+      "zoom": 7
+    },
+    {
+      "dimension": 65536,
+      "level_raster_sha256": "f42550999e4865b518f72158ddbf31f24a5407563f082e33264d8beb72e3fabd",
+      "manifest": "manifests/tiles-z8.sha256",
+      "manifest_sha256": "c763289a0ec61f8a35ae2544d9ef4ea4e057079b346e34aa45a9f941e534dc35",
+      "tile_bytes": 1548668374,
+      "tile_count": 65536,
+      "zoom": 8
+    },
+    {
+      "dimension": 131072,
+      "level_raster_sha256": "4a3c1b951f9323ac717387af80d4df4e1fd132711c0cf7c0dfa900e3b1eba5c6",
+      "manifest": "manifests/tiles-z9.sha256",
+      "manifest_sha256": "c601736fc67cda39cbd85b092be431b58c4bdfeb34a5f7a88660e36113bd477c",
+      "tile_bytes": 4451170804,
+      "tile_count": 262144,
+      "zoom": 9
+    }
+  ],
+  "manifest_set_sha256": "b38f4d0fc824febe0eb83e9dab4e69ac24d82e055209d8e9f9b23a08687bbba5",
+  "processing": {
+    "lower_levels_derived_directly_from_maximum": true,
+    "png_zlevel": 6,
+    "pyramid_resampling": "average",
+    "reprojection_resampling": "bilinear",
+    "tile_emission_resampling": "none"
+  },
+  "producer": {
+    "code_tree_sha256": "e6be9eaba892640616bb5392405eb5cc8a954b1624f1d8230017ccefa36e995b",
+    "git_dirty": false,
+    "git_sha": "b734ead8951145c2d85471e777a5bcdd5e4de060",
+    "package_version": "0.1.0"
+  },
+  "product_id": "earth-blue-marble-200407-500m-mercator-256-v1",
+  "product_identity_sha256": "9c0211ef8552d5ce13e0bf86bf486d5f997040bd7b218804e6cce24dcfdf7aad",
+  "project_identity_sha256": "c43879a44f0b1bda95f21930d1a077a4406d9f67efccc8f6f2cbcdd75b88ad36",
+  "sources": [
+    {
+      "citation": "NASA Earth Observatory; Reto Stoeckli (NASA/GSFC), Blue Marble: Next Generation, July 2004.",
+      "id": "earth-blue-marble-200407-500m-a1",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-map/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "6ee7dc4ad1c633cf8828522ad9e728016bd26dc321649c6fadcc72f6da04eb11",
+      "size_bytes": 314235313,
+      "title": "NASA Blue Marble July 2004 A1",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-base/july/world.200407.3x21600x21600.A1_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Reto Stoeckli (NASA/GSFC), Blue Marble: Next Generation, July 2004.",
+      "id": "earth-blue-marble-200407-500m-a2",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-map/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "822f3a944756769737d2582196aa1fa5d6c076fdad5a20a882e00cf8e74883e5",
+      "size_bytes": 36627965,
+      "title": "NASA Blue Marble July 2004 A2",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-base/july/world.200407.3x21600x21600.A2_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Reto Stoeckli (NASA/GSFC), Blue Marble: Next Generation, July 2004.",
+      "id": "earth-blue-marble-200407-500m-b1",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-map/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "a86e2ad26c61df40a3fce573ee35d0cac446c5e435758ed440dd1cb4061b7cef",
+      "size_bytes": 314704904,
+      "title": "NASA Blue Marble July 2004 B1",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-base/july/world.200407.3x21600x21600.B1_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Reto Stoeckli (NASA/GSFC), Blue Marble: Next Generation, July 2004.",
+      "id": "earth-blue-marble-200407-500m-b2",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-map/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "a9c3ea2507ccb7417c1acb9e46c0491e95031adfe011df2af2c26fc98c399efc",
+      "size_bytes": 235325786,
+      "title": "NASA Blue Marble July 2004 B2",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-base/july/world.200407.3x21600x21600.B2_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Reto Stoeckli (NASA/GSFC), Blue Marble: Next Generation, July 2004.",
+      "id": "earth-blue-marble-200407-500m-c1",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-map/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "1823cbd75c7a6949e0355e53eff90ce6107199d7716789ebf68432ed04010c09",
+      "size_bytes": 678032326,
+      "title": "NASA Blue Marble July 2004 C1",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-base/july/world.200407.3x21600x21600.C1_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Reto Stoeckli (NASA/GSFC), Blue Marble: Next Generation, July 2004.",
+      "id": "earth-blue-marble-200407-500m-c2",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-map/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "cc869ff78c6b6e046bff19b53e37411edd4a0328d6ca3b7843162f5f1f93b429",
+      "size_bytes": 187926688,
+      "title": "NASA Blue Marble July 2004 C2",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-base/july/world.200407.3x21600x21600.C2_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Reto Stoeckli (NASA/GSFC), Blue Marble: Next Generation, July 2004.",
+      "id": "earth-blue-marble-200407-500m-d1",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-map/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "5cb11080dce373db68f50060cdc5649bc996bb2b42c1dacf0b07813ff6f994df",
+      "size_bytes": 419074974,
+      "title": "NASA Blue Marble July 2004 D1",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-base/july/world.200407.3x21600x21600.D1_geo.tif"
+    },
+    {
+      "citation": "NASA Earth Observatory; Reto Stoeckli (NASA/GSFC), Blue Marble: Next Generation, July 2004.",
+      "id": "earth-blue-marble-200407-500m-d2",
+      "landing_page": "https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-map/",
+      "license": "NASA imagery reuse terms; acknowledge source; no implied endorsement.",
+      "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sha256": "748bfa6ec5fa90973cae8acf2c11f159e917b511049b7044de3dc0fa3de84066",
+      "size_bytes": 227695239,
+      "title": "NASA Blue Marble July 2004 D2",
+      "url": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-base/july/world.200407.3x21600x21600.D2_geo.tif"
+    }
+  ],
+  "target": {
+    "axis_conventions": {
+      "x": "eastward longitude",
+      "y": "southward latitude"
+    },
+    "bounds": [
+      -180.0,
+      -85.0511287798066,
+      180.0,
+      85.0511287798066
+    ],
+    "crs_sha256": "47d7c378fc82d9095bc8ead00cbeeaf641b76971e30d6a93adf8a7e2eacc137b",
+    "id": "earth"
+  },
+  "tiles": {
+    "addressing": "XYZ",
+    "channels": "rgb",
+    "format": "png",
+    "matrix": "2^z x 2^z",
+    "maximum_zoom": 9,
+    "minimum_zoom": 0,
+    "missing_pixel": 0,
+    "opaque": true,
+    "path_template": "imagery/{z}/{x}/{y}.png",
+    "pixel_type": "uint8",
+    "tile_size": 256,
+    "total_bytes": 6694799622,
+    "total_count": 349525
+  },
+  "tools": {
+    "gdal": "GDAL 3.4.1, released 2021/12/27",
+    "gdal_retile.py_sha256": "39e068c52e96b0fc6ef0506d2f89faf0cb7cef11a178e2fada2572d56082eb76",
+    "proj": "Rel. 8.2.1, January 1st, 2022"
+  }
+}

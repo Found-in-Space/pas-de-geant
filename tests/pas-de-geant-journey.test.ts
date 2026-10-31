@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import { createGuidedJourneyController } from "@found-in-space/guided-journey";
-import { exerciseJourneyDriver } from "@found-in-space/guided-journey/testing";
+import { exerciseJourneyDriver, exerciseJourneyInterruption } from "@found-in-space/guided-journey/testing";
 import { createGeantViewer, createGeantWorldsPlugin, createGeantMovementPlugin, createGeantSurfaceMovementModel, createGeantDesktopMovementModel, GEANT_ACTIONS, GEANT_MOTION_ACTIONS } from "@found-in-space/pas-de-geant";
 import { createGeantJourneyDriver, type GeantJourneyHost, type GeantJourneyScene } from "@found-in-space/pas-de-geant/journey";
 
@@ -54,6 +54,16 @@ async function arrive(f: Awaited<ReturnType<typeof fixture>>) {
 }
 
 describe.each([false, true])("shared Earth journey, XR=%s", xr => {
+  it.each(["motion", "navigation"])("%s input cancels preparation and an arrived chapter", async input => {
+    const f = await fixture(xr);
+    await exerciseJourneyInterruption({ driver: f.driver, scene: camera(28, 86),
+      async interrupt() {
+        if (input === "motion") await f.host.viewer.actions.invoke(GEANT_MOTION_ACTIONS.look, { yawRadians: .1 });
+        else f.host.navigation.dispatch(GEANT_ACTIONS.setScale, { scaleDenominator: 4_000_000 });
+      },
+      async advance() { await flush(); f.host.frame(0); f.host.frame(.2); f.host.frame(0); await flush(); },
+    });
+  });
   it("passes the same conformance fixture as the stellar viewer", async () => {
     const f = await fixture(xr);
     await exerciseJourneyDriver({ driver: f.driver, scenes: [camera(28, 86), camera(-24, -69), camera(46, 10)],

@@ -80,6 +80,12 @@ npm run check:package -- --offline
 `npm run examples` serves the minimal consumer examples. The optional
 `npm run check:embed` requires a built embed and an installed Chromium; use it
 when browser verification is needed. Physical Quest acceptance is separate.
+For imagery shader changes, `npm run check:imagery-edges` runs the production
+lookup shader in WebGL2 against fine/coarse source pages, world edges and
+high-zoom coordinates. It needs installed Chromium (optionally selected through
+`GEANT_BROWSER_EXECUTABLE`) and supports SwiftShader. The check uses local
+fixtures without imagery downloads; it does not establish rendered-view or
+physical headset acceptance.
 There is no application deployment workflow.
 
 ## Ownership

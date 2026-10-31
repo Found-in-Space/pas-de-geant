@@ -33,6 +33,7 @@
     "examples": "npm run build --workspace @found-in-space/pas-de-geant && vite --config vite.examples.config.ts",
     "build:examples": "npm run build --workspace @found-in-space/pas-de-geant && vite build --config vite.examples.config.ts",
     "check:embed": "node scripts/check-geant-browser.mjs",
+    "check:imagery-edges": "npm run build --workspace @found-in-space/pas-de-geant && node scripts/check-imagery-edges.mjs",
     "check:sky-isolation": "npm run build && node scripts/check-sky-isolation.mjs",
     "prepare:interaction": "node ../skykit/scripts/stage-interaction-development.mjs ../touch-os .",
     "test:interaction:package": "node ../skykit/scripts/check-interaction-packed-consumer.mjs .packages/touch-os.tgz ."

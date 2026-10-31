@@ -1,4 +1,4 @@
-import { createDefaultSurfaceFactory } from "@found-in-space/pas-de-geant/browser";
+import { createDefaultSurfaceFactory, EARTH_BLUE_MARBLE_DATASET, EARTH_BLACK_MARBLE_DATASET } from "@found-in-space/pas-de-geant/browser";
 import { createGeantJourneyDriver } from "@found-in-space/pas-de-geant/journey";
 import { createGuidedJourneyController } from "@found-in-space/guided-journey";
 import { mountJourneyControls } from "@found-in-space/guided-journey/dom";
@@ -6,11 +6,20 @@ import { createJourneyTouchControls } from "@found-in-space/guided-journey/touch
 import { installJourneyPanel } from "./journey-panel.js";
 import { earthJourney as definition } from "./earth-journey-chapters.js";
 import { element, mountViewer, runCase } from "./case.js";
+import { loadDatasetConfiguration, localConfigurationUrl } from "./configuration.js";
 
 runCase(async () => {
+  const configured = new URLSearchParams(window.location.search).get("datasets") === "configured"
+    ? await loadDatasetConfiguration(localConfigurationUrl()) : undefined;
+  if (configured && (configured.body !== "earth" || !configured.sources.elevation)) {
+    throw new Error("The Earth journey requires datasets.body = earth and datasets.sources.elevation.");
+  }
+  if (configured) element("terrain-source").textContent = configured.sources.elevation!.attribution;
   const browser = await mountViewer("world", { bodies: ["earth"], mode: "surface", xr: true,
     scaleDenominator: 7_000_000, time: "2026-10-30T12:00:00Z", timeRate: 0,
-    surfaces: { earth: createDefaultSurfaceFactory({ night: true }) } });
+    ...(configured ? { datasets: { earth: { imagery: EARTH_BLUE_MARBLE_DATASET,
+      nightImagery: EARTH_BLACK_MARBLE_DATASET, ...configured.sources } } }
+      : { surfaces: { earth: createDefaultSurfaceFactory({ night: true }) } }) });
   const driver = createGeantJourneyDriver({ browser });
   const journey = createGuidedJourneyController({ definition, driver });
   const controls = mountJourneyControls({ root: element("journey"), definition, journey });
