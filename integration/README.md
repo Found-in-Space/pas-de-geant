@@ -254,6 +254,12 @@ view to compare actual elevation source zooms and planner targets. Repeat with
 retained browser caches and inspect both eye views on the physical headset;
 chapter-centre byte checks alone do not establish view coverage or comfort.
 
+The landscape chapter scenes set fixed daylight times (30 October 2026 at
+12:00 UTC for the overview, 06:00 for Himalaya and 18:00 for Andes). The night
+chapter starts at 12:00 UTC and advances at 600×. Revisit restores the chapter's
+authored lighting through the shared journey driver. These are presentation
+choices; the July 2004/2016 imagery remains historical.
+
 The independent tile proxy serves configured tile URLs. Product descriptors and
 payloads are hosted externally. Geant adds no relay, provider registry, token
 issuer, tile generator, server credential handling, or direct-provider fallback.
