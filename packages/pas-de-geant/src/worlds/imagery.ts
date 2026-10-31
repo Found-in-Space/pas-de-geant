@@ -235,8 +235,19 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
     vec2 globalScale = imageryGlobalOriginScale.zw;
     vec2 globalDx = dFdx(localUv) * globalScale;
     vec2 globalDy = dFdy(localUv) * globalScale;
+    // Resolve one finest-tree cell before walking. Recomputing a floating-point
+    // quadrant at each depth can round opposite ways at the same boundary and
+    // combine bits from different cells, especially at high zoom.
+    float treeWidth = exp2(float(imageryTreeDepth));
+    vec2 treeOrigin = globalOrigin * treeWidth;
+    vec2 treeLocal = traversalLocalUv * (globalScale * treeWidth);
+    vec2 treeCell = floor(treeOrigin) + floor(treeLocal) +
+      floor(fract(treeOrigin) + fract(treeLocal));
+    uvec2 cell = uvec2(
+      mod(treeCell.x, treeWidth),
+      clamp(treeCell.y, 0.0, treeWidth - 1.0)
+    );
     uint nodeIndex = 0u;
-    float depthScale = 2.0;
     for (int depth = 0; depth <= imageryTreeDepth; depth += 1) {
       int nodeLinearIndex = int(nodeIndex);
       uvec4 node = texelFetch(
@@ -260,24 +271,23 @@ export const IMAGERY_FRAGMENT_DECLARATIONS = `
         );
         float sourceWidth = exp2(float(image.g));
         layer = float(image.r);
-        sourceUv = fract(
-          fract(globalOrigin * sourceWidth) +
-          localUv * (globalScale * sourceWidth)
-        );
+        // Use the selected image's origin. At a tile's south edge traversal
+        // can retain the northern image; fract() would then sample its north
+        // edge instead of v=1. Subtract before adding local UV to retain detail
+        // at high zoom, and wrap only longitude across the whole world.
+        sourceUv = (globalOrigin * sourceWidth - vec2(image.ba)) +
+          localUv * (globalScale * sourceWidth);
+        sourceUv.x -= sourceWidth * floor((sourceUv.x - 0.5) / sourceWidth + 0.5);
+        // Roundoff at a shared boundary may choose either adjacent image; its
+        // edge texel/gutter represents the same point, without wrapping rows.
+        sourceUv = clamp(sourceUv, vec2(0.0), vec2(1.0));
         sourceDx = globalDx * sourceWidth;
         sourceDy = globalDy * sourceWidth;
         return true;
       }
-      vec2 scaledOrigin = globalOrigin * depthScale;
-      vec2 scaledLocal = traversalLocalUv * (globalScale * depthScale);
-      vec2 bits = mod(
-        floor(scaledOrigin) +
-        floor(fract(scaledOrigin) + scaledLocal),
-        2.0
-      );
-      uint quadrant = uint(bits.x) + uint(bits.y) * 2u;
+      uvec2 bits = (cell >> uint(imageryTreeDepth - depth - 1)) & uvec2(1u);
+      uint quadrant = bits.x + bits.y * 2u;
       nodeIndex = node.r + quadrant;
-      depthScale *= 2.0;
     }
     return false;
   }
